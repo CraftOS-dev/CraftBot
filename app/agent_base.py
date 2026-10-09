@@ -349,7 +349,10 @@ class AgentBase:
             idempotency_guard=ActivityLogGuard(self.activity_log),
         )
         self.action_router = ActionRouter(
-            self.action_library, self.llm, self.context_engine
+            self.action_library,
+            self.llm,
+            self.context_engine,
+            prompt_filter=self._filter_action_prompt,
         )
 
         self.session_manager = SessionManager(
@@ -1076,6 +1079,22 @@ class AgentBase:
             getattr(lifecycle, hook)(*args, **kwargs)
         except Exception as e:
             logger.debug(f"[MINI_BROWSER] lifecycle.{hook} failed: {e}")
+
+    def _reload_mini_browser_settings(
+        self, new_settings: object, old_settings: object
+    ) -> None:
+        """settings.json hot-reload callback: when the ``mini_browser`` section
+        changed, the running browser re-reads its settings (a no-op while the
+        browser was never started; launch-only keys apply at the next start).
+        """
+        old = (
+            old_settings.get("mini_browser") if isinstance(old_settings, dict) else None
+        )
+        new = (
+            new_settings.get("mini_browser") if isinstance(new_settings, dict) else None
+        )
+        if old != new:
+            self._notify_mini_browser("reload_settings")
 
     def _release_mini_browser_owner(self, session_id: str, _stream: object) -> None:
         """Event-stream removal listener: a sub-agent finished or a chat was
@@ -2704,18 +2723,58 @@ class AgentBase:
         This is automatically included in the role info for subclasses to use.
         """
         if self._interface_mode == "browser":
-            return (
+            prompt = (
                 "\n\n## File Sharing\n"
                 "You can send files to the user using the `send_message_with_attachment` action. "
                 "Use this when the user asks you to share, send, or provide a file from the workspace."
-                "\n\n## Mini Browser\n"
-                "The user can watch your Mini Browser tabs live and take control of them in the "
-                "Mini Browser page. For a CAPTCHA, a 2FA code or a sign-in with no saved login, ask "
-                "the user to complete that step there and tell you when done. If an action says the "
-                "user has taken control of your tab, `mini_browser_wait` with for_user=true waits "
-                "until they hand it back."
             )
+            if self._mini_browser_usable():
+                prompt += (
+                    "\n\n## Mini Browser\n"
+                    "The user can watch your Mini Browser tabs live in the Mini Browser page and "
+                    "take control of them. When a site needs the user (a CAPTCHA, a sign-in with no "
+                    "saved login), tell them (send_message with continue_work=true) to do it there, "
+                    "then call `mini_browser_wait` with for_user=true: it returns once they have "
+                    "taken control of your tab and handed it back. If it times out, ask them in "
+                    "chat as your final message. Ask for a 2FA code in chat; never guess one."
+                )
+            return prompt
         return ""
+
+    @staticmethod
+    def _mini_browser_usable() -> bool:
+        """Whether agents should be steered to the Mini Browser here.
+
+        True only while its action set is registered (an upgraded install
+        or a failed import can lack it) and the browser has not failed to
+        launch in this process (no Chromium, no Playwright, or a launch the
+        system cannot run, e.g. a Docker image without Chromium's libraries).
+        Never starts anything and never raises.
+        """
+        try:
+            from app.action.action_set import action_set_manager
+            from app.mini_browser import ACTION_SET
+
+            if ACTION_SET not in action_set_manager.list_all_sets():
+                return False
+        except Exception:
+            return False
+        try:
+            from app.mini_browser import lifecycle
+
+            unavailable_reason = getattr(lifecycle, "unavailable_reason", None)
+            return unavailable_reason is None or unavailable_reason() is None
+        except Exception as e:
+            logger.debug(f"[MINI_BROWSER] availability check failed: {e}")
+            return False
+
+    def _filter_action_prompt(self, prompt: str) -> str:
+        """Drop the always-on Mini Browser rule while the browser is not usable."""
+        from agent_core.core.prompts.action import MINI_BROWSER_RULE
+
+        if MINI_BROWSER_RULE not in prompt or self._mini_browser_usable():
+            return prompt
+        return prompt.replace(MINI_BROWSER_RULE, "", 1)
 
     def _generate_role_info_prompt(self) -> str:
         """
@@ -2777,7 +2836,16 @@ class AgentBase:
             logger.warning(f"[RESET] Failed to clear activity log: {e}")
         self.state_manager.reset()
         self.event_stream_manager.clear_all()
+        # clear_all() drops every stream but main's, while the sessions that
+        # outlive a reset (the Mini Browser chat, Agent App sessions) stay
+        # registered. Give them their own stream back FIRST: an id without
+        # one falls back to MAIN's stream, so their runs would read and write
+        # main's history (and clearing them would empty main's stream).
+        self._recreate_session_streams()
         self.session_manager.clear_session(MAIN_SESSION_ID)
+        for session in list(self.session_manager.sessions.values()):
+            if session.type in (SessionType.AGENT_APP, SessionType.MINI_BROWSER):
+                self._clear_surviving_session(session)
 
         # 2. Stop file watcher to prevent interference during reset
         if hasattr(self, "memory_file_watcher") and self.memory_file_watcher.is_running:
@@ -2808,8 +2876,40 @@ class AgentBase:
 
         # Recreate a fresh main session after the wipe.
         self.session_manager.ensure_main()
+        # Step 7 also deleted the rows of the sessions that survive the reset:
+        # persist them again so a restart restores them (and their streams).
+        for session_id in list(self.session_manager.sessions):
+            self.session_manager.persist(session_id)
 
         return "Agent state reset. Agent file system reinitialized."
+
+    def _recreate_session_streams(self) -> None:
+        """Give every registered non-main session its own event stream again."""
+        for session in list(self.session_manager.sessions.values()):
+            if session.id == MAIN_SESSION_ID:
+                continue
+            try:
+                workspace = (
+                    Path(session.workspace_dir) if session.workspace_dir else None
+                )
+                self.event_stream_manager.create_stream(session.id, workspace)
+            except Exception as e:
+                logger.warning(
+                    f"[RESET] Failed to recreate the event stream of {session.id}: {e}"
+                )
+
+    def _clear_surviving_session(self, session: Session) -> None:
+        """Clear a session that outlives a reset, always in its OWN stream
+        (clearing an id without a stream would empty main's instead)."""
+        try:
+            if not self.event_stream_manager.has_stream(session.id):
+                workspace = (
+                    Path(session.workspace_dir) if session.workspace_dir else None
+                )
+                self.event_stream_manager.create_stream(session.id, workspace)
+            self.session_manager.clear_session(session.id)
+        except Exception as e:
+            logger.warning(f"[RESET] Failed to clear session {session.id}: {e}")
 
     async def _delete_all_chat_sessions(self) -> int:
         """Delete every non-main, non-agent-app session. Returns count."""
@@ -3547,6 +3647,12 @@ class AgentBase:
                     )
 
             settings_manager.register_reload_callback(_reinit_llm_on_model_change)
+
+            # Mini Browser: edits to settings.json's "mini_browser" section
+            # reach a running browser instead of waiting for a restart.
+            settings_manager.register_reload_callback(
+                self._reload_mini_browser_settings
+            )
 
             # Get event loop for async callbacks
             event_loop = asyncio.get_event_loop()

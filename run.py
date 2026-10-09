@@ -66,7 +66,10 @@ def _bootstrap_state():
     agents, assets and skills trees, so on first run they are copied across.
 
     Only ever copies what is ABSENT — a user's edited settings.json or their
-    customised skills must survive every upgrade.
+    customised skills must survive every upgrade. An upgrade also brings in
+    the action files and skills that are NEW in the release, and enables the
+    newly shipped default skills (app/state_sync.py: never overwrites a file,
+    never restores one the user deleted).
 
     A dev checkout is skipped: there, code and state are the same tree, which
     is what makes a checkout convenient to work in.
@@ -111,6 +114,15 @@ def _bootstrap_state():
         if os.path.isfile(src) and not os.path.isfile(dst):
             print(f"  Bootstrapping {rel_file}...")
             _shutil.copy2(src, dst)
+
+    # The trees above are copied once, so an upgrade would otherwise never
+    # deliver a new action file or skill (or enable a new default skill).
+    try:
+        from app.state_sync import sync_shipped_files
+
+        sync_shipped_files(_paths.CODE_ROOT, _paths.STATE_ROOT)
+    except Exception as exc:  # never block startup over it
+        print(f"  Warning: could not sync newly shipped files: {exc}")
 
 
 _bootstrap_state()

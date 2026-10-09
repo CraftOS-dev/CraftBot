@@ -16,6 +16,14 @@ with a login from the password vault. Guarantees:
   messages raised outside any ``except`` block (Playwright's error text
   contains the filled value), and it is added to ``tab.filled_secrets`` so
   everything the tab sends out is scrubbed.
+- Results and notices name the page's real host (where the login was
+  typed), not just the saved site.
+- The reported outcome is conservative: ``signed_in`` needs positive
+  evidence (a sign-out control appeared, or the sign-in address was left);
+  failure pages, verification / push-approval steps and CAPTCHAs are told
+  apart, and anything else is ``unknown`` ("check the page").
+- Filling stops (MINI_BROWSER_USER_IN_CONTROL) once the user takes control
+  of the tab.
 """
 
 from __future__ import annotations
@@ -270,7 +278,27 @@ OUTCOME_JS = r"""
       const r = f.getBoundingClientRect();
       return r.width >= 100 && r.height >= 50 && visible(f);
     });
-  return {pwVisible, messages, code, captcha};
+  const oneLine = (s) => String(s || '').replace(/\s+/g, ' ').trim();
+  const headings = [];
+  for (const el of elements) {
+    if (headings.length >= 6) break;
+    if (!/^H[1-3]$/.test(el.tagName) && (el.getAttribute('role') || '').toLowerCase() !== 'heading') continue;
+    if (!visible(el)) continue;
+    const t = oneLine(el.innerText);
+    if (t && t.length <= 200) headings.push(t);
+  }
+  // Positive evidence of a signed-in page: a sign-out control.
+  const signOutWords = /(^|[^a-z])(sign|log)\s?-?\s?(out|off)([^a-z]|$)|ログアウト|サインアウト/i;
+  const signOut = elements.some((e) => {
+    if (e.tagName === 'A' && /(sign|log)[-_]?(out|off)/i.test(String(e.getAttribute('href') || ''))) return true;
+    const role = (e.getAttribute('role') || '').toLowerCase();
+    if (!(e.tagName === 'A' || e.tagName === 'BUTTON' || role === 'menuitem' || role === 'button' || role === 'link')) return false;
+    const t = oneLine(e.innerText || e.getAttribute('aria-label') || e.getAttribute('title'));
+    return t.length > 0 && t.length <= 40 && signOutWords.test(t) && visible(e);
+  });
+  return {pwVisible, messages, code, captcha, headings, signOut,
+          title: oneLine(document.title).slice(0, 200), bodyHead: body.slice(0, 3000),
+          path: location.pathname};
 }
 """
 
@@ -281,6 +309,22 @@ _FAILURE_WORDS = re.compile(
     r"正しくありません|間違|失敗|無効",
     re.IGNORECASE,
 )
+# A verification step after the password (codes, push approvals, "verify
+# it's you"), in a title / heading.
+_VERIFY_WORDS = re.compile(
+    r"verif|2-step|two-step|two-factor|2fa|mfa|multi-factor|authenticator|"
+    r"approve|confirm (?:it'?s|that it'?s|your identity)|it'?s you|"
+    r"check your (?:phone|email|device|inbox)|security (?:check|code)|one-time|"
+    r"本人確認|確認コード|認証",
+    re.IGNORECASE,
+)
+# ... or in the address the sign-in moved to.
+_VERIFY_PATH = re.compile(
+    r"challenge|verif|mfa|2fa|two-?factor|otp|approv|confirm", re.IGNORECASE
+)
+# Addresses that still belong to signing in.
+_LOGIN_PATH = re.compile(r"log-?in|sign-?in|signin|auth|sso", re.IGNORECASE)
+_SENTENCE_SPLIT = re.compile(r"(?<=[.!?。！？])\s+|\n+")
 
 
 class _Hidden:
@@ -318,6 +362,89 @@ def origin_of(url: Any) -> Optional[Tuple[str, str, int]]:
     except ValueError:
         return None
     return (scheme, host, port)
+
+
+def site_label(origin: Tuple[str, str, int]) -> str:
+    """``host`` (``host:port`` for a non-default port) of the page itself."""
+    scheme, host, port = origin
+    shown = f"[{host}]" if ":" in host else host
+    default = 443 if scheme == "https" else 80
+    return shown if port == default else f"{shown}:{port}"
+
+
+def _fresh_lines(text: Any, before: Any, pattern: "re.Pattern[str]") -> str:
+    """The first sentence of ``text`` matching ``pattern`` that ``before``
+    did not already show (so a login page's standing hints never count)."""
+    old = str(before or "")
+    for line in _SENTENCE_SPLIT.split(str(text or "")):
+        line = " ".join(line.split())
+        if 3 <= len(line) <= 200 and pattern.search(line) and line not in old:
+            return line
+    return ""
+
+
+def decide_outcome(
+    before: Optional[Dict[str, Any]],
+    after: Dict[str, Any],
+    url_before: str,
+    url_after: str,
+) -> Tuple[str, str, str]:
+    """``(outcome, site_message, kind)`` of a submitted sign-in.
+
+    ``before`` / ``after``: OUTCOME_JS states before the password was filled
+    and after submitting. Conservative: ``signed_in`` only with positive
+    evidence (a sign-out control appeared, or the page left the sign-in
+    address for one that is not about signing in or verifying); otherwise
+    ``unknown``. ``kind``: "code" / "approve" for needs_verification,
+    "form" / "gone" for unknown.
+    """
+    before = before or {}
+    messages = [m for m in after.get("messages") or [] if isinstance(m, str)]
+    fresh = [m for m in messages if m not in (before.get("messages") or [])]
+    if after.get("captcha") and not before.get("captcha"):
+        return "captcha", "", ""
+    # A new alert-like message is a rejection while the form is still
+    # there; once it is gone, only if it reads like one (a landing page may
+    # well show an unrelated banner).
+    rejection = next(
+        (m for m in fresh if after.get("pwVisible") or _FAILURE_WORDS.search(m)), ""
+    )
+    if rejection:
+        return "error", rejection, ""
+    new_code = bool(after.get("code")) and not before.get("code")
+    old_heads = set(before.get("headings") or []) | {str(before.get("title") or "")}
+    heads = [str(after.get("title") or "")] + [
+        str(h) for h in after.get("headings") or []
+    ]
+    fresh_heads = [h for h in heads if h and h not in old_heads]
+    if after.get("pwVisible"):
+        # The form is still (or again) there: a sign-in page, so failure
+        # wording anywhere on it is about this attempt.
+        said = _fresh_lines(
+            after.get("bodyHead"), before.get("bodyHead"), _FAILURE_WORDS
+        )
+        if said:
+            return "error", said, ""
+        if new_code:
+            return "needs_verification", "", "code"
+        return "unknown", "", "form"
+    failure = next((h for h in fresh_heads if _FAILURE_WORDS.search(h)), "")
+    if failure:
+        return "error", failure, ""
+    if new_code:
+        return "needs_verification", "", "code"
+    path_before = urlsplit(str(url_before or "")).path
+    path_after = urlsplit(str(url_after or "")).path
+    moved = path_after != path_before
+    if any(_VERIFY_WORDS.search(h) for h in fresh_heads) or (
+        moved and _VERIFY_PATH.search(path_after)
+    ):
+        return "needs_verification", "", "approve"
+    signed_out_control = bool(after.get("signOut")) and not before.get("signOut")
+    left = moved and not _LOGIN_PATH.search(path_after)
+    if signed_out_control or left:
+        return "signed_in", "", ""
+    return "unknown", "", "gone"
 
 
 def _failed(detail: str) -> MiniBrowserError:
@@ -421,14 +548,15 @@ async def find_form(
 
 
 async def _point_at(core: Any, tab: Any, locator: Any) -> None:
-    """Move the agent's pointer onto a field (purely visual, best effort)."""
+    """Move the agent's pointer onto a field (purely visual, best effort;
+    stops with MINI_BROWSER_USER_IN_CONTROL once the user takes control)."""
     if not ops.humanlike_enabled(core):
         return
     try:
         box = await locator.bounding_box(timeout=1000)
         if box and box["width"] > 0 and box["height"] > 0:
             await human.move_mouse(core, tab, *human.target_point(box))
-    except asyncio.CancelledError:
+    except (asyncio.CancelledError, MiniBrowserError):
         raise
     except Exception:
         pass
@@ -451,9 +579,11 @@ async def _fill(
     raised afterwards (no exception chaining).
     """
     page = tab.page
+    human.ensure_control(tab)
     _check_origin(page, frame, origin)
     locator = frame.locator(f'[data-mb-login="{nonce}-{role}"]')
     await _point_at(core, tab, locator)
+    human.ensure_control(tab)
     _check_origin(page, frame, origin)
     failure = ""
     try:
@@ -496,6 +626,7 @@ async def _submit(
     Leaves the page settled (following a navigation it caused).
     """
     page = tab.page
+    human.ensure_control(tab)
     _check_origin(page, frame, origin)
     field = frame.locator(f'[data-mb-login="{nonce}-{role}"]')
     with ops.NavWatch(page) as watch:
@@ -524,7 +655,13 @@ async def _submit(
                     await ops.pointer_click(core, tab, button, -1)
                     clicked = True
             except MiniBrowserError as exc:
-                if exc.fields.get("detail") == MSG_ORIGIN_CHANGED:
+                # The button could not be clicked: Enter may still have done
+                # it. Anything else (the user took control, the page or the
+                # browser went away, another site) ends the sign-in.
+                if exc.code not in (
+                    "MINI_BROWSER_ELEMENT_NOT_INTERACTABLE",
+                    "MINI_BROWSER_ELEMENT_NOT_FOUND",
+                ):
                     raise
             except Exception as exc:
                 logger.debug(
@@ -532,7 +669,7 @@ async def _submit(
                 )
             if not clicked and not pressed:
                 raise _failed(MSG_SUBMIT_FAILED)
-        await ops.after_action(page, watch)
+        await ops.after_action(page, watch, core=core)
 
 
 async def _wait_for_password_step(
@@ -559,6 +696,10 @@ async def _page_state(page: Any, frame: Any) -> Dict[str, Any]:
         "messages": [],
         "code": False,
         "captcha": False,
+        "signOut": False,
+        "title": "",
+        "headings": [],
+        "bodyHead": "",
     }
     frames = [page.main_frame]
     try:
@@ -576,12 +717,16 @@ async def _page_state(page: Any, frame: Any) -> Dict[str, Any]:
             continue
         if not isinstance(state, dict):
             continue
-        merged["pwVisible"] = merged["pwVisible"] or bool(state.get("pwVisible"))
-        merged["code"] = merged["code"] or bool(state.get("code"))
-        merged["captcha"] = merged["captcha"] or bool(state.get("captcha"))
-        for message in state.get("messages") or []:
-            if isinstance(message, str) and message not in merged["messages"]:
-                merged["messages"].append(message)
+        for flag in ("pwVisible", "code", "captcha", "signOut"):
+            merged[flag] = merged[flag] or bool(state.get(flag))
+        if not merged["title"] and isinstance(state.get("title"), str):
+            merged["title"] = state["title"]
+        for key in ("messages", "headings"):
+            for item in state.get(key) or []:
+                if isinstance(item, str) and item not in merged[key]:
+                    merged[key].append(item)
+        if isinstance(state.get("bodyHead"), str):
+            merged["bodyHead"] = (merged["bodyHead"] + "\n" + state["bodyHead"]).strip()
     return merged
 
 
@@ -604,7 +749,9 @@ async def autofill(
     origin = origin_of(start_url)
     if origin is None:
         raise _failed(MSG_NOT_WEB)
-    host = origin[1]
+    # Results and notices name the page's own host, where the login is
+    # typed (a saved "example.com" says nothing about which page got it).
+    site = site_label(origin)
 
     try:
         vault = core.vault()
@@ -617,15 +764,14 @@ async def autofill(
         raise _failed(MSG_VAULT_UNAVAILABLE) from None
     entries = await asyncio.to_thread(vault.candidates_for_url, start_url)
     if not entries:
-        raise await _no_login(vault, host)
+        raise await _no_login(vault, site)
     entry, others = _choose(entries, username)
     if entry is None:
         raise MiniBrowserError(
-            "MINI_BROWSER_NO_SAVED_LOGIN", site=f"{host} for username {username!r}"
+            "MINI_BROWSER_NO_SAVED_LOGIN", site=f"{site} for username {username!r}"
         )
     secret = _Hidden(str(entry.get("password") or ""))
     entry_id = str(entry.get("id") or "")
-    site = str(entry.get("site") or host)
     account = str(entry.get("username") or "")
     del entries, entry  # drop every reference to raw passwords but `secret`
     if not secret:
@@ -674,38 +820,25 @@ async def autofill(
         logger.debug(
             f"[MiniBrowser] could not mark the login used: {type(exc).__name__}"
         )
+    who = f"{account} on {site}" if account else site
     try:
-        core.add_event(
-            tab, EVENT_NOTICE, f"Filled the saved login for {site} ({account})."
-        )
+        core.add_event(tab, EVENT_NOTICE, f"Filled the saved login for {who}.")
     except Exception as exc:
         logger.debug(f"[MiniBrowser] login notice failed: {type(exc).__name__}")
 
-    outcome, site_message = "filled", ""
+    outcome, site_message, kind, title = "filled", "", "", ""
     if submit:
         url_before = _without_fragment(page.url)
         await _submit(core, tab, frame, nonce, "pw", origin)
+        if ops.tab_gone(core, tab):
+            raise ops.closed_error(core, tab)
         after = await _page_state(page, frame)
-        fresh = [
-            m for m in after["messages"] if m not in (before or {}).get("messages", [])
-        ]
-        url_changed = _without_fragment(page.url) != url_before
-        # A new message counts as a rejection while the form is still there;
-        # once it is gone, only if it reads like one (a landing page may well
-        # show an unrelated banner).
-        rejection = next(
-            (m for m in fresh if after["pwVisible"] or _FAILURE_WORDS.search(m)), ""
+        outcome, site_message, kind = decide_outcome(
+            before, after, url_before, _without_fragment(page.url)
         )
-        if after["captcha"] and not (before or {}).get("captcha"):
-            outcome = "captcha"
-        elif rejection:
-            outcome, site_message = "error", rejection
-        elif after["code"] and not (before or {}).get("code"):
-            outcome = "needs_verification"
-        elif not after["pwVisible"] or url_changed:
-            outcome = "signed_in"
-        else:
-            outcome = "unknown"
+        title = scrub(
+            " ".join(str(after.get("title") or "").split()), [secret.reveal()]
+        )
 
     observation = await ops.page_observation(core, tab)
     extra: Dict[str, Any] = {"username": account, "site": site, "outcome": outcome}
@@ -719,31 +852,64 @@ async def autofill(
             extra={**extra, "page": observation},
             detail=f'The site did not accept the sign-in: "{said}"',
         )
-    who = f"{account} on {site}" if account else site
-    messages = {
-        "filled": f"Filled the saved login for {who} (not submitted).",
-        "signed_in": f"Signed in as {who}.",
-        "needs_verification": (
-            f"Submitted the saved login for {who}; the site now asks for a "
-            "verification code. Ask the user for it (never guess it)."
-        ),
-        "captcha": (
-            f"Submitted the saved login for {who}, but the site shows a CAPTCHA. "
-            "Ask the user to solve it in the Mini Browser, then call "
-            "mini_browser_wait with for_user=true."
-        ),
-        "unknown": (
-            f"Submitted the saved login for {who}; the sign-in form is still "
-            "showing. Check the page."
-        ),
-    }
-    message = messages[outcome]
+    message = _outcome_message(outcome, kind, who, title[:120])
     if others:
         message += (
             f" Other saved logins for this site: {', '.join(others)} (pass "
             "username to use one)."
         )
-    result: Dict[str, Any] = {"status": "success", "message": message}
+    result: Dict[str, Any] = {
+        "status": "success",
+        "message": scrub(message, [secret.reveal()]),
+    }
     result.update(extra)
     result["page"] = observation
     return result
+
+
+_WAIT_FOR_USER = (
+    "then call mini_browser_wait with for_user=true: it waits until they take "
+    "control of this tab and hand it back"
+)
+
+
+def _outcome_message(outcome: str, kind: str, who: str, title: str) -> str:
+    """What the agent is told after a sign-in attempt (and what to do next)."""
+    shows = f' "{title}"' if title else " a new page"
+    if outcome == "filled":
+        return f"Filled the saved login for {who} (not submitted)."
+    if outcome == "signed_in":
+        return f"Signed in as {who}."
+    if outcome == "captcha":
+        return (
+            f"Submitted the saved login for {who}, but the site shows a CAPTCHA. "
+            "Never try to solve it yourself: tell the user (send_message) to solve "
+            "it in the Mini Browser page and press Hand back, "
+            f"{_WAIT_FOR_USER}."
+        )
+    if outcome == "needs_verification" and kind == "code":
+        return (
+            f"Submitted the saved login for {who}; the site now asks for a "
+            "verification code. Ask the user for it (never guess it) and type it "
+            "in, or tell them to enter it in the Mini Browser page and press Hand "
+            f"back, {_WAIT_FOR_USER}."
+        )
+    if outcome == "needs_verification":
+        return (
+            f"Submitted the saved login for {who}; the site now wants the user to "
+            f"confirm the sign-in (the page shows{shows}; for example approving a "
+            "prompt on their phone). Ask the user to do that. If they have to act "
+            "in the Mini Browser page, tell them to press Hand back when done, "
+            f"{_WAIT_FOR_USER}; otherwise check again with mini_browser_wait "
+            "(text=...) or mini_browser_read."
+        )
+    if kind == "form":
+        return (
+            f"Submitted the saved login for {who}, but the sign-in form is still "
+            f"showing (the page shows{shows}). Check the page: the site may show an "
+            "error or want another step. Do not assume you are signed in."
+        )
+    return (
+        f"Submitted the saved login for {who}; the sign-in form is gone and the "
+        f"page now shows{shows}. Check it before assuming you are signed in."
+    )

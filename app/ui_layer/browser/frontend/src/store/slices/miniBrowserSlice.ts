@@ -354,6 +354,7 @@ function parseEvent(v: unknown): MiniBrowserEvent | null {
   const title = optStr(v.title)
   if (tabId) event.tabId = tabId
   if (path) event.path = path
+  if (typeof v.dangerous === 'boolean') event.dangerous = v.dangerous
   if (code) event.code = code
   if (title) event.title = clip(title, 200)
   return event

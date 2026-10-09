@@ -61,6 +61,12 @@ export interface StopTarget {
   runState: SessionRunState
 }
 
+/** The tab an address-bar edit started on, and who owned it then. */
+export interface AddressTarget {
+  tabId: string | null
+  owner: string | null
+}
+
 interface ToolbarProps {
   tab: MiniBrowserTab | null
   follow: boolean
@@ -69,7 +75,9 @@ interface ToolbarProps {
   browserOpen: boolean
   navError: MiniBrowserError | null
   stopTarget: StopTarget | null
-  onNavigate(text: string): void
+  /** Open `text` in `target`: the tab the edit started on, which is not
+   *  necessarily the one on screen by the time Enter is pressed. */
+  onNavigate(text: string, target: AddressTarget): void
   onHistory(action: 'back' | 'forward' | 'reload' | 'stop'): void
   onFollow(next: boolean): void
   onAdblock(next: boolean): void
@@ -128,6 +136,10 @@ export const Toolbar = forwardRef<ToolbarHandle, ToolbarProps>(function Toolbar(
   const [text, setText] = useState('')
   // A click that focuses the field must not undo its select-all on mouseup.
   const selectOnMouseUpRef = useRef(false)
+  // Typing here sends nothing, so the view may move to another tab (an
+  // agent's) meanwhile: the edit stays with the tab it started on — Enter
+  // opens the address there, Escape restores that tab's address.
+  const editTargetRef = useRef<AddressTarget & { url: string }>({ tabId: null, owner: null, url: '' })
 
   const url = tab?.url ?? ''
   const shownUrl = isBlankUrl(url) ? '' : url
@@ -143,6 +155,7 @@ export const Toolbar = forwardRef<ToolbarHandle, ToolbarProps>(function Toolbar(
   useImperativeHandle(ref, () => ({ focusAddress }), [focusAddress])
 
   const onAddressFocus = (e: React.FocusEvent<HTMLInputElement>) => {
+    editTargetRef.current = { tabId: tab?.id ?? null, owner: tab?.owner ?? null, url: shownUrl }
     setText(shownUrl)
     setEditing(true)
     selectOnMouseUpRef.current = true
@@ -159,9 +172,10 @@ export const Toolbar = forwardRef<ToolbarHandle, ToolbarProps>(function Toolbar(
   const onAddressKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key !== 'Escape') return
     e.preventDefault()
-    if (text !== shownUrl) {
+    const original = editTargetRef.current.url
+    if (text !== original) {
       // First Escape reverts the edit, the second leaves the field.
-      setText(shownUrl)
+      setText(original)
       requestAnimationFrame(() => inputRef.current?.select())
     } else {
       e.currentTarget.blur()
@@ -172,7 +186,8 @@ export const Toolbar = forwardRef<ToolbarHandle, ToolbarProps>(function Toolbar(
     e.preventDefault()
     const target = text.trim()
     if (!target) return
-    onNavigate(target)
+    const { tabId, owner } = editTargetRef.current
+    onNavigate(target, { tabId, owner })
     setEditing(false)
     inputRef.current?.blur()
     onSubmitted()

@@ -4,9 +4,9 @@
   },
   "chat": {
     "placeholder": "让智能体帮你浏览网页、搜索或填写表单…",
-    "show": "显示聊天",
-    "hide": "隐藏聊天",
-    "loading": "正在准备聊天…"
+    "show": "显示对话",
+    "hide": "隐藏对话",
+    "loading": "正在准备对话…"
   },
   "toolbar": {
     "label": "浏览器控件",
@@ -48,13 +48,15 @@
     "loading": "加载中",
     "busy": "智能体正在此标签页中工作",
     "crashed": "此标签页已崩溃",
+    "userControl": "你正在操作此标签页，智能体已暂停",
     "ownerTooltip": "使用者：{{owner}}",
     "owner": {
       "you": "你",
       "main": "主对话",
       "miniBrowser": "本对话",
       "session": "对话",
-      "subagent": "子智能体"
+      "subagent": "子智能体",
+      "subagentOf": "子智能体（{{parent}}）"
     },
     "closeBusyTitle": "要关闭此标签页吗？",
     "closeBusyMessage": "{{owner}} 正在此标签页中工作。关闭后，智能体在此页面上的操作会中断。"
@@ -66,7 +68,7 @@
     "noTab": "没有打开的标签页。",
     "agentBrowsing": "{{owner}} 正在浏览",
     "takeControl": "接管操作",
-    "takeControlHint": "暂停智能体在此标签页上的操作，由你亲自使用",
+    "takeControlHint": "暂停智能体在此标签页上的操作，由你亲自使用，例如完成人机验证（CAPTCHA）或输入登录验证码。完成后请交还给智能体。",
     "inControl": "你正在操作，此标签页上的智能体已暂停",
     "handBack": "交还给智能体",
     "handBackHint": "让智能体继续在此标签页上工作",
@@ -110,16 +112,20 @@
   },
   "events": {
     "download": "已下载 {{name}}",
+    "downloadUnnamed": "已下载一个文件",
+    "downloadDangerous": "此类文件可以在你的电脑上运行程序。只有在信任其来源时才打开它。",
     "openFile": "打开",
     "showInFolder": "在文件夹中显示",
     "popup": "网页打开了一个新标签页",
     "dialogGeneric": "网页弹出了一个对话框，已自动处理",
     "blockedGeneric": "迷你浏览器拦截了一个不允许打开的页面",
-    "crash": "有标签页崩溃了。下次使用时会自动重新加载。"
+    "crash": "有标签页崩溃了。下次使用时会自动重新加载。",
+    "notice": "来自迷你浏览器的通知",
+    "problem": "迷你浏览器遇到问题"
   },
   "confirm": {
     "shutdownTitle": "要关闭浏览器吗？",
-    "shutdownMessage": "智能体仍在浏览。关闭浏览器会中止它的工作并关闭所有标签页。"
+    "shutdownMessage": "智能体仍在浏览。关闭浏览器会关闭所有标签页，但仍在工作的智能体可能会再次打开它。要让智能体停下来，请在它的对话中点击“停止”。"
   },
   "passwords": {
     "title": "已保存的密码",
@@ -145,7 +151,7 @@
     "editTitle": "编辑登录信息",
     "site": "网站",
     "sitePlaceholder": "example.com",
-    "siteHint": "仅在此网站及其子域名上、通过安全连接（HTTPS）时使用。",
+    "siteHint": "仅在此网站（带或不带“www.”）上、通过安全连接（HTTPS）时使用。其他子域名的登录页需要单独保存。",
     "username": "用户名或邮箱",
     "password": "密码",
     "passwordKeep": "留空则保留当前密码",
@@ -167,6 +173,9 @@
     "timeout": "CraftBot 未及时响应。请检查列表后重试。",
     "error": "出了点问题，请重试。",
     "unreadableTitle": "无法读取密码库",
+    "unavailableTitle": "暂时无法加载已保存的登录信息",
+    "unavailableBody": "密码库正忙或暂时不可用（例如另一个程序正在使用它的文件）。已保存的登录信息没有丢失。请稍后重试。",
+    "retry": "重试",
     "unreadableBody": "已保存的登录信息仍然存在，但无法在这台电脑上解密（例如加密密钥已更改）。没有任何数据被覆盖。重置密码库即可重新开始，无法读取的文件会保留为备份。",
     "reset": "重置密码库",
     "resetTitle": "要重置密码库吗？",
@@ -194,6 +203,10 @@
       "title": "浏览器未运行",
       "message": "迷你浏览器未运行。请先启动它。"
     },
+    "MINI_BROWSER_CLOSED": {
+      "title": "浏览器已关闭",
+      "message": "迷你浏览器在操作完成前被关闭了。"
+    },
     "MINI_BROWSER_NAVIGATION_FAILED": {
       "title": "页面未能加载",
       "message": "无法打开该页面。请检查网址和网络连接。"
@@ -213,6 +226,14 @@
     "MINI_BROWSER_TAB_NOT_FOUND": {
       "title": "找不到标签页",
       "message": "该标签页已关闭。"
+    },
+    "MINI_BROWSER_TAB_CLOSED": {
+      "title": "标签页已关闭",
+      "message": "该标签页在操作完成前被关闭了。"
+    },
+    "MINI_BROWSER_TOO_MANY_TABS": {
+      "title": "标签页过多",
+      "message": "打开的标签页太多了。请先关闭一个标签页，然后重试。"
     },
     "MINI_BROWSER_TIMEOUT": {
       "title": "已超时",

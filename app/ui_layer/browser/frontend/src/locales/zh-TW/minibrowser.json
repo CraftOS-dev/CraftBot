@@ -4,9 +4,9 @@
   },
   "chat": {
     "placeholder": "請代理幫你瀏覽網頁、搜尋或填寫表單…",
-    "show": "顯示聊天",
-    "hide": "隱藏聊天",
-    "loading": "正在準備聊天…"
+    "show": "顯示對話",
+    "hide": "隱藏對話",
+    "loading": "正在準備對話…"
   },
   "toolbar": {
     "label": "瀏覽器控制項",
@@ -48,13 +48,15 @@
     "loading": "載入中",
     "busy": "代理正在這個分頁中工作",
     "crashed": "這個分頁已當掉",
+    "userControl": "你正在操作這個分頁，代理已暫停",
     "ownerTooltip": "使用者：{{owner}}",
     "owner": {
       "you": "你",
-      "main": "主要聊天",
-      "miniBrowser": "這個聊天",
-      "session": "聊天",
-      "subagent": "子代理"
+      "main": "主要對話",
+      "miniBrowser": "這個對話",
+      "session": "對話",
+      "subagent": "子代理",
+      "subagentOf": "子代理（{{parent}}）"
     },
     "closeBusyTitle": "要關閉這個分頁嗎？",
     "closeBusyMessage": "{{owner}} 正在這個分頁中工作。關閉後，代理在這個分頁上的工作會中斷。"
@@ -66,7 +68,7 @@
     "noTab": "目前沒有開啟的分頁。",
     "agentBrowsing": "{{owner}} 正在瀏覽",
     "takeControl": "接手操作",
-    "takeControlHint": "暫停代理在這個分頁上的操作，由你親自使用",
+    "takeControlHint": "暫停代理在這個分頁上的操作，由你親自使用，例如完成人機驗證（CAPTCHA）或輸入登入驗證碼。完成後請交還給代理。",
     "inControl": "你正在操作，這個分頁上的代理已暫停",
     "handBack": "交還給代理",
     "handBackHint": "讓代理繼續在這個分頁上工作",
@@ -110,16 +112,20 @@
   },
   "events": {
     "download": "已下載 {{name}}",
+    "downloadUnnamed": "已下載一個檔案",
+    "downloadDangerous": "這類檔案可以在你的電腦上執行程式。只有在信任它的來源時才開啟。",
     "openFile": "開啟",
     "showInFolder": "在資料夾中顯示",
     "popup": "網頁開啟了一個新分頁",
     "dialogGeneric": "網頁跳出了一個對話方塊，已自動處理",
     "blockedGeneric": "迷你瀏覽器封鎖了一個不允許開啟的頁面",
-    "crash": "有分頁當掉了。下次使用時會自動重新載入。"
+    "crash": "有分頁當掉了。下次使用時會自動重新載入。",
+    "notice": "來自迷你瀏覽器的通知",
+    "problem": "迷你瀏覽器發生問題"
   },
   "confirm": {
     "shutdownTitle": "要關閉瀏覽器嗎？",
-    "shutdownMessage": "代理仍在瀏覽中。關閉瀏覽器會中止它的工作，並關閉所有分頁。"
+    "shutdownMessage": "代理仍在瀏覽中。關閉瀏覽器會關閉所有分頁，但仍在工作的代理可能會再次開啟它。若要讓代理停止，請在它的對話中按「停止」。"
   },
   "passwords": {
     "title": "已儲存的密碼",
@@ -145,7 +151,7 @@
     "editTitle": "編輯登入資訊",
     "site": "網站",
     "sitePlaceholder": "example.com",
-    "siteHint": "只會在這個網站及其子網域、透過安全連線（HTTPS）時使用。",
+    "siteHint": "只會在這個網站（無論有沒有「www.」）、透過安全連線（HTTPS）時使用。其他子網域的登入頁需要另外儲存。",
     "username": "使用者名稱或電子郵件",
     "password": "密碼",
     "passwordKeep": "留空即可保留目前的密碼",
@@ -167,6 +173,9 @@
     "timeout": "CraftBot 沒有及時回應。請檢查清單後再試一次。",
     "error": "發生問題，請再試一次。",
     "unreadableTitle": "無法讀取密碼庫",
+    "unavailableTitle": "目前無法載入已儲存的登入資訊",
+    "unavailableBody": "密碼庫正在使用中或暫時無法使用（例如另一個程式正在使用它的檔案）。已儲存的登入資訊並沒有遺失。請稍後再試。",
+    "retry": "重試",
     "unreadableBody": "已儲存的登入資訊仍然存在，但無法在這台電腦上解密（例如加密金鑰已變更）。沒有任何資料被覆寫。重設密碼庫即可重新開始，無法讀取的檔案會保留作為備份。",
     "reset": "重設密碼庫",
     "resetTitle": "要重設密碼庫嗎？",
@@ -194,6 +203,10 @@
       "title": "瀏覽器未執行",
       "message": "迷你瀏覽器目前沒有執行。請先啟動它。"
     },
+    "MINI_BROWSER_CLOSED": {
+      "title": "瀏覽器已關閉",
+      "message": "迷你瀏覽器在操作完成前就被關閉了。"
+    },
     "MINI_BROWSER_NAVIGATION_FAILED": {
       "title": "頁面無法載入",
       "message": "無法開啟這個頁面。請檢查網址和網路連線。"
@@ -213,6 +226,14 @@
     "MINI_BROWSER_TAB_NOT_FOUND": {
       "title": "找不到分頁",
       "message": "這個分頁已經關閉。"
+    },
+    "MINI_BROWSER_TAB_CLOSED": {
+      "title": "分頁已關閉",
+      "message": "這個分頁在操作完成前就被關閉了。"
+    },
+    "MINI_BROWSER_TOO_MANY_TABS": {
+      "title": "分頁太多",
+      "message": "開啟的分頁太多了。請先關閉一個分頁，然後再試一次。"
     },
     "MINI_BROWSER_TIMEOUT": {
       "title": "已逾時",

@@ -70,6 +70,8 @@ class FakeCore:
         self.tabs = {}
         self.selection = ""
         self.navigate_gate = None
+        # Set to an asyncio.Event to make the page "hang" on live input.
+        self.input_gate = None
 
     def state(self):
         return {
@@ -108,6 +110,8 @@ class FakeCore:
 
     async def ui_input(self, tab_id, event):
         await self._record("ui_input", tab_id, event)
+        if self.input_gate is not None:
+            await self.input_gate.wait()
 
     async def ui_new_tab(self, url=None):
         await self._record("ui_new_tab", url)
@@ -1003,6 +1007,7 @@ def test_input_is_validated_and_clamped(env, event, clean):
     async def go():
         ws, channel = connect(env)
         await env.mb.handle(ws, "mini_browser_input", {"tabId": "t1", "event": event})
+        await drain(env)  # queued input is applied by the socket's drain task
         assert env.core.calls == [("ui_input", "t1", clean)]
         assert channel.sent == []
 
@@ -1116,9 +1121,11 @@ def test_mouse_move_failures_are_quiet_but_clicks_report(env):
         ws, channel = connect(env)
         move = {"kind": "mouse", "action": "move", "x": 0.1, "y": 0.1}
         await env.mb.handle(ws, "mini_browser_input", {"tabId": "t1", "event": move})
+        await drain(env)
         assert channel.sent == []
         click = {**move, "action": "down"}
         await env.mb.handle(ws, "mini_browser_input", {"tabId": "t1", "event": click})
+        await drain(env)
         assert [e["code"] for e in channel.data("mini_browser_event")] == [
             "MINI_BROWSER_TAB_NOT_FOUND"
         ]
@@ -1132,12 +1139,336 @@ def test_typed_text_never_reaches_a_reply_or_a_log(env, captured_logs):
         ws, channel = connect(env)
         event = {"kind": "text", "text": PASSWORD}
         await env.mb.handle(ws, "mini_browser_input", {"tabId": "t1", "event": event})
+        await drain(env)
         [error] = channel.data("mini_browser_event")
         assert error["code"] == "MINI_BROWSER_INTERNAL"
         assert PASSWORD not in json.dumps(channel.sent)
 
     run(go)
     assert not any(PASSWORD in line for line in captured_logs)
+
+
+# ──────────────────────────────────────────── live input on a lagging page
+
+
+def _move(x, tab="t1"):
+    return {
+        "tabId": tab,
+        "event": {"kind": "mouse", "action": "move", "x": x, "y": 0.5},
+    }
+
+
+def _wheel(dy, tab="t1"):
+    return {"tabId": tab, "event": {"kind": "wheel", "x": 0.5, "y": 0.5, "dy": dy}}
+
+
+def _button(action, tab="t1"):
+    return {
+        "tabId": tab,
+        "event": {"kind": "mouse", "action": action, "x": 0.5, "y": 0.5},
+    }
+
+
+def _key(key, tab="t1"):
+    return {"tabId": tab, "event": {"kind": "key", "key": key}}
+
+
+def _applied(core):
+    """Every call the page received, in order: live input as (tab, summary),
+    anything else as (name, *args)."""
+    out = []
+    for name, *args in core.calls:
+        if name != "ui_input":
+            out.append((name, *args))
+            continue
+        tab_id, event = args
+        detail = event.get("action") or event.get("key") or event.get("text")
+        if event["kind"] == "mouse" and event["action"] == "move":
+            detail = f"move@{event['x']}"
+        if event["kind"] == "wheel":
+            detail = f"wheel{event['dy']:+g}"
+        out.append((tab_id, detail))
+    return out
+
+
+def _typed(core):
+    """Summaries of the live input the page received, in order."""
+    return [entry[1] for entry in _applied(core) if entry[0] in ("t1", "t2")]
+
+
+async def _send_while_hung(env, ws, first, *rest):
+    """Hang the page on ``first`` (in flight), then send ``rest`` the way the
+    network delivers it: one message after another while the page is stuck.
+    Returns the gate that thaws the page."""
+    gate = env.core.input_gate = asyncio.Event()
+    calls_before = len(env.core.calls)
+    await asyncio.wait_for(env.mb.handle(ws, "mini_browser_input", first), 0.5)
+    await until(lambda: len(env.core.calls) == calls_before + 1)
+    for data in rest:
+        # Each request returns at once: the input lane is never held up.
+        await asyncio.wait_for(env.mb.handle(ws, "mini_browser_input", data), 0.5)
+    return gate
+
+
+def test_input_on_a_hung_page_is_coalesced_in_order(env):
+    """LANE-1: moves keep the latest, wheel steps add up, and nothing is
+    reordered across a click or a key."""
+
+    async def go():
+        ws, channel = connect(env)
+        gate = await _send_while_hung(
+            env,
+            ws,
+            _button("down"),
+            _move(0.1),
+            _move(0.2),
+            _move(0.3),
+            _wheel(100),
+            _wheel(150),
+            _key("a"),
+            _move(0.7),
+            _move(0.8),
+            _button("up"),
+            _move(0.9),
+        )
+        assert len(env.core.calls) == 1  # still hung on the first
+        gate.set()
+        await drain(env)
+        assert _applied(env.core) == [
+            ("t1", "down"),
+            ("t1", "move@0.3"),
+            ("t1", "wheel+250"),
+            ("t1", "a"),
+            ("t1", "move@0.8"),
+            ("t1", "up"),
+            ("t1", "move@0.9"),
+        ]
+        assert channel.sent == []
+
+    run(go)
+
+
+def test_coalescing_never_merges_across_tabs_or_past_the_wheel_limit(env):
+    async def go():
+        ws, _ = connect(env)
+        gate = await _send_while_hung(
+            env,
+            ws,
+            _key("x"),
+            _move(0.1),
+            _move(0.2, tab="t2"),
+            _move(0.3),
+            _wheel(4000),
+            _wheel(4000),  # the sum would pass the 5000 clamp: kept apart
+            _wheel(-500),
+        )
+        gate.set()
+        await drain(env)
+        assert _applied(env.core) == [
+            ("t1", "x"),
+            ("t1", "move@0.1"),
+            ("t2", "move@0.2"),
+            ("t1", "move@0.3"),
+            ("t1", "wheel+4000"),
+            ("t1", "wheel+3500"),
+        ]
+
+    run(go)
+
+
+def test_each_socket_keeps_its_own_queue(env):
+    async def go():
+        env.core.input_gate = gate = asyncio.Event()
+        ws1, _ = connect(env)
+        ws2, _ = connect(env)
+        await env.mb.handle(ws1, "mini_browser_input", _key("a"))
+        await env.mb.handle(ws2, "mini_browser_input", _key("b"))
+        await until(lambda: len(env.core.calls) == 2)  # neither waits on the other
+        gate.set()
+        await drain(env)
+        assert sorted(_typed(env.core)) == ["a", "b"]
+
+    run(go)
+
+
+def test_hand_back_waits_for_the_users_last_input(env):
+    """Control has its own lane; handing back must not overtake the user's
+    queued keystrokes (they would land afterwards and take control again)."""
+
+    async def go():
+        ws, channel = connect(env)
+        gate = await _send_while_hung(env, ws, _key("a"), _key("b"))
+        control = asyncio.ensure_future(
+            env.mb.handle(ws, "mini_browser_control", {"tabId": "t1", "take": False})
+        )
+        await asyncio.sleep(0.05)
+        assert not control.done()
+        gate.set()
+        await asyncio.wait_for(control, 2)
+        await drain(env)
+        assert _applied(env.core) == [
+            ("t1", "a"),
+            ("t1", "b"),
+            ("ui_control", "t1", False),
+        ]
+        assert channel.of_type("mini_browser_event") == []
+
+    run(go)
+
+
+def test_taking_control_never_waits_for_queued_input(env):
+    async def go():
+        ws, _ = connect(env)
+        gate = await _send_while_hung(env, ws, _key("a"), _key("b"))
+        await asyncio.wait_for(
+            env.mb.handle(ws, "mini_browser_control", {"tabId": "t1", "take": True}),
+            0.5,
+        )
+        assert ("ui_control", "t1", True) in env.core.calls
+        gate.set()
+        await drain(env)
+        assert _typed(env.core) == ["a", "b"]
+
+    run(go)
+
+
+def test_hand_back_drops_input_a_hung_page_never_took(env, monkeypatch):
+    monkeypatch.setattr(mbws, "_INPUT_SETTLE_S", 0.1)
+
+    async def go():
+        ws, _ = connect(env)
+        gate = await _send_while_hung(env, ws, _key("a"), _key("b"), _key("c"))
+        await asyncio.wait_for(
+            env.mb.handle(ws, "mini_browser_control", {"tabId": "t1", "take": False}),
+            1.0,
+        )
+        assert ("ui_control", "t1", False) in env.core.calls
+        gate.set()  # the page thaws: "a" was in flight, "b"/"c" were dropped
+        await drain(env)
+        assert _typed(env.core) == ["a"]
+
+    run(go)
+
+
+def test_copy_waits_for_the_input_that_made_the_selection(env):
+    async def go():
+        env.core.selection = "picked"
+        ws, channel = connect(env)
+        gate = await _send_while_hung(
+            env, ws, _button("down"), _move(0.9), _button("up")
+        )
+        copy = asyncio.ensure_future(
+            env.mb.handle(ws, "mini_browser_copy", {"tabId": "t1"})
+        )
+        await asyncio.sleep(0.05)
+        assert not copy.done()
+        gate.set()
+        await asyncio.wait_for(copy, 2)
+        assert _applied(env.core) == [
+            ("t1", "down"),
+            ("t1", "move@0.9"),
+            ("t1", "up"),
+            ("ui_copy_selection", "t1"),
+        ]
+        assert channel.data("mini_browser_clipboard") == [{"text": "picked"}]
+
+    run(go)
+
+
+def test_closing_the_browser_or_a_tab_drops_queued_input(env):
+    async def go():
+        ws, _ = connect(env)
+        gate = await _send_while_hung(
+            env, ws, _key("a"), _key("b", tab="t2"), _key("c"), _key("d", tab="t2")
+        )
+        await env.mb.handle(ws, "mini_browser_tab", {"action": "close", "tabId": "t2"})
+        assert [tab for tab, _ in env.mb._input_queues[ws].items] == ["t1"]
+        await env.mb.handle(ws, "mini_browser_shutdown", {})
+        gate.set()
+        await drain(env)
+        # "a" was in flight when the browser closed; nothing else arrives.
+        assert _typed(env.core) == ["a"]
+        assert ("ui_close_tab", "t2") in env.core.calls
+        assert "close" in env.core.names()
+
+    run(go)
+
+
+def test_a_closed_socket_drops_its_queued_input(env):
+    async def go():
+        ws, _ = connect(env)
+        gate = await _send_while_hung(env, ws, _key("a"), _key("b"))
+        env.mb.forget(ws)
+        assert ws not in env.mb._input_queues
+        gate.set()
+        await drain(env)
+        assert _typed(env.core) == ["a"]
+
+    run(go)
+
+
+def test_a_full_backlog_reports_once_and_drops_new_input(env, monkeypatch):
+    monkeypatch.setattr(mbws, "_MAX_QUEUED_INPUT", 2)
+
+    async def go():
+        ws, channel = connect(env)
+        # "a" in flight, "b" and "c" queued, the rest dropped.
+        gate = await _send_while_hung(env, ws, *(_key(k) for k in "abcdef"))
+        codes = [e["code"] for e in channel.data("mini_browser_event")]
+        assert codes == ["MINI_BROWSER_PAGE_UNRESPONSIVE"]
+        gate.set()
+        await drain(env)
+        assert _typed(env.core) == ["a", "b", "c"]
+
+    run(go)
+
+
+def test_controls_are_not_stuck_behind_input_to_a_hung_page(env):
+    """LANE-1 through the adapter's real lanes: hovering over a frozen page
+    must not hold up Take control or Close browser."""
+
+    async def go():
+        env.adapter._lane_locks = {}
+        env.adapter._lane_tasks = set()
+        env.core.input_gate = gate = asyncio.Event()
+        ws, _ = connect(env)
+
+        def send(data):
+            env.adapter._dispatch_in_lane(ws, data)
+
+        send({"type": "mini_browser_input", **_move(0.0)})
+        await until(lambda: len(env.core.calls) == 1)  # the page hangs on it
+        for i in range(1, 31):  # ~2 s of hover moves at 15/s
+            send({"type": "mini_browser_input", **_move(i / 100)})
+        send({"type": "mini_browser_control", "tabId": "t1", "take": True})
+        send({"type": "mini_browser_shutdown"})
+        await until(
+            lambda: (
+                ("ui_control", "t1", True) in env.core.calls
+                and "close" in env.core.names()
+            ),
+            timeout=1.0,
+        )
+        assert env.core.names().count("ui_input") == 1  # still hung on the first
+        gate.set()
+        await asyncio.gather(*list(env.adapter._lane_tasks), return_exceptions=True)
+        await drain(env)
+        # The backlog was coalesced, then dropped with the closed browser.
+        assert env.core.names().count("ui_input") == 1
+
+    run(go)
+
+
+def test_input_without_a_browser_is_ignored(env):
+    async def go():
+        env.host_started = False
+        ws, channel = connect(env)
+        await env.mb.handle(ws, "mini_browser_input", _key("a"))
+        await drain(env)
+        assert env.core.calls == [] and channel.sent == []
+        assert env.get_host_calls == 0  # input never starts the browser
+
+    run(go)
 
 
 # ─────────────────────────────────────────────────────────── password vault
@@ -1576,16 +1907,21 @@ def test_every_mini_browser_code_is_in_the_codebook(code):
     assert "{" not in info.message
 
 
-def test_ui_errors_go_through_the_codebook():
-    # make_error redacts {detail}; the direct-format fallback would not.
+def test_ui_errors_keep_their_addresses_and_mask_secrets():
+    # Contract C9: messages are formatted from ERROR_SPECS without the
+    # codebook's generic redact(), which turned the very URLs and e-mail
+    # addresses they are about into "[REDACTED]"; secrets are still masked.
     error = ui_error(
         "MINI_BROWSER_NAVIGATION_FAILED",
-        url="https://a.example",
-        detail="net::ERR_NAME_NOT_RESOLVED at https://internal.example/x",
+        secrets=[PASSWORD],
+        url="https://a.example/login",
+        detail=f"no account for jo@example.com (tried {PASSWORD})",
     )
     assert error["title"] == "Page failed to load"
-    assert "internal.example" not in error["message"]
-    assert "https://a.example" in error["message"]
+    assert "https://a.example/login" in error["message"]
+    assert "jo@example.com" in error["message"]
+    assert "REDACTED" not in error["message"]
+    assert PASSWORD not in error["message"]
 
 
 # ─────────────────────────────────────────────── settings (app/config.py)

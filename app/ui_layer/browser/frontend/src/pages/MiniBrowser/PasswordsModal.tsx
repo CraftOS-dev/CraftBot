@@ -24,7 +24,7 @@ import {
   selectMiniBrowserVaultResult,
   selectMiniBrowserVaultStatus,
 } from '../../store/selectors/miniBrowser'
-import type { MiniBrowserVaultEntry, MiniBrowserVaultOp } from '../../types'
+import type { MiniBrowserError, MiniBrowserVaultEntry, MiniBrowserVaultOp } from '../../types'
 import { useErrorText } from './useErrorText'
 import { isSocketConnected, sendLive } from './useMiniBrowserSocket'
 import { LABEL_MAX, PASSWORD_MAX, USERNAME_MAX, siteHost, validateSite } from './vaultForm'
@@ -84,6 +84,28 @@ export function PasswordsModal({ isOpen, onClose }: PasswordsModalProps) {
   const status = useAppSelector(selectMiniBrowserVaultStatus)
   const listError = useAppSelector(selectMiniBrowserVaultError)
   const result = useAppSelector(selectMiniBrowserVaultResult)
+
+  // Every opening shows the vault as it is now (it may have recovered, or
+  // an agent's sign-in changed "last used"). Coalesces with useResource's
+  // own first request.
+  useEffect(() => {
+    if (isOpen) resourceSync.refresh(RESOURCES.miniBrowserVault)
+  }, [isOpen])
+
+  // "Try again" on a vault that couldn't be loaded: busy until the reply.
+  const [retrying, setRetrying] = useState(false)
+  useEffect(() => {
+    setRetrying(false)
+  }, [status, listError])
+  useEffect(() => {
+    if (!retrying) return
+    const timer = window.setTimeout(() => setRetrying(false), RESULT_TIMEOUT_MS)
+    return () => window.clearTimeout(timer)
+  }, [retrying])
+  const retryList = () => {
+    setRetrying(true)
+    resourceSync.refresh(RESOURCES.miniBrowserVault)
+  }
 
   const [mode, setMode] = useState<FormMode>({ kind: 'add' })
   const [site, setSite] = useState('')
@@ -205,13 +227,23 @@ export function PasswordsModal({ isOpen, onClose }: PasswordsModalProps) {
     return entries.find(entry => siteHost(entry.site) === host && entry.username.toLowerCase() === user) ?? null
   }, [editing, entries, site, username])
 
+  // Three ways the vault can be other than "readable": unreadable (needs a
+  // reset), unavailable for now (a busy file, a missing dependency: retry),
+  // or the list request itself failed. None of them is an empty vault, and
+  // none can take a save.
   const unreadable = !!status?.unreadable
+  const unavailable = loaded && !unreadable && (!!listError || (status !== null && !status.ok))
+  const locked = unreadable || unavailable
   const busy = pending !== null
+  const listErrorText = (error: MiniBrowserError): string => {
+    const text = errorText(error)
+    return [text.message || text.title, text.detail].filter(Boolean).join(' — ')
+  }
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault()
     setSubmitted(true)
-    if (invalid || busy || unreadable) return
+    if (invalid || busy || locked) return
     if (mode.kind === 'edit') {
       const data: Record<string, unknown> = {
         id: mode.entry.id,
@@ -283,7 +315,8 @@ export function PasswordsModal({ isOpen, onClose }: PasswordsModalProps) {
       >
         <ModalBody className={styles.body}>
           <p className={styles.intro}>{t('minibrowser:passwords.intro')}</p>
-          {status && !unreadable && (
+          {/* How the vault is protected is only known for a vault that loaded. */}
+          {status?.ok && !locked && (
             <p className={styles.protection}>
               <ShieldCheck size={14} />
               {status.protection === 'dpapi'
@@ -311,10 +344,23 @@ export function PasswordsModal({ isOpen, onClose }: PasswordsModalProps) {
             </div>
           )}
 
-          {listError && !unreadable && (
-            <div className={styles.errorBox} role="alert">
-              <AlertCircle size={16} />
-              <span>{errorText(listError).message || errorText(listError).title}</span>
+          {unavailable && (
+            <div className={styles.unavailable} role="alert">
+              <AlertCircle size={18} className={styles.unavailableIcon} />
+              <div>
+                <strong>{t('minibrowser:passwords.unavailableTitle')}</strong>
+                <p>{t('minibrowser:passwords.unavailableBody')}</p>
+                {listError && <p className={styles.unavailableDetail}>{listErrorText(listError)}</p>}
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  loading={retrying}
+                  disabled={retrying}
+                  onClick={retryList}
+                >
+                  {t('minibrowser:passwords.retry')}
+                </Button>
+              </div>
             </div>
           )}
 
@@ -349,7 +395,7 @@ export function PasswordsModal({ isOpen, onClose }: PasswordsModalProps) {
               </div>
             ) : entries.length === 0 ? (
               <p className={styles.empty}>
-                {unreadable ? t('minibrowser:passwords.emptyUnreadable') : t('minibrowser:passwords.empty')}
+                {locked ? t('minibrowser:passwords.emptyUnreadable') : t('minibrowser:passwords.empty')}
               </p>
             ) : (
               <ul className={styles.list}>
@@ -372,7 +418,7 @@ export function PasswordsModal({ isOpen, onClose }: PasswordsModalProps) {
                           size="sm"
                           icon={<Pencil />}
                           onClick={() => startEdit(entry)}
-                          disabled={busy || unreadable}
+                          disabled={busy || locked}
                           aria-label={t('minibrowser:passwords.editNamed', { site: entry.site, username: entry.username })}
                           tooltip={t('minibrowser:passwords.edit')}
                         />
@@ -382,7 +428,7 @@ export function PasswordsModal({ isOpen, onClose }: PasswordsModalProps) {
                           icon={<Trash2 />}
                           className={styles.deleteButton}
                           onClick={() => setConfirmDelete(entry)}
-                          disabled={busy || unreadable}
+                          disabled={busy || locked}
                           aria-label={t('minibrowser:passwords.deleteNamed', { site: entry.site, username: entry.username })}
                           tooltip={t('minibrowser:passwords.delete')}
                         />
@@ -419,7 +465,7 @@ export function PasswordsModal({ isOpen, onClose }: PasswordsModalProps) {
                 autoCapitalize="off"
                 autoCorrect="off"
                 spellCheck={false}
-                disabled={busy || unreadable}
+                disabled={busy || locked}
                 aria-invalid={showErrors && !!siteMessage}
                 aria-describedby={fieldId(showErrors && siteMessage ? 'site-error' : 'site-hint')}
                 {...NO_AUTOFILL}
@@ -442,7 +488,7 @@ export function PasswordsModal({ isOpen, onClose }: PasswordsModalProps) {
                 autoCorrect="off"
                 spellCheck={false}
                 maxLength={USERNAME_MAX + 1}
-                disabled={busy || unreadable}
+                disabled={busy || locked}
                 aria-invalid={showErrors && !!usernameProblem}
                 aria-describedby={showErrors && usernameProblem ? fieldId('username-error') : undefined}
                 {...NO_AUTOFILL}
@@ -465,7 +511,7 @@ export function PasswordsModal({ isOpen, onClose }: PasswordsModalProps) {
                   autoCorrect="off"
                   spellCheck={false}
                   maxLength={PASSWORD_MAX + 1}
-                  disabled={busy || unreadable}
+                  disabled={busy || locked}
                   aria-invalid={showErrors && !!passwordProblem}
                   aria-describedby={showErrors && passwordProblem ? fieldId('password-error') : undefined}
                   {...NO_AUTOFILL}
@@ -476,7 +522,7 @@ export function PasswordsModal({ isOpen, onClose }: PasswordsModalProps) {
                   variant="secondary"
                   icon={showPassword ? <EyeOff /> : <Eye />}
                   onClick={() => setShowPassword(shown => !shown)}
-                  disabled={busy || unreadable}
+                  disabled={busy || locked}
                   aria-pressed={showPassword}
                   aria-controls={fieldId('password')}
                   aria-label={showPassword ? t('minibrowser:passwords.hidePassword') : t('minibrowser:passwords.showPassword')}
@@ -497,7 +543,7 @@ export function PasswordsModal({ isOpen, onClose }: PasswordsModalProps) {
                 onChange={e => setLabel(e.target.value)}
                 placeholder={t('minibrowser:passwords.labelPlaceholder')}
                 maxLength={LABEL_MAX + 1}
-                disabled={busy || unreadable}
+                disabled={busy || locked}
                 aria-invalid={showErrors && !!labelProblem}
                 aria-describedby={showErrors && labelProblem ? fieldId('label-error') : undefined}
                 {...NO_AUTOFILL}
@@ -530,7 +576,7 @@ export function PasswordsModal({ isOpen, onClose }: PasswordsModalProps) {
                 type="submit"
                 variant="primary"
                 loading={pending?.op === 'add' || pending?.op === 'update'}
-                disabled={busy || unreadable}
+                disabled={busy || locked}
               >
                 {editing ? t('minibrowser:passwords.update') : t('minibrowser:passwords.save')}
               </Button>

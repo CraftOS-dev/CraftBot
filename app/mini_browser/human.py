@@ -14,6 +14,13 @@ Two layers:
 When ``core.settings.humanlike`` is off the movers still do the same thing,
 just without curves and pauses. Every await is a cancellation point, so a
 cancelled operation stops typing or moving immediately.
+
+Take control: the movers stop as soon as the user takes control of the tab
+(``tab.user_control``). They check it before every mouse-path step, every
+press, every typed key or inserted chunk and every wheel notch, and raise
+``MiniBrowserError("MINI_BROWSER_USER_IN_CONTROL")`` (never between a mouse
+press and its release). An interrupted ``type_text`` records how much it
+typed on the error (``exc.typed``).
 """
 
 from __future__ import annotations
@@ -22,9 +29,10 @@ import asyncio
 import math
 import random
 import time
-from typing import Any, List, Optional, Sequence, Tuple
+from typing import Any, Awaitable, Callable, List, Optional, Sequence, Tuple
 
 from app.logger import logger
+from app.mini_browser.errors import MiniBrowserError
 
 Point = Tuple[float, float]
 
@@ -48,11 +56,21 @@ PUNCT_PAUSE = (0.08, 0.22)
 RARE_PAUSE = (0.15, 0.30)
 RARE_PAUSE_CHANCE = 0.04
 PUNCTUATION = frozenset(".,;:!?")
-# Texts longer than this are typed humanly for HUMAN_TYPED_PREFIX characters
-# and the rest is inserted at once (nobody wants to watch 2,000 keystrokes).
-HUMAN_TYPED_LIMIT = 120
-HUMAN_TYPED_PREFIX = 40
+# At most HUMAN_TYPED_LIMIT characters are typed key by key. A longer text
+# types its first HUMAN_TYPED_PREFIX characters, inserts the middle at once
+# (nobody wants to watch 2,000 keystrokes) and types the last
+# HUMAN_TYPED_SUFFIX characters as keys again, so key-driven widgets
+# (autocomplete, counters, masks) still react. The pauses between keys are
+# scaled down to fit TYPING_BUDGET_S, so typing time grows with the length
+# of the text but stays within a few seconds.
+HUMAN_TYPED_LIMIT = 40
+HUMAN_TYPED_PREFIX = 35
+HUMAN_TYPED_SUFFIX = HUMAN_TYPED_LIMIT - HUMAN_TYPED_PREFIX
+TYPING_BUDGET_S = 3.0
 INSERT_CHUNK = 1000
+# Without human-like pauses, keys are sent in runs of this many characters
+# (one call each), so take-control is noticed between runs.
+PLAIN_RUN_CHARS = 8
 
 # Wheel scrolling: notches of 70-130 px, 25-70 ms apart.
 WHEEL_STEP = (70, 130)
@@ -69,6 +87,27 @@ _clock = time.monotonic  # replaceable in tests (the event loop keeps the real o
 
 def _rng(rng: Any) -> Any:
     return rng if rng is not None else _SYSTEM_RNG
+
+
+class FocusLost(Exception):
+    """Keyboard focus left the field while a long text was being typed.
+
+    ``typed`` = characters already sent. The message never contains text.
+    """
+
+    def __init__(self, typed: int) -> None:
+        super().__init__("the field lost keyboard focus")
+        self.typed = typed
+
+
+def ensure_control(tab: Any, typed: Optional[int] = None) -> None:
+    """Raise MINI_BROWSER_USER_IN_CONTROL once the user has taken control of
+    ``tab`` (agent input must stop right away). ``typed`` is recorded on the
+    error (characters typed so far) for the caller's report."""
+    if getattr(tab, "user_control", False):
+        error = MiniBrowserError("MINI_BROWSER_USER_IN_CONTROL")
+        error.typed = typed  # type: ignore[attr-defined]
+        raise error
 
 
 # ── pure helpers ────────────────────────────────────────────────────────────
@@ -184,6 +223,37 @@ def typing_delays(text: str, rng: Any = None) -> List[float]:
     return delays
 
 
+def fit_delays(delays: Sequence[float], budget: float = TYPING_BUDGET_S) -> List[float]:
+    """``delays`` scaled down (same rhythm) so they add up to at most ``budget``."""
+    total = sum(delays)
+    if total <= budget or total <= 0:
+        return list(delays)
+    factor = max(0.0, budget) / total
+    return [delay * factor for delay in delays]
+
+
+def typing_plan(text: str) -> List[Tuple[str, str]]:
+    """How ``text`` is entered: ``[("keys", part), ("insert", part), ...]``.
+
+    At most HUMAN_TYPED_LIMIT characters are keyed: a short text entirely,
+    a longer one as prefix (keys) + middle (inserted) + suffix (keys). The
+    number of keyed characters never decreases as the text gets longer, so
+    neither does the typing time.
+    """
+    if not text:
+        return []
+    if len(text) <= HUMAN_TYPED_LIMIT:
+        return [("keys", text)]
+    middle_end = len(text) - HUMAN_TYPED_SUFFIX
+    plan = [
+        ("keys", text[:HUMAN_TYPED_PREFIX]),
+        ("insert", text[HUMAN_TYPED_PREFIX:middle_end]),
+    ]
+    if HUMAN_TYPED_SUFFIX > 0:
+        plan.append(("keys", text[middle_end:]))
+    return [(mode, part) for mode, part in plan if part]
+
+
 def scroll_steps(total: float, rng: Any = None) -> List[int]:
     """Split a scroll of ``total`` px into wheel notches (same sign, exact sum)."""
     r = _rng(rng)
@@ -269,6 +339,7 @@ async def move_mouse(
     bounds = viewport_of(core, tab)
     x, y = _clamp_point(float(x), float(y), bounds)
     if not _setting(core, "humanlike", True):
+        ensure_control(tab)
         await page.mouse.move(x, y)
         tab.mouse_x, tab.mouse_y = x, y
         await publish(core, tab, x, y, "move")
@@ -286,6 +357,7 @@ async def move_mouse(
     path = bezier_path(start, (x, y), r, bounds=bounds)
     last_publish = float("-inf")
     for index, (px, py) in enumerate(path):
+        ensure_control(tab)
         await page.mouse.move(px, py)
         tab.mouse_x, tab.mouse_y = px, py
         now = _clock()
@@ -325,6 +397,8 @@ async def click_at(
     Hover pause, then down → short hold → up (twice for a double click).
     If the operation is cancelled while the button is held, the button is
     released away from the target, so a cancelled click never lands late.
+    Take-control is checked before every press, never between a press and
+    its release (that would leave the button held down).
     """
     page = tab.page
     r = _rng(rng)
@@ -333,6 +407,7 @@ async def click_at(
     if humanlike:
         await asyncio.sleep(r.uniform(*HOVER_PAUSE))
     for count in range(1, total + 1):
+        ensure_control(tab)
         held = True  # from the moment "down" is sent until "up" returns
         try:
             await page.mouse.down(button=button, click_count=count)
@@ -351,54 +426,92 @@ async def click_at(
     await publish(core, tab, x, y, "click")
 
 
-async def _insert(page: Any, text: str) -> None:
-    for start in range(0, len(text), INSERT_CHUNK):
-        await page.keyboard.insert_text(text[start : start + INSERT_CHUNK])
+async def type_text(
+    core: Any,
+    tab: Any,
+    text: str,
+    *,
+    rng: Any = None,
+    focus_check: Optional[Callable[[], Awaitable[bool]]] = None,
+) -> int:
+    """Type ``text`` into the focused element; returns the characters sent.
 
+    Human-like: key by key with a natural rhythm whose pauses are scaled to
+    fit TYPING_BUDGET_S. Texts longer than HUMAN_TYPED_LIMIT are typed as
+    prefix + inserted middle + suffix (see :func:`typing_plan`). Non-ASCII
+    text (Japanese, emoji, ...), newlines and tabs are always inserted, like
+    an IME commit.
 
-async def type_text(core: Any, tab: Any, text: str, *, rng: Any = None) -> None:
-    """Type ``text`` into the focused element.
-
-    Human-like: key by key with a natural rhythm. Texts longer than
-    HUMAN_TYPED_LIMIT get their first HUMAN_TYPED_PREFIX characters typed
-    and the rest inserted. Non-ASCII text (Japanese, emoji, ...), newlines
-    and tabs are always inserted, like an IME commit.
+    Stops with MINI_BROWSER_USER_IN_CONTROL (``exc.typed`` = characters sent)
+    once the user takes control. ``focus_check`` (optional) is awaited before
+    a long middle part is inserted; if it says the field lost focus,
+    :class:`FocusLost` is raised instead of inserting text elsewhere.
     """
     if not text:
-        return
+        return 0
     page = tab.page
     r = _rng(rng)
     humanlike = _setting(core, "humanlike", True)
-    if len(text) > HUMAN_TYPED_LIMIT:
-        typed, rest = text[:HUMAN_TYPED_PREFIX], text[HUMAN_TYPED_PREFIX:]
-    else:
-        typed, rest = text, ""
 
-    for keyed, run in split_runs(typed):
-        if not keyed:
-            await _insert(page, run)
-            if humanlike:
-                await asyncio.sleep(r.uniform(*TYPE_DELAY))
+    # ("key", char) | ("plain", run of keys) | ("insert", short non-ASCII
+    # run) | ("bulk", the long middle part)
+    steps: List[Tuple[str, str]] = []
+    for mode, part in typing_plan(text):
+        if mode == "insert":
+            steps.append(("bulk", part))
             continue
-        if not humanlike:
-            await page.keyboard.type(run)
-            continue
-        for char, delay in zip(run, typing_delays(run, r)):
-            await page.keyboard.type(char)
-            await asyncio.sleep(delay)
-    if rest:
-        await _insert(page, rest)
+        for keyed, run in split_runs(part):
+            if not keyed:
+                steps.append(("insert", run))
+            elif humanlike:
+                steps.extend(("key", char) for char in run)
+            else:
+                steps.extend(
+                    ("plain", run[start : start + PLAIN_RUN_CHARS])
+                    for start in range(0, len(run), PLAIN_RUN_CHARS)
+                )
+    pauses: List[float] = [0.0] * len(steps)
+    if humanlike:
+        keys = iter(typing_delays("".join(t for k, t in steps if k == "key"), r))
+        for index, (kind, _part) in enumerate(steps):
+            if kind == "key":
+                pauses[index] = next(keys, 0.0)
+            elif kind == "insert":
+                pauses[index] = r.uniform(*TYPE_DELAY)
+        pauses = fit_delays(pauses)
+
+    sent = 0
+    for (kind, part), pause in zip(steps, pauses):
+        if kind == "bulk" and focus_check is not None:
+            ensure_control(tab, sent)
+            if not await focus_check():
+                raise FocusLost(sent)
+        if kind in ("key", "plain"):
+            ensure_control(tab, sent)
+            await page.keyboard.type(part)
+            sent += len(part)
+        else:
+            for start in range(0, len(part), INSERT_CHUNK):
+                ensure_control(tab, sent)
+                chunk = part[start : start + INSERT_CHUNK]
+                await page.keyboard.insert_text(chunk)
+                sent += len(chunk)
+        if pause > 0:
+            await asyncio.sleep(pause)
+    return sent
 
 
 async def wheel(core: Any, tab: Any, delta_y: float, *, rng: Any = None) -> None:
     """Scroll with the mouse wheel at the current pointer position."""
     page = tab.page
     if not _setting(core, "humanlike", True):
+        ensure_control(tab)
         await page.mouse.wheel(0, float(delta_y))
         return
     r = _rng(rng)
     steps: Sequence[int] = scroll_steps(delta_y, r)
     for index, step in enumerate(steps):
+        ensure_control(tab)
         await page.mouse.wheel(0, step)
         if index < len(steps) - 1:
             await asyncio.sleep(r.uniform(*WHEEL_GAP))

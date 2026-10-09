@@ -49,6 +49,14 @@ async def _apply(fn, core):
     return fn(core)
 
 
+@pytest.fixture(autouse=True)
+def _fresh_lifecycle_records():
+    """Run states and Stops are recorded process-wide: start every test clean."""
+    lifecycle._reset_for_tests()
+    yield
+    lifecycle._reset_for_tests()
+
+
 # ═════════════════════════════════════════════════════════════════════════════
 # Pure tests (no browser)
 # ═════════════════════════════════════════════════════════════════════════════
@@ -220,10 +228,26 @@ def test_lifecycle_hooks_never_start_the_browser(monkeypatch):
     lifecycle.on_run_state("main", "running")
     lifecycle.release_owner("main")
     lifecycle.cancel_owner("main")
+    lifecycle.reload_settings()
     lifecycle.on_run_state("", "running")  # junk is ignored too
+    assert lifecycle.unavailable_reason() is None
     asyncio.run(lifecycle.shutdown(timeout=1.0))
-    assert host_module._host is None
     assert host_module.get_host_if_started() is None
+    # No thread was ever started, and the process-wide host stays closed
+    # for the rest of the exit: nothing can launch a browser any more ...
+    assert host_module._host is not None and not host_module._host.is_running()
+    assert host_module._host._thread is None
+    with pytest.raises(MiniBrowserError) as info:
+        host_module.get_host()
+    assert info.value.code == "MINI_BROWSER_NOT_RUNNING"
+    asyncio.run(lifecycle.shutdown(timeout=1.0))  # a second shutdown is a no-op
+    # ... until it is explicitly reopened.
+    host = host_module.restart_process_host()
+    host._factory = types.SimpleNamespace  # a stand-in core (no settings read)
+    try:
+        assert host_module.get_host() is host and host.is_running()
+    finally:
+        asyncio.run(host.shutdown(timeout=5))
 
 
 def test_host_runs_calls_on_its_own_thread_and_loop():
@@ -301,8 +325,10 @@ def test_host_runs_calls_on_its_own_thread_and_loop():
     finally:
         asyncio.run(host.shutdown(timeout=5))
     assert not host.is_running()
-    with pytest.raises(RuntimeError):
+    with pytest.raises(MiniBrowserError):
         host.submit(lambda core: core.bump(), start=False).result(timeout=1)
+    with pytest.raises(MiniBrowserError):  # shut down: never restarts by itself
+        host.submit(lambda core: core.bump()).result(timeout=1)
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -353,8 +379,13 @@ class Site:
                         "<title>CraftBot UI</title><script>document.title='UI RAN'</script>"
                     )
                 elif path == "/to-ui":
+                    # ?p=<port>&h=<host spelling> picks the redirect target.
+                    args = dict(
+                        part.split("=", 1) for part in query.split("&") if "=" in part
+                    )
+                    target = f"{args.get('h', 'localhost')}:{args.get('p', port)}"
                     self.send_response(302)
-                    self.send_header("Location", f"http://localhost:{port}/ui")
+                    self.send_header("Location", f"http://{target}/ui")
                     self.send_header("Content-Length", "0")
                     self.end_headers()
                 elif path == "/ads":
@@ -775,40 +806,113 @@ def test_two_owners_get_separate_tabs_and_pages(eng):
     assert listing["tabs"][a["tab"]["index"]]["id"] == a["tab"]["id"]
 
 
-def test_viewed_tab_claim_rule(eng):
-    user_tab = eng.call(lambda core: core.ui_new_tab())
+def _idle(eng, tab_id, seconds=60):
     eng.inspect(
         lambda core: setattr(
-            core.tabs[user_tab], "last_user_input", time.monotonic() - 60
+            core.tabs[tab_id], "last_user_input", time.monotonic() - seconds
         )
     )
+
+
+def test_viewed_tab_claim_rule(eng):
+    user_tab = eng.call(lambda core: core.ui_new_tab())
+    _idle(eng, user_tab)
     claimed = eng.op("claimer", "echo")
-    assert claimed["tab"]["id"] == user_tab  # an idle user tab in view is claimed
+    assert claimed["tab"]["id"] == user_tab  # a blank idle user tab in view is claimed
 
     busy_user_tab = eng.call(lambda core: core.ui_new_tab())  # the user is using it
     other = eng.op("other-agent", "echo")
     assert other["tab"]["id"] not in (user_tab, busy_user_tab)
     assert eng.tab(busy_user_tab).owner is None
 
-    # The claimer goes stale (10 min unused, not running): its tab, in view, is taken.
+    # Another agent's tab is never claimed, not even when its owner went
+    # stale (10 min unused, not running) and the user is looking at it.
     def go_stale(core):
         core.tabs[user_tab].last_agent_use = time.monotonic() - 601
 
     eng.inspect(go_stale)
     eng.call(lambda core: core.ui_switch_tab(user_tab))
-    eng.inspect(
-        lambda core: setattr(
-            core.tabs[user_tab], "last_user_input", time.monotonic() - 60
-        )
-    )
-    eng.inspect(lambda core: core.on_run_state("claimer", "running"))
-    blocked = eng.op("third-agent", "echo")
-    assert blocked["tab"]["id"] != user_tab  # a running owner keeps its tab
-    eng.inspect(lambda core: core.on_run_state("claimer", "idle"))
-    eng.call(lambda core: core.ui_switch_tab(user_tab))
+    _idle(eng, user_tab)
     taken = eng.op("fourth-agent", "echo")
-    assert taken["tab"]["id"] == user_tab
-    assert eng.op("claimer", "echo")["tab"]["id"] != user_tab
+    assert taken["tab"]["id"] != user_tab
+    assert eng.op("claimer", "echo")["tab"]["id"] == user_tab
+
+
+def test_a_viewed_user_page_is_claimed_only_by_the_mini_browser_chat(eng):
+    """TAB-1 / agent-effectiveness SEC-1: an agent does not take over the page
+    the user is reading; the dedicated Mini Browser chat (which the user is
+    talking to) does, and any agent may on an explicit switch."""
+    reading = eng.call(lambda core: core.ui_new_tab(eng.site.url("/page?t=Reading")))
+    eng.wait_until(
+        lambda core: core.tabs[reading].url.endswith("t=Reading"), what="user page"
+    )
+    _idle(eng, reading)
+    background = eng.op("background-chat", "echo")
+    assert background["tab"]["id"] != reading
+    assert eng.tab(reading).owner is None
+
+    # A switch to the viewed page is allowed (the user asked about "this page").
+    index = eng.inspect(lambda core: core._tab_index(core.tabs[reading]))
+    switched = eng.op("background-chat", "tabs", action="switch", tab=index)
+    assert switched["status"] == "success" and switched["tab"]["id"] == reading
+    eng.inspect(lambda core: core.release_owner("background-chat", close_tabs=False))
+
+    # The dedicated chat claims the page the user is viewing.
+    eng.call(lambda core: core.ui_switch_tab(reading))
+    _idle(eng, reading)
+    dedicated = eng.op(mini_browser_package.SESSION_ID, "echo")
+    assert dedicated["tab"]["id"] == reading
+    eng.inspect(lambda core: core.release_owner(mini_browser_package.SESSION_ID, False))
+
+    # A user page that is not viewed (and not blank) cannot be switched to.
+    eng.call(lambda core: core.ui_new_tab())
+    refused = eng.op("background-chat", "tabs", action="switch", tab=index)
+    assert refused["status"] == "error"
+    assert refused["error_code"] == "MINI_BROWSER_USER_TAB"
+    assert "tab" not in refused  # nothing of the user's tab leaks
+    # ... nor one the user is using right now.
+    eng.call(lambda core: core.ui_switch_tab(reading))
+    _idle(eng, reading, seconds=1)
+    busy = eng.op("background-chat", "tabs", action="switch", tab=index)
+    assert busy["error_code"] == "MINI_BROWSER_USER_IN_CONTROL"
+    assert eng.tab(reading).owner is None
+
+
+def test_agents_see_only_their_own_tabs_in_full(eng):
+    """agent-effectiveness SEC-1 (C4): other tabs carry no address or title."""
+    secret_url = eng.site.url("/page?t=Reset-token-8f3a9c1d")
+    user = eng.call(lambda core: core.ui_new_tab(secret_url))
+    eng.wait_until(
+        lambda core: core.tabs[user].title == "Reset-token-8f3a9c1d", what="user tab"
+    )
+    other = eng.op("tabs-other", "goto", url=eng.site.url("/page?t=Other-agent"))
+    mine = eng.op("tabs-me", "goto", url=eng.site.url("/page?t=Mine"))
+    listing = eng.op("tabs-me", "tabs", action="list")["tabs"]
+    assert "8f3a9c1d" not in str(listing) and "Other-agent" not in str(listing)
+    by_index = {t["index"]: t for t in listing}
+    me = by_index[mine["tab"]["index"]]
+    assert me == {
+        "index": mine["tab"]["index"],
+        "id": mine["tab"]["id"],
+        "url": eng.site.url("/page?t=Mine"),
+        "title": me["title"],
+        "mine": True,
+        "active": True,
+    }
+    assert by_index[other["tab"]["index"]] == {
+        "index": other["tab"]["index"],
+        "mine": False,
+        "owner": "agent",
+        "ownerLabel": "Chat",
+    }
+    user_index = eng.inspect(lambda core: core._tab_index(core.tabs[user]))
+    assert by_index[user_index] == {
+        "index": user_index,
+        "mine": False,
+        "owner": "user",
+        "host": "127.0.0.1",
+        "viewed": eng.inspect(lambda core: core.viewed_tab_id == user),
+    }
 
 
 def test_max_tabs_per_owner(eng):
@@ -830,7 +934,7 @@ def test_max_tabs_per_owner(eng):
     assert stranger["error_code"] == "MINI_BROWSER_TAB_OWNED"
     closed = eng.op("tabby", "tabs", action="close")
     assert closed["status"] == "success"
-    assert all(t["id"] != first["tab"]["id"] for t in closed["tabs"])
+    assert all(t.get("id") != first["tab"]["id"] for t in closed["tabs"])
     assert (
         eng.op("tabby", "tabs", action="switch", tab=99)["error_code"]
         == "MINI_BROWSER_TAB_NOT_FOUND"
@@ -989,14 +1093,27 @@ def test_dialogs_are_answered_and_reported(eng):
         what="dialog events",
     )
     messages = [e["message"] for e in eng.sink.of("event") if e["kind"] == "dialog"]
+    # Each notice says exactly what was answered automatically (DOC-1).
     assert any(
-        "alert" in m and "Hello there" in m and "accepted" in m for m in messages
+        "an alert" in m and "Hello there" in m and "closed it automatically" in m
+        for m in messages
     )
-    assert any("confirm" in m and "Delete it?" in m for m in messages)
-    assert any("prompt" in m and "dismissed" in m for m in messages)
+    assert any(
+        "confirmation" in m and "Delete it?" in m and "answered OK automatically" in m
+        for m in messages
+    )
+    assert any(
+        "Your name?" in m and "cancelled the prompt automatically" in m
+        for m in messages
+    )
+    assert not any(" a alert" in m for m in messages)
     later = eng.op("dialog-agent", "echo")
     agent_events = (result.get("events") or []) + (later.get("events") or [])
     assert sum(e["kind"] == "dialog" for e in agent_events) == 3
+    answers = {
+        e["dialog"]: e["accepted"] for e in agent_events if e["kind"] == "dialog"
+    }
+    assert answers == {"alert": True, "confirm": True, "prompt": False}
 
 
 def test_download_is_saved_into_the_owners_workspace(eng):
@@ -1034,7 +1151,7 @@ def test_download_is_saved_into_the_owners_workspace(eng):
 
 def test_popup_inherits_the_openers_owner(eng):
     opener = eng.op("pop-agent", "goto", url=eng.site.url("/links"))
-    eng.op("pop-agent", "click", selector="#pop")
+    clicked = eng.op("pop-agent", "click", selector="#pop")
     popup_id = eng.wait_until(
         lambda core: next(
             (
@@ -1055,7 +1172,17 @@ def test_popup_inherits_the_openers_owner(eng):
     after = eng.op("pop-agent", "echo")
     assert after["tab"]["id"] == popup_id  # the agent continues in the new tab
     assert after["url"].endswith("/page?t=Popup")
-    assert any(e["kind"] == "popup" for e in after["events"])
+    # The new active tab is announced exactly once: on the click's own result
+    # when the popup was registered in time, else first thing on the next one.
+    notices = [
+        e
+        for r in (clicked, after)
+        for e in (r.get("events") or [])
+        if e["kind"] == "popup"
+    ]
+    assert len(notices) == 1, (clicked, after)
+    announced = "A new tab opened (index"
+    assert (announced in clicked["message"]) != after["message"].startswith(announced)
     closed = eng.op("pop-agent", "tabs", action="close")
     assert closed["status"] == "success"
     assert (
@@ -1074,19 +1201,32 @@ def _blocked_events(eng, tab_id):
     ]
 
 
-def test_ui_origin_navigation_redirect_and_popup_are_blocked(eng):
+@pytest.fixture
+def ui_site():
+    """A second local server standing in for CraftBot's own UI."""
+    server = Site()
+    yield server
+    server.close()
+
+
+def _ui_hits(ui_site) -> int:
+    return sum(count for (_host, path), count in ui_site.hits.items() if path == "/ui")
+
+
+def test_ui_origin_navigation_redirect_and_popup_are_blocked(eng, ui_site):
     site = eng.site
-    bridge.set_ui_origins([f"localhost:{site.port}"])
+    bridge.set_ui_origins([f"localhost:{ui_site.port}"])
     try:
         eng.call(lambda core: core.refresh_network_rules())
-        before = site.hits[("localhost", "/ui")]
         with pytest.raises(MiniBrowserError) as info:
-            eng.call(lambda core: core.ui_navigate(None, f"localhost:{site.port}/ui"))
+            eng.call(
+                lambda core: core.ui_navigate(None, f"localhost:{ui_site.port}/ui")
+            )
         assert info.value.code == "MINI_BROWSER_BLOCKED_URL"
 
         # An agent (or a page) navigating there anyway: the request never
         # leaves Chromium, the tab shows an error page, a notice is raised.
-        agent = eng.op("ui-agent", "goto", url=site.url("/ui", host="localhost"))
+        agent = eng.op("ui-agent", "goto", url=ui_site.url("/ui", host="localhost"))
         assert agent["status"] == "error"
         tab_id = agent["tab"]["id"]
         eng.wait_until(lambda core: _blocked_events(eng, tab_id), what="blocked event")
@@ -1094,7 +1234,9 @@ def test_ui_origin_navigation_redirect_and_popup_are_blocked(eng):
             "chrome-error:"
         )
 
-        redirected = eng.op("ui-agent", "goto", url=site.url("/to-ui"))
+        redirected = eng.op(
+            "ui-agent", "goto", url=site.url(f"/to-ui?p={ui_site.port}")
+        )
         assert redirected["status"] == "error"
         assert site.hits[("127.0.0.1", "/to-ui")] >= 1
         # Chromium commits its error page a moment after a blocked request
@@ -1108,7 +1250,7 @@ def test_ui_origin_navigation_redirect_and_popup_are_blocked(eng):
         opened = eng.op(
             "ui-agent",
             "eval",
-            script=f"() => !!window.open('{site.url('/ui', 'localhost')}')",
+            script=f"() => !!window.open('{ui_site.url('/ui', 'localhost')}')",
         )
         assert opened["value"] is True, opened
         popup_id = eng.wait_until(
@@ -1125,7 +1267,7 @@ def test_ui_origin_navigation_redirect_and_popup_are_blocked(eng):
         eng.wait_until(
             lambda core: _blocked_events(eng, popup_id), what="popup blocked"
         )
-        assert site.hits[("localhost", "/ui")] == before  # the UI was never served
+        assert _ui_hits(ui_site) == 0  # the UI was never served
         assert len(_blocked_events(eng, tab_id)) == 2  # one notice per navigation
         eng.wait_until(
             lambda core: core.tabs[popup_id].page.url.startswith("chrome-error:"),
@@ -1133,6 +1275,46 @@ def test_ui_origin_navigation_redirect_and_popup_are_blocked(eng):
         )
         # Other ports / hosts stay reachable, in the popup tab too.
         fine = eng.op("ui-agent", "goto", url=site.url("/page?t=Fine"))
+        assert fine["status"] == "success", fine
+    finally:
+        bridge.set_ui_origins([])
+        eng.call(lambda core: core.refresh_network_rules())
+
+
+def test_ui_origin_is_blocked_under_every_loopback_spelling(eng, ui_site):
+    """security SEC-1: v4-mapped IPv6 and *.localhost reach the UI's listener,
+    so tabs(new), the URL bar and a page redirect must all refuse them."""
+    site = eng.site
+    bridge.set_ui_origins([f"localhost:{ui_site.port}"])
+    try:
+        eng.call(lambda core: core.refresh_network_rules())
+        for host in ("[::ffff:127.0.0.1]", "[::ffff:7f00:1]", "foo.localhost"):
+            url = f"http://{host}:{ui_site.port}/ui"
+            new = eng.op("spell-agent", "tabs", action="new", url=url)
+            assert new["error_code"] == "MINI_BROWSER_BLOCKED_URL", (host, new)
+            with pytest.raises(MiniBrowserError) as info:
+                eng.call(lambda core, u=url: core.ui_navigate(None, u))
+            assert info.value.code == "MINI_BROWSER_BLOCKED_URL"
+        # A page redirecting there: stopped browser-wide, never served.
+        for spelling in ("[::ffff:127.0.0.1]", "a.b.localhost"):
+            result = eng.op(
+                "spell-agent",
+                "goto",
+                url=site.url(f"/to-ui?p={ui_site.port}&h={spelling}"),
+            )
+            assert result["status"] == "error", (spelling, result)
+            tab_id = result["tab"]["id"]
+            eng.wait_until(
+                lambda core, t=tab_id: (
+                    core.tabs[t].page.url.startswith("chrome-error:")
+                    or core.tabs[t].page.url == "about:blank"
+                ),
+                what=f"{spelling} blocked",
+            )
+        time.sleep(0.5)
+        assert _ui_hits(ui_site) == 0
+        # The same server on its own (non-UI) port spelling stays reachable.
+        fine = eng.op("spell-agent", "goto", url=site.url("/page?t=Still-fine"))
         assert fine["status"] == "success", fine
     finally:
         bridge.set_ui_origins([])

@@ -110,10 +110,14 @@
   border: 0;
 }
 
-/* While an IME composes, show the text being composed beside the click. */
+/* While an IME composes, show the text being composed beside the click.
+   Never narrower than a few words (a sliver would wrap one character per
+   line) nor wider than the stage; the live view moves it in from the edges
+   so all of it stays visible. */
 .sinkComposing {
   opacity: 1;
   width: 16em;
+  min-width: min(8em, calc(100% - var(--space-4)));
   max-width: calc(100% - var(--space-4));
   height: auto;
   min-height: 1.4em;
@@ -135,7 +139,7 @@
   .sinkComposing {
     field-sizing: content;
     width: auto;
-    min-width: 3em;
+    min-width: min(8em, calc(100% - var(--space-4)));
   }
 }
 
@@ -300,6 +304,20 @@
 .pillButton:focus-visible {
   outline: 2px solid var(--border-hover);
   outline-offset: 1px;
+}
+
+/* "Take control" / "Hand back": the pill's call to action, so it reads at
+   a glance (inverted neutral colors, high contrast in both themes). */
+.pillButtonStrong {
+  color: var(--bg-primary);
+  background: var(--text-primary);
+  border-color: var(--text-primary);
+}
+
+.pillButtonStrong:hover {
+  color: var(--bg-primary);
+  background: var(--text-secondary);
+  border-color: var(--text-secondary);
 }
 
 /* Touch screens: an explicit way to bring up the on-screen keyboard (taps

@@ -159,6 +159,35 @@ def test_navigate_refuses_the_app_ui_and_unsafe_schemes(browser, site):
     assert url == "about:blank"
 
 
+def test_ui_origin_check_matches_every_loopback_spelling_on_its_port_only():
+    """Same loopback equivalence as urls.is_ui_origin (security SEC-1): an
+    IPv4-mapped IPv6 or *.localhost spelling of the UI is still the UI, while
+    other local ports (Agent Apps, the user's dev servers) stay open."""
+    port = 7925
+    core = FakeCore(ui_origins={f"127.0.0.1:{port}", f"localhost:{port}"})
+    for host in (
+        "[::ffff:127.0.0.1]",
+        "[::ffff:7f00:1]",
+        "[0:0:0:0:0:ffff:7f00:1]",
+        "foo.localhost",
+        "a.b.localhost",
+        "LOCALHOST.",
+        "[::1]",
+        "127.0.0.2",
+        "0.0.0.0",
+    ):
+        with pytest.raises(MiniBrowserError) as info:
+            ops.check_url_allowed(core, f"http://{host}:{port}/settings")
+        assert info.value.fields["reason"] == "it is CraftBot's own interface", host
+    for url in (
+        f"http://localhost:{port + 1}/",
+        f"http://foo.localhost:{port + 1}/",
+        f"http://[::ffff:127.0.0.1]:{port + 1}/",
+        f"http://example.com:{port}/",
+    ):
+        ops.check_url_allowed(core, url)  # not the UI: allowed
+
+
 def _closed_port():
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
@@ -615,9 +644,12 @@ def test_wait_for_text_seconds_and_settle(browser):
     assert settled["message"] == "Waited for the page to settle."
 
 
-def test_wait_for_user_returns_when_control_is_handed_back(browser):
+def test_wait_for_user_returns_when_control_is_handed_back(browser, monkeypatch):
+    monkeypatch.setattr(ops, "FOR_USER_POLL_S", 0.05)
+
     async def scenario(core, tab):
-        idle = await ops.wait(core, tab, for_user=True, timeout_ms=5000)
+        # Nobody takes control: the agent is told to ask the user in chat.
+        untouched = await ops.wait(core, tab, for_user=True, timeout_ms=1000)
         tab.user_control = True
 
         async def hand_back():
@@ -631,11 +663,16 @@ def test_wait_for_user_returns_when_control_is_handed_back(browser):
         timeout = await expect_error(
             ops.wait(core, tab, for_user=True, timeout_ms=1000), "MINI_BROWSER_TIMEOUT"
         )
-        return idle, handed, timeout
+        return untouched, handed, timeout
 
-    idle, handed, timeout = run(browser, "<p>x</p>", scenario)
-    assert "not controlling" in idle["message"]
-    assert handed["message"] == "The user handed control back."
+    untouched, handed, timeout = run(browser, "<p>x</p>", scenario)
+    assert untouched["status"] == "error"
+    assert untouched["error_code"] == "MINI_BROWSER_TIMEOUT"
+    assert "did not take control" in untouched["message"]
+    assert "ask them in chat" in untouched["message"].lower()
+    assert "page" in untouched
+    assert handed["status"] == "success"
+    assert handed["message"].startswith("The user handed control back.")
     assert "hand back control" in timeout.fields["what"]
 
 
@@ -900,7 +937,9 @@ def test_login_happy_path_never_types_into_the_search_box(
     result, query, secrets = run(browser, login_site.url("/login"), scenario, core=core)
     assert result["status"] == "success", result
     assert result["outcome"] == "signed_in"
-    assert result["username"] == USER and result["site"] == "127.0.0.1"
+    # The result names the page's own host (where the password was typed).
+    assert result["username"] == USER
+    assert result["site"] == f"127.0.0.1:{login_site.port}"
     assert result["other_usernames"] == ["bob@example.com"]
     assert result["page"]["url"] == login_site.url("/home")
     assert query == ""  # the header search box stayed empty
@@ -1057,7 +1096,7 @@ def test_login_refusals(browser, login_site):
 
     core = FakeCore(vault=FakeVault([], hosts={"127.0.0.1"}))
     out = run(browser, login_site.url("/login"), scenario, core=core)
-    assert out["no_saved"].fields["site"] == "127.0.0.1"
+    assert out["no_saved"].fields["site"] == f"127.0.0.1:{login_site.port}"
     assert out["signup"].fields["detail"] == login.MSG_SIGNUP_FORM
     assert out["plain"].fields["detail"] == login.MSG_NO_FORM
     assert out["blank"].fields["detail"] == login.MSG_NOT_WEB

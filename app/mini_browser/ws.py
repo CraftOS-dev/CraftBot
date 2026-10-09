@@ -11,7 +11,12 @@ or on the password vault. A handler never raises: an unhandled error would
 be broadcast into every tab's main chat, so each failure is answered to the
 requesting socket only, as ``{code, title, message}``. Page loads, history
 moves, new tabs and explicit starts run as background tasks, so a slow site
-never blocks the socket's message lane. Replies (``{type, data}``):
+never blocks the socket's message lane. Live-view input is queued per socket
+and applied in order by one drain task; while the page lags, mouse moves
+coalesce (latest wins) and wheel steps add up, so a hung page never builds a
+backlog in front of the user's keystrokes, and closing the browser or taking
+and handing back control (their own lanes) never wait behind it. Replies
+(``{type, data}``):
 
 - ``mini_browser_navigate`` -> ``mini_browser_nav_result {ok, error?}``
 - ``mini_browser_copy`` -> ``mini_browser_clipboard {text}``
@@ -47,7 +52,18 @@ import functools
 import json
 import math
 import threading
-from typing import Any, Awaitable, Callable, Dict, List, Optional, Sequence, Tuple
+from collections import deque
+from typing import (
+    Any,
+    Awaitable,
+    Callable,
+    Deque,
+    Dict,
+    List,
+    Optional,
+    Sequence,
+    Tuple,
+)
 
 from app.logger import logger
 from app.mini_browser import ACTION_SET, SESSION_ID, SESSION_TITLE, SKILL_NAME
@@ -81,6 +97,14 @@ _MODIFIER_KEYS = ("shift", "ctrl", "alt", "meta")
 # High-rate input whose failures are not worth a toast each (the next one
 # follows within milliseconds); clicks, keys and pastes always report.
 _CONTINUOUS_INPUT = frozenset({("mouse", "move"), ("wheel", None)})
+# Live input waiting for the browser, per socket (see _InputQueue). The cap
+# only matters for a page that stopped responding: continuous input is
+# coalesced, so only clicks, keys and pastes can pile up.
+_MAX_QUEUED_INPUT = 256
+# How long copying a selection, or handing a tab back, waits for that tab's
+# queued input to be applied first.
+_INPUT_SETTLE_S = 2.0
+_INPUT_SETTLE_POLL_S = 0.01
 
 _VIEWPORT_WIDTH = (320, 3840)
 _VIEWPORT_HEIGHT = (240, 2160)
@@ -599,6 +623,71 @@ async def _in_daemon_thread(fn: Callable[..., Any], *args: Any) -> Any:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Live input queue
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class _InputQueue:
+    """One socket's live input that has not reached the browser yet.
+
+    Events are applied one at a time, in arrival order, by a single drain
+    task. While the page lags behind, continuous input is coalesced at the
+    tail (see :func:`_coalesce`), so a slow or hung page costs a few queued
+    events instead of a backlog of hover moves that would hold up keystrokes.
+    """
+
+    __slots__ = ("items", "task", "current", "overflowed")
+
+    def __init__(self) -> None:
+        self.items: Deque[Tuple[str, Dict[str, Any]]] = deque()
+        self.task: Optional[asyncio.Task] = None
+        self.current: Optional[str] = None  # tab of the event being applied
+        self.overflowed = False
+
+    def pending_for(self, tab_id: str) -> bool:
+        """Whether input for ``tab_id`` is queued or being applied."""
+        return self.current == tab_id or any(tab == tab_id for tab, _ in self.items)
+
+    def drop_tab(self, tab_id: str) -> int:
+        """Forget the queued (not yet applied) input of ``tab_id``."""
+        kept = [(tab, event) for tab, event in self.items if tab != tab_id]
+        dropped = len(self.items) - len(kept)
+        if dropped:
+            self.items = deque(kept)
+        return dropped
+
+
+def _coalesce(
+    items: Deque[Tuple[str, Dict[str, Any]]], tab_id: str, event: Dict[str, Any]
+) -> bool:
+    """Merge ``event`` into the newest queued event if both are continuous
+    input of the same kind on the same tab: a move replaces the queued move
+    (only where the pointer ends up matters), a wheel step adds its deltas to
+    the queued one (scroll distance is never lost). Never reaches past the
+    newest event, so nothing is reordered around a click, key or paste.
+    Returns whether it was merged.
+    """
+    if not items:
+        return False
+    last_tab, last = items[-1]
+    if last_tab != tab_id or last["kind"] != event["kind"]:
+        return False
+    if event["kind"] == "mouse":
+        if event["action"] != "move" or last["action"] != "move":
+            return False
+        items[-1] = (tab_id, event)
+        return True
+    if event["kind"] == "wheel":
+        dx = last["dx"] + event["dx"]
+        dy = last["dy"] + event["dy"]
+        if abs(dx) > _MAX_WHEEL_DELTA or abs(dy) > _MAX_WHEEL_DELTA:
+            return False
+        items[-1] = (tab_id, {**event, "dx": dx, "dy": dy})
+        return True
+    return False
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # The handler
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -622,6 +711,8 @@ class MiniBrowserWS:
         self._frame_scheduled = False
         self._tasks: set = set()
         self._installing = False
+        # Live input per socket, waiting for the browser (UI loop only).
+        self._input_queues: Dict[Any, _InputQueue] = {}
 
     # ── lifecycle (called by the adapter) ────────────────────────────────────
 
@@ -648,6 +739,7 @@ class MiniBrowserWS:
             self._frame_scheduled = False
         self._viewers.clear()
         self._viewer_count = 0
+        self._input_queues.clear()
         tasks = [task for task in self._tasks if not task.done()]
         for task in tasks:
             task.cancel()
@@ -666,8 +758,12 @@ class MiniBrowserWS:
             logger.warning(f"[MINI_BROWSER] Browser shutdown failed: {first_line(e)}")
 
     def forget(self, ws: Any) -> None:
-        """A socket closed: it is no longer a viewer. Never raises."""
+        """A socket closed: it is no longer a viewer, and its input that has
+        not reached the browser yet is dropped. Never raises."""
         try:
+            queue = self._input_queues.pop(ws, None)
+            if queue is not None:
+                queue.items.clear()
             self._drop_viewer(ws)
         except Exception as e:
             logger.debug(f"[MINI_BROWSER] forget failed: {first_line(e)}")
@@ -969,7 +1065,7 @@ class MiniBrowserWS:
 
     def _spawn(
         self, make: Callable[[], Awaitable[Any]], *, clean: bool = False
-    ) -> None:
+    ) -> asyncio.Task:
         """Run ``make()`` as a tracked task (``clean``: in an empty context)."""
         loop = asyncio.get_running_loop()
         if clean:
@@ -978,6 +1074,7 @@ class MiniBrowserWS:
             task = loop.create_task(make())
         self._tasks.add(task)
         task.add_done_callback(self._task_done)
+        return task
 
     def _task_done(self, task: asyncio.Task) -> None:
         self._tasks.discard(task)
@@ -1083,6 +1180,9 @@ class MiniBrowserWS:
 
     async def _handle_shutdown(self, ws: Any, data: Dict[str, Any]) -> None:
         host = _host_if_started()
+        # Input still on its way to the closing browser has nowhere to go.
+        for queue in self._input_queues.values():
+            queue.items.clear()
         try:
             if host is not None:
                 await host.call(lambda core: core.close())
@@ -1173,24 +1273,103 @@ class MiniBrowserWS:
             await self._running_host().call(lambda core: core.ui_switch_tab(tab_id))
         elif action == "close":
             tab_id = _short_id(data.get("tabId"), "tabId", required=True)
-            await self._running_host().call(lambda core: core.ui_close_tab(tab_id))
+            host = self._running_host()
+            # Input queued for a tab that is closing would only fail.
+            for queue in self._input_queues.values():
+                queue.drop_tab(tab_id)
+            await host.call(lambda core: core.ui_close_tab(tab_id))
         else:
             raise _invalid("action must be new, switch or close.")
 
     async def _handle_input(self, ws: Any, data: Dict[str, Any]) -> None:
+        """Validate one live-view event and queue it for the browser.
+
+        Returns as soon as it is queued: the socket's drain task applies the
+        events in order (see _InputQueue), so a lagging page never holds up
+        this lane, and its moves and wheel steps are coalesced meanwhile.
+        """
         event = _input_event(data.get("event"))
         if event is None:
             return  # an unknown kind of input is ignored
         tab_id = _short_id(data.get("tabId"), "tabId", required=True)
-        host = _host_if_started()
-        if host is None:
+        if _host_if_started() is None:
             return  # no browser to type into
+        self._queue_input(ws, tab_id, event)
+
+    def _queue_input(self, ws: Any, tab_id: str, event: Dict[str, Any]) -> None:
+        queue = self._input_queues.get(ws)
+        if queue is None:
+            queue = self._input_queues[ws] = _InputQueue()
+        if not _coalesce(queue.items, tab_id, event):
+            if len(queue.items) >= _MAX_QUEUED_INPUT:
+                # The page stopped taking input; tell the user once per backlog.
+                if not queue.overflowed:
+                    queue.overflowed = True
+                    logger.warning(
+                        "[MINI_BROWSER] Live input backlog is full; dropping input "
+                        "until the page catches up"
+                    )
+                    self._reply_error(
+                        ws,
+                        "mini_browser_input",
+                        _error_reply("MINI_BROWSER_PAGE_UNRESPONSIVE"),
+                    )
+                return
+            queue.items.append((tab_id, event))
+        if queue.task is None or queue.task.done():
+            queue.task = self._spawn(lambda: self._drain_input(ws, queue), clean=True)
+
+    async def _drain_input(self, ws: Any, queue: _InputQueue) -> None:
+        """Apply a socket's queued input one event at a time, in order."""
+        while queue.items and self._input_queues.get(ws) is queue:
+            tab_id, event = queue.items.popleft()
+            host = _host_if_started()
+            if host is None:
+                queue.items.clear()  # the browser host is gone
+                return
+            queue.current = tab_id
+            try:
+                await self._guarded(
+                    ws,
+                    "mini_browser_input",
+                    {"event": event},  # its text is scrubbed from any error
+                    lambda: self._apply_input(host, tab_id, event),
+                )
+            finally:
+                queue.current = None
+            if len(queue.items) <= _MAX_QUEUED_INPUT // 2:
+                queue.overflowed = False
+
+    @staticmethod
+    async def _apply_input(host: Any, tab_id: str, event: Dict[str, Any]) -> None:
         try:
             await host.call(lambda core: core.ui_input(tab_id, event))
         except MiniBrowserError as e:
             if (event["kind"], event.get("action")) not in _CONTINUOUS_INPUT:
                 raise
             logger.debug(f"[MINI_BROWSER] {event['kind']} input dropped: {e.code}")
+
+    async def _settle_input(self, ws: Any, tab_id: str, *, drop_late: bool) -> None:
+        """Wait (at most _INPUT_SETTLE_S) until the input ``ws`` queued for
+        ``tab_id`` has been applied, so a request that must follow it (copy
+        the selection it made, hand the tab back) does. ``drop_late``: input
+        still queued after that is dropped, never applied afterwards."""
+        queue = self._input_queues.get(ws)
+        if queue is None:
+            return
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + _INPUT_SETTLE_S
+        while queue.pending_for(tab_id) and self._input_queues.get(ws) is queue:
+            if loop.time() >= deadline:
+                if drop_late:
+                    dropped = queue.drop_tab(tab_id)
+                    if dropped:
+                        logger.info(
+                            f"[MINI_BROWSER] Dropped {dropped} input event(s) the "
+                            "page did not take in time"
+                        )
+                return
+            await asyncio.sleep(_INPUT_SETTLE_POLL_S)
 
     async def _handle_resize(self, ws: Any, data: Dict[str, Any]) -> None:
         width = _int_in(data.get("width"), "width", _VIEWPORT_WIDTH)
@@ -1211,7 +1390,13 @@ class MiniBrowserWS:
     async def _handle_control(self, ws: Any, data: Dict[str, Any]) -> None:
         tab_id = _short_id(data.get("tabId"), "tabId", required=True)
         take = _flag(data.get("take"), "take")
-        await self._running_host().call(lambda core: core.ui_control(tab_id, take))
+        host = self._running_host()
+        if not take:
+            # Control runs in its own lane: let the user's last keystrokes and
+            # clicks land before the agent gets the tab back (otherwise they
+            # would arrive afterwards and take control again).
+            await self._settle_input(ws, tab_id, drop_late=True)
+        await host.call(lambda core: core.ui_control(tab_id, take))
 
     async def _handle_adblock(self, ws: Any, data: Dict[str, Any]) -> None:
         enabled = data.get("enabled")
@@ -1228,9 +1413,10 @@ class MiniBrowserWS:
 
     async def _handle_copy(self, ws: Any, data: Dict[str, Any]) -> None:
         tab_id = _short_id(data.get("tabId"), "tabId", required=True)
-        text = await self._running_host().call(
-            lambda core: _copy_selection(core, tab_id)
-        )
+        host = self._running_host()
+        # The selection may come from input still on its way (a drag, Ctrl+A).
+        await self._settle_input(ws, tab_id, drop_late=False)
+        text = await host.call(lambda core: _copy_selection(core, tab_id))
         self._send(ws, "mini_browser_clipboard", {"text": text})
 
     # ── handlers: password vault (replies to the requester only) ────────────

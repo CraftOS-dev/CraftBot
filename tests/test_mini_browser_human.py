@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.mini_browser import human
+from app.mini_browser.errors import MiniBrowserError
 from app.mini_browser.types import Tab
 
 
@@ -249,21 +250,174 @@ def test_type_text_types_ascii_and_inserts_ime_text(fast):
     ]
 
 
-def test_type_text_long_text_types_a_prefix_then_inserts_the_rest(fast):
+def test_type_text_long_text_types_a_prefix_inserts_the_middle_and_types_the_end(
+    fast,
+):
     core, _ = _core()
     tab = _tab()
-    text = "x" * 3000
-    asyncio.run(human.type_text(core, tab, text))
+    text = "".join(chr(ord("a") + i % 26) for i in range(3000))
+    sent = asyncio.run(human.type_text(core, tab, text))
     calls = tab.page.keyboard.calls
-    typed = [args[0] for name, args, _k in calls if name == "type"]
-    inserted = "".join(args[0] for name, args, _k in calls if name == "insert_text")
-    assert len(typed) == human.HUMAN_TYPED_PREFIX
-    assert "".join(typed) + inserted == text
+    assert sent == len(text)
+    # Reassembled in order: keys, inserted chunks, keys again.
+    assert "".join(args[0] for _n, args, _k in calls) == text
+    kinds = [name for name, _a, _k in calls]
+    prefix, suffix = human.HUMAN_TYPED_PREFIX, human.HUMAN_TYPED_SUFFIX
+    assert kinds[:prefix] == ["type"] * prefix
+    assert kinds[-suffix:] == ["type"] * suffix
+    assert set(kinds[prefix:-suffix]) == {"insert_text"}
+    assert kinds.count("type") == human.HUMAN_TYPED_LIMIT
     assert all(
         len(args[0]) <= human.INSERT_CHUNK
         for n, args, _k in calls
         if n == "insert_text"
     )
+
+
+def test_typing_plan_never_keys_more_than_the_limit():
+    assert human.typing_plan("") == []
+    assert human.typing_plan("abc") == [("keys", "abc")]
+    exactly = "y" * human.HUMAN_TYPED_LIMIT
+    assert human.typing_plan(exactly) == [("keys", exactly)]
+    for length in (41, 120, 121, 300, 5000):
+        text = "z" * length
+        plan = human.typing_plan(text)
+        assert "".join(part for _mode, part in plan) == text
+        keyed = sum(len(part) for mode, part in plan if mode == "keys")
+        assert keyed == human.HUMAN_TYPED_LIMIT
+
+
+def _typing_seconds(monkeypatch, length):
+    """Total pause time of human typing for a text of ``length`` characters."""
+    slept = []
+
+    async def fake_sleep(seconds):
+        slept.append(seconds)
+
+    core, _ = _core()
+    tab = _tab()
+    with monkeypatch.context() as patch:
+        patch.setattr(human.asyncio, "sleep", fake_sleep)
+        asyncio.run(human.type_text(core, tab, "x" * length, rng=random.Random(7)))
+    keys = sum(1 for name, _a, _k in tab.page.keyboard.calls if name == "type")
+    return sum(slept), keys
+
+
+def test_typing_time_grows_with_the_length_and_stays_within_budget(monkeypatch):
+    # PERF-2: 120 characters used to take ~13 s and 121 only ~5 s.
+    lengths = (5, 20, 40, 41, 80, 120, 121, 300, 3000)
+    timings = [_typing_seconds(monkeypatch, n) for n in lengths]
+    seconds = [t for t, _keys in timings]
+    for shorter, longer in zip(seconds, seconds[1:]):
+        assert longer >= shorter - 1e-9, seconds
+    assert max(seconds) <= human.TYPING_BUDGET_S + 1e-6
+    assert all(keys <= human.HUMAN_TYPED_LIMIT for _t, keys in timings)
+
+
+def test_fit_delays_keeps_the_rhythm_within_the_budget():
+    assert human.fit_delays([0.1, 0.2], budget=1.0) == [0.1, 0.2]
+    scaled = human.fit_delays([1.0, 3.0], budget=2.0)
+    assert scaled == pytest.approx([0.5, 1.5])
+
+
+# ── take control: agent input stops at once ─────────────────────────────────
+
+
+class _TakeOver(_Recorder):
+    """A page input recorder: the user takes control after ``after`` calls."""
+
+    def __init__(self, tab_box, after, names=None):
+        super().__init__()
+        self._box = tab_box
+        self._after = after
+        self._names = names
+
+    def __getattr__(self, name):
+        async def method(*args, **kwargs):
+            self.calls.append((name, args, kwargs))
+            counted = [
+                c for c in self.calls if self._names is None or c[0] in self._names
+            ]
+            if len(counted) >= self._after:
+                self._box[0].user_control = True
+
+        return method
+
+
+def _takeover_tab(*, mouse_after=None, keys_after=None, names=None):
+    box = [None]
+    page = SimpleNamespace(
+        mouse=_TakeOver(box, mouse_after, names) if mouse_after else _Recorder(),
+        keyboard=_TakeOver(box, keys_after, names) if keys_after else _Recorder(),
+        viewport_size={"width": 1280, "height": 800},
+    )
+    tab = Tab(id="t1", page=page, owner="sess")
+    box[0] = tab
+    return tab
+
+
+def _user_in_control(coro):
+    with pytest.raises(MiniBrowserError) as info:
+        asyncio.run(coro)
+    assert info.value.code == "MINI_BROWSER_USER_IN_CONTROL"
+    return info.value
+
+
+def test_mouse_path_stops_when_the_user_takes_control(fast):
+    core, _ = _core()
+    tab = _takeover_tab(mouse_after=3)
+    tab.mouse_x, tab.mouse_y = 0.0, 0.0
+    _user_in_control(human.move_mouse(core, tab, 1200, 700, rng=random.Random(1)))
+    assert len(tab.page.mouse.calls) == 3  # not the other ~30 steps
+
+
+def test_no_press_after_the_user_took_control(fast):
+    core, _ = _core()
+    tab = _tab()
+    tab.user_control = True
+    _user_in_control(human.click_at(core, tab, 10, 10))
+    assert tab.page.mouse.calls == []
+
+    # Taken while the button is held: the click is completed (never left
+    # pressed), but the second click of a double click is not sent.
+    tab = _takeover_tab(mouse_after=1, names={"down"})
+    _user_in_control(human.click_at(core, tab, 10, 10, click_count=2))
+    assert [c[0] for c in tab.page.mouse.calls] == ["down", "up"]
+
+
+def test_typing_stops_when_the_user_takes_control_and_reports_progress(fast):
+    core, _ = _core()
+    tab = _takeover_tab(keys_after=5)
+    error = _user_in_control(human.type_text(core, tab, "The quick brown fox jumps"))
+    assert error.typed == 5
+    assert "".join(a[0] for _n, a, _k in tab.page.keyboard.calls) == "The q"
+
+    core, _ = _core(humanlike=False)
+    tab = _takeover_tab(keys_after=1)
+    error = _user_in_control(human.type_text(core, tab, "x" * 30))
+    assert error.typed == human.PLAIN_RUN_CHARS
+    assert len(tab.page.keyboard.calls) == 1
+
+
+def test_wheel_stops_when_the_user_takes_control(fast):
+    core, _ = _core()
+    tab = _takeover_tab(mouse_after=2)
+    _user_in_control(human.wheel(core, tab, 2000, rng=random.Random(3)))
+    assert len(tab.page.mouse.calls) == 2
+
+
+def test_long_text_is_not_inserted_once_the_field_lost_focus(fast):
+    core, _ = _core()
+    tab = _tab()
+
+    async def focus_lost():
+        return False
+
+    with pytest.raises(human.FocusLost) as info:
+        asyncio.run(human.type_text(core, tab, "y" * 500, focus_check=focus_lost))
+    assert info.value.typed == human.HUMAN_TYPED_PREFIX
+    assert "insert_text" not in [n for n, _a, _k in tab.page.keyboard.calls]
+    assert "y" * 500 not in str(info.value)
 
 
 def test_type_text_without_humanlike_types_runs_in_one_call():

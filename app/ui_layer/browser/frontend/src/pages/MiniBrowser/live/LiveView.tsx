@@ -1,8 +1,19 @@
-import { forwardRef, useCallback, useEffect, useId, useImperativeHandle, useRef, useState } from 'react'
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useId,
+  useImperativeHandle,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react'
 import { useTranslation } from 'react-i18next'
+import { useStore } from 'react-redux'
 import { AlertTriangle, Bot, Hand, Keyboard, Loader2, Plus, RotateCw } from 'lucide-react'
 import { Button } from '../../../components/ui'
 import { useToast } from '../../../contexts/ToastContext'
+import type { RootState } from '../../../store'
 import type { MiniBrowserTab } from '../../../types'
 import { useLatest } from '../useLatest'
 import { useAgentCursor } from './useAgentCursor'
@@ -11,6 +22,9 @@ import { useKeyboardSink } from './useKeyboardSink'
 import { useLiveInput } from './useLiveInput'
 import { usePointerInput } from './usePointerInput'
 import styles from './LiveView.module.css'
+
+// Room kept between the IME's draft box and the stage's edges.
+const SINK_MARGIN_PX = 8
 
 export interface LiveViewHandle {
   /** Give the page the keyboard. */
@@ -51,6 +65,8 @@ export const LiveView = forwardRef<LiveViewHandle, LiveViewProps>(function LiveV
   const { t } = useTranslation(['minibrowser', 'common'])
   const { showToast } = useToast()
   const hintId = useId()
+  const takeControlHintId = useId()
+  const handBackHintId = useId()
 
   const stageRef = useRef<HTMLDivElement>(null)
   const imgRef = useRef<HTMLImageElement>(null)
@@ -65,7 +81,15 @@ export const LiveView = forwardRef<LiveViewHandle, LiveViewProps>(function LiveV
   const latest = useLatest(props)
   const tabId = tab?.id ?? null
 
-  const input = useLiveInput(latest)
+  // Whether a tab is still open, from the store: it is already current while
+  // React commits a tab switch, when `latest` still holds the old props.
+  const store = useStore<RootState>()
+  const isTabOpen = useCallback((id: string): boolean => {
+    const open = store.getState().miniBrowser.tabs.entities[id]
+    return !!open && !open.crashed
+  }, [store])
+
+  const input = useLiveInput(latest, isTabOpen)
   const { hasFrame, shownFrameRef, onFrameLoad } = useFramePainter(imgRef, tabId, tabIdsKey)
   useAgentCursor({ stage: stageRef, img: imgRef, cursor: cursorRef, ripple: rippleRef }, tabId, showCursor, styles.cursorVisible)
 
@@ -74,18 +98,36 @@ export const LiveView = forwardRef<LiveViewHandle, LiveViewProps>(function LiveV
     sinkRef.current?.focus({ preventScroll: true })
   }, [latest])
 
-  // Focus the sink where the user clicked, so an IME's candidate window
-  // opens next to the page's field rather than in a corner.
-  const focusAt = useCallback((clientX: number, clientY: number) => {
+  // Where the user last clicked, in stage px: the sink sits there so an
+  // IME's candidate window opens next to the page's field, not in a corner.
+  const anchorRef = useRef({ x: 0, y: 0 })
+
+  // Put the sink at the click point, moved in just enough that all of it
+  // (an IME's draft box can be wide) stays on the stage.
+  const placeSink = useCallback(() => {
     const stage = stageRef.current
     const sink = sinkRef.current
-    if (stage && sink) {
+    if (!stage || !sink) return
+    const { x, y } = anchorRef.current
+    // Measured in the corner, where nothing squeezes it: near the right
+    // edge an absolutely placed box would shrink (and wrap) to fit.
+    sink.style.left = '0px'
+    sink.style.top = '0px'
+    const maxLeft = Math.max(SINK_MARGIN_PX, stage.clientWidth - sink.offsetWidth - SINK_MARGIN_PX)
+    const maxTop = Math.max(0, stage.clientHeight - sink.offsetHeight - SINK_MARGIN_PX)
+    sink.style.left = `${Math.round(Math.max(0, Math.min(x, maxLeft)))}px`
+    sink.style.top = `${Math.round(Math.max(0, Math.min(y, maxTop)))}px`
+  }, [])
+
+  const focusAt = useCallback((clientX: number, clientY: number) => {
+    const stage = stageRef.current
+    if (stage) {
       const box = stage.getBoundingClientRect()
-      sink.style.left = `${Math.round(Math.max(0, Math.min(clientX - box.left, box.width - 24)))}px`
-      sink.style.top = `${Math.round(Math.max(0, Math.min(clientY - box.top, box.height - 32)))}px`
+      anchorRef.current = { x: clientX - box.left, y: clientY - box.top }
+      placeSink()
     }
     focusSink()
-  }, [focusSink])
+  }, [focusSink, placeSink])
 
   useImperativeHandle(ref, () => ({ focus: focusSink }), [focusSink])
 
@@ -102,17 +144,36 @@ export const LiveView = forwardRef<LiveViewHandle, LiveViewProps>(function LiveV
     input,
     target: latest,
     composingClass: styles.sinkComposing,
+    placeSink,
     onPasteTruncated,
     onCopyFailed,
   })
+  const leaveKeyboardRef = useLatest(keyboard.leave)
 
-  // Keystrokes must never follow the view to another tab, nor vanish while
-  // they can't be delivered: switching tabs (e.g. following an agent),
-  // disconnecting, or leaving the ready state releases the keyboard.
+  // Input never follows the view to another tab. When the tab on screen
+  // changes (following an agent, another window, a closed tab), the old tab
+  // is let go of before any further input can arrive: the keyboard is
+  // released, typed text and an IME's draft go to the tab they were typed
+  // for, and a held mouse button is released there (pending input is bound
+  // to its tab, see useLiveInput). This runs in the commit's layout phase —
+  // after React restores the focus it saved for the commit (a blur in a
+  // layout cleanup would be undone) and before the browser handles another
+  // event (a passive effect would let a keystroke reach the new tab first).
+  const shownTabRef = useRef(tabId)
+  useLayoutEffect(() => {
+    const previous = shownTabRef.current
+    shownTabRef.current = tabId
+    if (previous === tabId) return
+    leaveKeyboardRef.current(previous)
+    input.leaveTab()
+  }, [tabId, input, leaveKeyboardRef])
+
+  // Nor do keystrokes queue up while they can't be delivered: disconnecting
+  // or leaving the ready state releases the keyboard.
   useEffect(() => {
     const sink = sinkRef.current
     if (sink && document.activeElement === sink) sink.blur()
-  }, [tabId, connected, active])
+  }, [connected, active])
 
   const agentWorking = !!tab && tab.busy && tab.ownerKind !== 'user' && !tab.userControl
   const inControl = !!tab && tab.userControl
@@ -154,7 +215,7 @@ export const LiveView = forwardRef<LiveViewHandle, LiveViewProps>(function LiveV
           data-1p-ignore=""
           data-lpignore="true"
           rows={1}
-          {...keyboard}
+          {...keyboard.handlers}
         />
         <span id={hintId} className="sr-only">{t('minibrowser:live.keyboardHint')}</span>
         <div ref={cursorRef} className={styles.cursor} aria-hidden="true">
@@ -198,32 +259,40 @@ export const LiveView = forwardRef<LiveViewHandle, LiveViewProps>(function LiveV
             <div className={styles.pill} role="status">
               <Bot size={14} className={styles.pillIcon} />
               <span className={styles.pillText}>{t('minibrowser:live.agentBrowsing', { owner: ownerName })}</span>
+              {/* The way in when the agent needs a person: a CAPTCHA, a
+                  sign-in code, a choice only the user can make. */}
               <button
                 type="button"
-                className={styles.pillButton}
+                className={`${styles.pillButton} ${styles.pillButtonStrong}`}
                 onClick={() => {
                   onControl(true)
                   // Ready to type right away (the pill itself goes away).
                   focusSink()
                 }}
                 title={t('minibrowser:live.takeControlHint')}
+                aria-describedby={takeControlHintId}
               >
                 <Hand size={13} /> {t('minibrowser:live.takeControl')}
               </button>
+              <span id={takeControlHintId} className="sr-only">{t('minibrowser:live.takeControlHint')}</span>
             </div>
           )}
           {inControl && (
             <div className={`${styles.pill} ${styles.pillControl}`} role="status">
               <Hand size={14} className={styles.pillIcon} />
               <span className={styles.pillText}>{t('minibrowser:live.inControl')}</span>
+              {/* Handing back is also what lets an agent that is waiting for
+                  the user (mini_browser_wait) carry on. */}
               <button
                 type="button"
-                className={styles.pillButton}
+                className={`${styles.pillButton} ${styles.pillButtonStrong}`}
                 onClick={() => onControl(false)}
                 title={t('minibrowser:live.handBackHint')}
+                aria-describedby={handBackHintId}
               >
                 {t('minibrowser:live.handBack')}
               </button>
+              <span id={handBackHintId} className="sr-only">{t('minibrowser:live.handBackHint')}</span>
             </div>
           )}
 

@@ -63,7 +63,7 @@
 .hint {
   margin: 0;
   max-width: 480px;
-  color: var(--text-muted);
+  color: var(--text-secondary);
   font-size: var(--text-sm);
   line-height: var(--leading-normal);
 }
@@ -71,7 +71,7 @@
 .detail {
   margin: 0;
   max-width: 520px;
-  color: var(--text-muted);
+  color: var(--text-secondary);
   font-family: var(--font-mono);
   font-size: var(--text-xs);
   white-space: pre-wrap;
@@ -125,7 +125,7 @@
 }
 
 .examplesLabel {
-  color: var(--text-muted);
+  color: var(--text-secondary);
   font-size: var(--text-xs);
   font-weight: var(--font-medium);
 }

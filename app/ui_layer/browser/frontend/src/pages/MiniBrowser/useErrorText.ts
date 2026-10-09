@@ -5,18 +5,23 @@ import type { MiniBrowserError } from '../../types'
 // Error codes the UI can meet, translated in minibrowser:errors.<CODE>. The
 // backend's own text (English, possibly carrying specifics such as the URL
 // or the underlying reason) becomes the "details" line for the codes whose
-// message has such specifics. Unknown codes fall back to the backend text.
+// message has such specifics. The others never show the backend's text: it
+// is written for agents (it names mini_browser_* actions). Unknown codes
+// fall back to the backend text.
 const TRANSLATED_CODES = [
   'MINI_BROWSER_PLAYWRIGHT_MISSING',
   'MINI_BROWSER_CHROMIUM_MISSING',
   'MINI_BROWSER_PROFILE_IN_USE',
   'MINI_BROWSER_LAUNCH_FAILED',
   'MINI_BROWSER_NOT_RUNNING',
+  'MINI_BROWSER_CLOSED',
   'MINI_BROWSER_NAVIGATION_FAILED',
   'MINI_BROWSER_BLOCKED_URL',
   'MINI_BROWSER_INVALID_INPUT',
   'MINI_BROWSER_PAGE_UNRESPONSIVE',
   'MINI_BROWSER_TAB_NOT_FOUND',
+  'MINI_BROWSER_TAB_CLOSED',
+  'MINI_BROWSER_TOO_MANY_TABS',
   'MINI_BROWSER_TIMEOUT',
   'MINI_BROWSER_VAULT_UNREADABLE',
   'MINI_BROWSER_VAULT_INVALID',

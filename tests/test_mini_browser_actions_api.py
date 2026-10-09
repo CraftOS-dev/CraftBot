@@ -72,10 +72,15 @@ def test_wait_limits_depend_on_for_user():
     assert validate("wait", {"seconds": -1})["seconds"] == 0.0
     assert validate("wait", {"seconds": "999"})["seconds"] == 60.0
     assert validate("wait", {"timeout_ms": 10**9})["timeout_ms"] == 60000
+    # for_user: 5 minutes by default, at most 15 (C5).
     assert validate("wait", {"for_user": True})["timeout_ms"] == 300000
     assert (
         validate("wait", {"for_user": "true", "timeout_ms": 10**9})["timeout_ms"]
-        == 300000
+        == 900000
+    )
+    assert (
+        validate("wait", {"for_user": True, "timeout_ms": 600000})["timeout_ms"]
+        == 600000
     )
     assert validate("wait", {"for_user": True, "timeout_ms": 5})["timeout_ms"] == 1000
     assert "too long" in _invalid("wait", {"text": "x" * 1001})
@@ -243,12 +248,19 @@ def test_navigate_resolves_with_history_and_search_allowed(monkeypatch):
 
 
 class _Core:
-    def __init__(self, result=None, error=None):
+    def __init__(self, result=None, error=None, settings=None, ui_origins=()):
         self.calls = []
         self.result = (
             {"status": "success", "message": "ok"} if result is None else result
         )
         self.error = error
+        self.settings = settings or SimpleNamespace(
+            search_url=actions_api.DEFAULT_SEARCH_URL, allow_file_urls=False
+        )
+        self._ui_origins = frozenset(ui_origins)
+
+    def ui_origins(self):
+        return self._ui_origins
 
     async def agent_op(self, owner, op, params):
         self.calls.append((owner, op, params))
@@ -276,15 +288,6 @@ def host(monkeypatch):
 
     monkeypatch.setitem(
         sys.modules, "app.mini_browser.host", SimpleNamespace(get_host=get_host)
-    )
-    monkeypatch.setattr(
-        actions_api,
-        "_load_url_context",
-        lambda: {
-            "search_url": actions_api.DEFAULT_SEARCH_URL,
-            "allow_file": False,
-            "ui_origins": frozenset(),
-        },
     )
     return state
 
@@ -385,8 +388,16 @@ def test_cancellation_still_propagates(host):
         asyncio.run(actions_api.run_action("read", {}))
 
 
-def test_url_operations_use_the_live_settings_and_ui_origins(monkeypatch):
-    core = _Core()
+def test_url_operations_use_the_running_cores_settings_and_ui_origins(monkeypatch):
+    """CFG-1: addresses are resolved with the same settings object the
+    browser itself uses (core.settings, reloadable), never a second copy read
+    from settings.json, so the URL check and the browser's checks agree."""
+    core = _Core(
+        settings=SimpleNamespace(
+            search_url="https://find.example/?q={query}", allow_file_urls=True
+        ),
+        ui_origins={"localhost:7925"},
+    )
     monkeypatch.setitem(
         sys.modules,
         "app.mini_browser.host",
@@ -394,31 +405,46 @@ def test_url_operations_use_the_live_settings_and_ui_origins(monkeypatch):
     )
     from app.mini_browser import config
 
+    # settings.json says something else: it must not be used.
     monkeypatch.setattr(
         config,
         "load_settings",
         lambda: SimpleNamespace(
-            search_url="https://find.example/?q={query}", allow_file_urls=False
+            search_url="https://stale.example/?q={query}", allow_file_urls=False
         ),
-    )
-    monkeypatch.setitem(
-        sys.modules,
-        "app.mini_browser.bridge",
-        SimpleNamespace(ui_origins=lambda: frozenset({"localhost:7925"})),
-    )
-    import app.mini_browser as package
-
-    monkeypatch.setattr(
-        package, "bridge", sys.modules["app.mini_browser.bridge"], raising=False
     )
 
     asyncio.run(
         actions_api.run_action("navigate", {"url": "cheap flights", "_session_id": "s"})
     )
     assert core.calls[0][2]["url"].startswith("https://find.example/?q=cheap")
+    asyncio.run(
+        actions_api.run_action(
+            "tabs", {"action": "new", "url": "file:///C:/notes.txt", "_session_id": "s"}
+        )
+    )
+    assert core.calls[1][2]["url"].startswith("file:///")
 
     blocked = asyncio.run(
         actions_api.run_action("navigate", {"url": "http://localhost:7925/x"})
     )
     assert blocked["error_code"] == "MINI_BROWSER_BLOCKED_URL"
-    assert len(core.calls) == 1
+    assert len(core.calls) == 2
+
+    # A setting changed in the running core applies to the next address.
+    core.settings = SimpleNamespace(
+        search_url="https://other.example/?s={query}", allow_file_urls=False
+    )
+    asyncio.run(actions_api.run_action("navigate", {"url": "two words"}))
+    assert core.calls[2][2]["url"].startswith("https://other.example/?s=two")
+    refused = asyncio.run(
+        actions_api.run_action("navigate", {"url": "file:///C:/notes.txt"})
+    )
+    assert refused["error_code"] == "MINI_BROWSER_BLOCKED_URL"
+
+
+def test_invalid_url_input_never_starts_the_browser_itself(host):
+    host.core.error = AssertionError("agent_op must not run")
+    result = asyncio.run(actions_api.run_action("navigate", {"url": "  "}))
+    assert result["error_code"] == "MINI_BROWSER_INVALID_INPUT"
+    assert host.core.calls == []

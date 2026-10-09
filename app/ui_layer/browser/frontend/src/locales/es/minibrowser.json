@@ -48,13 +48,15 @@
     "loading": "Cargando",
     "busy": "Un agente está trabajando en esta pestaña",
     "crashed": "Esta pestaña ha fallado",
+    "userControl": "Tienes el control de esta pestaña: su agente está en pausa",
     "ownerTooltip": "La usa: {{owner}}",
     "owner": {
       "you": "Tú",
       "main": "Chat principal",
       "miniBrowser": "Este chat",
       "session": "Chat",
-      "subagent": "Subagente"
+      "subagent": "Subagente",
+      "subagentOf": "Subagente ({{parent}})"
     },
     "closeBusyTitle": "¿Cerrar esta pestaña?",
     "closeBusyMessage": "{{owner}} está trabajando en esta pestaña. Si la cierras, se interrumpe lo que el agente está haciendo aquí."
@@ -66,7 +68,7 @@
     "noTab": "No hay ninguna pestaña abierta.",
     "agentBrowsing": "{{owner}} está navegando",
     "takeControl": "Tomar el control",
-    "takeControlHint": "Pausar al agente en esta pestaña para usarla tú",
+    "takeControlHint": "Pausa al agente en esta pestaña para usarla tú, por ejemplo para resolver un CAPTCHA o escribir un código de inicio de sesión. Devuélvesela cuando termines.",
     "inControl": "Tienes el control: el agente está en pausa en esta pestaña",
     "handBack": "Devolver al agente",
     "handBackHint": "Dejar que el agente continúe en esta pestaña",
@@ -110,16 +112,20 @@
   },
   "events": {
     "download": "Descargado: {{name}}",
+    "downloadUnnamed": "Se descargó un archivo",
+    "downloadDangerous": "Este tipo de archivo puede ejecutar programas en tu equipo. Ábrelo solo si confías en su origen.",
     "openFile": "Abrir",
     "showInFolder": "Mostrar en la carpeta",
     "popup": "La página abrió una pestaña nueva",
     "dialogGeneric": "La página mostró un cuadro de diálogo, que se respondió automáticamente",
     "blockedGeneric": "El Mininavegador bloqueó una página que no abre",
-    "crash": "Una pestaña ha fallado. Se volverá a cargar la próxima vez que se use."
+    "crash": "Una pestaña ha fallado. Se volverá a cargar la próxima vez que se use.",
+    "notice": "Aviso del Mininavegador",
+    "problem": "El Mininavegador tuvo un problema"
   },
   "confirm": {
     "shutdownTitle": "¿Cerrar el navegador?",
-    "shutdownMessage": "Un agente sigue navegando. Si cierras el navegador, se detendrá y se cerrarán todas las pestañas."
+    "shutdownMessage": "Un agente sigue navegando. Al cerrar el navegador se cierran todas las pestañas, pero un agente que siga trabajando puede volver a abrirlo. Para detener a un agente, pulsa Detener en su chat."
   },
   "passwords": {
     "title": "Contraseñas guardadas",
@@ -146,7 +152,7 @@
     "editTitle": "Editar inicio de sesión",
     "site": "Sitio web",
     "sitePlaceholder": "example.com",
-    "siteHint": "Solo se usa en este sitio y sus subdominios, con una conexión segura (HTTPS).",
+    "siteHint": "Solo se usa en este sitio exacto (con o sin «www.»), con una conexión segura (HTTPS). Una página de inicio de sesión en otro subdominio necesita su propia entrada.",
     "username": "Usuario o correo electrónico",
     "password": "Contraseña",
     "passwordKeep": "Déjala en blanco para conservar la contraseña actual",
@@ -168,6 +174,9 @@
     "timeout": "CraftBot no respondió a tiempo. Revisa la lista e inténtalo de nuevo.",
     "error": "Algo salió mal. Inténtalo de nuevo.",
     "unreadableTitle": "No se puede leer la bóveda de contraseñas",
+    "unavailableTitle": "Ahora mismo no se pueden cargar los inicios de sesión guardados",
+    "unavailableBody": "La bóveda de contraseñas está ocupada o no disponible en este momento (por ejemplo, otro programa está usando su archivo). Tus inicios de sesión guardados no se han perdido. Inténtalo de nuevo en un momento.",
+    "retry": "Reintentar",
     "unreadableBody": "Tus inicios de sesión guardados siguen ahí, pero no se pueden descifrar en este equipo (por ejemplo, porque cambió la clave de cifrado). No se sobrescribió nada. Restablece la bóveda para empezar de nuevo; el archivo ilegible se conserva como copia de seguridad.",
     "reset": "Restablecer bóveda",
     "resetTitle": "¿Restablecer la bóveda de contraseñas?",
@@ -195,6 +204,10 @@
       "title": "El navegador no está en ejecución",
       "message": "El Mininavegador no está en ejecución. Inícialo para continuar."
     },
+    "MINI_BROWSER_CLOSED": {
+      "title": "Navegador cerrado",
+      "message": "El Mininavegador se cerró antes de que esto terminara."
+    },
     "MINI_BROWSER_NAVIGATION_FAILED": {
       "title": "La página no cargó",
       "message": "No se pudo abrir la página. Revisa la dirección y tu conexión a internet."
@@ -214,6 +227,14 @@
     "MINI_BROWSER_TAB_NOT_FOUND": {
       "title": "Pestaña no encontrada",
       "message": "Esa pestaña ya no está abierta."
+    },
+    "MINI_BROWSER_TAB_CLOSED": {
+      "title": "Pestaña cerrada",
+      "message": "La pestaña se cerró antes de que esto terminara."
+    },
+    "MINI_BROWSER_TOO_MANY_TABS": {
+      "title": "Demasiadas pestañas",
+      "message": "Hay demasiadas pestañas abiertas. Cierra una e inténtalo de nuevo."
     },
     "MINI_BROWSER_TIMEOUT": {
       "title": "Se agotó el tiempo",

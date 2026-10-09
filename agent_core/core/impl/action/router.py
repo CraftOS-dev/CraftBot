@@ -57,6 +57,7 @@ class ActionRouter:
         action_library: ActionLibraryProtocol,
         llm_interface: LLMInterfaceProtocol,
         context_engine: ContextEngineProtocol,
+        prompt_filter: Optional[Callable[[str], str]] = None,
     ):
         """
         Initialize the router responsible for selecting or creating actions.
@@ -65,10 +66,25 @@ class ActionRouter:
             action_library: Repository for storing and retrieving action definitions.
             llm_interface: LLM client used to reason about which action to run.
             context_engine: Provider of system prompts and context formatting.
+            prompt_filter: Optional host hook applied to every rendered
+                action-selection prompt, e.g. to drop a capability rule while
+                that capability is unavailable. A failing filter is skipped.
         """
         self.action_library = action_library
         self.llm_interface = llm_interface
         self.context_engine = context_engine
+        self.prompt_filter = prompt_filter
+
+    def _filter_prompt(self, prompt: str) -> str:
+        """``prompt`` through the host's prompt_filter (unchanged on failure)."""
+        if self.prompt_filter is None:
+            return prompt
+        try:
+            filtered = self.prompt_filter(prompt)
+        except Exception as e:
+            logger.debug(f"[ACTION] prompt filter failed: {e}")
+            return prompt
+        return filtered if isinstance(filtered, str) else prompt
 
     @profile("action_router_select_action", OperationCategory.ACTION_ROUTING)
     async def select_action_in_session(
@@ -127,26 +143,30 @@ class ActionRouter:
             integration_essentials = ""
 
         decision_prompt_name = "SELECT_ACTION"
-        static_prompt = SELECT_ACTION_PROMPT.format(
-            session_state=session_state,
-            event_stream="",  # Empty for static prompt
-            query=query,
-            action_candidates=self._format_candidates(action_candidates),
-            integration_essentials=integration_essentials,
+        static_prompt = self._filter_prompt(
+            SELECT_ACTION_PROMPT.format(
+                session_state=session_state,
+                event_stream="",  # Empty for static prompt
+                query=query,
+                action_candidates=self._format_candidates(action_candidates),
+                integration_essentials=integration_essentials,
+            )
         )
         candidates_text = self._format_candidates(action_candidates)
 
         def render_prompt() -> str:
             # Rendered from the CURRENT stream, so a fold made while deciding
             # (see _prompt_for_decision) is reflected in what is sent.
-            return SELECT_ACTION_PROMPT.format(
-                session_state=session_state,
-                event_stream=self.context_engine.get_event_stream(
-                    session_id=session_id
-                ),
-                query=query,
-                action_candidates=candidates_text,
-                integration_essentials=integration_essentials,
+            return self._filter_prompt(
+                SELECT_ACTION_PROMPT.format(
+                    session_state=session_state,
+                    event_stream=self.context_engine.get_event_stream(
+                        session_id=session_id
+                    ),
+                    query=query,
+                    action_candidates=candidates_text,
+                    integration_essentials=integration_essentials,
+                )
             )
 
         full_prompt = render_prompt()

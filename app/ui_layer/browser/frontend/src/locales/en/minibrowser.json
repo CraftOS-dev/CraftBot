@@ -48,13 +48,15 @@
     "loading": "Loading",
     "busy": "An agent is working in this tab",
     "crashed": "This tab crashed",
+    "userControl": "Agent paused — you have control of this tab",
     "ownerTooltip": "Used by: {{owner}}",
     "owner": {
       "you": "You",
       "main": "Main chat",
       "miniBrowser": "This chat",
       "session": "Chat",
-      "subagent": "Sub-agent"
+      "subagent": "Sub-agent",
+      "subagentOf": "Sub-agent ({{parent}})"
     },
     "closeBusyTitle": "Close this tab?",
     "closeBusyMessage": "{{owner}} is working in this tab. Closing it stops what the agent is doing here."
@@ -66,7 +68,7 @@
     "noTab": "No tab is open.",
     "agentBrowsing": "{{owner}} is browsing",
     "takeControl": "Take control",
-    "takeControlHint": "Pause the agent on this tab so you can use it yourself",
+    "takeControlHint": "Pause the agent on this tab and use it yourself — for example to solve a CAPTCHA or enter a sign-in code. Hand it back when you're done.",
     "inControl": "You're in control — the agent is paused on this tab",
     "handBack": "Hand back",
     "handBackHint": "Let the agent continue on this tab",
@@ -110,16 +112,20 @@
   },
   "events": {
     "download": "Downloaded {{name}}",
+    "downloadUnnamed": "A file was downloaded",
+    "downloadDangerous": "This type of file can run programs on your computer. Open it only if you trust where it came from.",
     "openFile": "Open",
     "showInFolder": "Show in folder",
     "popup": "The page opened a new tab",
     "dialogGeneric": "The page showed a dialog, which was answered automatically",
     "blockedGeneric": "The Mini Browser blocked a page it doesn't open",
-    "crash": "A tab crashed. It reloads the next time it's used."
+    "crash": "A tab crashed. It reloads the next time it's used.",
+    "notice": "Notice from the Mini Browser",
+    "problem": "The Mini Browser ran into a problem"
   },
   "confirm": {
     "shutdownTitle": "Close the browser?",
-    "shutdownMessage": "An agent is still browsing. Closing the browser stops it and closes every tab."
+    "shutdownMessage": "An agent is still browsing. Closing the browser closes every tab, but an agent that is still working may open it again. To stop an agent, press Stop in its chat."
   },
   "passwords": {
     "title": "Saved passwords",
@@ -146,7 +152,7 @@
     "editTitle": "Edit login",
     "site": "Website",
     "sitePlaceholder": "example.com",
-    "siteHint": "Used only on this site and its subdomains, over a secure (HTTPS) connection.",
+    "siteHint": "Used only on this exact site (with or without “www.”), over a secure (HTTPS) connection. A sign-in page on a different subdomain needs its own entry.",
     "username": "Username or email",
     "password": "Password",
     "passwordKeep": "Leave blank to keep the current password",
@@ -168,6 +174,9 @@
     "timeout": "CraftBot didn't answer in time. Check the list and try again.",
     "error": "Something went wrong. Try again.",
     "unreadableTitle": "The password vault can't be read",
+    "unavailableTitle": "Saved logins can't be loaded right now",
+    "unavailableBody": "The password vault is busy or unavailable at the moment — for example, another program is using its file. Your saved logins aren't lost. Try again in a moment.",
+    "retry": "Try again",
     "unreadableBody": "Your saved logins are still there, but they can't be decrypted on this computer (for example, because the encryption key changed). Nothing was overwritten. Reset the vault to start over; the unreadable file is kept as a backup.",
     "reset": "Reset vault",
     "resetTitle": "Reset the password vault?",
@@ -195,6 +204,10 @@
       "title": "Browser not running",
       "message": "The Mini Browser isn't running. Start it to continue."
     },
+    "MINI_BROWSER_CLOSED": {
+      "title": "Browser closed",
+      "message": "The Mini Browser was closed before this could finish."
+    },
     "MINI_BROWSER_NAVIGATION_FAILED": {
       "title": "Page didn't load",
       "message": "The page couldn't be opened. Check the address and your internet connection."
@@ -214,6 +227,14 @@
     "MINI_BROWSER_TAB_NOT_FOUND": {
       "title": "Tab not found",
       "message": "That tab is no longer open."
+    },
+    "MINI_BROWSER_TAB_CLOSED": {
+      "title": "Tab closed",
+      "message": "The tab was closed before this could finish."
+    },
+    "MINI_BROWSER_TOO_MANY_TABS": {
+      "title": "Too many tabs",
+      "message": "Too many tabs are open. Close a tab, then try again."
     },
     "MINI_BROWSER_TIMEOUT": {
       "title": "Timed out",

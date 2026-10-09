@@ -275,6 +275,20 @@ def test_non_address_is_invalid_without_search():
         "http://user:pw@localhost:7926/",
         "http:\\\\localhost:7926\\",
         "http://localhost:7926\\@evil.example/",
+        # Loopback spellings the OS routes to the UI's listener (SEC-1).
+        "http://[::ffff:127.0.0.1]:7926/",
+        "http://[::ffff:7f00:1]:7926/",
+        "http://[0:0:0:0:0:ffff:7f00:1]:7926/",
+        "http://[::FFFF:127.0.0.1]:7926/api/session-token",
+        "http://foo.localhost:7926/",
+        "http://a.b.localhost:7926/",
+        "foo.localhost:7926",
+        "http://ＦＯＯ.localhost:7926/",
+        "http://127.0.0.2:7926/",
+        "http://127.1.2.3:7926/",
+        "http://0.0.0.0:7926/",
+        "http://[::]:7926/",
+        "http://[::ffff:0.0.0.0]:7926/",
     ],
 )
 def test_ui_origins_are_blocked_however_spelled(text):
@@ -289,16 +303,74 @@ def test_backslash_userinfo_trick_opens_the_real_host():
     assert target.url == "http://evil.example/@localhost:7926/"
 
 
-def test_other_ports_and_unlisted_aliases_are_not_ui():
+def test_other_ports_and_non_loopback_aliases_are_not_ui():
     assert resolve("http://localhost:7927/").url == "http://localhost:7927/"
-    only_localhost = frozenset({"localhost:7926"})
+    assert resolve("http://foo.localhost:7927/").url == "http://foo.localhost:7927/"
     assert (
-        resolve("http://127.0.0.1:7926/", origins=only_localhost).url
-        == "http://127.0.0.1:7926/"
+        resolve("http://[::ffff:127.0.0.1]:3000/").url
+        == "http://[::ffff:127.0.0.1]:3000/"
     )
-    assert error_of("http://localhost:7926/x", origins=only_localhost).code == (
+    # Every loopback spelling is the same host (the OS routes them all to the
+    # UI's listener), so listing one of them is enough...
+    only_localhost = frozenset({"localhost:7926"})
+    for text in ("http://127.0.0.1:7926/", "http://[::1]:7926/x"):
+        assert error_of(text, origins=only_localhost).code == (
+            "MINI_BROWSER_BLOCKED_URL"
+        )
+    # ... but a non-loopback UI origin matches only itself.
+    lan = frozenset({"192.168.1.5:7926"})
+    assert error_of("http://192.168.1.5:7926/", origins=lan).code == (
         "MINI_BROWSER_BLOCKED_URL"
     )
+    assert resolve("http://127.0.0.1:7926/", origins=lan).url == (
+        "http://127.0.0.1:7926/"
+    )
+    assert resolve("http://192.168.1.6:7926/", origins=lan).url == (
+        "http://192.168.1.6:7926/"
+    )
+    # Look-alike public names are not loopback.
+    assert resolve("http://localhost.example.com:7926/").url == (
+        "http://localhost.example.com:7926/"
+    )
+    assert resolve("http://notlocalhost:7926/").url == "http://notlocalhost:7926/"
+
+
+def test_loopback_host_classification():
+    for host in (
+        "localhost",
+        "localhost.",
+        "foo.localhost",
+        "a.b.localhost",
+        "127.0.0.1",
+        "127.255.0.9",
+        "[::1]",
+        "[::ffff:7f00:1]",
+        "[::ffff:127.0.0.1]",
+        "0.0.0.0",
+        "[::]",
+    ):
+        assert urls.is_loopback_host(host), host
+    for host in (
+        "",
+        "example.com",
+        "localhost.example.com",
+        "notlocalhost",
+        "10.0.0.1",
+        "[::ffff:8.8.8.8]",
+        "[2001:db8::1]",
+        "[::1",
+    ):
+        assert not urls.is_loopback_host(host), host
+
+
+def test_loaded_pages_on_loopback_spellings_are_blocked():
+    # The same rule backs the main-frame guard and the browser-wide guard.
+    assert reason("http://[::ffff:127.0.0.1]:7926/") == urls.UI_ORIGIN_REASON
+    assert reason("http://x.localhost:7926/") == urls.UI_ORIGIN_REASON
+    assert reason("blob:http://[::ffff:7f00:1]:7926/uuid") == urls.UI_ORIGIN_REASON
+    assert reason("http://x.localhost:7000/") is None
+    assert urls.is_ui_origin("http://[::ffff:7f00:1]:7926/", UI)
+    assert not urls.is_ui_origin("http://[::ffff:7f00:1]:7927/", UI)
 
 
 def test_default_ports_match_origins():

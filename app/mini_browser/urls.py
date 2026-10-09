@@ -8,7 +8,11 @@ CraftBot's own UI must never load inside the Mini Browser: a page loaded from
 the UI origin is same-origin with it and could drive CraftBot. The host
 comparison therefore canonicalises hosts the way Chromium's URL parser does
 (backslashes, percent-encoding, IDNA / full-width characters, IPv4 shorthand
-such as ``127.1``), so a disguised spelling cannot slip past the check.
+such as ``127.1``), so a disguised spelling cannot slip past the check. On
+top of that, every loopback spelling (``localhost``, ``*.localhost``,
+127.0.0.0/8, ``[::1]``, IPv4-mapped ``[::ffff:127.0.0.1]``, ``0.0.0.0``,
+``[::]``) counts as the same host as a loopback UI origin on the same port:
+the OS routes all of them to the UI's listener.
 """
 
 from __future__ import annotations
@@ -226,8 +230,11 @@ def is_ui_origin(url: str, ui_origins: Iterable[str]) -> bool:
 
     ``ui_origins`` holds normalised ``host:port`` entries (see
     :func:`normalize_origin`); a bare ``host`` entry matches every port.
-    Hosts are compared exactly after canonicalisation: ``localhost`` does not
-    stand in for ``127.0.0.1`` unless both are listed.
+    Hosts are compared after canonicalisation, and any loopback spelling
+    (see :func:`is_loopback_host`) matches a loopback UI origin on the same
+    port: ``http://[::ffff:127.0.0.1]:7926/`` or ``http://foo.localhost:7926/``
+    is the UI at ``localhost:7926``. The match stays port-scoped, so other
+    local servers (Agent Apps, dev servers) remain reachable.
     """
     origins = frozenset(ui_origins or ())
     if not origins:
@@ -236,7 +243,42 @@ def is_ui_origin(url: str, ui_origins: Iterable[str]) -> bool:
     if parsed is None:
         return False
     host, port = parsed
-    return f"{host}:{port}" in origins or host in origins
+    if f"{host}:{port}" in origins or host in origins:
+        return True
+    if not is_loopback_host(host):
+        return False
+    for origin in origins:
+        origin_host, origin_port = split_origin(origin)
+        if (origin_port is None or origin_port == port) and is_loopback_host(
+            origin_host
+        ):
+            return True
+    return False
+
+
+def is_loopback_host(host: str) -> bool:
+    """True for a canonical host that always means this machine.
+
+    ``localhost`` and any ``*.localhost`` name (Chromium resolves them
+    locally), 127.0.0.0/8, ``::1``, IPv4-mapped loopback
+    (``::ffff:127.0.0.1``) and the unspecified addresses ``0.0.0.0`` / ``::``
+    (which connect to the local host on some systems).
+    """
+    value = (host or "").strip().lower().rstrip(".")
+    if value.startswith("[") and value.endswith("]"):
+        value = value[1:-1].split("%", 1)[0]
+    if not value:
+        return False
+    if value == "localhost" or value.endswith(".localhost"):
+        return True
+    try:
+        address = ipaddress.ip_address(value)
+    except ValueError:
+        return False
+    mapped = getattr(address, "ipv4_mapped", None)
+    if mapped is not None:
+        address = mapped
+    return address.is_loopback or address.is_unspecified
 
 
 def host_and_port(url: str) -> Optional[Tuple[str, int]]:

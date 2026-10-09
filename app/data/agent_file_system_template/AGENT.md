@@ -1564,7 +1564,7 @@ You cannot opt out of `core`, and `core` now carries the everyday surface: messa
 ### How sets are loaded
 
 1. **Automatically per run** — workflow runs (memory, proactive, skill slash commands) and `schedule_task(action_sets=[...])` pre-load the sets a run needs. A user skill picked for the run (`/<skill>` or `schedule_task(skills=[...])`) also brings the sets its SKILL.md declares. `core` is always added.
-2. **Mid-run** — call `add_action_sets(action_sets=[...])` or `remove_action_sets(action_sets=[...])`. The action list is recompiled, caches rebuild, and the new actions appear in the next turn's prompt. Names are matched leniently (case, `-` vs `_`, the old name `web_agent` → `mini_browser`); a name that matches no set is NOT loaded and comes back in `unknown_sets` with a `hint`.
+2. **Mid-run** — call `add_action_sets(action_sets=[...])` or `remove_action_sets(action_sets=[...])`. The action list is recompiled, caches rebuild, and the new actions appear in the next turn's prompt. Names are matched leniently: case, and `-` / `_` / spaces in either direction (`mcp_playwright_mcp` → `mcp_playwright-mcp`, `Mini-Browser` → `mini_browser`), plus the old name `web_agent` → `mini_browser`. A name that matches no set (or two sets equally) is NOT loaded and comes back in `unknown_sets` with a `hint`: a misspelled connected MCP server gets its real name; "its MCP server is not connected" means a server configured in `mcp_config.json` whose connection is down (see `## MCP`).
 3. **Via skill selection** — if a skill's `SKILL.md` frontmatter has `action-sets: [...]`, those sets are auto-loaded when the skill is loaded (`use_skill`). They stay loaded after `unload_skill`; drop them with `remove_action_sets` when no longer needed. See `## Skills`.
 
 After loading, the new actions ARE in your prompt the next turn. You do not need to re-fetch or refresh anything.
@@ -1585,6 +1585,24 @@ Per-platform integration          <integration_name>  (e.g. slack), or a
 ```
 
 Loading every set bloats the prompt and slows action selection — add only what the work needs.
+
+### The Mini Browser (`mini_browser`)
+
+Load the set (or `use_skill("mini-browser")`, which also explains the workflow) for websites that must be USED. The always-on prompt rule and the browser-mode note that point to it appear only while the set is registered and Chromium can launch on this machine. A Docker image (or a bare Linux) has no Chromium unless it was built with `python -m playwright install --with-deps chromium`; `MINI_BROWSER_CHROMIUM_MISSING` / `MINI_BROWSER_LAUNCH_FAILED` mean exactly that — tell the user, do not retry.
+
+```
+tabs        each session works in its own tab. mini_browser_tabs list shows yours (url, title),
+            other agents' (label only, off-limits) and the user's (host only; viewed=true = on
+            their screen). To work on the page the user is looking at, switch to that tab.
+new tabs    a click that opens a tab moves you to it; the result shows the new tab
+dialogs     confirm() / "leave this page?" are accepted automatically, prompt() is dismissed:
+            you cannot decline them, so ask the user BEFORE clicking anything destructive
+the user    CAPTCHA / a sign-in with no saved login: tell the user (continue_work=true), then
+            mini_browser_wait for_user=true: returns once they took control of your tab and
+            handed it back (default 300 s, timeout_ms up to 900000); on timeout ask in chat
+closed      MINI_BROWSER_CLOSED: the user, an idle shutdown or a crash closed the browser and
+            your tabs are gone; navigate again only if the task still needs it
+```
 
 ### Tracking what is loaded
 
@@ -1902,6 +1920,17 @@ gui:
 
 file_index:
   prewarm_all_drives: bool       (build the find_files index for all drives at boot)
+
+mini_browser:                    (hot-reloaded: applies at once, except headless / channel /
+                                  locale, which apply at the browser's next start)
+  headless: bool                 (default true; false opens a visible window)
+  adblock / humanlike / show_cursor / allow_file_urls: bool   (defaults true / true / true / false)
+  max_fps: int                   (default 12, 1-30)     jpeg_quality: int (default 70, 30-95)
+  search_url: string             (default "https://duckduckgo.com/?q={query}")
+  max_agent_tabs: int            (default 6 per agent, 1-20)
+  idle_shutdown_minutes: int     (default 30; 0 = never)
+  locale: string                 ("" = the OS locale)
+  channel: string                (default "chromium"; "" = Playwright's headless shell)
 
 endpoints:
   remote_model_url: string       (for "remote" provider, e.g. Ollama base URL)

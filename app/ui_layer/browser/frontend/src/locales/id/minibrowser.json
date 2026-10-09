@@ -48,13 +48,15 @@
     "loading": "Memuat",
     "busy": "Agen sedang bekerja di tab ini",
     "crashed": "Tab ini mogok",
+    "userControl": "Anda yang mengendalikan tab ini — agennya dijeda",
     "ownerTooltip": "Dipakai oleh: {{owner}}",
     "owner": {
       "you": "Anda",
       "main": "Obrolan utama",
       "miniBrowser": "Obrolan ini",
       "session": "Obrolan",
-      "subagent": "Subagen"
+      "subagent": "Subagen",
+      "subagentOf": "Subagen ({{parent}})"
     },
     "closeBusyTitle": "Tutup tab ini?",
     "closeBusyMessage": "{{owner}} sedang bekerja di tab ini. Menutupnya akan menghentikan pekerjaan agen di tab ini."
@@ -66,7 +68,7 @@
     "noTab": "Tidak ada tab yang terbuka.",
     "agentBrowsing": "{{owner}} sedang menjelajah",
     "takeControl": "Ambil alih",
-    "takeControlHint": "Jeda agen di tab ini agar Anda bisa memakainya sendiri",
+    "takeControlHint": "Jeda agen di tab ini agar Anda bisa memakainya sendiri — misalnya untuk menyelesaikan CAPTCHA atau memasukkan kode masuk. Kembalikan ke agen setelah selesai.",
     "inControl": "Anda yang mengendalikan — agen dijeda di tab ini",
     "handBack": "Kembalikan ke agen",
     "handBackHint": "Biarkan agen melanjutkan di tab ini",
@@ -110,16 +112,20 @@
   },
   "events": {
     "download": "{{name}} telah diunduh",
+    "downloadUnnamed": "Sebuah file telah diunduh",
+    "downloadDangerous": "Jenis file ini dapat menjalankan program di komputer Anda. Buka hanya jika Anda memercayai asalnya.",
     "openFile": "Buka",
     "showInFolder": "Tampilkan di folder",
     "popup": "Halaman membuka tab baru",
     "dialogGeneric": "Halaman menampilkan dialog, yang dijawab secara otomatis",
     "blockedGeneric": "Peramban Mini memblokir halaman yang tidak boleh dibuka",
-    "crash": "Sebuah tab mogok. Tab akan dimuat ulang saat dipakai lagi."
+    "crash": "Sebuah tab mogok. Tab akan dimuat ulang saat dipakai lagi.",
+    "notice": "Pemberitahuan dari Peramban Mini",
+    "problem": "Peramban Mini mengalami masalah"
   },
   "confirm": {
     "shutdownTitle": "Tutup peramban?",
-    "shutdownMessage": "Agen masih menjelajah. Menutup peramban akan menghentikannya dan menutup semua tab."
+    "shutdownMessage": "Agen masih menjelajah. Menutup peramban akan menutup semua tab, tetapi agen yang masih bekerja bisa membukanya lagi. Untuk menghentikan agen, tekan Hentikan di obrolannya."
   },
   "passwords": {
     "title": "Kata sandi tersimpan",
@@ -145,7 +151,7 @@
     "editTitle": "Edit info masuk",
     "site": "Situs web",
     "sitePlaceholder": "example.com",
-    "siteHint": "Hanya dipakai di situs ini dan subdomainnya, melalui koneksi aman (HTTPS).",
+    "siteHint": "Hanya dipakai di situs ini persis (dengan atau tanpa “www.”), melalui koneksi aman (HTTPS). Halaman masuk di subdomain lain perlu entri tersendiri.",
     "username": "Nama pengguna atau email",
     "password": "Kata sandi",
     "passwordKeep": "Biarkan kosong untuk mempertahankan kata sandi saat ini",
@@ -167,6 +173,9 @@
     "timeout": "CraftBot tidak menjawab tepat waktu. Periksa daftarnya dan coba lagi.",
     "error": "Terjadi masalah. Coba lagi.",
     "unreadableTitle": "Brankas kata sandi tidak dapat dibaca",
+    "unavailableTitle": "Info masuk tersimpan belum bisa dimuat saat ini",
+    "unavailableBody": "Brankas kata sandi sedang sibuk atau tidak tersedia (misalnya, program lain sedang memakai filenya). Info masuk Anda yang tersimpan tidak hilang. Coba lagi sebentar lagi.",
+    "retry": "Coba lagi",
     "unreadableBody": "Info masuk tersimpan Anda masih ada, tetapi tidak dapat didekripsi di komputer ini (misalnya karena kunci enkripsinya berubah). Tidak ada yang ditimpa. Atur ulang brankas untuk memulai dari awal; berkas yang tidak terbaca disimpan sebagai cadangan.",
     "reset": "Atur ulang brankas",
     "resetTitle": "Atur ulang brankas kata sandi?",
@@ -194,6 +203,10 @@
       "title": "Peramban tidak berjalan",
       "message": "Peramban Mini tidak sedang berjalan. Mulai dulu untuk melanjutkan."
     },
+    "MINI_BROWSER_CLOSED": {
+      "title": "Peramban ditutup",
+      "message": "Peramban Mini ditutup sebelum tindakan ini selesai."
+    },
     "MINI_BROWSER_NAVIGATION_FAILED": {
       "title": "Halaman gagal dimuat",
       "message": "Halaman tidak dapat dibuka. Periksa alamatnya dan koneksi internet Anda."
@@ -213,6 +226,14 @@
     "MINI_BROWSER_TAB_NOT_FOUND": {
       "title": "Tab tidak ditemukan",
       "message": "Tab itu sudah tidak terbuka."
+    },
+    "MINI_BROWSER_TAB_CLOSED": {
+      "title": "Tab ditutup",
+      "message": "Tab ditutup sebelum tindakan ini selesai."
+    },
+    "MINI_BROWSER_TOO_MANY_TABS": {
+      "title": "Terlalu banyak tab",
+      "message": "Terlalu banyak tab yang terbuka. Tutup salah satu tab, lalu coba lagi."
     },
     "MINI_BROWSER_TIMEOUT": {
       "title": "Waktu habis",

@@ -28,6 +28,10 @@ EVENT_CRASH = "crash"
 EVENT_NOTICE = "notice"
 EVENT_ERROR = "error"
 
+# Why a tab went away (``Tab.closed_reason``).
+CLOSED_TAB = "tab"  # the tab itself was closed (user, page, owner released)
+CLOSED_BROWSER = "browser"  # the whole browser closed (user, idle, crash)
+
 
 @dataclass(eq=False)
 class Tab:
@@ -85,8 +89,43 @@ class Tab:
     # its owner (and the view) to where it came from.
     opener_id: Optional[str] = None
 
+    # Set once the tab is gone: ``closed_reason`` is CLOSED_TAB (the tab
+    # itself was closed) or CLOSED_BROWSER (the whole browser went away).
+    # ``closed_event`` wakes anything waiting on the tab (agent operations
+    # end at once with MINI_BROWSER_TAB_CLOSED / MINI_BROWSER_CLOSED).
+    closed: bool = False
+    closed_reason: Optional[str] = None
+    closed_event: asyncio.Event = field(default_factory=asyncio.Event, repr=False)
+
+    # Chromium identifiers: the page's CDP target and the browser window it
+    # lives in. Agents get a window each, so their tabs are never background
+    # tabs of one another (a background tab's input is throttled to ~1 s).
+    target_id: Optional[str] = None
+    window_id: Optional[int] = None
+
+    # Circuit breaker for continuous live-view input (mouse moves, wheel):
+    # set when the page stopped answering, cleared by a successful probe,
+    # a navigation, a reload or crash recovery.
+    unresponsive: bool = False
+
+    # When an agent claimed this tab while it still showed the user's page,
+    # and which navigation that page was (the core's per-tab navigation
+    # counter). While that same page asks "leave site?" shortly after, it is
+    # not left silently.
+    left_user_at: float = 0.0
+    left_user_nav: int = -1
+
     def touch_agent(self) -> None:
         self.last_agent_use = time.monotonic()
 
     def touch_user(self) -> None:
         self.last_user_input = time.monotonic()
+
+    def mark_closed(self, reason: str) -> None:
+        """The tab is gone: wake everything waiting on it. Idempotent."""
+        if self.closed:
+            return
+        self.closed = True
+        self.closed_reason = reason
+        self.user_control = False
+        self.closed_event.set()

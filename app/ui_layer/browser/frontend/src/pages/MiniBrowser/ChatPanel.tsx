@@ -1,4 +1,4 @@
-import React, { memo, useCallback, useEffect, useId, useRef, useState, type RefObject } from 'react'
+import React, { memo, useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Loader2 } from 'lucide-react'
 import { Chat } from '../../components/Chat'
@@ -13,6 +13,10 @@ const PANEL_MAX_WIDTH = 640
 const PANEL_COLLAPSE_WIDTH = 200
 // The browser keeps at least this much room next to the chat.
 const BROWSER_MIN_WIDTH = 360
+// Narrower than this, the two can't sit side by side at their minimums
+// (e.g. a ~800 px window with the sidebar open): the chat moves under the
+// browser, collapsed until the user opens it.
+export const SIDE_BY_SIDE_MIN_WIDTH = PANEL_MIN_WIDTH + BROWSER_MIN_WIDTH
 const MOBILE_MIN_RATIO = 0.2
 const MOBILE_MAX_RATIO = 0.8
 const MOBILE_COLLAPSE_RATIO = 0.08
@@ -51,19 +55,31 @@ interface ChatPanelProps {
   containerRef: RefObject<HTMLElement>
   /** The Mini Browser's chat session (null until the backend reports it). */
   sessionId: string | null
+  /** The chat sits under the browser (narrow or mobile layout) rather than
+   *  beside it; the page stacks its row accordingly. */
+  onStackedChange?(stacked: boolean): void
+  /** Bumped to open the chat (e.g. an example prompt was put in it). */
+  openSignal?: number
 }
 
 /**
  * The Mini Browser chat beside the browser, behind a seam: drag to resize,
  * click (or Enter) to collapse/expand; arrows resize from the keyboard. Open
  * state and sizes persist. Below 768px the panels stack and the seam runs
- * horizontally — the same pattern as the Agent App page. Memoized, so browser
- * updates on the page don't re-render it.
+ * horizontally — the same pattern as the Agent App page. Where the row is too
+ * narrow for both side by side, the chat also stacks under the browser, and
+ * starts collapsed (without changing the saved preference) so the browser
+ * keeps its room. Memoized, so browser updates on the page don't re-render it.
  */
-export const ChatPanel = memo(function ChatPanel({ containerRef, sessionId }: ChatPanelProps) {
+export const ChatPanel = memo(function ChatPanel({
+  containerRef,
+  sessionId,
+  onStackedChange,
+  openSignal = 0,
+}: ChatPanelProps) {
   const { t } = useTranslation(['minibrowser', 'common'])
   const panelId = useId()
-  const [open, setOpen] = usePersistedState(UI_STATE.miniBrowser.chatPanelOpen)
+  const [savedOpen, setSavedOpen] = usePersistedState(UI_STATE.miniBrowser.chatPanelOpen)
   const [width, setWidth] = usePersistedState(UI_STATE.miniBrowser.chatPanelWidth)
   const [mobileRatio, setMobileRatio] = usePersistedState(UI_STATE.miniBrowser.chatPanelMobileRatio)
   const [isMobile, setIsMobile] = useState(
@@ -71,6 +87,8 @@ export const ChatPanel = memo(function ChatPanel({ containerRef, sessionId }: Ch
   )
   const [containerWidth, setContainerWidth] = useState(0)
   const [isResizing, setIsResizing] = useState(false)
+  // Narrow layout only: whether the user opened the chat (not saved).
+  const [narrowOpen, setNarrowOpen] = useState(false)
   // A pointer interaction on the seam: a click toggles, a drag resizes.
   const dragRef = useRef<{ startX: number; startY: number; moved: boolean } | null>(null)
 
@@ -83,14 +101,43 @@ export const ChatPanel = memo(function ChatPanel({ containerRef, sessionId }: Ch
     return () => query.removeEventListener('change', onChange)
   }, [])
 
-  useEffect(() => {
-    const el = containerRef.current
-    if (!el || typeof ResizeObserver === 'undefined') return
+  // Measured before the first paint, so a narrow window never flashes the
+  // side-by-side layout. On mount the row's own ref is attached only after
+  // this effect runs (React attaches a parent's refs after its children's
+  // layout effects), so the row is found as the seam's parent: this panel
+  // renders straight into it.
+  const seamRef = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    const el = containerRef.current ?? seamRef.current?.parentElement ?? null
+    if (!el) return
+    setContainerWidth(el.clientWidth)
+    if (typeof ResizeObserver === 'undefined') return
     const observer = new ResizeObserver(() => setContainerWidth(el.clientWidth))
     observer.observe(el)
-    setContainerWidth(el.clientWidth)
     return () => observer.disconnect()
   }, [containerRef])
+
+  const narrow = !isMobile && containerWidth > 0 && containerWidth < SIDE_BY_SIDE_MIN_WIDTH
+  const stacked = isMobile || narrow
+  const open = narrow ? narrowOpen : savedOpen
+  const setOpen = narrow ? setNarrowOpen : setSavedOpen
+
+  // A wide row again: the next narrow spell starts collapsed again.
+  useEffect(() => {
+    if (!narrow) setNarrowOpen(false)
+  }, [narrow])
+
+  useLayoutEffect(() => {
+    onStackedChange?.(stacked)
+  }, [onStackedChange, stacked])
+
+  // Asked to show the chat, in whichever layout is current.
+  const seenOpenSignalRef = useRef(openSignal)
+  useEffect(() => {
+    if (openSignal === seenOpenSignalRef.current) return
+    seenOpenSignalRef.current = openSignal
+    setOpen(true)
+  }, [openSignal, setOpen])
 
   const maxWidth = maxPanelWidth(containerWidth)
   // The saved width, shrunk if the window no longer has room for it.
@@ -121,7 +168,7 @@ export const ChatPanel = memo(function ChatPanel({ containerRef, sessionId }: Ch
       if (!drag.moved || !open) return
       const rect = containerRef.current?.getBoundingClientRect()
       if (!rect) return
-      if (isMobile) {
+      if (stacked) {
         const ratio = (rect.bottom - e.clientY) / rect.height
         if (ratio < MOBILE_COLLAPSE_RATIO) {
           finish()
@@ -153,7 +200,7 @@ export const ChatPanel = memo(function ChatPanel({ containerRef, sessionId }: Ch
       document.removeEventListener('pointerup', onUp)
       document.removeEventListener('pointercancel', finish)
     }
-  }, [isResizing, isMobile, open, containerRef, setOpen, setWidth, setMobileRatio, toggle])
+  }, [isResizing, stacked, open, containerRef, setOpen, setWidth, setMobileRatio, toggle])
 
   // Window-splitter keyboard: arrows resize, Enter/Space collapses/restores.
   const onSeamKeyDown = (e: React.KeyboardEvent) => {
@@ -163,11 +210,11 @@ export const ChatPanel = memo(function ChatPanel({ containerRef, sessionId }: Ch
       return
     }
     if (!open) return
-    if (isMobile && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+    if (stacked && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
       e.preventDefault()
       const delta = e.key === 'ArrowUp' ? SEAM_KEY_STEP_RATIO : -SEAM_KEY_STEP_RATIO
       setMobileRatio(clamp(mobileRatio + delta, MOBILE_MIN_RATIO, MOBILE_MAX_RATIO))
-    } else if (!isMobile && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+    } else if (!stacked && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
       e.preventDefault()
       const delta = e.key === 'ArrowLeft' ? SEAM_KEY_STEP_PX : -SEAM_KEY_STEP_PX
       setWidth(clamp(shownWidth + delta, PANEL_MIN_WIDTH, maxWidth))
@@ -177,7 +224,7 @@ export const ChatPanel = memo(function ChatPanel({ containerRef, sessionId }: Ch
   // The splitter's value: the chat's share of the page, in percent.
   const share = !open
     ? 0
-    : isMobile
+    : stacked
       ? Math.round(mobileRatio * 100)
       : containerWidth > 0 ? Math.round((shownWidth / containerWidth) * 100) : 0
   const label = open ? t('minibrowser:chat.hide') : t('minibrowser:chat.show')
@@ -185,14 +232,16 @@ export const ChatPanel = memo(function ChatPanel({ containerRef, sessionId }: Ch
   return (
     <>
       <div
+        ref={seamRef}
         className={[
           styles.seam,
+          stacked ? styles.stacked : '',
           !open ? styles.seamCollapsed : '',
           isResizing ? styles.seamActive : '',
         ].filter(Boolean).join(' ')}
         role="separator"
         tabIndex={0}
-        aria-orientation={isMobile ? 'horizontal' : 'vertical'}
+        aria-orientation={stacked ? 'horizontal' : 'vertical'}
         aria-controls={panelId}
         aria-valuemin={0}
         aria-valuemax={100}
@@ -211,13 +260,17 @@ export const ChatPanel = memo(function ChatPanel({ containerRef, sessionId }: Ch
         id={panelId}
         className={[
           styles.panel,
+          stacked ? styles.stacked : '',
           !open ? styles.panelCollapsed : '',
           isResizing ? styles.panelDragging : '',
         ].filter(Boolean).join(' ')}
-        style={isMobile ? { flexBasis: open ? `${mobileRatio * 100}%` : '0%' } : { width: open ? shownWidth : 0 }}
+        style={stacked ? { flexBasis: open ? `${mobileRatio * 100}%` : '0%' } : { width: open ? shownWidth : 0 }}
         aria-hidden={!open}
       >
-        <div className={styles.panelInner} style={isMobile ? undefined : { width: shownWidth }}>
+        <div
+          className={`${styles.panelInner} ${stacked ? styles.stacked : ''}`}
+          style={stacked ? undefined : { width: shownWidth }}
+        >
           <ChatPane
             sessionId={sessionId}
             placeholder={t('minibrowser:chat.placeholder')}
@@ -228,7 +281,7 @@ export const ChatPanel = memo(function ChatPanel({ containerRef, sessionId }: Ch
 
       {/* Covers the page mid-drag so the live view never takes the pointer. */}
       {isResizing && (
-        <div className={`${styles.overlay} ${isMobile ? styles.overlayRows : ''}`} aria-hidden="true" />
+        <div className={`${styles.overlay} ${stacked ? styles.overlayRows : ''}`} aria-hidden="true" />
       )}
     </>
   )

@@ -1,5 +1,6 @@
 /* Mini Browser page: the browser on the left, the Mini Browser chat on the
-   right (ChatPanel). Below 768px the two stack vertically. */
+   right (ChatPanel). Below 768px, or when the row is too narrow for both,
+   the two stack vertically. */
 
 .page {
   display: flex;
@@ -89,7 +90,12 @@
   font-weight: var(--font-semibold);
 }
 
-/* ── Mobile: the chat (see ChatPanel) stacks under the browser ───────── */
+/* ── Stacked: the chat (see ChatPanel) under the browser ─────────────── */
+/* Below 768px, and wherever the row is too narrow for both side by side. */
+
+.contentStacked {
+  flex-direction: column;
+}
 
 @media (max-width: 768px) {
   .content {

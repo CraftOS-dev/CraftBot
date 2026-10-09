@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import { AlertTriangle, Globe, Loader2, Plus, X } from 'lucide-react'
+import { AlertTriangle, Globe, Hand, Loader2, Plus, X } from 'lucide-react'
 import { IconButton } from '../../components/ui'
 import type { MiniBrowserTab } from '../../types'
 import { useTabLabels } from './useTabLabels'
@@ -69,19 +69,30 @@ export function TabStrip({ tabs, viewedTabId, onSwitch, onClose, onNew }: TabStr
           const selected = tab.id === viewedTabId
           const title = tabTitle(tab)
           const owner = ownerName(tab)
-          const agentWorking = tab.busy && tab.ownerKind !== 'user'
+          // The user holds an agent's tab: its agent waits until handed back,
+          // so the tab says so (easy to find again from another tab).
+          const userHolds = tab.userControl && tab.ownerKind !== 'user'
+          const agentWorking = tab.busy && tab.ownerKind !== 'user' && !userHolds
           let icon: React.ReactNode
           let state = ''
           if (tab.crashed) {
             icon = <AlertTriangle size={13} className={styles.crashedIcon} />
             state = t('minibrowser:tabs.crashed')
+          } else if (userHolds) {
+            icon = <Hand size={13} />
+            state = t('minibrowser:tabs.userControl')
           } else if (tab.loading || agentWorking) {
             icon = <Loader2 size={13} className={`${styles.spin} ${agentWorking ? styles.busyIcon : ''}`} />
             state = agentWorking ? t('minibrowser:tabs.busy') : t('minibrowser:tabs.loading')
           } else {
             icon = <Globe size={13} />
           }
-          const tooltip = [title, tab.url !== 'about:blank' ? tab.url : '', t('minibrowser:tabs.ownerTooltip', { owner })]
+          const tooltip = [
+            title,
+            tab.url !== 'about:blank' ? tab.url : '',
+            t('minibrowser:tabs.ownerTooltip', { owner }),
+            userHolds ? state : '',
+          ]
             .filter(Boolean)
             .join('\n')
           return (

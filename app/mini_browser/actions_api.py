@@ -7,15 +7,20 @@ input_data)`` answers ``simulated_mode`` without touching the browser,
 works out which agent is calling (its own tab), and runs the operation on
 the Mini Browser host loop. It never raises: every failure comes back as a
 standard action error dict.
+
+Addresses (navigate, tabs new) are resolved on the host loop with the
+running core's own settings (search engine, local files) and UI origins,
+so the URL check here and the browser's own checks always agree, also
+right after settings.json changes.
 """
 
 from __future__ import annotations
 
-import asyncio
+import functools
 import math
 import re
 import sys
-from typing import Any, Callable, Dict, FrozenSet, List, Optional, Tuple
+from typing import Any, Awaitable, Callable, Dict, FrozenSet, List, Optional, Tuple
 
 from app.logger import logger
 from app.mini_browser import DEFAULT_OWNER
@@ -46,7 +51,10 @@ URL_OPS = frozenset({"navigate", "tabs"})
 TIMEOUT_MS = (1000, 60000)
 NAVIGATE_TIMEOUT_MS = 30000
 WAIT_TIMEOUT_MS = 10000
-FOR_USER_TIMEOUT_MS = (1000, 300000)
+# mini_browser_wait(for_user=true): until the user took control and handed
+# it back; 5 minutes by default, at most 15.
+FOR_USER_TIMEOUT_MS = (1000, 900000)
+FOR_USER_DEFAULT_MS = 300000
 TEXT_CHARS = (500, 8000)
 READ_TEXT_CHARS = 4000
 READ_ELEMENTS = (1, 500)
@@ -387,7 +395,7 @@ def _v_wait(data: Dict[str, Any], _context: Optional[UrlContext]) -> Dict[str, A
     for_user = _flag(data, "for_user", False)
     if for_user:
         timeout = _clamped_int(
-            data, "timeout_ms", FOR_USER_TIMEOUT_MS[1], *FOR_USER_TIMEOUT_MS
+            data, "timeout_ms", FOR_USER_DEFAULT_MS, *FOR_USER_TIMEOUT_MS
         )
     else:
         timeout = _clamped_int(data, "timeout_ms", WAIT_TIMEOUT_MS, *TIMEOUT_MS)
@@ -498,24 +506,15 @@ def resolve_owner(input_data: Dict[str, Any]) -> str:
     return DEFAULT_OWNER
 
 
-def _load_url_context() -> UrlContext:
-    """Settings + UI origins for URL resolution (blocking: run in a thread)."""
-    search_url, allow_file = DEFAULT_SEARCH_URL, False
+def core_url_context(core: Any) -> UrlContext:
+    """URL resolution context from the running core: the same settings object
+    (search engine, local files) and UI origins its own checks use."""
+    settings = getattr(core, "settings", None)
+    search_url = str(getattr(settings, "search_url", "") or DEFAULT_SEARCH_URL)
+    allow_file = bool(getattr(settings, "allow_file_urls", False))
     origins: FrozenSet[str] = frozenset()
     try:
-        from app.mini_browser import config
-
-        settings = config.load_settings()
-        search_url = str(getattr(settings, "search_url", "") or DEFAULT_SEARCH_URL)
-        allow_file = bool(getattr(settings, "allow_file_urls", False))
-    except Exception as exc:
-        logger.debug(
-            f"[MiniBrowser] settings unavailable for URL checks: {type(exc).__name__}"
-        )
-    try:
-        from app.mini_browser import bridge
-
-        origins = frozenset(bridge.ui_origins())
+        origins = frozenset(core.ui_origins())
     except Exception as exc:
         logger.debug(f"[MiniBrowser] UI origins unavailable: {type(exc).__name__}")
     return {"search_url": search_url, "allow_file": allow_file, "ui_origins": origins}
@@ -557,6 +556,15 @@ def simulated_result(op: str) -> Dict[str, Any]:
     return result
 
 
+async def _run_validated(op: str, params: Dict[str, Any], owner: str, core: Any) -> Any:
+    return await core.agent_op(owner, op, params)
+
+
+async def _run_with_url(op: str, data: Dict[str, Any], owner: str, core: Any) -> Any:
+    params = validate(op, data, core_url_context(core))
+    return await core.agent_op(owner, op, params)
+
+
 async def run_action(op: str, input_data: dict) -> dict:
     """Run one Mini Browser operation for the calling agent. Never raises.
 
@@ -568,13 +576,21 @@ async def run_action(op: str, input_data: dict) -> dict:
         return simulated_result(op)
     try:
         owner = resolve_owner(data)
-        context = await asyncio.to_thread(_load_url_context) if op in URL_OPS else None
-        params = validate(op, data, context)
+        if op in URL_OPS:
+            # The address is resolved on the host loop, with the core's own
+            # settings (see core_url_context).
+            runner: Callable[[Any], Awaitable[Any]] = functools.partial(
+                _run_with_url, op, dict(data), owner
+            )
+        else:
+            params = validate(op, data)
+            runner = functools.partial(_run_validated, op, params, owner)
+
         from app.mini_browser.host import get_host
 
         host = get_host()
         logger.debug(f"[MiniBrowser] {op} for {owner}")
-        result = await host.call(lambda core: core.agent_op(owner, op, params))
+        result = await host.call(runner)
     except MiniBrowserError as exc:
         return from_exception(exc)
     except Exception as exc:

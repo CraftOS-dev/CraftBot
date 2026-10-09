@@ -45,18 +45,23 @@ def test_unknown_types_keep_one_at_a_time_behaviour():
 
 
 def test_mini_browser_lanes():
-    # Live-view input, viewers and controls share one lane: keystroke order.
+    # Viewers and view settings share one lane.
     for msg_type in (
-        "mini_browser_input",
         "mini_browser_subscribe",
         "mini_browser_unsubscribe",
         "mini_browser_resize",
         "mini_browser_view",
-        "mini_browser_control",
         "mini_browser_start",
         "mini_browser_copy",
+        "mini_browser_adblock",
     ):
         assert message_lane({"type": msg_type}) == "mini_browser", msg_type
+    # Live input keeps its order in a lane of its own (LANE-1).
+    assert message_lane({"type": "mini_browser_input"}) == "mini_browser_input"
+    # Closing the browser and taking / handing back control never wait
+    # behind input or each other.
+    assert message_lane({"type": "mini_browser_control"}) == "mini_browser_control"
+    assert message_lane({"type": "mini_browser_shutdown"}) == "mini_browser_shutdown"
     # The vault prefix is matched before the general Mini Browser prefix.
     for msg_type in (
         "mini_browser_vault_list",
@@ -87,3 +92,18 @@ def test_slow_mini_browser_work_never_blocks_input_or_the_vault():
     }
     assert len(lanes) == 4
     assert GENERAL_LANE not in lanes
+
+
+def test_mini_browser_controls_never_wait_behind_input():
+    """LANE-1: a hung page backs up live input; Close browser and Take
+    control / Hand back must not queue behind it (or behind each other)."""
+    lanes = [
+        message_lane({"type": t})
+        for t in (
+            "mini_browser_input",
+            "mini_browser_control",
+            "mini_browser_shutdown",
+            "mini_browser_view",
+        )
+    ]
+    assert len(set(lanes)) == len(lanes)

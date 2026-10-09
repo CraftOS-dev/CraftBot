@@ -107,14 +107,20 @@
 }
 
 .ownerUser {
-  color: var(--text-muted);
+  color: var(--text-secondary);
   background: transparent;
 }
 
+/* Blue text dark/light enough to read at 10px on the blue tint (WCAG AA,
+   4.5:1, on every tab background of either theme). */
 .tabBusy .owner {
-  color: var(--color-info);
+  color: #60A5FA;
   border-color: var(--color-info-light);
   background: var(--color-info-subtle);
+}
+
+:global([data-theme='light']) .tabBusy .owner {
+  color: #1D4ED8;
 }
 
 .close {

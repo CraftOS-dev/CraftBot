@@ -17,9 +17,23 @@ managers, ...) are never listed.
 from __future__ import annotations
 
 import re
-from typing import FrozenSet, Iterable, List
+from typing import FrozenSet, Iterable, List, Tuple
 
-from app.mini_browser.urls import split_origin
+from app.mini_browser.urls import is_loopback_host, split_origin
+
+# Every spelling that reaches a loopback UI origin's listener (``*`` is a
+# wildcard in both pattern kinds). Requests matched only by a wildcard are
+# re-checked exactly (``urls.is_ui_origin``) before the Fetch guard fails
+# them, so an over-broad match here never blocks anything else.
+LOOPBACK_SPELLINGS: Tuple[str, ...] = (
+    "localhost",
+    "*.localhost",
+    "127.*",
+    "[::1]",
+    "[::ffff:*]",
+    "0.0.0.0",
+    "[::]",
+)
 
 AD_DOMAINS: FrozenSet[str] = frozenset(
     {
@@ -181,8 +195,9 @@ def blocked_url_patterns(
     so ``*://*.doubleclick.net/*`` blocks the domain's subdomains and
     ``*://doubleclick.net/*`` the domain itself; the ``:*`` variants cover an
     explicit port. ``ui_origins`` are normalised ``host:port`` entries (a bare
-    host stands for every port). Ad domains are included only when
-    ``adblock``; UI origins always are.
+    host stands for every port); a loopback UI origin is blocked under every
+    loopback spelling (:data:`LOOPBACK_SPELLINGS`) on its port. Ad domains
+    are included only when ``adblock``; UI origins always are.
     """
     patterns: List[str] = []
     for origin in sorted({o for o in ui_origins or () if o}):
@@ -209,14 +224,16 @@ def ui_fetch_patterns(ui_origins: Iterable[str]) -> List[str]:
     Fetch patterns must match the WHOLE url (``*`` and ``?`` are wildcards),
     so each one starts with its scheme: a URL that merely mentions the UI
     origin (say in a query string) does not match. URLs carry no port when it
-    is the scheme's default.
+    is the scheme's default. A loopback UI origin is matched under every
+    loopback spelling (``[::ffff:7f00:1]``, ``foo.localhost``, ``127.0.0.2``,
+    ...) on its port; the guard re-checks each paused request exactly.
     """
     patterns: List[str] = []
     for origin in sorted({o for o in ui_origins or () if o}):
         host, port = split_origin(origin)
         if not host:
             continue
-        for name in _host_spellings(host):
+        for name in _origin_spellings(host):
             for scheme, default_port in (("http", 80), ("https", 443)):
                 if port is None:
                     patterns.extend((f"{scheme}://{name}/*", f"{scheme}://{name}:*/*"))
@@ -232,7 +249,7 @@ def ui_fetch_patterns(ui_origins: Iterable[str]) -> List[str]:
 def _origin_block_patterns(origin: str) -> List[str]:
     host, port = split_origin(origin)
     patterns: List[str] = []
-    for name in _host_spellings(host):
+    for name in _origin_spellings(host):
         if port is None:
             patterns.extend((f"*://{name}/*", f"*://{name}:*"))
         elif port == 80:
@@ -244,9 +261,28 @@ def _origin_block_patterns(origin: str) -> List[str]:
     return patterns
 
 
+def _origin_spellings(host: str) -> List[str]:
+    """Every host spelling to block for a UI origin's host.
+
+    A loopback host is reachable under every loopback spelling; any other
+    host only under its own name (plus the trailing-dot form of a name).
+    """
+    if not host:
+        return []
+    names = [host]
+    if is_loopback_host(host):
+        names.extend(LOOPBACK_SPELLINGS)
+    out: List[str] = []
+    for name in names:
+        for spelling in _host_spellings(name):
+            if spelling not in out:
+                out.append(spelling)
+    return out
+
+
 def _host_spellings(host: str) -> List[str]:
     """The host, plus its trailing-dot spelling for names (``localhost.``)."""
-    if host.startswith("[") or host.replace(".", "").isdigit():
+    if host.startswith("[") or host.replace(".", "").replace("*", "").isdigit():
         return [host]
     return [host, f"{host}."]
 

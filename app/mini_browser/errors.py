@@ -5,18 +5,30 @@
 ``make_error(code)`` works for them like for any other app error.
 
 Action results use :func:`action_error`; UI replies use :func:`ui_error`.
-Both always go through :func:`scrub` so a password can never leak through an
-error message.
+Both format the ``ERROR_SPECS`` template directly (never through the
+codebook's generic ``redact()``, which mangles the URLs and e-mail addresses
+these messages are about) and always go through :func:`scrub`, so a password
+can never leak through an error message.
+
+:func:`scrub` masks a secret however it was spelled on the way out: as typed,
+form-urlencoded the way Chromium submits a GET form, percent-encoded by a
+script, HTML-escaped or JSON-escaped, and percent-encoded in a legacy page
+charset (windows-1252, Shift_JIS, ...).
 """
 
 from __future__ import annotations
 
-from typing import Any, Dict, Iterable, Optional, Tuple
+import functools
+import html
+import json
+import re
+from typing import Any, Dict, FrozenSet, Iterable, List, Optional, Tuple
+from urllib.parse import quote, unquote_plus
 
 # code -> (category, severity, title, message_template)
 # category values come from agent_core.core.errors.ErrorCategory; severity from
-# Severity. Templates may use {detail} (redacted by make_error) and other
-# named fields passed by the caller.
+# Severity. Templates may use {detail} and other named fields passed by the
+# caller; they are filled in as they are (then scrubbed of secrets).
 ERROR_SPECS: Dict[str, Tuple[str, str, str, str]] = {
     "MINI_BROWSER_PLAYWRIGHT_MISSING": (
         "config",
@@ -49,6 +61,23 @@ ERROR_SPECS: Dict[str, Tuple[str, str, str, str]] = {
         "warning",
         "Browser not running",
         "The Mini Browser is not running.",
+    ),
+    "MINI_BROWSER_CLOSED": (
+        "not_found",
+        "warning",
+        "Browser closed",
+        "The Mini Browser was closed (by the user, an idle shutdown or a crash), "
+        "so this action did not finish and your previous tabs are gone. Navigate "
+        "again if the task still needs the browser.",
+    ),
+    "MINI_BROWSER_TAB_CLOSED": (
+        "not_found",
+        "warning",
+        "Tab closed",
+        "This tab was closed while the action was running (by the user or by the "
+        "page), so the action did not finish. Your next action uses another of "
+        "your tabs or a new one; look at the page with mini_browser_read before "
+        "acting.",
     ),
     "MINI_BROWSER_NAVIGATION_FAILED": (
         "connection",
@@ -99,6 +128,15 @@ ERROR_SPECS: Dict[str, Tuple[str, str, str, str]] = {
         "Tab belongs to another agent",
         "Tab {tab} is being used by another agent ({owner}). Open your own tab "
         "with mini_browser_tabs action='new'.",
+    ),
+    "MINI_BROWSER_USER_TAB": (
+        "permission",
+        "warning",
+        "The user's tab",
+        "Tab {tab} is the user's own tab. You can switch to it only while the "
+        "user is viewing it in the Mini Browser and not using it (or when it is "
+        "blank). Open your own tab with mini_browser_tabs action='new', or ask "
+        "the user to show you the page.",
     ),
     "MINI_BROWSER_TOO_MANY_TABS": (
         "validation",
@@ -206,36 +244,147 @@ def first_line(exc: BaseException, limit: int = 300) -> str:
     return line[:limit]
 
 
+MASK = "[redacted]"
+# Very short "secrets" (< 3 chars) are never masked: masking every "a" would
+# make the text unreadable while protecting nothing meaningful.
+MIN_SECRET_CHARS = 3
+
+# Characters application/x-www-form-urlencoded (WHATWG, what Chromium submits
+# for a GET form) leaves alone; space becomes "+", everything else %XX.
+_FORM_SAFE = frozenset(
+    b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789*-._"
+)
+# Extra characters left unescaped by Python's quote (it always keeps
+# A-Za-z0-9_.-~): none, encodeURIComponent's, encodeURI's.
+_PERCENT_SAFE_SETS = ("", "!*'()", "!*'();/?:@&=+$,#")
+# Legacy charsets a page may submit a form in (a page without a charset is
+# windows-1252); a non-ASCII password then arrives percent-encoded in them.
+_LEGACY_CHARSETS = ("utf-8", "cp1252", "shift_jis", "euc_jp", "gb18030", "big5")
+_PERCENT_HEX_RE = re.compile(r"%[0-9A-F]{2}")
+# A run of text between URL / markup delimiters: a query value, a path
+# segment, a fragment, a quoted string...
+_TOKEN_RE = re.compile(r"[^\s/?#&;=\"'<>()\[\]{},|]+")
+
+
 def scrub(text: str, secrets: Iterable[str] = ()) -> str:
-    """Replace every occurrence of any secret in ``text`` with a mask."""
-    if not text:
+    """Mask every occurrence of any secret in ``text`` with ``[redacted]``.
+
+    Also masks the secret's encoded spellings: form-urlencoded (as Chromium
+    submits a GET form: ``*-._`` kept, ``~`` as %7E, space as ``+``),
+    percent-encoded with upper- or lower-case hex (``quote`` /
+    encodeURIComponent / encodeURI), HTML-escaped and JSON-escaped. Finally
+    any URL-ish token that percent-decodes (UTF-8 or a legacy charset) to
+    text containing a secret is masked whole.
+    """
+    if not text or not isinstance(text, str):
         return text
-    out = text
-    # Longest first so a secret that contains another is masked whole. Very
-    # short "secrets" (< 3 chars) are skipped: masking every "a" would make
-    # the text unreadable while protecting nothing meaningful.
-    for secret in sorted({s for s in secrets if s}, key=len, reverse=True):
-        if len(secret) >= 3 and secret in out:
-            out = out.replace(secret, "[redacted]")
+    rules = _rules(_secret_key(secrets))
+    if rules is None:
+        return text
+    return _scrub_with(text, rules)
+
+
+def _secret_key(secrets: Iterable[str]) -> FrozenSet[str]:
+    return frozenset(
+        s for s in secrets or () if isinstance(s, str) and len(s) >= MIN_SECRET_CHARS
+    )
+
+
+@functools.lru_cache(maxsize=32)
+def _rules(key: FrozenSet[str]) -> Optional[Tuple[Tuple[str, ...], Tuple[str, ...]]]:
+    """``(needles longest first, secrets)`` for a set of secrets, or None."""
+    if not key:
+        return None
+    needles = set()
+    for secret in key:
+        needles.update(_spellings(secret))
+    ordered = tuple(
+        sorted(
+            (n for n in needles if len(n) >= MIN_SECRET_CHARS), key=len, reverse=True
+        )
+    )
+    return ordered, tuple(sorted(key, key=len, reverse=True))
+
+
+def _spellings(secret: str) -> List[str]:
+    """The secret as typed plus the encodings a page or URL may show it in."""
+    out = [secret]
+    raw = secret.encode("utf-8", "surrogatepass")
+    form = "".join(
+        chr(b) if b in _FORM_SAFE else "+" if b == 0x20 else f"%{b:02X}" for b in raw
+    )
+    out.extend((form, _lower_hex(form)))
+    for safe in _PERCENT_SAFE_SETS:
+        encoded = quote(secret, safe=safe)
+        out.extend((encoded, _lower_hex(encoded)))
+        plus = quote(secret, safe=safe + " ").replace(" ", "+")
+        out.extend((plus, _lower_hex(plus)))
+    escaped = html.escape(secret)
+    out.extend(
+        (
+            escaped,
+            escaped.replace("&#x27;", "&#39;"),
+            html.escape(secret, quote=False),
+            json.dumps(secret)[1:-1],
+            json.dumps(secret, ensure_ascii=False)[1:-1],
+        )
+    )
     return out
 
 
-def _format(code: str, fields: Dict[str, Any]) -> Tuple[str, str, str]:
-    """(category, title, message) for ``code``, preferring the app codebook."""
-    try:
-        from app.errors.codebook import make_error
+def _lower_hex(text: str) -> str:
+    return _PERCENT_HEX_RE.sub(lambda m: m.group(0).lower(), text)
 
-        info = make_error(code, **_template_fields(code, fields))
-        return info.category.value, info.title, info.message
-    except Exception:
-        category, _severity, title, template = ERROR_SPECS.get(
-            code, ERROR_SPECS["MINI_BROWSER_INTERNAL"]
-        )
+
+def _scrub_with(text: str, rules: Tuple[Tuple[str, ...], Tuple[str, ...]]) -> str:
+    needles, secrets = rules
+    out = text
+    for needle in needles:
+        if needle in out:
+            out = out.replace(needle, MASK)
+    if "%" not in out and "+" not in out:
+        return out
+
+    def mask_token(match: "re.Match[str]") -> str:
+        token = match.group(0)
+        if "%" not in token and "+" not in token:
+            return token
+        return MASK if _decodes_to_secret(token, secrets) else token
+
+    return _TOKEN_RE.sub(mask_token, out)
+
+
+def _decodes_to_secret(token: str, secrets: Tuple[str, ...]) -> bool:
+    seen = set()
+    for charset in _LEGACY_CHARSETS:
         try:
-            message = template.format(**_template_fields(code, fields))
-        except Exception:
-            message = template
-        return category, title, message
+            decoded = unquote_plus(token, encoding=charset, errors="replace")
+        except LookupError:  # a Python build without that codec
+            continue
+        if decoded in seen:
+            continue
+        seen.add(decoded)
+        if any(secret in decoded for secret in secrets):
+            return True
+    return False
+
+
+def _format(code: str, fields: Dict[str, Any]) -> Tuple[str, str, str]:
+    """(category, title, message) for ``code`` from its ERROR_SPECS template.
+
+    The fields are filled in as they are: the app codebook's generic
+    ``redact()`` would turn the URLs, e-mail addresses and page texts these
+    messages are about into ``[REDACTED]``. Secrets are masked by the
+    callers through :func:`scrub`.
+    """
+    if code not in ERROR_SPECS:
+        code = "MINI_BROWSER_INTERNAL"
+    category, _severity, title, template = ERROR_SPECS[code]
+    try:
+        message = template.format(**_template_fields(code, fields))
+    except Exception:
+        message = template
+    return category, title, message
 
 
 def _template_fields(code: str, fields: Dict[str, Any]) -> Dict[str, Any]:
@@ -287,22 +436,24 @@ def scrub_data(value: Any, secrets: Iterable[str] = ()) -> Any:
     Returns a scrubbed copy (containers are rebuilt, other values are kept as
     they are), so a whole action result can be cleaned in one call.
     """
-    secret_list = [s for s in secrets if s]
-    if not secret_list:
+    rules = _rules(_secret_key(secrets))
+    if rules is None:
         return value
-    return _scrub_value(value, secret_list)
+    return _scrub_value(value, rules)
 
 
-def _scrub_value(value: Any, secrets: list) -> Any:
+def _scrub_value(value: Any, rules: Tuple[Tuple[str, ...], Tuple[str, ...]]) -> Any:
     if isinstance(value, str):
-        return scrub(value, secrets)
+        return _scrub_with(value, rules) if value else value
     if isinstance(value, dict):
         return {
-            (scrub(k, secrets) if isinstance(k, str) else k): _scrub_value(v, secrets)
+            (_scrub_with(k, rules) if isinstance(k, str) and k else k): _scrub_value(
+                v, rules
+            )
             for k, v in value.items()
         }
     if isinstance(value, list):
-        return [_scrub_value(v, secrets) for v in value]
+        return [_scrub_value(v, rules) for v in value]
     if isinstance(value, tuple):
-        return tuple(_scrub_value(v, secrets) for v in value)
+        return tuple(_scrub_value(v, rules) for v in value)
     return value

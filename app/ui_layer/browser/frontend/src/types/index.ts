@@ -1000,6 +1000,8 @@ export interface MiniBrowserEvent {
   tabId?: string
   /** Saved file for downloads. */
   path?: string
+  /** Downloads: the backend judged the file able to run code when opened. */
+  dangerous?: boolean
   /** For a failed request: the error code and title (see MiniBrowserError). */
   code?: string
   title?: string

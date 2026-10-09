@@ -165,8 +165,38 @@ def test_patterns_for_ads_and_ui_origins():
 def test_ad_patterns_only_when_enabled():
     origins = frozenset({"localhost:7926"})
     patterns = adblock.blocked_url_patterns(False, origins)
-    assert patterns == ["*://localhost:7926/*", "*://localhost.:7926/*"]
+    assert patterns[:2] == ["*://localhost:7926/*", "*://localhost.:7926/*"]
+    assert all(":7926/" in p for p in patterns)  # UI origin only, no ad domains
+    assert not any("doubleclick" in p for p in patterns)
     assert adblock.blocked_url_patterns(False, frozenset()) == []
+    # A non-loopback UI origin is blocked under its own name only.
+    assert adblock.blocked_url_patterns(False, frozenset({"ui.example:7926"})) == [
+        "*://ui.example:7926/*",
+        "*://ui.example.:7926/*",
+    ]
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://[::ffff:7f00:1]:7926/api/session-token",
+        "http://foo.localhost:7926/",
+        "http://a.b.localhost:7926/x",
+        "http://127.0.0.2:7926/",
+        "http://[::1]:7926/",
+        "http://0.0.0.0:7926/",
+        "http://[::]:7926/",
+    ],
+)
+def test_loopback_spellings_of_a_ui_origin_are_blocked(url):
+    """Every loopback spelling reaches the UI's listener (security SEC-1)."""
+    origins = frozenset({"localhost:7926"})
+    assert blocked(url, adblock.blocked_url_patterns(False, origins))
+    fetch = adblock.ui_fetch_patterns(origins)
+    assert any(fetch_matches(url, p) for p in fetch)
+    other_port = url.replace(":7926/", ":7927/")
+    assert not blocked(other_port, adblock.blocked_url_patterns(False, origins))
+    assert not any(fetch_matches(other_port, p) for p in fetch)
 
 
 def test_extra_domains_are_cleaned():

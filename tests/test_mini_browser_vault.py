@@ -276,6 +276,20 @@ def test_idn_fallback_without_idna_package(monkeypatch):
         ("127.0.0.1", "http://127.0.0.2/"),
         ("localhost", "http://app.localhost/"),  # http only for exactly localhost
         ("1.2.3.4", "https://5.1.2.3.4/"),
+        # Subdomains are other sites (security SEC-3): on hosts of user pages
+        # they belong to someone else.
+        ("www.tumblr.com", "https://attacker-blog.tumblr.com/"),
+        ("https://www.tumblr.com/login", "https://attacker-blog.tumblr.com/"),
+        ("tumblr.com", "https://attacker-blog.tumblr.com/login"),
+        ("github.io", "https://someone.github.io/"),
+        ("neocities.org", "https://evil.neocities.org/signin"),
+        ("amazon.com", "https://signin.amazon.com/ap/signin?openid=x"),
+        ("bücher.de", "https://shop.bücher.de/"),
+        ("example.com", "https://www.www.example.com/"),
+        ("example.com", "https://a.www.example.com/"),
+        # A saved site without a port matches the default ports only.
+        ("example.com", "https://example.com:8443/"),
+        ("localhost", "http://localhost:5173/"),
     ],
 )
 def test_site_matches_rejects_lookalikes_and_unsafe_pages(saved, url):
@@ -287,25 +301,28 @@ def test_site_matches_rejects_lookalikes_and_unsafe_pages(saved, url):
     [
         ("amazon.com", "https://amazon.com/"),
         ("amazon.com", "https://www.amazon.com/gp/cart"),
-        ("amazon.com", "https://signin.amazon.com/ap/signin?openid=x"),
         ("www.amazon.com", "https://amazon.com/"),  # saved www. is stripped
+        ("www.amazon.com", "https://www.amazon.com/"),
         ("https://www.amazon.com/ap/signin", "https://amazon.com/"),
+        ("https://www.tumblr.com/login", "https://www.tumblr.com/login"),
+        ("https://www.tumblr.com/login", "https://tumblr.com/"),
+        ("accounts.google.com", "https://accounts.google.com/v3/signin"),
         ("amazon.com", "https://AMAZON.com./"),
         ("amazon.com", "https://amazon.com:443/"),
         ("amazon.com", "https://user:pw@amazon.com/"),
         ("example.com:8443", "https://example.com:8443/x"),
-        ("example.com", "https://example.com:8443/"),  # no saved port: any port
         ("localhost:3000", "http://localhost:3000/login"),
         ("localhost:3000", "https://localhost:3000/"),
-        ("localhost", "http://localhost:5173/"),
+        ("localhost", "http://localhost/"),
         ("127.0.0.1:8080", "http://127.0.0.1:8080/"),
         ("[::1]:8080", "http://[::1]:8080/"),
         ("bücher.de", "https://xn--bcher-kva.de/"),
-        ("bücher.de", "https://shop.bücher.de/"),
+        ("bücher.de", "https://www.bücher.de/"),
         ("192.168.1.1", "https://192.168.1.1/"),
+        ("www.com", "https://www.com/"),
     ],
 )
-def test_site_matches_accepts_same_site_and_subdomains(saved, url):
+def test_site_matches_accepts_the_same_site_with_or_without_www(saved, url):
     assert site_matches(saved, url) is True
 
 
@@ -666,7 +683,7 @@ def test_logged_tracebacks_never_show_passwords(vault, monkeypatch):
 
 
 @pytest.mark.usefixtures("clock")
-def test_candidates_rank_exact_host_then_most_recently_used(vault):
+def test_candidates_are_the_page_hosts_own_logins_most_recently_used_first(vault):
     old = vault.add_entry("amazon.com", "old-user", "pw-old-1")
     vault.add_entry("signin.amazon.com", "sub-user", "pw-sub-2")
     recent = vault.add_entry("amazon.com", "recent-user", "pw-recent-3")
@@ -675,8 +692,9 @@ def test_candidates_rank_exact_host_then_most_recently_used(vault):
     vault.mark_used(old["id"])
     vault.mark_used(recent["id"])
 
+    # A sign-in host gets only its own logins, never its parent's.
     on_signin = vault.candidates_for_url("https://signin.amazon.com/ap/signin")
-    assert _usernames(on_signin) == ["sub-user", "recent-user", "old-user"]
+    assert _usernames(on_signin) == ["sub-user"]
     on_www = vault.candidates_for_url("https://www.amazon.com/")
     assert _usernames(on_www) == ["recent-user", "old-user"]
 
@@ -702,8 +720,26 @@ def test_candidates_rank_exact_host_then_most_recently_used(vault):
     assert vault.candidates_for_url("not a url") == []
     assert vault.candidates_for_url(None) == []
     assert fresh["id"] in {
-        c["id"] for c in vault.candidates_for_url("https://a.amazon.com")
+        c["id"] for c in vault.candidates_for_url("https://www.amazon.com")
     }
+    assert vault.candidates_for_url("https://a.amazon.com") == []
+
+
+def test_a_main_site_login_is_never_offered_on_someone_elses_subdomain(vault):
+    """Security SEC-3: saving the sign-in URL https://www.tumblr.com/login
+    stores "tumblr.com"; that must not make the password fill (and submit)
+    on attacker-blog.tumblr.com, a page someone else controls."""
+    saved = vault.add_entry("https://www.tumblr.com/login", "jo", "tumblr-pw-1")
+    assert saved["site"] == "tumblr.com"
+    for url in (
+        "https://attacker-blog.tumblr.com/",
+        "https://attacker-blog.tumblr.com/login",
+        "https://www.attacker-blog.tumblr.com/",
+        "https://tumblr.com.evil.example/",
+    ):
+        assert vault.candidates_for_url(url) == [], url
+    for url in ("https://www.tumblr.com/login", "https://tumblr.com/"):
+        assert _usernames(vault.candidates_for_url(url)) == ["jo"], url
 
 
 @pytest.mark.usefixtures("clock")

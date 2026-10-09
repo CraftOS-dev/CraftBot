@@ -1,11 +1,11 @@
-import React, { useCallback, useEffect, useRef, type MutableRefObject, type RefObject } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, type MutableRefObject, type RefObject } from 'react'
 import { useAppDispatch, useAppSelector } from '../../../store/hooks'
 import { selectMiniBrowserClipboard } from '../../../store/selectors/miniBrowser'
 import { clipboardConsumed } from '../../../store/slices/miniBrowserSlice'
 import type { MiniBrowserTab } from '../../../types'
 import { copyTextWhenReady } from '../clipboard'
 import { sendLive } from '../useMiniBrowserSocket'
-import { classifyKey } from './keyboard'
+import { classifyKey, cutShortcut } from './keyboard'
 import type { LiveInput } from './useLiveInput'
 
 const MAX_PASTE_CHARS = 20_000
@@ -25,6 +25,9 @@ interface KeyboardOptions {
   target: MutableRefObject<KeyboardTarget>
   /** Class that makes the sink visible while an IME composes. */
   composingClass: string
+  /** Place the sink so the draft an IME is composing fits on the stage
+   *  (called whenever the draft appears, grows or goes away). */
+  placeSink(): void
   onPasteTruncated(max: number): void
   onCopyFailed(): void
 }
@@ -38,9 +41,21 @@ export interface KeyboardSinkHandlers {
   onBlur(): void
 }
 
+export interface KeyboardSink {
+  /** Spread onto the sink <textarea>. */
+  handlers: KeyboardSinkHandlers
+  /** The view left `previousTabId`: give up the keyboard, and send whatever
+   *  the IME had composed to the tab it was composed for (text left in the
+   *  sink otherwise goes to `previousTabId`). */
+  leave(previousTabId: string | null): void
+}
+
 interface PendingCopy {
   resolve(text: string): void
   reject(err: Error): void
+  /** A newer copy (or leaving the page) replaced this one: its failure is
+   *  not the user's problem and is never reported. */
+  superseded: boolean
 }
 
 /**
@@ -55,46 +70,58 @@ export function useKeyboardSink({
   input,
   target,
   composingClass,
+  placeSink,
   onPasteTruncated,
   onCopyFailed,
-}: KeyboardOptions): KeyboardSinkHandlers {
+}: KeyboardOptions): KeyboardSink {
   const dispatch = useAppDispatch()
   const clipboard = useAppSelector(selectMiniBrowserClipboard)
   const composingRef = useRef(false)
+  // The tab an IME composition started on: its text goes there, even if the
+  // view has moved on by the time the IME commits it.
+  const compositionTabRef = useRef<string | null>(null)
+  // While leaving a tab: the tab the sink's leftovers belong to.
+  const leavingTabRef = useRef<string | null>(null)
   const lastEscapeRef = useRef(0)
   const copyRef = useRef<PendingCopy | null>(null)
 
   // ── Copy / cut ───────────────────────────────────────────────────────
-  const copySelection = useCallback((cut: boolean, ctrl: boolean, meta: boolean) => {
+  const copySelection = useCallback((cut: boolean) => {
     const tab = target.current.tab
     if (!tab) return
     input.flushText()
     if (!sendLive('mini_browser_copy', { tabId: tab.id })) return
-    copyRef.current?.reject(new Error('superseded'))
-    let pending: PendingCopy = { resolve: () => undefined, reject: () => undefined }
+    const previous = copyRef.current
+    if (previous) {
+      previous.superseded = true
+      previous.reject(new Error('superseded'))
+    }
+    let settle: Pick<PendingCopy, 'resolve' | 'reject'> = { resolve: () => undefined, reject: () => undefined }
     const text = new Promise<string>((resolve, reject) => {
-      pending = { resolve, reject }
+      settle = { resolve, reject }
     })
     const timer = window.setTimeout(() => {
-      copyRef.current = null
-      pending.reject(new Error('timeout'))
+      if (copyRef.current === pending) copyRef.current = null
+      settle.reject(new Error('timeout'))
     }, COPY_TIMEOUT_MS)
-    copyRef.current = {
+    const pending: PendingCopy = {
+      superseded: false,
       resolve: (value) => {
         window.clearTimeout(timer)
-        pending.resolve(value)
+        settle.resolve(value)
       },
       reject: (err) => {
         window.clearTimeout(timer)
-        pending.reject(err)
+        settle.reject(err)
       },
     }
+    copyRef.current = pending
     // Started inside the key press, which is what lets the browser write.
     void copyTextWhenReady(text).then((outcome) => {
-      if (outcome === 'failed') onCopyFailed()
+      if (outcome === 'failed' && !pending.superseded) onCopyFailed()
     })
     // Cut = copy, then let the page delete the selection itself.
-    if (cut) input.pressKey('x', { shift: false, ctrl, alt: false, meta })
+    if (cut) input.pressKey('x', cutShortcut())
   }, [input, onCopyFailed, target])
 
   // The backend's copy reply arrives through the store.
@@ -110,8 +137,12 @@ export function useKeyboardSink({
   }, [clipboard, dispatch])
 
   useEffect(() => () => {
-    copyRef.current?.reject(new Error('unmounted'))
+    const pending = copyRef.current
     copyRef.current = null
+    if (pending) {
+      pending.superseded = true
+      pending.reject(new Error('unmounted'))
+    }
   }, [])
 
   // ── Keys ─────────────────────────────────────────────────────────────
@@ -129,7 +160,8 @@ export function useKeyboardSink({
         target.current.onHistory(intent.action)
         return
       case 'copy':
-        copySelection(intent.cut, e.ctrlKey, e.metaKey)
+        // Holding the keys copies (or cuts) once, not once per auto-repeat.
+        if (!e.repeat) copySelection(intent.cut)
         return
       case 'escape': {
         const now = performance.now()
@@ -150,31 +182,43 @@ export function useKeyboardSink({
 
   // ── Text: typing, IME, paste ─────────────────────────────────────────
   // Whatever sits in the sink is text not yet sent; take it and clear it.
-  const takeText = useCallback(() => {
+  const takeText = useCallback((tabId?: string | null) => {
     const el = sink.current
     if (!el || !el.value) return
     const text = el.value
     el.value = ''
-    input.queueText(text)
+    input.queueText(text, tabId ?? input.currentTabId())
   }, [input, sink])
 
   const onInput = useCallback((e: React.FormEvent<HTMLTextAreaElement>) => {
     // Mid-composition text is the IME's draft; it is sent on compositionend.
-    if (composingRef.current || (e.nativeEvent as InputEvent).isComposing) return
+    if (composingRef.current || (e.nativeEvent as InputEvent).isComposing) {
+      placeSink() // the draft grew: keep it on the stage
+      return
+    }
     takeText()
-  }, [takeText])
+  }, [placeSink, takeText])
 
   const onCompositionStart = useCallback(() => {
     composingRef.current = true
-    // Make the draft visible: the sink is otherwise transparent.
+    compositionTabRef.current = input.currentTabId()
+    // Typing via an IME sends nothing until the text is committed, so this
+    // is where the user is first seen to be typing.
+    input.noteUserInput()
+    // Make the draft visible (the sink is otherwise transparent) and keep
+    // it inside the stage.
     sink.current?.classList.add(composingClass)
-  }, [composingClass, sink])
+    placeSink()
+  }, [composingClass, input, placeSink, sink])
 
   const onCompositionEnd = useCallback(() => {
+    const tabId = compositionTabRef.current
     composingRef.current = false
+    compositionTabRef.current = null
     sink.current?.classList.remove(composingClass)
-    takeText()
-  }, [composingClass, sink, takeText])
+    placeSink()
+    takeText(tabId)
+  }, [composingClass, placeSink, sink, takeText])
 
   const onPaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
     e.preventDefault()
@@ -188,15 +232,40 @@ export function useKeyboardSink({
     input.flushText()
   }, [input, onPasteTruncated])
 
-  const onBlur = useCallback(() => {
-    input.flushText()
-    composingRef.current = false
+  // Clears the sink; a draft still in it goes to the tab it was typed for.
+  const settle = useCallback(() => {
     const el = sink.current
-    if (el) {
-      el.classList.remove(composingClass)
-      el.value = ''
+    if (el?.value) takeText(compositionTabRef.current ?? leavingTabRef.current)
+    composingRef.current = false
+    compositionTabRef.current = null
+    el?.classList.remove(composingClass)
+    input.flushText()
+  }, [composingClass, input, sink, takeText])
+
+  const onBlur = useCallback(() => {
+    settle()
+  }, [settle])
+
+  const leave = useCallback((previousTabId: string | null) => {
+    leavingTabRef.current = previousTabId
+    try {
+      const el = sink.current
+      if (el && document.activeElement === el) {
+        // Blurring makes the IME commit its draft (compositionend), which
+        // the handlers above send to the composition's tab.
+        el.blur()
+        // The caret stays parked in a blurred field, and text inserted at
+        // "the selection" (dictation, IME-style insertion) would land there
+        // and re-focus it: drop the caret too.
+        document.getSelection()?.removeAllRanges()
+      }
+      // Whatever is still in the sink (no compositionend arrived) goes the
+      // same way.
+      settle()
+    } finally {
+      leavingTabRef.current = null
     }
-  }, [composingClass, input, sink])
+  }, [settle, sink])
 
   // Mobile keyboards report Backspace/Enter on an empty field only through
   // beforeinput (their keydown says "Unidentified" / 229).
@@ -218,5 +287,9 @@ export function useKeyboardSink({
     return () => el.removeEventListener('beforeinput', onBeforeInput)
   }, [input, sink])
 
-  return { onKeyDown, onInput, onCompositionStart, onCompositionEnd, onPaste, onBlur }
+  const handlers = useMemo<KeyboardSinkHandlers>(
+    () => ({ onKeyDown, onInput, onCompositionStart, onCompositionEnd, onPaste, onBlur }),
+    [onKeyDown, onInput, onCompositionStart, onCompositionEnd, onPaste, onBlur],
+  )
+  return { handlers, leave }
 }

@@ -77,7 +77,9 @@ export function usePointerInput({ stage, img, input, shownFrame, target, focusAt
     }
 
     // ── Mouse ────────────────────────────────────────────────────────────
-    let pressed: { button: MiniBrowserMouseButton; clicks: number; last: FramePoint } | null = null
+    // A held button belongs to the tab it went down on: its drag moves and
+    // its release go there even if the view switches meanwhile.
+    let pressed: { button: MiniBrowserMouseButton; clicks: number; last: FramePoint; tabId: string } | null = null
 
     const release = (point: FramePoint, clicks: number) => {
       const held = pressed
@@ -86,7 +88,9 @@ export function usePointerInput({ stage, img, input, shownFrame, target, focusAt
       window.removeEventListener('mouseup', onDragEnd, true)
       window.removeEventListener('blur', onWindowBlur)
       input.cancelMove()
-      if (held) input.send({ kind: 'mouse', action: 'up', x: point.x, y: point.y, button: held.button, clickCount: clicks })
+      if (held) {
+        input.sendTo(held.tabId, { kind: 'mouse', action: 'up', x: point.x, y: point.y, button: held.button, clickCount: clicks })
+      }
     }
 
     const onMouseDown = (e: MouseEvent) => {
@@ -98,15 +102,16 @@ export function usePointerInput({ stage, img, input, shownFrame, target, focusAt
       if (!button) return
       // No host text selection, focus change or middle-click autoscroll.
       e.preventDefault()
-      if (pressed || !input.canInput()) return
+      const tabId = input.currentTabId()
+      if (pressed || !tabId || !input.canInput()) return
       const point = framePoint(e.clientX, e.clientY, false)
       if (!point) return // a letterbox bar
       focusAt(e.clientX, e.clientY)
       input.flushText()
       input.cancelMove()
       const clicks = clampClicks(e.detail)
-      pressed = { button, clicks, last: point }
-      input.send({ kind: 'mouse', action: 'down', x: point.x, y: point.y, button, clickCount: clicks })
+      pressed = { button, clicks, last: point, tabId }
+      input.sendTo(tabId, { kind: 'mouse', action: 'down', x: point.x, y: point.y, button, clickCount: clicks })
       input.noteUserInput()
       window.addEventListener('mousemove', onDragMove, true)
       window.addEventListener('mouseup', onDragEnd, true)
@@ -118,7 +123,7 @@ export function usePointerInput({ stage, img, input, shownFrame, target, focusAt
       const point = framePoint(e.clientX, e.clientY, true)
       if (!point) return
       pressed.last = point
-      input.scheduleMove(point, true)
+      input.scheduleMove(point, pressed.tabId)
     }
 
     const onDragEnd = (e: MouseEvent) => {
@@ -134,7 +139,7 @@ export function usePointerInput({ stage, img, input, shownFrame, target, focusAt
     const onHover = (e: MouseEvent) => {
       if (pressed || !canHover()) return
       const point = framePoint(e.clientX, e.clientY, false)
-      if (point) input.scheduleMove(point, false)
+      if (point) input.scheduleMove(point, null)
     }
 
     // Left to the host, the back/forward mouse buttons would navigate
@@ -263,7 +268,14 @@ export function usePointerInput({ stage, img, input, shownFrame, target, focusAt
       ['pointercancel', onPointerCancel as EventListener],
     ]
     for (const [type, listener, options] of listeners) stageEl.addEventListener(type, listener, options)
+    // The view is leaving the tab: let go of a held button there (never
+    // drag on in the next tab) and drop a touch gesture in progress.
+    const stopLeaving = input.onLeave(() => {
+      if (pressed) release(pressed.last, pressed.clicks)
+      endTouch()
+    })
     return () => {
+      stopLeaving()
       if (pressed) release(pressed.last, pressed.clicks)
       endTouch()
       for (const [type, listener] of listeners) stageEl.removeEventListener(type, listener)

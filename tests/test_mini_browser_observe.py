@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -454,3 +455,279 @@ def test_format_element_examples():
         fmt({"n": 1, "kind": "button", "label": 'say "hi"'})
         == "[1] button \"say 'hi'\""
     )
+
+
+# ── review fixes: what the agent can see ────────────────────────────────────
+
+
+def _line(obs, needle):
+    found = [line for line in obs["elements"] if needle in line]
+    assert found, (needle, obs["elements"])
+    return found[0]
+
+
+CLICKABLES = """
+<style>
+  .c { cursor: pointer; padding: 6px; margin: 4px; border: 1px solid #999; }
+  .wall { cursor: pointer; position: absolute; inset: 0; z-index: -1; }
+</style>
+<div class="wall"></div>
+<div class="c" id="sort">Sort by: Price</div>
+<ul><li class="c">Price</li><li class="c">Duration</li></ul>
+<div class="c" id="card">NH 123 <span>09:05</span> <b>Select</b></div>
+<a class="c" id="more">Show 20 more flights</a>
+<a id="plain">Not clickable text</a>
+<div x-on:click="open = true">Alpine menu</div>
+<div @click="open = true">Alpine short</div>
+<div id="react">React row</div>
+<label class="c"><input type="checkbox"> Remember me</label>
+<span id="nothing">Just text</span>
+<script>document.getElementById('react')['__reactProps$x1'] = {onClick() {}};</script>
+"""
+
+
+def test_clickable_elements_without_semantics_are_listed(browser):
+    """OBS-1: framework click handlers and cursor:pointer areas are listed
+    (the outermost one only), plain text is not."""
+    obs, _state = _observe(browser, CLICKABLES)
+    lines = obs["elements"]
+    for label in (
+        '"Sort by: Price"',
+        '"Price"',
+        '"Duration"',
+        '"Alpine menu"',
+        '"Alpine short"',
+        '"React row"',
+    ):
+        assert any(label in line and "clickable" in line for line in lines), label
+    assert any(line.endswith('link "Show 20 more flights"') for line in lines)
+    # The card is one element, not one per inner span.
+    assert sum("NH 123" in line or "09:05" in line for line in lines) == 1
+    assert '"NH 123 09:05 Select"' in _line(obs, "NH 123")
+    assert not any("Not clickable" in line or "Just text" in line for line in lines)
+    # A label around a real checkbox adds nothing: the checkbox is listed.
+    assert sum("Remember me" in line for line in lines) == 1
+    assert _line(obs, "Remember me").split("] ")[1].startswith("checkbox")
+
+
+SLOTTED = """
+<my-button id=a>Place order</my-button>
+<my-button id=b><span>Apply coupon</span></my-button>
+<my-link href="/x">Track package</my-link>
+<my-input>Promo code</my-input>
+<script>
+customElements.define('my-button', class extends HTMLElement {
+  constructor(){ super(); this.attachShadow({mode:'open'}).innerHTML = '<button><slot></slot></button>'; }
+});
+customElements.define('my-link', class extends HTMLElement {
+  constructor(){ super(); this.attachShadow({mode:'open'}).innerHTML =
+    '<a href="' + this.getAttribute('href') + '"><slot></slot></a>'; }
+});
+customElements.define('my-input', class extends HTMLElement {
+  constructor(){ super(); this.attachShadow({mode:'open'}).innerHTML = '<label><slot></slot><input></label>'; }
+});
+</script>
+"""
+
+
+def test_web_components_keep_their_slotted_labels_and_are_not_obscured(browser):
+    """OBS-2: labels come through slots; slotted text is not a cover."""
+    obs, _state = _observe(browser, SLOTTED)
+    assert _line(obs, "Place order").endswith('button "Place order"')
+    assert _line(obs, "Apply coupon").endswith('button "Apply coupon"')
+    assert '"Track package"' in _line(obs, "Track package")
+    assert _line(obs, "Promo code").endswith('input:text "Promo code"')
+    assert not any("obscured" in line for line in obs["elements"])
+
+
+def test_repeated_controls_carry_their_row_or_card(browser):
+    """OBS-3: identical buttons are told apart by their row / card text."""
+    rows = "".join(
+        f"<tr><td>Order #{1000 + i}</td><td>Shoes size {38 + i}</td>"
+        f"<td><button>Cancel order</button></td></tr>"
+        for i in range(3)
+    )
+    cards = "".join(
+        f"<div class=card><h3>T-shirt {c}</h3><span>${12 + i}</span>"
+        f"<button>Add to cart</button></div>"
+        for i, c in enumerate(("Blue", "Red"))
+    )
+    obs, _state = _observe(
+        browser, f"<table>{rows}</table>{cards}<button>Checkout</button>"
+    )
+    lines = obs["elements"]
+    assert '[0] button "Cancel order" (in "Order #1000 · Shoes size 38")' in lines
+    assert '[2] button "Cancel order" (in "Order #1002 · Shoes size 40")' in lines
+    assert '[3] button "Add to cart" (in "T-shirt Blue $12")' in lines
+    assert '[4] button "Add to cart" (in "T-shirt Red $13")' in lines
+    assert '[5] button "Checkout"' in lines  # unique: no context needed
+
+
+def test_links_to_the_same_address_are_listed_once(browser):
+    html = """<base href="https://shop.example/">
+      <div><a href="/p/1"><img alt="Trail Runner 2" width=40 height=40></a>
+      <h3><a href="/p/1">Trail Runner 2, size 38-46</a></h3>
+      <a href="/p/1#reviews">4.5 stars</a> <a href="/p/1#reviews">12,345</a></div>
+      <a href="/p/2">Other shoe</a>"""
+    obs, _state = _observe(browser, html)
+    links = [line for line in obs["elements"] if " link " in line]
+    assert links == [
+        '[0] link "Trail Runner 2, size 38-46" → shop.example/p/1',
+        '[1] link "4.5 stars" → shop.example/p/1',
+        '[2] link "Other shoe" → shop.example/p/2',
+    ]
+
+
+def _big_page():
+    cards = "".join(
+        f'<div style="display:inline-block;width:23%">'
+        f'<a href="/Sony-WH-1000XM5-Wireless-Noise-Canceling-Headphones-{i}/dp/B0{i:08d}'
+        f'/ref=sr_1_{i}?crid=2M096C61O4MLT&keywords=wireless+headphones&qid=1696000000">'
+        f"<h2>Sony WH-1000XM5 Wireless Industry Leading Noise Canceling Headphones "
+        f"with Auto Noise Canceling Optimizer, Black (Model {i})</h2></a>"
+        f"<p>{'Great sound and comfort for long flights. ' * 6}</p>"
+        f'<button aria-label="Add to cart">Add to cart</button>'
+        f'<a href="/offers/B0{i:08d}?ref=sr_opts">See options</a></div>'
+        for i in range(60)
+    )
+    nav = "".join(f'<a href="/nav/{k}">Department number {k}</a> ' for k in range(30))
+    return (
+        '<base href="https://shop.example/"><title>Results</title>'
+        f"<header>{nav}</header>{cards}"
+    )
+
+
+def test_results_stay_under_the_event_stream_inline_limit(browser):
+    """OBS-4: a busy results page fits (compact and read), with the most
+    relevant elements kept and the text offsets still right."""
+    html = _big_page()
+    compact, _state = _observe(browser, html)
+    assert len(json.dumps({"page": compact}, indent=2, ensure_ascii=False)) <= (
+        obs_mod.COMPACT_BUDGET_CHARS
+    )
+    full, _state = _observe(browser, html, compact=False, max_elements=500)
+    size = len(json.dumps(full, indent=2, ensure_ascii=False))
+    assert size <= obs_mod.READ_BUDGET_CHARS
+    assert full["elements_truncated"] and full["element_count"] > len(full["elements"])
+    assert full["elements"][0].startswith("[0] link")  # numbering kept from 0
+    more, _state = _observe(browser, html, compact=False, max_text_chars=8000)
+    assert len(json.dumps(more, indent=2, ensure_ascii=False)) <= (
+        obs_mod.READ_BUDGET_CHARS
+    )
+    assert more["next_text_offset"] == more["text_offset"] + len(more["text"])
+
+
+def test_frames_are_listed_with_their_contents(browser):
+    """OBS-5: a frame and its fields are visible (and secret rules apply)."""
+    widget = (
+        "<form><label>Name <input id=name></label>"
+        "<label>Card <input autocomplete=cc-number value=4111111111111111></label>"
+        "<button type=button>Find a table</button><p>Available: 19:00</p></form>"
+    )
+    html = (
+        "<h1>Trattoria</h1>"
+        f"<iframe title='Reservation widget' srcdoc='{widget}' "
+        "style='width:600px;height:200px'></iframe><p>Call us</p>"
+    )
+
+    async def prepare(page):
+        for _ in range(200):  # until the srcdoc frame has its document
+            frames = page.main_frame.child_frames
+            if frames and await frames[0].evaluate("document.readyState") == "complete":
+                return
+            await asyncio.sleep(0.05)
+
+    obs, _state = _observe(browser, html, prepare=prepare)
+    lines = obs["elements"]
+    assert lines[0] == (
+        '[0] frame "Reservation widget" → (inline) (its contents are [1]-[3])'
+    )
+    assert '[1] input:text "Name" (in frame 0)' in lines
+    assert '[3] button "Find a table" (in frame 0)' in lines
+    assert "4111" not in json.dumps(obs)
+    assert "Available: 19:00" in obs["frame_text"]
+
+
+def test_an_open_modal_s_text_comes_first(browser):
+    """OBS-6: the question a modal asks leads the text."""
+    rows = "".join(f"<p>Order #{1000 + i} Running shoes</p>" for i in range(80))
+    html = (
+        f"<h1>Your orders</h1>{rows}"
+        "<div role=dialog aria-modal=true style='position:fixed;top:30%;left:30%;"
+        "background:#fff;padding:20px'><p>Cancel order #1003? A 500 yen "
+        "cancellation fee applies.</p><button>Keep order</button>"
+        "<button>Yes, cancel</button></div>"
+    )
+    obs, _state = _observe(browser, html)
+    assert obs["dialog_open"] is True
+    assert obs["text"].startswith("Dialog: Cancel order #1003? A 500 yen")
+    assert obs["elements"][0] == '[0] button "Keep order" (in dialog)'
+
+
+def test_the_cores_tab_list_is_passed_through_untouched():
+    """Agent-facing tab list (C4): no address or title is ever added for a
+    tab the agent does not own."""
+    payload = [
+        {
+            "index": 0,
+            "id": "t1",
+            "url": "https://a/",
+            "title": "A",
+            "mine": True,
+            "active": True,
+        },
+        {"index": 1, "mine": False, "owner": "agent", "ownerLabel": "Research"},
+        {
+            "index": 2,
+            "mine": False,
+            "owner": "user",
+            "host": "bank.example",
+            "viewed": True,
+        },
+    ]
+    core = FakeCore()
+    core.tabs_payload = lambda owner=None: [dict(t) for t in payload]
+    tab = Tab(id="t1", page=_ScriptedPage([_RAW]), owner="sess")
+    result = asyncio.run(obs_mod.observe(core, tab, compact=True))
+    assert result["tabs"] == payload
+
+
+def test_a_hanging_frame_never_holds_up_the_observation(monkeypatch):
+    """OBS-5: frames are best effort, within one small time budget."""
+    monkeypatch.setattr(obs_mod, "FRAMES_BUDGET_S", 0.3)
+
+    class Handle:
+        async def get_attribute(self, name):
+            return "1-0"
+
+        async def dispose(self):
+            return None
+
+    class HangingFrame:
+        url = "https://widget.example/"
+
+        async def frame_element(self):
+            return Handle()
+
+        async def evaluate(self, script, arg=None):
+            await asyncio.sleep(3600)
+
+    raw = dict(
+        _RAW,
+        elements=[{"n": 0, "kind": "frame", "label": "Widget", "states": []}],
+        frames=[{"n": 0, "inView": True, "dir": "", "src": "https://widget.example/"}],
+    )
+    page = _ScriptedPage([raw])
+    page.main_frame = SimpleNamespace(child_frames=[HangingFrame()])
+    tab = Tab(id="t1", page=page, owner="sess")
+    loop_time = asyncio.new_event_loop()
+    try:
+        started = loop_time.time()
+        result = loop_time.run_until_complete(
+            obs_mod.observe(FakeCore(), tab, compact=True)
+        )
+        elapsed = loop_time.time() - started
+    finally:
+        loop_time.close()
+    assert elapsed < 2.0
+    assert result["elements"] == ['[0] frame "Widget" (its contents could not be read)']

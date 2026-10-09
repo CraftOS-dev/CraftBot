@@ -320,7 +320,8 @@ def normalize_site(text: str) -> str:
     Accepts a bare host or an http(s) URL, then:
 
     - strips the scheme, path, query, userinfo, one trailing dot and a
-      leading ``www.``;
+      leading ``www.`` (``www.example.com`` and ``example.com`` are one site,
+      see :func:`site_matches`);
     - lowercases the host and converts Unicode names to IDNA (UTS #46
       non-transitional, the same as Chromium);
     - drops the default ports 80/443 and wraps IPv6 hosts in brackets.
@@ -334,10 +335,16 @@ def normalize_site(text: str) -> str:
 def site_matches(saved_site: str, url: str) -> bool:
     """True when a login saved for ``saved_site`` may be filled into ``url``.
 
-    The page host must equal the saved host or be a subdomain of it on a dot
-    boundary. A saved subdomain never matches its parent. When the saved site
-    has a port, the page must use that port. The page must be https; only
-    localhost, 127.0.0.1 and ::1 may also use plain http. Never raises.
+    The page host must be the saved host itself, or the saved host with a
+    leading ``www.`` (a login saved for ``www.example.com`` is stored as
+    ``example.com``; both spellings name the same site). Other subdomains
+    never match: on sites that host other people's pages
+    (``someone.tumblr.com``, ``someone.github.io``) a subdomain belongs to
+    someone else, and the agent must not type the main site's password
+    there. A sign-in page on its own subdomain (``accounts.example.com``)
+    needs a login saved for that host. The port must match too (a saved site
+    without a port matches only the default ports). The page must be https;
+    only localhost, 127.0.0.1 and ::1 may also use plain http. Never raises.
     """
     if not isinstance(saved_site, str):
         return False
@@ -441,15 +448,16 @@ def _parse_url(url: Any) -> Optional[Tuple[str, str, Optional[int]]]:
 def _matches(
     saved: Tuple[str, Optional[int]], target: Tuple[str, str, Optional[int]]
 ) -> bool:
+    """See :func:`site_matches`: same host (``www.`` aside), same port."""
     saved_host, saved_port = saved
     scheme, host, port = target
     if scheme != "https" and host not in LOOPBACK_HOSTS:
         return False
-    if saved_port is not None and port != saved_port:
+    if port != saved_port:
         return False
     if host == saved_host:
         return True
-    return not _is_ip(saved_host) and host.endswith("." + saved_host)
+    return not _is_ip(saved_host) and host == "www." + saved_host
 
 
 def _canonical_host(raw: Optional[str]) -> str:
@@ -580,15 +588,14 @@ class CredentialVault:
     def candidates_for_url(self, url: str) -> List[Dict[str, Any]]:
         """INTERNAL (autofill only): logins allowed on ``url``, with passwords.
 
-        Matching follows :func:`site_matches`. Results come exact-host first
-        (ignoring a leading ``www.``), then most recently used. Each entry is a
-        copy whose repr is redacted; never return it to the model or the UI.
+        Matching follows :func:`site_matches` (the page's own host, with or
+        without ``www.``, and port). Results come most recently used first.
+        Each entry is a copy whose repr is redacted; never return it to the
+        model or the UI.
         """
         target = _parse_url(url)
         if target is None:
             return []
-        host = target[1]
-        bare = host[4:] if host.startswith("www.") else host
         with self._lock:
             state = self._load_locked()
             if not state.ok:
@@ -597,11 +604,10 @@ class CredentialVault:
             for entry in state.entries:
                 saved = _saved_parts(entry["site"])
                 if saved is not None and _matches(saved, target):
-                    found.append((saved[0] in (host, bare), _Entry(entry)))
-        found.sort(key=lambda item: item[1].get("updatedAt") or "", reverse=True)
-        found.sort(key=lambda item: item[1].get("lastUsedAt") or "", reverse=True)
-        found.sort(key=lambda item: not item[0])
-        return [entry for _exact, entry in found]
+                    found.append(_Entry(entry))
+        found.sort(key=lambda item: item.get("updatedAt") or "", reverse=True)
+        found.sort(key=lambda item: item.get("lastUsedAt") or "", reverse=True)
+        return found
 
     # ── writes (raise VaultError) ──────────────────────────────────────
 
