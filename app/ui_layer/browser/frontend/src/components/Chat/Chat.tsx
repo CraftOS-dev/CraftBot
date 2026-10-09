@@ -11,6 +11,7 @@ import { useToast } from '../../contexts/ToastContext'
 import { SlashCommandAutocomplete, AttachmentPreviewModal, PlaybookModal } from '../ui'
 import type { SlashCommandAutocompleteHandle } from '../ui'
 import { ChatMessageItem } from '../../pages/Chat/ChatMessage'
+import { OutputWorkspace } from '../GenerativeUI/OutputWorkspace'
 import { TypingIndicatorRow } from '../../pages/Chat/TypingIndicator'
 import { ReasoningBlock, ActionBlock, ChunkHeaderRow } from '../activity/ActivityBlocks'
 import { normalizeActionName } from '../activity/actionNames'
@@ -1255,6 +1256,7 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
   }
 
   return (
+    <OutputWorkspace sessionId={sessionId} messages={messages}>
     <div className={styles.chat}>
       <div className={styles.messagesArea}>
         <div className={styles.messagesContainer} ref={parentRef}>
@@ -1668,5 +1670,6 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
       />
       <PlaybookModal isOpen={playbookOpen} onClose={() => setPlaybookOpen(false)} />
     </div>
+    </OutputWorkspace>
   )
 }

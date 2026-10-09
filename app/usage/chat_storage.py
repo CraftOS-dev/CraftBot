@@ -27,7 +27,7 @@ except Exception:
 _ROW_COLUMNS = (
     "message_id, sender, content, style, timestamp, attachments, "
     "session_id, options, option_selected, continue_work, "
-    "is_question, allow_free_text, details"
+    "is_question, allow_free_text, details, ui_artifact"
 )
 
 
@@ -57,6 +57,7 @@ class StoredChatMessage:
     # Expandable payload behind a disclosure (e.g. the raw body of an
     # incoming integration message on the "📩 Incoming …" system stub).
     details: Optional[str] = None
+    ui_artifact: Optional[Dict[str, Any]] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
@@ -81,6 +82,8 @@ class StoredChatMessage:
             result["allowFreeText"] = self.allow_free_text
         if self.details:
             result["details"] = self.details
+        if self.ui_artifact:
+            result["uiArtifact"] = self.ui_artifact
         return result
 
 
@@ -99,6 +102,7 @@ def _row_to_message(row) -> StoredChatMessage:
         is_question=bool(row[10]),
         allow_free_text=bool(row[11]),
         details=row[12],
+        ui_artifact=json.loads(row[13]) if row[13] else None,
     )
 
 
@@ -197,6 +201,8 @@ class ChatStorage:
                 )
             if "details" not in columns:
                 cursor.execute("ALTER TABLE chat_messages ADD COLUMN details TEXT")
+            if "ui_artifact" not in columns:
+                cursor.execute("ALTER TABLE chat_messages ADD COLUMN ui_artifact TEXT")
 
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_chat_session
@@ -220,8 +226,8 @@ class ChatStorage:
             cursor.execute(
                 """
                 INSERT OR REPLACE INTO chat_messages
-                (message_id, sender, content, style, timestamp, attachments, session_id, options, option_selected, continue_work, is_question, allow_free_text, details)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (message_id, sender, content, style, timestamp, attachments, session_id, options, option_selected, continue_work, is_question, allow_free_text, details, ui_artifact)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     message.message_id,
@@ -237,10 +243,25 @@ class ChatStorage:
                     1 if message.is_question else 0,
                     1 if message.allow_free_text else 0,
                     message.details,
+                    json.dumps(message.ui_artifact) if message.ui_artifact else None,
                 ),
             )
             conn.commit()
             return cursor.lastrowid
+
+    def get_latest_ui_artifact(
+        self, session_id: str, artifact_id: str
+    ) -> Optional[dict]:
+        """Find a revision even after its event has been folded out of context."""
+        with sqlite3.connect(self._db_path) as conn:
+            row = conn.execute(
+                "SELECT ui_artifact FROM chat_messages "
+                "WHERE session_id = ? AND ui_artifact IS NOT NULL "
+                "AND json_extract(ui_artifact, '$.id') = ? "
+                "ORDER BY json_extract(ui_artifact, '$.revision') DESC LIMIT 1",
+                (session_id, artifact_id),
+            ).fetchone()
+        return json.loads(row[0]) if row else None
 
     def get_messages(
         self,

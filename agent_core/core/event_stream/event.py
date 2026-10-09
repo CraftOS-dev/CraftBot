@@ -164,6 +164,7 @@ class Event:
     platform: Optional[str] = None
     continue_work: Optional[bool] = None
     question: Optional[Dict[str, Any]] = None
+    ui_artifact: Optional[Dict[str, Any]] = None
 
     def display_text(self) -> Optional[str]:
         """
@@ -197,6 +198,7 @@ class Event:
             "platform": self.platform,
             "continue_work": self.continue_work,
             "question": self.question,
+            "ui_artifact": self.ui_artifact,
         }
 
     @classmethod
@@ -237,6 +239,7 @@ class Event:
             platform=data.get("platform"),
             continue_work=data.get("continue_work"),
             question=data.get("question"),
+            ui_artifact=data.get("ui_artifact"),
         )
 
     @property

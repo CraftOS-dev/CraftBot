@@ -390,6 +390,7 @@ class InternalActionInterface:
         continue_work: bool = False,
         suggested_responses: Optional[List[str]] = None,
         allow_free_text: bool = True,
+        ui_artifact: Optional[dict] = None,
     ) -> None:
         """Record an agent-authored chat message to the event stream.
 
@@ -421,6 +422,7 @@ class InternalActionInterface:
             continue_work=continue_work,
             suggested_responses=suggested_responses,
             allow_free_text=allow_free_text,
+            ui_artifact=ui_artifact,
         )
 
     @staticmethod

@@ -10,6 +10,7 @@ import { UI_STATE } from '../../store/uiState'
 import { getErrorCategoryStyle } from '../../constants/errorCategories'
 import { formatTime } from '../../i18n/format'
 import styles from './ChatPage.module.css'
+import { OutputReference } from '../../components/GenerativeUI/OutputWorkspace'
 
 interface ChatMessageProps {
   message: ChatMessageType
@@ -129,7 +130,8 @@ export const ChatMessageItem = memo(function ChatMessageItem({
           </div>
         )}
         <div className={styles.messageContent}>
-          <MarkdownContent content={userMessage} />
+          {(!isAgent || !message.uiArtifact || userMessage.trim() !== message.uiArtifact.title.trim()) && <MarkdownContent content={userMessage} />}
+          {isAgent && message.uiArtifact && <OutputReference artifact={message.uiArtifact} />}
         </div>
         {message.details && (
           <div className={styles.messageDetails}>
@@ -218,7 +220,7 @@ export const ChatMessageItem = memo(function ChatMessageItem({
 
   return (
     <div
-      className={`${styles.messageWrapper} ${styles[message.style + 'Wrapper']}`}
+      className={`${styles.messageWrapper} ${styles[message.style + 'Wrapper']} ${isAgent && message.uiArtifact ? styles.artifactWrapper : ''}`}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >
@@ -246,4 +248,6 @@ export const ChatMessageItem = memo(function ChatMessageItem({
   && prev.message.optionSelected === next.message.optionSelected
   && prev.message.content === next.message.content
   && prev.message.details === next.message.details
+  && prev.message.sessionId === next.message.sessionId
+  && prev.message.uiArtifact === next.message.uiArtifact
 )

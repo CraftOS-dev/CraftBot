@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Cooking guide</title>
+<style>
+* { box-sizing: border-box; } body { margin: 0; padding: 20px 2px; background: var(--cb-bg, #fff); color: var(--cb-text, #252525); font: 15px/1.65 var(--cb-font, system-ui, sans-serif); }
+header small { color: var(--cb-muted, #777); font-size: 11px; text-transform: uppercase; letter-spacing: .1em; } h1 { margin: 8px 0; font-size: 28px; font-weight: 600; letter-spacing: -.035em; }
+.intro { color: var(--cb-muted, #777); margin: 8px 0 28px; } .columns { display: grid; grid-template-columns: .9fr 1.2fr; gap: 32px; }
+section { padding: 0; } section + section { padding-left: 28px; border-left: 1px solid var(--cb-border, #ddd); } h2 { margin: 0 0 16px; font-size: 16px; font-weight: 600; }
+label { display: block; margin: 12px 0; } input[type=number] { width: 64px; margin-left: 8px; padding: 6px 10px; color: inherit; background: var(--cb-surface, #fafafa); border: 1px solid var(--cb-border, #ddd); border-radius: 7px; }
+input[type=checkbox] { accent-color: var(--cb-accent, #ff4f18); margin-right: 10px; } .checked { text-decoration: line-through; color: var(--cb-muted, #777); }
+button { border: 1px solid transparent; padding: 9px 14px; border-radius: 7px; background: var(--cb-text, #252525); color: var(--cb-bg, #fff); cursor: pointer; font: inherit; font-size: 13px; }
+button:disabled { opacity: .35; cursor: default; } .controls { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 22px; } .secondary { background: transparent; border-color: var(--cb-border, #ddd); color: var(--cb-text, #252525); }
+#timer { display: block; margin-top: 14px; color: var(--cb-muted, #777); font-size: 13px; font-variant-numeric: tabular-nums; } :focus-visible { outline: 2px solid var(--cb-accent, #ff4f18); outline-offset: 3px; }
+@media(max-width: 560px) { body { padding: 16px 2px; } .columns { grid-template-columns: 1fr; gap: 24px; } section + section { padding: 24px 0 0; border-left: 0; border-top: 1px solid var(--cb-border, #ddd); } }
+</style></head><body>
+<header><small>Your kitchen companion · 20 minutes</small><h1>Weeknight tomato pasta</h1><p class="intro">Gather your ingredients, then cook one step at a time.</p></header>
+<div class="columns"><section><h2>Ingredients</h2><label for="servings">Servings <input id="servings" type="number" min="1" max="12" value="2"></label><div id="ingredients"></div></section>
+<section><h2 id="step-count"></h2><p id="step" aria-live="polite"></p><div class="controls"><button id="previous" class="secondary">Previous</button><button id="next">Next step</button></div>
+<div class="controls"><button id="start" class="secondary">Start 10-minute timer</button><button id="cancel" class="secondary">Cancel timer</button></div><output id="timer" aria-live="off"></output></section></div>
+<script>
+const bridge = window.craftbot || {state: {}, saveState() {}};
+const state = {servings: 2, checked: [], step: 0, deadline: null, ...bridge.state};
+const steps = ['Bring a large pot of salted water to a boil. Gather and check your ingredients.', 'Add pasta and cook according to the packet, about 10 minutes. Use the timer to keep track.', 'Warm olive oil, soften the garlic, then add tomatoes and simmer gently.', 'Drain the pasta, reserving some cooking water. Toss with the sauce and basil, then serve.'];
+const ingredients = [[200, 'g pasta'], [400, 'g chopped tomatoes'], [2, 'garlic cloves'], [1, 'tbsp olive oil'], [6, 'basil leaves']];
+const save = () => bridge.saveState(state);
+function render() {
+  document.getElementById('servings').value = state.servings;
+  const list = document.getElementById('ingredients'); list.replaceChildren();
+  ingredients.forEach(([amount, name], index) => {
+    const label = document.createElement('label'), input = document.createElement('input');
+    input.type = 'checkbox'; input.checked = state.checked.includes(index);
+    label.classList.toggle('checked', input.checked);
+    label.append(input, document.createTextNode((amount * state.servings / 2) + ' ' + name));
+    input.addEventListener('change', () => { state.checked = input.checked ? [...state.checked, index] : state.checked.filter(i => i !== index); save(); render(); });
+    list.append(label);
+  });
+  document.getElementById('step-count').textContent = 'Step ' + (state.step + 1) + ' of ' + steps.length;
+  document.getElementById('step').textContent = steps[state.step];
+  document.getElementById('previous').disabled = state.step === 0;
+  document.getElementById('next').disabled = state.step === steps.length - 1;
+}
+document.getElementById('servings').addEventListener('change', e => { state.servings = Math.max(1, Math.min(12, Number(e.target.value) || 2)); save(); render(); });
+document.getElementById('previous').addEventListener('click', () => { state.step = Math.max(0, state.step - 1); save(); render(); });
+document.getElementById('next').addEventListener('click', () => { state.step = Math.min(steps.length - 1, state.step + 1); save(); render(); });
+function tick() { const remaining = state.deadline ? Math.max(0, Math.ceil((state.deadline - Date.now()) / 1000)) : null; document.getElementById('timer').textContent = remaining === null ? 'No timer running' : remaining === 0 ? 'Timer finished' : Math.floor(remaining / 60) + ':' + String(remaining % 60).padStart(2, '0') + ' remaining'; }
+document.getElementById('start').addEventListener('click', () => { state.deadline = Date.now() + 600000; save(); tick(); });
+document.getElementById('cancel').addEventListener('click', () => { state.deadline = null; save(); tick(); });
+render(); tick(); setInterval(tick, 1000);
+</script></body></html>

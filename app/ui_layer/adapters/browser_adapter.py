@@ -342,6 +342,7 @@ class BrowserChatComponent(ChatComponentProtocol):
             allow_free_text=stored.allow_free_text,
             requires_choice=not stored.is_question,
             details=stored.details,
+            ui_artifact=stored.ui_artifact,
         )
 
     async def append_message(self, message: ChatMessage) -> None:
@@ -386,6 +387,7 @@ class BrowserChatComponent(ChatComponentProtocol):
                     is_question=message.is_question,
                     allow_free_text=message.allow_free_text,
                     details=message.details,
+                    ui_artifact=message.ui_artifact,
                 )
                 await self.run_storage(self._storage.insert_message, stored)
             except Exception:

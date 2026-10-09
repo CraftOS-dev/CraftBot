@@ -312,6 +312,7 @@ class InterfaceAdapter(ABC):
                 continue_work=bool(event.data.get("continue_work", False)),
                 is_question=is_question,
                 allow_free_text=allow_free_text,
+                ui_artifact=event.data.get("ui_artifact"),
             )
         )
 
@@ -447,6 +448,7 @@ class InterfaceAdapter(ABC):
         is_question: bool = False,
         allow_free_text: bool = True,
         details: Optional[str] = None,
+        ui_artifact: Optional[dict] = None,
     ) -> None:
         """
         Display a chat message.
@@ -485,6 +487,7 @@ class InterfaceAdapter(ABC):
                 # bubble must not add the "Please select a response" banner.
                 requires_choice=not is_question,
                 details=details,
+                ui_artifact=ui_artifact,
             )
         )
 

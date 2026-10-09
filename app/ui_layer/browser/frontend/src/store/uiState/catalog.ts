@@ -86,6 +86,10 @@ export const UI_STATE = {
     }),
     /** By message id: "Show message" details disclosure. */
     messageDetailsExpanded: defineUiStateFamily('chat.messageDetailsExpanded', false, 'session'),
+    /** By [session id, artifact id]: explicit JSON state, separate from generated code. */
+    artifactState: defineUiStateFamily<Record<string, unknown>>('chat.artifactState', {}, 'session'),
+    /** By session id: selected output revision, or 'closed' for conversation-only. */
+    outputSelection: defineUiStateFamily('chat.outputSelection', '', 'session'),
     /** By question message id: the typed free-text answer. */
     questionAnswerDraft: defineUiStateFamily('chat.questionAnswerDraft', '', 'session'),
     /** Newest message id seen per session (unread dots); synced across tabs. */

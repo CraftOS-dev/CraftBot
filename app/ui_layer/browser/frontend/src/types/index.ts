@@ -20,6 +20,7 @@ export interface ChatMessageOption {
 }
 
 export interface ChatMessage {
+  uiArtifact?: GenerativeUIArtifact
   sender: string
   content: string
   style: 'user' | 'agent' | 'system' | 'error' | 'info'
@@ -39,6 +40,14 @@ export interface ChatMessage {
   isQuestion?: boolean  // True for an agent question with suggested responses: pinned above the composer until optionSelected is set (answer or dismissal)
   allowFreeText?: boolean  // Question only: whether the pinned box also offers a free-text answer field
   details?: string  // Expandable payload behind a disclosure (e.g. the raw body of an incoming integration message on the "📩 Incoming …" system stub)
+}
+
+export interface GenerativeUIArtifact {
+  id: string
+  title: string
+  html: string
+  revision: number
+  connect_origins?: string[]
 }
 
 // Recorded as optionSelected when the user dismisses a pinned question

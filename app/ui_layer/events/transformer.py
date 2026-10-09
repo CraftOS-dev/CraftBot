@@ -116,6 +116,7 @@ class EventTransformer:
                 "session_id": session_id,
                 "continue_work": bool(event.continue_work),
                 "question": event.question,
+                "ui_artifact": event.ui_artifact,
             },
             timestamp=ts,
             task_id=session_id,
