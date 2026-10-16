@@ -44,6 +44,50 @@ from .result import Result
 _DEFAULT_EXPECTED = (200, 201)
 
 
+def raw_request(method, url, **kwargs):
+    """Preserve the Response API while honoring an injected source transport."""
+    from .source_requests import override
+    from .source_oauth import exchange
+
+    response = exchange(
+        method,
+        url,
+        headers=kwargs.get("headers"),
+        json=kwargs.get("json"),
+        data=kwargs.get("data"),
+    )
+    if response is not None:
+        return response
+    source = override.get()
+    headers = kwargs.get("headers") or {}
+    has_source_auth = (
+        any(k.lower() in ("authorization", "x-figma-token") for k in headers)
+        or "/botvault-managed/" in url
+    )
+    if source is not None and has_source_auth:
+        return source(method, url, **kwargs)
+    return httpx.request(method, url, **kwargs)
+
+
+def raw_stream(method, url, **kwargs):
+    from contextlib import contextmanager
+    from .source_requests import override
+
+    @contextmanager
+    def response():
+        if override.get() is None:
+            with httpx.stream(method, url, **kwargs) as result:
+                yield result
+        else:
+            result = raw_request(method, url, **kwargs)
+            try:
+                yield result
+            finally:
+                result.close()
+
+    return response()
+
+
 def _shape(
     r: httpx.Response,
     expected: Iterable[int],
@@ -76,7 +120,7 @@ def request(
 ) -> Result:
     """REST envelope; an optional hook can capture status/headers before shaping."""
     try:
-        r = httpx.request(
+        r = raw_request(
             method,
             url,
             headers=headers,

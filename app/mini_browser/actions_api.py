@@ -417,6 +417,9 @@ def _v_login(data: Dict[str, Any], _context: Optional[UrlContext]) -> Dict[str, 
     return {
         "username": _text(data, "username", max_chars=MAX_USERNAME_CHARS),
         "submit": _flag(data, "submit", True),
+        "credential_reference": _text(data, "credential_reference", max_chars=256),
+        "helper": _text(data, "helper", max_chars=256),
+        "operation": _text(data, "operation", max_chars=256) or "login",
     }
 
 

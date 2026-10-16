@@ -41,6 +41,124 @@ def test_provider_connection(
     Returns:
         Dictionary with success/message/provider/error.
     """
+    from app.credentials.references import is_reference
+
+    if is_reference(api_key):
+        from app.credentials.model_transport import installed_model_helpers
+        from app.credentials.invocation import invoke
+
+        try:
+            body = None
+            if model:
+                if provider == "gemini":
+                    operation = f"generate_{model}"
+                    body = {
+                        "contents": [{"parts": [{"text": "Hi"}]}],
+                        "generationConfig": {"maxOutputTokens": 4},
+                    }
+                else:
+                    operation = (
+                        "messages" if provider == "anthropic" else "chat_completions"
+                    )
+                    body = {
+                        "model": model,
+                        "max_tokens": 4,
+                        "messages": [{"role": "user", "content": "Hi"}],
+                    }
+            else:
+                operation = "models"
+            routes = [
+                item
+                for item in installed_model_helpers()
+                if item["helper"] == f"model_{provider}"
+                and item["operation"] == operation
+                and (
+                    not base_url
+                    or item["endpoint"].startswith(base_url.rstrip("/") + "/")
+                )
+            ]
+            if not routes and model and provider == "gemini":
+                from app.credentials.route_policy import match_route
+
+                base = (
+                    base_url or "https://generativelanguage.googleapis.com/v1beta"
+                ).rstrip("/")
+                if not base.endswith("/v1beta") and not base_url:
+                    base += "/v1beta"
+                matched = match_route(
+                    [
+                        r
+                        for r in installed_model_helpers()
+                        if r["helper"] == "model_gemini"
+                    ],
+                    "POST",
+                    base + "/models/" + model + ":generateContent",
+                )
+                if matched is not None:
+                    route, path, query = matched
+                    routes = [route]
+                    operation = route["operation"]
+                    if route.get("envelope"):
+                        body = {"path": path, "query": query, "data": body}
+            if len(routes) != 1:
+                return {
+                    "success": False,
+                    "message": "This endpoint needs one installed credential helper.",
+                    "provider": provider,
+                }
+            route = routes[0]
+            response = invoke(
+                api_key,
+                route["helper"],
+                operation,
+                body,
+                subject=f"Test {provider} connection",
+            )
+            success = 200 <= response["status"] < 300
+            return {
+                "success": success,
+                "message": "Connection verified." if success else "Connection failed.",
+                "provider": provider,
+            }
+        except Exception:
+            return {
+                "success": False,
+                "message": "A supported credential helper and owner approval are required.",
+                "provider": provider,
+            }
+    if provider == "bedrock":
+        source = aws_credentials
+        if not source:
+            try:
+                from app.config import get_aws_credentials
+
+                source = get_aws_credentials()
+            except Exception:
+                source = {}
+        if "source_reference" in source:
+            try:
+                from app.credentials.model_transport import VaultBedrockClient
+
+                client = VaultBedrockClient(
+                    source["source_reference"],
+                    source.get("region") or base_url or "us-east-1",
+                )
+                client.converse(
+                    modelId=model or "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+                    messages=[{"role": "user", "content": [{"text": "Hi"}]}],
+                    inferenceConfig={"maxTokens": 1},
+                )
+                return {
+                    "success": True,
+                    "message": "Connection verified.",
+                    "provider": provider,
+                }
+            except Exception:
+                return {
+                    "success": False,
+                    "message": "A reviewed Bedrock signing helper and owner approval are required.",
+                    "provider": provider,
+                }
     return _test_provider_connection_inner(
         provider,
         api_key=api_key,

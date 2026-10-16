@@ -977,15 +977,19 @@ class VideoGenInterface:
         """Submit a Seedance task and return its task id."""
         url = f"{base_url}/contents/generations/tasks"
         try:
-            r = requests.post(
-                url,
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                },
-                json=body,
-                timeout=60,
-            )
+            from app.credentials.model_transport import requests_response
+
+            r = requests_response("byteplus", api_key, "POST", url, body)
+            if r is None:
+                r = requests.post(
+                    url,
+                    headers={
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json=body,
+                    timeout=60,
+                )
         except Exception as exc:
             raise _classified_error("byteplus", exc, self.model) from exc
 
@@ -1024,11 +1028,15 @@ class VideoGenInterface:
         last_status = "unknown"
         while True:
             try:
-                r = requests.get(
-                    poll_url,
-                    headers={"Authorization": f"Bearer {api_key}"},
-                    timeout=30,
-                )
+                from app.credentials.model_transport import requests_response
+
+                r = requests_response("byteplus", api_key, "GET", poll_url)
+                if r is None:
+                    r = requests.get(
+                        poll_url,
+                        headers={"Authorization": f"Bearer {api_key}"},
+                        timeout=30,
+                    )
                 r.raise_for_status()
             except Exception as exc:
                 raise _classified_error("byteplus", exc, self.model) from exc

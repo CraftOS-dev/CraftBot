@@ -13,7 +13,6 @@ from app.errors import make_error
 from app.ui_layer.commands.base import Command, CommandResult
 from craftos_integrations import (
     get_integration_auth_type,
-    get_integration_fields,
     get_integration_info_sync as get_integration_info,
     get_metadata,
 )
@@ -140,24 +139,9 @@ class IntegrationCommand(Command):
         token the deployment owns (Telegram's shared bot); everything else
         means shared-app OAuth (Slack, HubSpot), which is what `_connect` runs.
         """
-        import asyncio
-
-        from app.data.action.integrations._helpers import system_connect_token
-
-        system = self._system()
-        provider = system.registry.get(self._integration_name) if system else None
-        shared = getattr(provider, "shared_credentials", None)
-        credentials = shared() if callable(shared) else None
-        if credentials is None:
-            return await self._connect(args)
-
-        success, message = await asyncio.to_thread(
-            system_connect_token, system, self._integration_name, credentials
-        )
-        hint = getattr(provider, "shared_hint", "")
-        if success and hint:
-            message = "\n".join([message, hint])
-        return CommandResult(success=success, message=message)
+        # Shared source secrets must also be enrolled in the vault. Never load
+        # deployment tokens into a terminal command or accept positional secrets.
+        return await self._connect(args)
 
     async def _connect_interactive(self) -> CommandResult:
         """QR login. WhatsApp's QR panel lives in the settings page — the
@@ -187,45 +171,53 @@ class IntegrationCommand(Command):
         """
         try:
             auth_type = get_integration_auth_type(self._integration_name)
-            fields = get_integration_fields(self._integration_name)
+            if args:
+                from app.credentials.references import parse
 
-            # Token-based: args should provide credential values in field order
-            if auth_type in ("token", "both", "token_with_interactive") and (
-                args or fields
-            ):
-                credentials: dict[str, str] = {}
-                for i, field in enumerate(fields):
-                    if i < len(args):
-                        credentials[field["key"]] = args[i]
-
-                if credentials:
-                    import asyncio
-
-                    from app.data.action.integrations._helpers import (
-                        system_connect_token,
-                    )
-
-                    system = self._system()
-                    if system is None:
-                        return CommandResult(
-                            success=False,
-                            message=f"Unknown integration: {self._integration_name}",
-                        )
-                    success, message = await asyncio.to_thread(
-                        system_connect_token,
-                        system,
-                        self._integration_name,
-                        credentials,
-                    )
-                    return CommandResult(success=success, message=message)
-
-                # No args provided — show required fields
-                if fields:
-                    field_list = ", ".join(f["label"] for f in fields)
+                public_fields = {
+                    "lark": {"app_id"},
+                    "lark_calendar": {"app_id"},
+                    "lark_drive": {"app_id"},
+                    "whatsapp_business": {"phone_number_id"},
+                }.get(self._integration_name, set())
+                if self._integration_name in {"twitter", "telegram_user"}:
                     return CommandResult(
                         success=False,
-                        message=f"Usage: /{self._integration_name} connect <{field_list}>",
+                        message="Complete this provider's authentication in Settings > Integrations using a saved vault reference. Existing generated tokens and sessions stay in their current stores.",
                     )
+                try:
+                    parse(args[0])
+                    credentials = {"source_reference": args[0]}
+                    for argument in args[1:]:
+                        key, separator, value = argument.partition("=")
+                        if (
+                            not separator
+                            or key not in public_fields
+                            or key in credentials
+                            or not value
+                        ):
+                            raise ValueError()
+                        credentials[key] = value
+                    if set(credentials) != {"source_reference", *public_fields}:
+                        raise ValueError()
+                except (ValueError, TypeError):
+                    return CommandResult(
+                        success=False,
+                        message="Use a saved craftbot-vault:// reference followed by named public identifiers (key=value). Enter source credentials only in Settings > Credentials.",
+                    )
+                from app.data.action.integrations._helpers import system_connect_token
+                import asyncio
+
+                system = self._system()
+                if system is None:
+                    return CommandResult(
+                        success=False,
+                        message=f"Unknown integration: {self._integration_name}",
+                    )
+                success, message = await asyncio.to_thread(
+                    system_connect_token, system, self._integration_name, credentials
+                )
+                return CommandResult(success=success, message=message)
 
             # OAuth-based — add_account runs the provider's OAuth and stores
             # the result as an account (what the "invite" did, except
@@ -248,7 +240,7 @@ class IntegrationCommand(Command):
 
             return CommandResult(
                 success=False,
-                message=f"Unsupported auth type '{auth_type}' for {self._integration_name}.",
+                message=f"Usage: /{self._integration_name} connect <craftbot-vault:// reference> [public_identifier=value]. Save source credentials in Settings > Credentials; use Settings > Integrations for interactive authentication.",
             )
         except Exception as e:
             info = make_error(

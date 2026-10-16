@@ -1093,8 +1093,8 @@ class TwitterClient(BasePlatformClient):
         behaves identically. ``media_category``: tweet_image | tweet_gif |
         tweet_video | dm_image | dm_video.
         """
-        import httpx
         import os
+        from ...helpers.http import raw_request
 
         cred = self._load()
         try:
@@ -1118,13 +1118,15 @@ class TwitterClient(BasePlatformClient):
 
         name = os.path.basename(file_path)
         try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                r = await client.post(
-                    url,
-                    headers={"Authorization": auth_hdr},
-                    files={"media": (name, file_bytes)},
-                    data={"media_category": media_category},
-                )
+            r = await asyncio.to_thread(
+                raw_request,
+                "POST",
+                url,
+                headers={"Authorization": auth_hdr},
+                files={"media": (name, file_bytes)},
+                data={"media_category": media_category},
+                timeout=60.0,
+            )
             if r.status_code not in (200, 201):
                 return {"error": f"http_{r.status_code}", "details": r.text[:500]}
             d = r.json()

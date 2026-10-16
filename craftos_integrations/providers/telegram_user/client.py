@@ -18,6 +18,7 @@ from ... import (
     register_client,
 )
 from ...config import ConfigStore
+from ...helpers.source_auth import telegram_session_client
 from ...logger import get_logger
 
 logger = get_logger(__name__)
@@ -108,7 +109,13 @@ class TelegramUserClient(BasePlatformClient):
         from telethon.sessions import StringSession
 
         cred = self._load()
-        return StringSession(cred.session_string), int(cred.api_id), cred.api_hash
+        from ...helpers.source_auth import is_reference
+
+        # Established sessions use InitConnection(api_id), not the app hash.
+        # No automatic re-login is allowed here; expired sessions use the
+        # protected auth helpers through the normal owner connect flow.
+        api_hash = "vault-managed" if is_reference(cred.api_hash) else cred.api_hash
+        return StringSession(cred.session_string), int(cred.api_id), api_hash
 
     async def connect(self) -> None:
         self._load()
@@ -129,7 +136,7 @@ class TelegramUserClient(BasePlatformClient):
             raise RuntimeError("telethon is not installed")
 
         session, api_id, api_hash = self._session_params()
-        client = TelegramClient(session, api_id, api_hash)
+        client = telegram_session_client(TelegramClient, session, api_id, api_hash)
         await client.connect()
         self._live_loop = asyncio.get_event_loop()
 
@@ -331,7 +338,9 @@ class TelegramUserClient(BasePlatformClient):
                 msg = await asyncio.wait_for(result_future, timeout=30)
             else:
                 session, api_id, api_hash = self._session_params()
-                async with TelegramClient(session, api_id, api_hash) as client:
+                async with telegram_session_client(
+                    TelegramClient, session, api_id, api_hash
+                ) as client:
                     try:
                         entity = await client.get_entity(
                             int(resolved)
@@ -385,7 +394,9 @@ class TelegramUserClient(BasePlatformClient):
             from telethon.errors import AuthKeyUnregisteredError
 
             session, api_id, api_hash = self._session_params()
-            async with TelegramClient(session, api_id, api_hash) as client:
+            async with telegram_session_client(
+                TelegramClient, session, api_id, api_hash
+            ) as client:
                 me = await client.get_me()
                 return {
                     "ok": True,
@@ -418,7 +429,9 @@ class TelegramUserClient(BasePlatformClient):
             from telethon.tl.types import User, Chat, Channel
 
             session, api_id, api_hash = self._session_params()
-            async with TelegramClient(session, api_id, api_hash) as client:
+            async with telegram_session_client(
+                TelegramClient, session, api_id, api_hash
+            ) as client:
                 dialogs = await client.get_dialogs(limit=limit)
                 result = []
                 for dialog in dialogs:
@@ -493,7 +506,9 @@ class TelegramUserClient(BasePlatformClient):
             from telethon.errors import AuthKeyUnregisteredError
 
             session, api_id, api_hash = self._session_params()
-            async with TelegramClient(session, api_id, api_hash) as client:
+            async with telegram_session_client(
+                TelegramClient, session, api_id, api_hash
+            ) as client:
                 entity = await client.get_entity(chat_id)
                 messages = await client.get_messages(
                     entity, limit=limit, offset_id=offset_id
@@ -564,7 +579,9 @@ class TelegramUserClient(BasePlatformClient):
             from telethon.errors import AuthKeyUnregisteredError, FloodWaitError
 
             session, api_id, api_hash = self._session_params()
-            async with TelegramClient(session, api_id, api_hash) as client:
+            async with telegram_session_client(
+                TelegramClient, session, api_id, api_hash
+            ) as client:
                 entity = await client.get_entity(chat_id)
                 # Single int id → single Message (or None if not found).
                 msg = await client.get_messages(entity, ids=int(message_id))
@@ -626,7 +643,9 @@ class TelegramUserClient(BasePlatformClient):
             from telethon.errors import AuthKeyUnregisteredError, FloodWaitError
 
             session, api_id, api_hash = self._session_params()
-            async with TelegramClient(session, api_id, api_hash) as client:
+            async with telegram_session_client(
+                TelegramClient, session, api_id, api_hash
+            ) as client:
                 entity = await client.get_entity(chat_id)
                 msg = await client.send_file(
                     entity, file_path, caption=caption, reply_to=reply_to
@@ -675,7 +694,9 @@ class TelegramUserClient(BasePlatformClient):
             from telethon.tl.types import User
 
             session, api_id, api_hash = self._session_params()
-            async with TelegramClient(session, api_id, api_hash) as client:
+            async with telegram_session_client(
+                TelegramClient, session, api_id, api_hash
+            ) as client:
                 dialogs = await client.get_dialogs(limit=100)
                 contacts: List[Dict[str, Any]] = []
                 query_lower = query.lower()

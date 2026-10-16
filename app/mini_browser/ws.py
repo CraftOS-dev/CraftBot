@@ -1036,6 +1036,18 @@ class MiniBrowserWS:
     async def handle(self, ws: Any, msg_type: str, data: Dict[str, Any]) -> None:
         """Handle one ``mini_browser_*`` message. Never raises (except on
         cancellation); every failure is answered to ``ws`` only."""
+        if msg_type.startswith("mini_browser_vault_"):
+            # Retired transport. Never accept raw entry over the old browser API.
+            self._send(
+                ws,
+                "mini_browser_vault_result",
+                {
+                    "op": msg_type[len("mini_browser_vault_") :],
+                    "ok": False,
+                    "error": "Use Settings > Credentials and the protected entry dialog.",
+                },
+            )
+            return
         name = _HANDLERS.get(msg_type)
         if name is None:
             logger.debug(

@@ -239,6 +239,36 @@ class AgentAppProject:
 class AgentAppManager:
     """Manages Agent App project lifecycle."""
 
+    async def launch_credential_worker(
+        self,
+        project_id: str,
+        profile_id: str,
+        files: dict,
+        entry: str,
+        *,
+        development=False,
+    ) -> dict:
+        """Separate protected Python worker; no bridge token or host env inheritance.
+
+        Existing web/Node processes receive no vault authority. The service
+        snapshots these files and pins their actual hash and job. Project name
+        and deployment remain explicitly unverified claims in native consent.
+        """
+        from app.credentials.client import request
+
+        if self.get_project(project_id) is None:
+            raise ValueError("Unknown Agent App project")
+        return await asyncio.to_thread(
+            request,
+            "launch",
+            profile_id=profile_id,
+            kind="agent_app",
+            subject=project_id,
+            deployment="development" if development else "live",
+            files=files,
+            entry=entry,
+        )
+
     def __init__(self, workspace_root: Path):
         """
         Initialize the Agent App Manager.

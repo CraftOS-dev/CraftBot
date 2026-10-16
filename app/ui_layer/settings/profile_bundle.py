@@ -51,6 +51,8 @@ SECRET_ENV_HINTS = ("KEY", "TOKEN", "SECRET", "PASSWORD", "PASS", "CREDENTIAL")
 
 # Files/directories to skip when copying skill folders or Agent App projects.
 SKIP_DIR_NAMES = {
+    ".credentials",
+    "CraftBotCredentialHost",
     "node_modules",
     "dist",
     "build",
@@ -80,6 +82,14 @@ AGENT_APP_DIR = AGENT_WORKSPACE_ROOT / "agent_app"
 def _should_skip_path(path: Path) -> bool:
     """Skip transient/generated/private files when copying user content."""
     if path.name in SKIP_DIR_NAMES:
+        return True
+    if path.name.startswith(".env") or path.name.endswith(".accounts.json"):
+        return True
+    if path.name in {
+        "mini_browser_vault.enc",
+        "mini_browser_vault.enc.bak",
+        "mini_browser_vault.key",
+    }:
         return True
     if path.is_file() and any(
         path.name.lower().endswith(suffix) for suffix in SKIP_FILE_SUFFIXES

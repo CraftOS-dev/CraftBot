@@ -148,7 +148,13 @@ class EmbeddingInterface:
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self.api_key}",
             }
-            response = requests.post(url, json=payload, headers=headers, timeout=120)
+            from app.credentials.model_transport import requests_response
+
+            response = requests_response("byteplus", self.api_key, "POST", url, payload)
+            if response is None:
+                response = requests.post(
+                    url, json=payload, headers=headers, timeout=120
+                )
             response.raise_for_status()
             result = response.json()
             data = result.get("data")

@@ -275,9 +275,7 @@ class ApiKeyStep:
         # Proxied providers submit {api_key, via, or_model?} dict
         if self.provider in self.OPENROUTER_PROXIED and isinstance(value, dict):
             api_key = value.get("api_key", "")
-            if not api_key or len(str(api_key).strip()) < 10:
-                return False, tui("onboarding_validate_api_key_required")
-            return True, None
+            return self._validate_reference(api_key)
 
         # A connected subscription (ChatGPT Plus/Pro, SuperGrok) authorizes the
         # provider via an OAuth bearer, so the API key is optional. Accept an
@@ -289,10 +287,20 @@ class ApiKeyStep:
         if not value or not isinstance(value, str):
             return False, tui("onboarding_validate_api_key_required")
 
-        if len(value.strip()) < 10:
-            return False, tui("onboarding_validate_api_key_too_short")
+        return self._validate_reference(value)
 
-        return True, None
+    @staticmethod
+    def _validate_reference(value):
+        from app.credentials.references import parse
+
+        try:
+            parse(value)
+            return True, None
+        except (ValueError, TypeError):
+            return (
+                False,
+                "Choose a saved reference from Credentials. Enter source values only in the protected dialog.",
+            )
 
     def get_default(self) -> str:
         if self.provider == "remote":
@@ -300,7 +308,10 @@ class ApiKeyStep:
         # Check settings.json for existing key
         from app.config import get_api_key
 
-        return get_api_key(self.provider)
+        from app.credentials.references import is_reference
+
+        value = get_api_key(self.provider)
+        return value if is_reference(value) else ""
 
     def get_env_var_name(self) -> Optional[str]:
         """Get the environment variable name for the current provider."""

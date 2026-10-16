@@ -636,16 +636,12 @@ async def mini_browser_upload_file(input_data: dict) -> dict:
 @action(
     name="mini_browser_login",
     description=(
-        "Sign in on the CURRENT page with a login the user saved in the Mini "
-        "Browser password vault. Open the site's sign-in page first; the "
-        "saved username and password are filled in for you (you never see "
-        "the password, and it is never logged) and the form is submitted. "
-        "Two-step sign-ins (email first, then password) are handled. The "
-        "result's outcome (signed_in, needs_verification, captcha or unknown) "
-        "and message say what to do next; never assume success on unknown. "
-        "If no saved login matches the site, ask the user to add one in the "
-        "Mini Browser's Passwords panel or to sign in themselves in the live "
-        "view; never ask for a password in chat."
+        "Sign in on the current HTTPS site using an owner-selected saved reference "
+        "and an installed login helper. The protected host submits a reviewed form; "
+        "source values never enter the agent browser. Only approved generated session "
+        "cookies enter its existing context. JavaScript sign-ins, MFA, CAPTCHAs and "
+        "passkeys need owner handoff. Google system-browser OAuth stays available. "
+        "Ask the owner to choose an item in Settings > Credentials; never request a password in chat."
     ),
     mode="ALL",
     execution_mode="internal",
@@ -653,39 +649,25 @@ async def mini_browser_upload_file(input_data: dict) -> dict:
     parallelizable=False,
     irreversible=False,
     input_schema={
-        "username": {
+        "credential_reference": {
             "type": "string",
-            "example": "me@example.com",
-            "description": (
-                "Optional. Which saved account to use when several are saved "
-                "for this site."
-            ),
+            "description": "Owner-selected craftbot-vault:// reference.",
         },
-        "submit": {
-            "type": "boolean",
-            "example": True,
-            "description": "Optional. Submit the form after filling. Defaults to true.",
+        "helper": {
+            "type": "string",
+            "description": "Installed login helper ID for this exact site.",
+        },
+        "operation": {
+            "type": "string",
+            "description": "Installed operation name; defaults to login.",
         },
     },
     output_schema={
         **_RESULT,
-        "site": {"type": "string", "description": "Site the saved login belongs to."},
-        "username": {
-            "type": "string",
-            "description": "Username that was filled (the password is never returned).",
-        },
+        "site": {"type": "string"},
         "outcome": {
             "type": "string",
-            "description": (
-                "signed_in, needs_verification (a code or an approval), "
-                "captcha, filled (not submitted) or unknown (check the page). "
-                "A rejected sign-in is an error result "
-                "(MINI_BROWSER_LOGIN_FAILED)."
-            ),
-        },
-        "other_usernames": {
-            "type": "array",
-            "description": "Other saved accounts for this site (pass one as username).",
+            "description": "unknown (check the page) or owner_handoff_required.",
         },
     },
     test_payload={"simulated_mode": True},
@@ -696,7 +678,6 @@ async def mini_browser_login(input_data: dict) -> dict:
             "status": "success",
             "message": "Simulated: signed in.",
             "site": "example.com",
-            "username": "user@example.com",
             "page": {
                 "url": "https://example.com/account",
                 "title": "Your account",

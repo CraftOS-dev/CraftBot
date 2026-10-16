@@ -10,7 +10,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.mini_browser import human, login, ops
+from app.mini_browser import human, ops
 from app.mini_browser.errors import MiniBrowserError
 from app.mini_browser.observe import observe
 from tests.mini_browser_fixtures import (
@@ -923,183 +923,41 @@ def _no_secret(value, *secrets):
     return all(s not in dumped for s in secrets)
 
 
-def test_login_happy_path_never_types_into_the_search_box(
-    browser, login_site, fast_human
-):
-    vault = _vault()
-    core = FakeCore(humanlike=True, vault=vault)
-
-    async def scenario(core, tab):
-        result = await ops.login(core, tab)
-        query = await tab.page.evaluate("sessionStorage.getItem('q')")
-        return result, query, list(tab.filled_secrets)
-
-    result, query, secrets = run(browser, login_site.url("/login"), scenario, core=core)
-    assert result["status"] == "success", result
-    assert result["outcome"] == "signed_in"
-    # The result names the page's own host (where the password was typed).
-    assert result["username"] == USER
-    assert result["site"] == f"127.0.0.1:{login_site.port}"
-    assert result["other_usernames"] == ["bob@example.com"]
-    assert result["page"]["url"] == login_site.url("/home")
-    assert query == ""  # the header search box stayed empty
-    assert secrets == [PASSWORD]
-    assert vault.used == ["e1"]
-    assert vault.asked == [login_site.url("/login")]
-    assert core.events and "Filled the saved login" in core.events[0]["message"]
-    assert _no_secret(result, PASSWORD, "Bob-pass-777")
-    assert _no_secret(core.events, PASSWORD)
-
-
-def test_login_without_submit_fills_and_the_observation_masks_the_password(
-    browser, login_site
-):
-    core = FakeCore(vault=_vault())
-
-    async def scenario(core, tab):
-        result = await ops.login(core, tab, submit=False)
-        values = await tab.page.evaluate(
-            "[document.getElementById('user').value, document.getElementById('pw').value]"
-        )
-        full = await ops.read(core, tab)
-        return result, values, full
-
-    result, values, full = run(browser, login_site.url("/login"), scenario, core=core)
-    assert result["outcome"] == "filled" and "(not submitted)" in result["message"]
-    assert values == [USER, PASSWORD]
-    assert '[2] input:password "Password"' in full["elements"]
-    assert _no_secret(result, PASSWORD) and _no_secret(full, PASSWORD)
-
-
-def test_login_picks_a_username_and_reports_a_rejected_password(browser, login_site):
-    core = FakeCore(vault=_vault())
-
-    async def scenario(core, tab):
-        rejected = await ops.login(core, tab, username="BOB@example.com")
-        unknown = await expect_error(
-            ops.login(core, tab, username="carol"), "MINI_BROWSER_NO_SAVED_LOGIN"
-        )
-        return rejected, unknown, list(tab.filled_secrets)
-
-    rejected, unknown, secrets = run(
-        browser, login_site.url("/login"), scenario, core=core
-    )
-    assert rejected["status"] == "error" and rejected["outcome"] == "error"
-    assert rejected["error_code"] == "MINI_BROWSER_LOGIN_FAILED"
-    assert "Incorrect email or password." in rejected["message"]
-    assert rejected["username"] == "bob@example.com"
-    assert "carol" in unknown.fields["site"]
-    assert secrets == ["Bob-pass-777"]
-    assert _no_secret(rejected, "Bob-pass-777", PASSWORD)
-
-
 @pytest.mark.parametrize(
-    "path, outcome",
+    "path",
     [
-        ("/login-banner", "signed_in"),
-        ("/login-2fa", "needs_verification"),
-        ("/login-captcha", "captcha"),
+        "/login",
+        "/login-banner",
+        "/login-2fa",
+        "/login-captcha",
+        "/step1",
+        "/step1-elsewhere",
+        "/signup",
+        "/plain",
     ],
 )
-def test_login_outcome_heuristics(browser, login_site, path, outcome):
-    core = FakeCore(vault=_vault())
-
-    async def scenario(core, tab):
-        return await ops.login(core, tab)
-
-    result = run(browser, login_site.url(path), scenario, core=core)
-    assert result["status"] == "success", result
-    assert result["outcome"] == outcome
-    assert _no_secret(result, PASSWORD)
-
-
-def test_two_step_login(browser, login_site):
+@pytest.mark.parametrize(
+    "parameters", [{}, {"submit": False}, {"username": "BOB@example.com"}]
+)
+def test_legacy_login_never_reads_source_values_or_fills_ordinary_playwright(
+    browser, login_site, path, parameters
+):
     vault = _vault()
     core = FakeCore(vault=vault)
 
     async def scenario(core, tab):
-        return await ops.login(core, tab)
-
-    result = run(browser, login_site.url("/step1"), scenario, core=core)
-    assert result["status"] == "success", result
-    assert result["outcome"] == "signed_in"
-    assert result["page"]["url"] == login_site.url("/home")
-    assert vault.used == ["e1"]
-
-
-def test_two_step_login_aborts_when_the_origin_changes(browser, login_site):
-    core = FakeCore(vault=_vault())
-
-    async def scenario(core, tab):
-        exc = await expect_error(ops.login(core, tab), "MINI_BROWSER_LOGIN_FAILED")
-        pw = await tab.page.evaluate("document.getElementById('pw').value")
-        return exc, pw, tab.page.url, list(tab.filled_secrets)
-
-    exc, pw, url, secrets = run(
-        browser, login_site.url("/step1-elsewhere"), scenario, core=core
-    )
-    assert exc.fields["detail"] == login.MSG_ORIGIN_CHANGED
-    assert url.startswith(f"http://localhost:{login_site.port}/step2")
-    assert pw == "" and secrets == []
-
-
-@pytest.mark.parametrize("breakage", ["disable", "detach"])
-def test_a_failed_fill_never_leaks_the_password(
-    browser, login_site, monkeypatch, breakage
-):
-    monkeypatch.setattr(login, "FILL_TIMEOUT_MS", 400)
-    script = {
-        "disable": "document.querySelectorAll('input[type=password]').forEach(e => e.disabled = true)",
-        "detach": "document.querySelectorAll('input[type=password]').forEach(e => e.remove())",
-    }[breakage]
-
-    async def sabotage(core, tab, locator):
-        await tab.page.evaluate(script)
-
-    monkeypatch.setattr(login, "_point_at", sabotage)
-    core = FakeCore(vault=_vault())
-
-    async def scenario(core, tab):
-        exc = await expect_error(ops.login(core, tab), "MINI_BROWSER_LOGIN_FAILED")
-        return exc
-
-    exc = run(browser, login_site.url("/login"), scenario, core=core)
-    assert exc.fields["detail"] == login.MSG_FILL_FAILED
-    assert PASSWORD not in str(exc) and PASSWORD not in repr(exc.fields)
-    assert exc.__context__ is None and exc.__cause__ is None
-
-
-def test_login_refusals(browser, login_site):
-    async def scenario(core, tab):
-        out = {}
-        out["no_saved"] = await expect_error(
-            ops.login(core, tab), "MINI_BROWSER_NO_SAVED_LOGIN"
+        result = await ops.login(core, tab, **parameters)
+        values = await tab.page.locator("input").evaluate_all(
+            "(items) => items.map(e => e.value)"
         )
-        core._vault = _vault(unreadable=True)
-        out["unreadable"] = await expect_error(
-            ops.login(core, tab), "MINI_BROWSER_VAULT_UNREADABLE"
-        )
-        core._vault = _vault()
-        await tab.page.goto(login_site.url("/signup"))
-        out["signup"] = await expect_error(
-            ops.login(core, tab), "MINI_BROWSER_LOGIN_FAILED"
-        )
-        await tab.page.goto(login_site.url("/plain"))
-        out["plain"] = await expect_error(
-            ops.login(core, tab), "MINI_BROWSER_LOGIN_FAILED"
-        )
-        await tab.page.goto("about:blank")
-        out["blank"] = await expect_error(
-            ops.login(core, tab), "MINI_BROWSER_LOGIN_FAILED"
-        )
-        return out
+        return result, values, list(tab.filled_secrets)
 
-    core = FakeCore(vault=FakeVault([], hosts={"127.0.0.1"}))
-    out = run(browser, login_site.url("/login"), scenario, core=core)
-    assert out["no_saved"].fields["site"] == f"127.0.0.1:{login_site.port}"
-    assert out["signup"].fields["detail"] == login.MSG_SIGNUP_FORM
-    assert out["plain"].fields["detail"] == login.MSG_NO_FORM
-    assert out["blank"].fields["detail"] == login.MSG_NOT_WEB
+    result, values, secrets = run(browser, login_site.url(path), scenario, core=core)
+    assert result["outcome"] == "owner_handoff_required"
+    assert not vault.asked and not vault.used
+    assert USER not in values and PASSWORD not in values
+    assert secrets == []
+    assert _no_secret(result, USER, PASSWORD, "Bob-pass-777")
 
 
 # ── misc ────────────────────────────────────────────────────────────────────

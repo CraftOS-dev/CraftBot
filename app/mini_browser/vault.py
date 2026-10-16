@@ -84,6 +84,7 @@ from typing import Any, Callable, Dict, Iterable, List, NamedTuple, Optional, Tu
 from urllib.parse import urlsplit
 
 from app.logger import logger
+from app.credentials.secrets import Secret
 from app.mini_browser.errors import MiniBrowserError
 
 __all__ = [
@@ -213,39 +214,6 @@ class VaultError(MiniBrowserError):
     @property
     def detail(self) -> str:
         return str(self.fields.get("detail", ""))
-
-
-class Secret:
-    """A value (a password, a key) that never shows in a repr, str() or log.
-
-    Wrap a password the moment it is read, e.g. from a WebSocket message, and
-    pass the wrapper around. :meth:`reveal` returns the real value. The vault
-    accepts either a ``Secret`` or a plain ``str`` wherever it takes a password.
-    """
-
-    __slots__ = ("_value",)
-
-    def __init__(self, value: Any) -> None:
-        self._value = value
-
-    @classmethod
-    def wrap(cls, value: Any) -> "Secret":
-        return value if isinstance(value, Secret) else cls(value)
-
-    def reveal(self) -> Any:
-        return self._value
-
-    def __bool__(self) -> bool:
-        return bool(self._value)
-
-    def __repr__(self) -> str:
-        return "Secret('[redacted]')"
-
-    def __str__(self) -> str:
-        return "[redacted]"
-
-    def __reduce__(self):
-        raise TypeError("Secret values cannot be pickled")
 
 
 class _Entry(dict):

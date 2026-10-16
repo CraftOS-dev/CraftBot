@@ -44,6 +44,7 @@ import httpx
 
 from ... import BasePlatformClient, load_config, register_client
 from ...config import ConfigStore
+from ...helpers.http import raw_request
 from ...helpers import Result, arequest
 from ...helpers import request as http_request
 from ...logger import get_logger
@@ -206,7 +207,8 @@ def _sql_statements(query: str) -> List[str]:
             in_dollar = None if in_dollar == token else (in_dollar or token)
             buf.append(token)
         elif token == ";" and not in_dollar:
-            parts.append("".join(buf)); buf = []
+            parts.append("".join(buf))
+            buf = []
         else:
             buf.append(token)
     parts.append("".join(buf))
@@ -419,7 +421,8 @@ class SupabaseClient(BasePlatformClient):
 
         def _go() -> Result:
             try:
-                r = httpx.get(
+                r = raw_request(
+                    "GET",
                     f"{SUPABASE_MGMT}/{path.lstrip('/')}",
                     headers={"Authorization": f"Bearer {token}"},
                     params=params,
@@ -433,7 +436,9 @@ class SupabaseClient(BasePlatformClient):
 
     # ── transport: project data plane ────────────────────────────────
 
-    async def _keys_for(self, ref: str, *, refresh: bool = False) -> Dict[str, Optional[str]]:
+    async def _keys_for(
+        self, ref: str, *, refresh: bool = False
+    ) -> Dict[str, Optional[str]]:
         if not refresh and ref in self._project_keys:
             return self._project_keys[ref]
         result = await self._mgmt(
@@ -446,7 +451,11 @@ class SupabaseClient(BasePlatformClient):
                 + " — the connected account needs the secrets:read permission "
                 "on this project."
             )
-        keys: Dict[str, Optional[str]] = {"secret": None, "publishable": None, "jwt": None}
+        keys: Dict[str, Optional[str]] = {
+            "secret": None,
+            "publishable": None,
+            "jwt": None,
+        }
         legacy_anon: Optional[str] = None
         for item in result.get("result") or []:
             kind = item.get("type")
@@ -648,7 +657,9 @@ class SupabaseClient(BasePlatformClient):
     async def list_regions(
         self, organization_slug: str, *, continent: Optional[str] = None
     ) -> Result:
-        params = _clean({"organization_slug": organization_slug, "continent": continent})
+        params = _clean(
+            {"organization_slug": organization_slug, "continent": continent}
+        )
         return await self._mgmt("GET", "projects/available-regions", params=params)
 
     async def create_project(
@@ -684,11 +695,17 @@ class SupabaseClient(BasePlatformClient):
         result = await self._mgmt(
             "POST", "projects", json_body=body, expected=_EXPECT_WRITE, timeout=60.0
         )
-        if "error" not in result and generated and isinstance(result.get("result"), dict):
+        if (
+            "error" not in result
+            and generated
+            and isinstance(result.get("result"), dict)
+        ):
             result["result"]["generated_db_password"] = password
         return result
 
-    async def update_project(self, name: str, *, project_ref: Optional[str] = None) -> Result:
+    async def update_project(
+        self, name: str, *, project_ref: Optional[str] = None
+    ) -> Result:
         self._guard_write()
         return await self._mgmt(
             "PATCH",
@@ -1032,8 +1049,12 @@ class SupabaseClient(BasePlatformClient):
         if count:
             headers["Prefer"] = "count=exact"
         result, response = await self._rest(
-            ref, "GET", f"rest/v1/{quote(table, safe='')}",
-            params=params, headers=headers, expected=(200, 206),
+            ref,
+            "GET",
+            f"rest/v1/{quote(table, safe='')}",
+            params=params,
+            headers=headers,
+            expected=(200, 206),
         )
         if "error" in result:
             return result
@@ -1074,8 +1095,12 @@ class SupabaseClient(BasePlatformClient):
         headers["Prefer"] = ",".join(prefer)
         params = [("on_conflict", on_conflict)] if on_conflict else None
         result, _ = await self._rest(
-            ref, "POST", f"rest/v1/{quote(table, safe='')}",
-            params=params, json_body=rows, headers=headers,
+            ref,
+            "POST",
+            f"rest/v1/{quote(table, safe='')}",
+            params=params,
+            json_body=rows,
+            headers=headers,
         )
         return result
 
@@ -1099,8 +1124,12 @@ class SupabaseClient(BasePlatformClient):
         headers = self._profile_headers(schema, write=True)
         headers["Prefer"] = "return=representation"
         result, _ = await self._rest(
-            self._ref(project_ref), "PATCH", f"rest/v1/{quote(table, safe='')}",
-            params=self._filter_params(filters), json_body=values, headers=headers,
+            self._ref(project_ref),
+            "PATCH",
+            f"rest/v1/{quote(table, safe='')}",
+            params=self._filter_params(filters),
+            json_body=values,
+            headers=headers,
         )
         return result
 
@@ -1121,8 +1150,11 @@ class SupabaseClient(BasePlatformClient):
         headers = self._profile_headers(schema, write=True)
         headers["Prefer"] = "return=representation"
         result, _ = await self._rest(
-            self._ref(project_ref), "DELETE", f"rest/v1/{quote(table, safe='')}",
-            params=self._filter_params(filters), headers=headers,
+            self._ref(project_ref),
+            "DELETE",
+            f"rest/v1/{quote(table, safe='')}",
+            params=self._filter_params(filters),
+            headers=headers,
         )
         return result
 
@@ -1137,8 +1169,11 @@ class SupabaseClient(BasePlatformClient):
         # A database function can do anything, so treat it as a write.
         self._guard_write()
         result, _ = await self._rest(
-            self._ref(project_ref), "POST", f"rest/v1/rpc/{quote(function, safe='')}",
-            json_body=args or {}, headers=self._profile_headers(schema, write=True),
+            self._ref(project_ref),
+            "POST",
+            f"rest/v1/rpc/{quote(function, safe='')}",
+            json_body=args or {},
+            headers=self._profile_headers(schema, write=True),
         )
         return result
 
@@ -1190,7 +1225,10 @@ class SupabaseClient(BasePlatformClient):
         # PUT replaces the bucket's settings — read first so unspecified
         # fields keep their current values.
         current, _ = await self._data(
-            ref, "GET", f"storage/v1/bucket/{quote(name, safe='')}", expected=_EXPECT_READ
+            ref,
+            "GET",
+            f"storage/v1/bucket/{quote(name, safe='')}",
+            expected=_EXPECT_READ,
         )
         if "error" in current:
             return current
@@ -1215,17 +1253,24 @@ class SupabaseClient(BasePlatformClient):
         )
         return result
 
-    async def delete_bucket(self, name: str, *, project_ref: Optional[str] = None) -> Result:
+    async def delete_bucket(
+        self, name: str, *, project_ref: Optional[str] = None
+    ) -> Result:
         self._guard_write()
         result, _ = await self._data(
-            self._ref(project_ref), "DELETE", f"storage/v1/bucket/{quote(name, safe='')}"
+            self._ref(project_ref),
+            "DELETE",
+            f"storage/v1/bucket/{quote(name, safe='')}",
         )
         return result
 
-    async def empty_bucket(self, name: str, *, project_ref: Optional[str] = None) -> Result:
+    async def empty_bucket(
+        self, name: str, *, project_ref: Optional[str] = None
+    ) -> Result:
         self._guard_write()
         result, _ = await self._data(
-            self._ref(project_ref), "POST",
+            self._ref(project_ref),
+            "POST",
             f"storage/v1/bucket/{quote(name, safe='')}/empty",
         )
         return result
@@ -1250,9 +1295,11 @@ class SupabaseClient(BasePlatformClient):
             }
         )
         result, _ = await self._data(
-            self._ref(project_ref), "POST",
+            self._ref(project_ref),
+            "POST",
             f"storage/v1/object/list/{quote(bucket, safe='')}",
-            json_body=body, expected=_EXPECT_READ,
+            json_body=body,
+            expected=_EXPECT_READ,
         )
         if "error" in result:
             return result
@@ -1277,14 +1324,19 @@ class SupabaseClient(BasePlatformClient):
         local = os.path.abspath(file_path)
         if not os.path.isfile(local):
             return {"error": f"File not found: {local}"}
-        mime = content_type or mimetypes.guess_type(local)[0] or "application/octet-stream"
+        mime = (
+            content_type or mimetypes.guess_type(local)[0] or "application/octet-stream"
+        )
         with open(local, "rb") as f:
             payload = f.read()
         headers = {"Content-Type": mime, "x-upsert": "true" if upsert else "false"}
         result, _ = await self._data(
-            self._ref(project_ref), "POST",
+            self._ref(project_ref),
+            "POST",
             f"storage/v1/object/{quote(bucket, safe='')}/{_object_path(path)}",
-            content=payload, headers=headers, timeout=300.0,
+            content=payload,
+            headers=headers,
+            timeout=300.0,
         )
         if "error" not in result:
             result["result"] = {
@@ -1292,7 +1344,11 @@ class SupabaseClient(BasePlatformClient):
                 "path": path.strip("/"),
                 "size": len(payload),
                 "content_type": mime,
-                **(result.get("result") if isinstance(result.get("result"), dict) else {}),
+                **(
+                    result.get("result")
+                    if isinstance(result.get("result"), dict)
+                    else {}
+                ),
             }
         return result
 
@@ -1305,9 +1361,12 @@ class SupabaseClient(BasePlatformClient):
         project_ref: Optional[str] = None,
     ) -> Result:
         result, response = await self._data(
-            self._ref(project_ref), "GET",
+            self._ref(project_ref),
+            "GET",
             f"storage/v1/object/{quote(bucket, safe='')}/{_object_path(path)}",
-            expected=_EXPECT_READ, timeout=300.0, raw=True,
+            expected=_EXPECT_READ,
+            timeout=300.0,
+            raw=True,
         )
         if "error" in result or response is None:
             return result
@@ -1335,7 +1394,8 @@ class SupabaseClient(BasePlatformClient):
         if not paths:
             return {"error": "paths must list at least one object path."}
         result, _ = await self._data(
-            self._ref(project_ref), "DELETE",
+            self._ref(project_ref),
+            "DELETE",
             f"storage/v1/object/{quote(bucket, safe='')}",
             json_body={"prefixes": [p.strip("/") for p in paths]},
         )
@@ -1397,7 +1457,8 @@ class SupabaseClient(BasePlatformClient):
     ) -> Result:
         ref = self._ref(project_ref)
         result, _ = await self._data(
-            ref, "POST",
+            ref,
+            "POST",
             f"storage/v1/object/sign/{quote(bucket, safe='')}/{_object_path(path)}",
             json_body={"expiresIn": _clamp(expires_in, 1, 60 * 60 * 24 * 365, 3600)},
         )
@@ -1425,7 +1486,9 @@ class SupabaseClient(BasePlatformClient):
     ) -> Result:
         per = _clamp(per_page, 1, 1000, 50)
         result, _ = await self._data(
-            self._ref(project_ref), "GET", "auth/v1/admin/users",
+            self._ref(project_ref),
+            "GET",
+            "auth/v1/admin/users",
             params={"page": max(int(page or 1), 1), "per_page": per},
             expected=_EXPECT_READ,
         )
@@ -1441,9 +1504,13 @@ class SupabaseClient(BasePlatformClient):
             },
         }
 
-    async def get_user(self, user_id: str, *, project_ref: Optional[str] = None) -> Result:
+    async def get_user(
+        self, user_id: str, *, project_ref: Optional[str] = None
+    ) -> Result:
         result, _ = await self._data(
-            self._ref(project_ref), "GET", f"auth/v1/admin/users/{quote(user_id, safe='')}",
+            self._ref(project_ref),
+            "GET",
+            f"auth/v1/admin/users/{quote(user_id, safe='')}",
             expected=_EXPECT_READ,
         )
         return result
@@ -1509,8 +1576,10 @@ class SupabaseClient(BasePlatformClient):
         if not body:
             return {"error": "Nothing to update — pass at least one field."}
         result, _ = await self._data(
-            self._ref(project_ref), "PUT",
-            f"auth/v1/admin/users/{quote(user_id, safe='')}", json_body=body,
+            self._ref(project_ref),
+            "PUT",
+            f"auth/v1/admin/users/{quote(user_id, safe='')}",
+            json_body=body,
         )
         return result
 
@@ -1523,7 +1592,8 @@ class SupabaseClient(BasePlatformClient):
     ) -> Result:
         self._guard_write()
         result, _ = await self._data(
-            self._ref(project_ref), "DELETE",
+            self._ref(project_ref),
+            "DELETE",
             f"auth/v1/admin/users/{quote(user_id, safe='')}",
             json_body={"should_soft_delete": bool(soft_delete)},
         )
@@ -1540,8 +1610,11 @@ class SupabaseClient(BasePlatformClient):
         self._guard_write()
         params = {"redirect_to": redirect_to} if redirect_to else None
         result, _ = await self._data(
-            self._ref(project_ref), "POST", "auth/v1/invite",
-            params=params, json_body=_clean({"email": email, "data": data}),
+            self._ref(project_ref),
+            "POST",
+            "auth/v1/invite",
+            params=params,
+            json_body=_clean({"email": email, "data": data}),
         )
         return result
 
@@ -1559,8 +1632,14 @@ class SupabaseClient(BasePlatformClient):
         """Generate a signup / magiclink / recovery / invite / email-change
         link without sending an email."""
         self._guard_write()
-        valid = ("signup", "magiclink", "recovery", "invite", "email_change_current",
-                 "email_change_new")
+        valid = (
+            "signup",
+            "magiclink",
+            "recovery",
+            "invite",
+            "email_change_current",
+            "email_change_new",
+        )
         if link_type not in valid:
             return {"error": f"link_type must be one of {', '.join(valid)}"}
         params = {"redirect_to": redirect_to} if redirect_to else None
@@ -1574,8 +1653,11 @@ class SupabaseClient(BasePlatformClient):
             }
         )
         result, _ = await self._data(
-            self._ref(project_ref), "POST", "auth/v1/admin/generate_link",
-            params=params, json_body=body,
+            self._ref(project_ref),
+            "POST",
+            "auth/v1/admin/generate_link",
+            params=params,
+            json_body=body,
         )
         return result
 
@@ -1586,7 +1668,9 @@ class SupabaseClient(BasePlatformClient):
     async def list_functions(self, *, project_ref: Optional[str] = None) -> Result:
         return await self._mgmt("GET", f"projects/{self._ref(project_ref)}/functions")
 
-    async def get_function(self, slug: str, *, project_ref: Optional[str] = None) -> Result:
+    async def get_function(
+        self, slug: str, *, project_ref: Optional[str] = None
+    ) -> Result:
         return await self._mgmt(
             "GET", f"projects/{self._ref(project_ref)}/functions/{quote(slug, safe='')}"
         )
@@ -1612,8 +1696,10 @@ class SupabaseClient(BasePlatformClient):
         self._guard_write()
         sources: List[Tuple[str, bytes]] = []
         if files:
-            sources = [(p.replace("\\", "/").lstrip("/"), c.encode("utf-8"))
-                       for p, c in files.items()]
+            sources = [
+                (p.replace("\\", "/").lstrip("/"), c.encode("utf-8"))
+                for p, c in files.items()
+            ]
         elif source_dir:
             root = os.path.abspath(source_dir)
             if not os.path.isdir(root):
@@ -1664,8 +1750,10 @@ class SupabaseClient(BasePlatformClient):
         self._guard_write()
         body = _clean({"name": name, "verify_jwt": verify_jwt})
         if not body:
-            return {"error": "Nothing to update — pass name and/or verify_jwt. "
-                    "To change code, use deploy_supabase_function."}
+            return {
+                "error": "Nothing to update — pass name and/or verify_jwt. "
+                "To change code, use deploy_supabase_function."
+            }
         return await self._mgmt(
             "PATCH",
             f"projects/{self._ref(project_ref)}/functions/{quote(slug, safe='')}",
@@ -1673,7 +1761,9 @@ class SupabaseClient(BasePlatformClient):
             expected=_EXPECT_WRITE,
         )
 
-    async def delete_function(self, slug: str, *, project_ref: Optional[str] = None) -> Result:
+    async def delete_function(
+        self, slug: str, *, project_ref: Optional[str] = None
+    ) -> Result:
         self._guard_write()
         return await self._mgmt(
             "DELETE",
@@ -1695,14 +1785,22 @@ class SupabaseClient(BasePlatformClient):
         verb = (method or "POST").upper()
         if verb not in ("GET", "POST", "PUT", "PATCH", "DELETE"):
             return {"error": f"Unsupported method {method!r}."}
-        extra = {k: v for k, v in (headers or {}).items()
-                 if k.lower() not in ("apikey", "authorization")}
+        extra = {
+            k: v
+            for k, v in (headers or {}).items()
+            if k.lower() not in ("apikey", "authorization")
+        }
         # Functions with verify_jwt need a JWT; only legacy keys are JWTs.
         result, response = await self._data(
-            self._ref(project_ref), verb, f"functions/v1/{quote(slug, safe='')}",
+            self._ref(project_ref),
+            verb,
+            f"functions/v1/{quote(slug, safe='')}",
             json_body=body if verb != "GET" else None,
-            headers=extra, prefer_jwt=True, expected=range(200, 300),
-            timeout=150.0, raw=True,
+            headers=extra,
+            prefer_jwt=True,
+            expected=range(200, 300),
+            timeout=150.0,
+            raw=True,
         )
         if response is None:
             return result
@@ -1823,13 +1921,21 @@ class SupabaseClient(BasePlatformClient):
     ) -> Result:
         self._guard_write()
         body = _clean(
-            {"branch_name": branch_name, "git_branch": git_branch, "persistent": persistent}
+            {
+                "branch_name": branch_name,
+                "git_branch": git_branch,
+                "persistent": persistent,
+            }
         )
         if not body:
-            return {"error": "Nothing to update — pass branch_name, git_branch or persistent."}
+            return {
+                "error": "Nothing to update — pass branch_name, git_branch or persistent."
+            }
         return await self._mgmt(
-            "PATCH", f"branches/{quote(branch_id, safe='')}",
-            json_body=body, expected=_EXPECT_WRITE,
+            "PATCH",
+            f"branches/{quote(branch_id, safe='')}",
+            json_body=body,
+            expected=_EXPECT_WRITE,
         )
 
     async def delete_branch(self, branch_id: str) -> Result:
@@ -1843,9 +1949,11 @@ class SupabaseClient(BasePlatformClient):
     ) -> Result:
         self._guard_write()
         return await self._mgmt(
-            "POST", f"branches/{quote(branch_id, safe='')}/merge",
+            "POST",
+            f"branches/{quote(branch_id, safe='')}/merge",
             json_body=_clean({"migration_version": migration_version}),
-            expected=_EXPECT_WRITE, timeout=60.0,
+            expected=_EXPECT_WRITE,
+            timeout=60.0,
         )
 
     async def reset_branch(
@@ -1853,16 +1961,20 @@ class SupabaseClient(BasePlatformClient):
     ) -> Result:
         self._guard_write()
         return await self._mgmt(
-            "POST", f"branches/{quote(branch_id, safe='')}/reset",
+            "POST",
+            f"branches/{quote(branch_id, safe='')}/reset",
             json_body=_clean({"migration_version": migration_version}),
-            expected=_EXPECT_WRITE, timeout=60.0,
+            expected=_EXPECT_WRITE,
+            timeout=60.0,
         )
 
     async def diff_branch(
         self, branch_id: str, *, schemas: Optional[List[str]] = None
     ) -> Result:
         params = {"included_schemas": ",".join(schemas)} if schemas else {}
-        return await self._mgmt_text(f"branches/{quote(branch_id, safe='')}/diff", params)
+        return await self._mgmt_text(
+            f"branches/{quote(branch_id, safe='')}/diff", params
+        )
 
     # =================================================================
     # Monitoring — logs, advisors, usage
@@ -1911,7 +2023,9 @@ class SupabaseClient(BasePlatformClient):
             "iso_timestamp_end": _iso(end),
         }
         path = f"projects/{self._ref(project_ref)}/analytics/endpoints/logs"
-        result = _analytics_result(await self._mgmt("GET", path, params=params, timeout=60.0))
+        result = _analytics_result(
+            await self._mgmt("GET", path, params=params, timeout=60.0)
+        )
         # Supabase asks for a retry on transient backend failures.
         if "Backend error" in str(result.get("details") or ""):
             await asyncio.sleep(2.0)
@@ -1927,14 +2041,20 @@ class SupabaseClient(BasePlatformClient):
                 )
         return result
 
-    async def get_security_advisors(self, *, project_ref: Optional[str] = None) -> Result:
+    async def get_security_advisors(
+        self, *, project_ref: Optional[str] = None
+    ) -> Result:
         return await self._mgmt(
             "GET", f"projects/{self._ref(project_ref)}/advisors/security", timeout=60.0
         )
 
-    async def get_performance_advisors(self, *, project_ref: Optional[str] = None) -> Result:
+    async def get_performance_advisors(
+        self, *, project_ref: Optional[str] = None
+    ) -> Result:
         return await self._mgmt(
-            "GET", f"projects/{self._ref(project_ref)}/advisors/performance", timeout=60.0
+            "GET",
+            f"projects/{self._ref(project_ref)}/advisors/performance",
+            timeout=60.0,
         )
 
     async def get_api_usage(

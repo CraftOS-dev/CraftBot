@@ -80,6 +80,17 @@ def validate_and_mint_token(
     is None. Lark returns 200 OK with ``code != 0`` on bad credentials, so
     we have to inspect the body — HTTP status alone isn't enough.
     """
+    from ..helpers.source_auth import is_reference, lark_exchange
+
+    if is_reference(app_secret):
+        body = lark_exchange("tenant_token", app_id, app_secret)
+        if body.get("code", -1) != 0 or not body.get("tenant_access_token"):
+            return None, 0.0, "Lark credential operation failed"
+        return (
+            body["tenant_access_token"],
+            time.time() + float(body.get("expire", 0)),
+            None,
+        )
     result = http_request(
         "POST",
         f"{LARK_API_BASE}/auth/v3/tenant_access_token/internal",
@@ -110,21 +121,11 @@ def ensure_token(cred: LarkCredential, cred_file: str) -> str:
     now = time.time()
     if cred.tenant_access_token and cred.token_expires_at > now + 60:
         return cred.tenant_access_token
-    result = http_request(
-        "POST",
-        f"{LARK_API_BASE}/auth/v3/tenant_access_token/internal",
-        json={"app_id": cred.app_id, "app_secret": cred.app_secret},
-        expected=(200,),
-    )
-    if "error" in result:
-        raise RuntimeError(f"Lark token refresh failed: {result['error']}")
-    body = result.get("result", {})
-    if body.get("code", -1) != 0:
-        raise RuntimeError(f"Lark token refresh rejected: {body.get('msg', 'unknown')}")
-    token = body.get("tenant_access_token", "")
-    expire = float(body.get("expire", 0))
+    token, expires, error = validate_and_mint_token(cred.app_id, cred.app_secret)
+    if error:
+        raise RuntimeError("Lark token refresh failed")
     cred.tenant_access_token = token
-    cred.token_expires_at = now + expire
+    cred.token_expires_at = expires
     save_credential(cred_file, cred)
     return token
 

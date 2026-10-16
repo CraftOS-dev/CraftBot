@@ -43,6 +43,15 @@ def _get_openai_audio_api_key() -> str:
     )
 
 
+def _audio_client(key):
+    if key.startswith("craftbot-vault:"):
+        factory = ConfigStore.extras.get("openai_client_factory")
+        if factory is None:
+            raise RuntimeError("credential_audio_helper_unavailable")
+        return factory(key)
+    return OpenAI(api_key=key)
+
+
 @dataclass
 class VoiceSession:
     guild_id: str
@@ -336,7 +345,7 @@ class DiscordVoiceManager:
             wav_path = self._pcm_to_wav(audio_data)
             if not wav_path:
                 return None
-            client = OpenAI(api_key=api_key)
+            client = _audio_client(api_key)
             with open(wav_path, "rb") as audio_file:
                 transcript = client.audio.transcriptions.create(
                     model="whisper-1",
@@ -368,7 +377,7 @@ class DiscordVoiceManager:
         try:
             api_key = _get_openai_audio_api_key()
             if provider == "openai" and OPENAI_AVAILABLE and api_key:
-                client = OpenAI(api_key=api_key)
+                client = _audio_client(api_key)
                 response = client.audio.speech.create(
                     model="tts-1", voice=voice, input=text
                 )

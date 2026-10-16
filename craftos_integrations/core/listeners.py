@@ -271,7 +271,12 @@ class ListenerManager:
             async def emit(event: Dict[str, Any]) -> None:
                 await self.sink.on_event(provider_id, identity, event)
 
-            listener = provider.make_listener(client, cursor, emit)
+            listener = (
+                client.make_source_listener(provider, cursor, emit)
+                if "source_reference" in credential
+                and hasattr(client, "make_source_listener")
+                else provider.make_listener(client, cursor, emit)
+            )
             if listener is None:
                 return None
             return _Instance(

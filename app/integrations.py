@@ -166,12 +166,24 @@ def set_event_callback(on_message: "MessageCallback") -> None:
 
 def get_system() -> IntegrationSystem:
     global _system
+    from app.credentials.oauth_transport import request as source_oauth_request
+    from app.credentials.model_transport import openai_client
+    from app.credentials.provider_auth import lark_request, telegram_auth
+    from craftos_integrations.config import ConfigStore
+
+    ConfigStore.extras["source_oauth_request"] = source_oauth_request
+    ConfigStore.extras["openai_client_factory"] = openai_client
+    ConfigStore.extras["source_lark_request"] = lark_request
+    ConfigStore.extras["source_telegram_auth"] = telegram_auth
     if _system is None:
         from craftos_integrations.providers import default_providers
+        from app.credentials.integrations import SavedSourceOperations
 
+        providers = default_providers()
         _system = IntegrationSystem(
             store=FileCredentialStore(),
-            providers=default_providers(),
+            providers=providers,
+            source_credentials=SavedSourceOperations(providers),
         )
     return _system
 

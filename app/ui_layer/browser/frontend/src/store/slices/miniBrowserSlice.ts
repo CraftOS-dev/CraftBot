@@ -8,15 +8,13 @@ import type {
   MiniBrowserStatePayload,
   MiniBrowserStatus,
   MiniBrowserTab,
-  MiniBrowserVaultEntry,
-  MiniBrowserVaultStatus,
   MiniBrowserViewport,
 } from '../../types'
 import { register } from '../socket/messageRegistry'
 
 // Mini Browser: the live Chromium shared by the user and every agent.
 //
-// Only low-frequency state lives here (lifecycle, tabs, vault, results).
+// Only low-frequency state lives here (lifecycle, tabs, results).
 // Screencast frames and the agent's pointer arrive many times a second and
 // are deliberately NOT stored: the live view subscribes to them directly and
 // paints them without a React render (pages/MiniBrowser/live/).
@@ -33,7 +31,6 @@ const MAX_INSTALL_LINE_CHARS = 500
 const MAX_CLIPBOARD_CHARS = 1_000_000
 
 export const miniBrowserTabsAdapter = createEntityAdapter<MiniBrowserTab>()
-export const miniBrowserVaultAdapter = createEntityAdapter<MiniBrowserVaultEntry>()
 
 /** A `mini_browser_event`, numbered so views can tell new ones from old. */
 export interface MiniBrowserEventEntry extends MiniBrowserEvent {
@@ -56,23 +53,6 @@ export interface MiniBrowserNavResultState {
   error: MiniBrowserError | null
 }
 
-export interface MiniBrowserVaultResultState {
-  seq: number
-  /** 'add' | 'update' | 'delete' | 'reset' */
-  op: string
-  ok: boolean
-  error: MiniBrowserError | null
-}
-
-export interface MiniBrowserVaultState {
-  /** A list reply arrived at least once. */
-  loaded: boolean
-  entries: EntityState<MiniBrowserVaultEntry, string>
-  status: MiniBrowserVaultStatus | null
-  error: MiniBrowserError | null
-  result: MiniBrowserVaultResultState | null
-}
-
 interface MiniBrowserSliceState {
   /** A `mini_browser_state` arrived at least once. */
   known: boolean
@@ -93,7 +73,6 @@ interface MiniBrowserSliceState {
   /** Reply to the last copy request; cleared once written to the clipboard.
    *  `requestId` names the request it answers (null from an older backend). */
   clipboard: { seq: number; text: string; requestId: string | null } | null
-  vault: MiniBrowserVaultState
 }
 
 const DEFAULT_SETTINGS: MiniBrowserSettings = { humanlike: true, showCursor: true }
@@ -127,13 +106,7 @@ const initialState: MiniBrowserSliceState = {
   eventSeq: 0,
   events: [],
   clipboard: null,
-  vault: {
-    loaded: false,
-    entries: miniBrowserVaultAdapter.getInitialState(),
-    status: null,
-    error: null,
-    result: null,
-  },
+
 }
 
 const miniBrowserSlice = createSlice({
@@ -208,25 +181,6 @@ const miniBrowserSlice = createSlice({
     clipboardConsumed(state) {
       if (state.clipboard) state.clipboard.text = ''
     },
-    vaultListReceived(
-      state,
-      action: PayloadAction<{
-        entries: MiniBrowserVaultEntry[]
-        status: MiniBrowserVaultStatus | null
-        error: MiniBrowserError | null
-      }>,
-    ) {
-      state.vault.loaded = true
-      miniBrowserVaultAdapter.setAll(state.vault.entries, action.payload.entries)
-      state.vault.status = action.payload.status
-      state.vault.error = action.payload.error
-    },
-    vaultResultReceived(
-      state,
-      action: PayloadAction<{ op: string; ok: boolean; error: MiniBrowserError | null }>,
-    ) {
-      state.vault.result = { seq: (state.vault.result?.seq ?? 0) + 1, ...action.payload }
-    },
   },
 })
 
@@ -240,8 +194,6 @@ export const {
   navResultDismissed,
   clipboardReceived,
   clipboardConsumed,
-  vaultListReceived,
-  vaultResultReceived,
 } = miniBrowserSlice.actions
 
 export default miniBrowserSlice.reducer
@@ -365,36 +317,6 @@ function parseEvent(v: unknown): MiniBrowserEvent | null {
   return event
 }
 
-const timestamp = (v: unknown): string | number | null =>
-  typeof v === 'string' && v !== '' ? v : finite(v)
-
-function parseVaultEntry(v: unknown): MiniBrowserVaultEntry | null {
-  if (!isDict(v)) return null
-  const id = str(v.id)
-  if (!id) return null
-  return {
-    id,
-    site: str(v.site),
-    username: str(v.username),
-    label: str(v.label),
-    createdAt: timestamp(v.createdAt),
-    updatedAt: timestamp(v.updatedAt),
-    lastUsedAt: timestamp(v.lastUsedAt),
-  }
-}
-
-function parseVaultStatus(v: unknown): MiniBrowserVaultStatus | null {
-  if (!isDict(v)) return null
-  return {
-    ok: bool(v.ok, true),
-    unreadable: bool(v.unreadable),
-    protection: v.protection === 'dpapi' ? 'dpapi' : 'file',
-  }
-}
-
-/** 'mini_browser_vault_add' → 'add'; plain op names pass through. */
-const normalizeVaultOp = (op: string): string => op.replace(/^mini_browser_vault_/, '')
-
 // --- inbound message handlers --------------------------------------------
 
 register('mini_browser_state', (data, dispatch) => {
@@ -430,31 +352,5 @@ register('mini_browser_clipboard', (data, dispatch) => {
   dispatch(clipboardReceived({
     text: text.length > MAX_CLIPBOARD_CHARS ? text.slice(0, MAX_CLIPBOARD_CHARS) : text,
     requestId,
-  }))
-})
-
-register('mini_browser_vault_list', (data, dispatch) => {
-  if (!isDict(data)) return
-  const entries: MiniBrowserVaultEntry[] = []
-  if (Array.isArray(data.entries)) {
-    for (const raw of data.entries) {
-      const entry = parseVaultEntry(raw)
-      if (entry) entries.push(entry)
-    }
-  }
-  dispatch(vaultListReceived({
-    entries,
-    status: parseVaultStatus(data.status),
-    error: parseMiniBrowserError(data.error),
-  }))
-})
-
-register('mini_browser_vault_result', (data, dispatch) => {
-  if (!isDict(data)) return
-  const error = parseMiniBrowserError(data.error)
-  dispatch(vaultResultReceived({
-    op: normalizeVaultOp(str(data.op)),
-    ok: bool(data.ok, !error) && !error,
-    error,
   }))
 })

@@ -18,7 +18,6 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-import httpx
 
 from ... import (
     BasePlatformClient,
@@ -31,6 +30,7 @@ from ... import (
     register_client,
     save_credential,
 )
+from ...helpers.http import raw_request
 from ...helpers import Result, arequest, clip
 from ...logger import get_logger
 
@@ -215,7 +215,8 @@ class GitHubClient(BasePlatformClient):
         if self._last_modified:
             headers["If-Modified-Since"] = self._last_modified
         try:
-            resp = httpx.get(
+            resp = raw_request(
+                "GET",
                 f"{GITHUB_API}/notifications",
                 headers=headers,
                 params={"all": "false", "participating": "true"},
@@ -264,7 +265,7 @@ class GitHubClient(BasePlatformClient):
     def _fetch_comment_sync(self, url: str) -> tuple[str, str]:
         """Sync per-comment fetch - returns ``(body, author)`` or ``("", "")``."""
         try:
-            cr = httpx.get(url, headers=self._headers(), timeout=15.0)
+            cr = raw_request("GET", url, headers=self._headers(), timeout=15.0)
             if cr.status_code != 200:
                 return "", ""
             data = cr.json()
@@ -2471,7 +2472,8 @@ class GitHubClient(BasePlatformClient):
         gets the URL back and downloads it itself if needed.
         """
         try:
-            r = httpx.get(
+            r = raw_request(
+                "GET",
                 f"{GITHUB_API}/repos/{owner_repo}/actions/runs/{run_id}/logs",
                 headers=self._headers(),
                 follow_redirects=False,

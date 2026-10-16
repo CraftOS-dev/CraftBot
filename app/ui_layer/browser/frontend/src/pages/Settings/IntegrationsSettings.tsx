@@ -1246,21 +1246,33 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
               {/* Token-only integrations */}
               {selectedIntegration.auth_type === 'token' && (
                 <div className={styles.connectForm}>
-                  {selectedIntegration.fields.map(field => (
-                    <div key={field.key} className={styles.formGroup}>
-                      <label className={styles.formLabel}>{field.label}</label>
-                      <input
-                        type={field.password ? 'password' : 'text'}
-                        className={styles.formInput}
-                        placeholder={field.placeholder}
-                        value={credentials[field.key] || ''}
-                        onChange={(e) => setCredentials(prev => ({
-                          ...prev,
-                          [field.key]: e.target.value
-                        }))}
-                      />
-                    </div>
-                  ))}
+                  <div className={styles.formGroup}>
+                    <label className={styles.formLabel}>Saved credential reference</label>
+                    <input className={styles.formInput} type="text"
+                      placeholder="craftbot-vault://profile-id/credential-id/version"
+                      value={credentials.source_reference || ''}
+                      onChange={e => setCredentials(previous => ({ ...previous, source_reference: e.target.value }))} />
+                    <p>Save source values in Settings &gt; Credentials. Connection requires an installed provider helper and owner approval.</p>
+                  </div>
+                  {selectedIntegration.id === 'whatsapp_business' && <div className={styles.formGroup}>
+                    <label className={styles.formLabel}>Phone Number ID (public account identifier)</label>
+                    <input className={styles.formInput} type="text" value={credentials.phone_number_id || ''}
+                      onChange={e => setCredentials(previous => ({ ...previous, phone_number_id: e.target.value }))} />
+                  </div>}
+                    {(['lark', 'lark_calendar', 'lark_drive', 'telegram_user', 'twitter'].includes(selectedIntegration.id)) && <>
+                      {(selectedIntegration.id.startsWith('lark')
+                        ? [{ key: 'app_id', label: 'App ID', hidden: false }]
+                        : selectedIntegration.id === 'twitter'
+                        ? [{ key: 'access_token', label: 'Existing user access token', hidden: true }, { key: 'access_token_secret', label: 'Existing user token secret', hidden: true }]
+                        : [{ key: 'api_id', label: 'API ID', hidden: false }, { key: 'phone_number', label: 'Phone number', hidden: false }, { key: 'code', label: 'Login code (empty to request a code)', hidden: false }]
+                      ).map(field => <div className={styles.formGroup} key={field.key}>
+                        <label className={styles.formLabel}>{field.label}</label>
+                        <input className={styles.formInput} type={field.hidden ? 'password' : 'text'}
+                          autoComplete="off" value={credentials[field.key] || ''}
+                          onChange={e => setCredentials(previous => ({ ...previous, [field.key]: e.target.value }))} />
+                      </div>)}
+                      {selectedIntegration.id === 'telegram_user' && <p>Use a saved app credential with an api_hash field. If 2FA is enabled, add a password field in the vault.</p>}
+                    </>}
                   {connectError && (
                     <div className={styles.formError}>{connectError}</div>
                   )}
@@ -1284,21 +1296,14 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
               {/* Both OAuth and Token integrations */}
               {selectedIntegration.auth_type === 'both' && (
                 <div className={styles.connectForm}>
-                  {selectedIntegration.fields.map(field => (
-                    <div key={field.key} className={styles.formGroup}>
-                      <label className={styles.formLabel}>{field.label}</label>
-                      <input
-                        type={field.password ? 'password' : 'text'}
-                        className={styles.formInput}
-                        placeholder={field.placeholder}
-                        value={credentials[field.key] || ''}
-                        onChange={(e) => setCredentials(prev => ({
-                          ...prev,
-                          [field.key]: e.target.value
-                        }))}
-                      />
-                    </div>
-                  ))}
+                  <div className={styles.formGroup}>
+                    <label className={styles.formLabel}>Saved credential reference</label>
+                    <input className={styles.formInput} type="text"
+                      placeholder="craftbot-vault://profile-id/credential-id/version"
+                      value={credentials.source_reference || ''}
+                      onChange={e => setCredentials(previous => ({ ...previous, source_reference: e.target.value }))} />
+                    <p>Save source values in Settings &gt; Credentials. Connection requires an installed provider helper and owner approval.</p>
+                  </div>
                   {connectError && (
                     <div className={styles.formError}>{connectError}</div>
                   )}
@@ -1330,21 +1335,14 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
               {/* Token + Interactive QR integrations (Telegram) */}
               {selectedIntegration.auth_type === 'token_with_interactive' && (
                 <div className={styles.connectForm}>
-                  {selectedIntegration.fields.map(field => (
-                    <div key={field.key} className={styles.formGroup}>
-                      <label className={styles.formLabel}>{field.label}</label>
-                      <input
-                        type={field.password ? 'password' : 'text'}
-                        className={styles.formInput}
-                        placeholder={field.placeholder}
-                        value={credentials[field.key] || ''}
-                        onChange={(e) => setCredentials(prev => ({
-                          ...prev,
-                          [field.key]: e.target.value
-                        }))}
-                      />
-                    </div>
-                  ))}
+                  <div className={styles.formGroup}>
+                    <label className={styles.formLabel}>Saved credential reference</label>
+                    <input className={styles.formInput} type="text"
+                      placeholder="craftbot-vault://profile-id/credential-id/version"
+                      value={credentials.source_reference || ''}
+                      onChange={e => setCredentials(previous => ({ ...previous, source_reference: e.target.value }))} />
+                    <p>Save source values in Settings &gt; Credentials. Connection requires an installed provider helper and owner approval.</p>
+                  </div>
                   {connectError && (
                     <div className={styles.formError}>{connectError}</div>
                   )}

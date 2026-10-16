@@ -174,6 +174,7 @@ class ActionManager:
         on_action_end: Optional[OnActionEndHook] = None,
         get_parent_id: Optional[GetParentIdHook] = None,
         idempotency_guard: Optional["IdempotencyGuard"] = None,
+        credential_profile_resolver=None,
     ):
         """
         Build an ActionManager that can execute and track actions.
@@ -199,7 +200,9 @@ class ActionManager:
         self.event_stream_manager = event_stream_manager
         self.context_engine = context_engine
         self.state_manager = state_manager
-        self.executor = ActionExecutor()
+        self.executor = ActionExecutor(
+            credential_profile_resolver=credential_profile_resolver
+        )
 
         # Track in-flight actions
         self._inflight: Dict[str, Dict] = {}

@@ -143,7 +143,11 @@ class BytePlusCacheManager:
             f"[BYTEPLUS REQUEST] Payload: {self._sanitize_payload_for_logging(payload)}"
         )
 
-        response = requests.post(url, json=payload, headers=headers, timeout=600)
+        from app.credentials.model_transport import requests_response
+
+        response = requests_response("byteplus", self.api_key, "POST", url, payload)
+        if response is None:
+            response = requests.post(url, json=payload, headers=headers, timeout=600)
 
         # Log the response status
         logger.info(f"[BYTEPLUS RESPONSE] Status: {response.status_code}")

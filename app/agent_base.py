@@ -351,6 +351,8 @@ class AgentBase:
         from app.triggers.activity_log import ActivityLogGuard, get_activity_log
 
         self.activity_log = get_activity_log()
+        from app.credentials.client import action_profile
+
         self.action_manager = ActionManager(
             self.action_library,
             self.llm,
@@ -359,6 +361,7 @@ class AgentBase:
             self.context_engine,
             self.state_manager,
             idempotency_guard=ActivityLogGuard(self.activity_log),
+            credential_profile_resolver=action_profile,
         )
         self.action_router = ActionRouter(
             self.action_library,
@@ -4042,7 +4045,8 @@ class AgentBase:
             },
             extras={
                 "agent_name": agent_name,
-                "openai_api_key": os.environ.get("OPENAI_API_KEY", ""),
+                "openai_api_key": get_api_key("openai")
+                or os.environ.get("OPENAI_API_KEY", ""),
                 # The WhatsApp bridge spawns a Node subprocess and needs the
                 # runtime this app resolved. Injected rather than imported —
                 # the integrations package must stay host-blind.

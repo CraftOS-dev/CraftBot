@@ -442,6 +442,12 @@ class GeminiClient:
             cache_id = f"cachedContents/{cache_name}"
 
         url = self._endpoint(cache_id)
+        from app.credentials.model_transport import requests_response
+
+        protected = requests_response("gemini", self._api_key, "DELETE", url)
+        if protected is not None:
+            protected.raise_for_status()
+            return
         response = requests.delete(
             url,
             headers={"x-goog-api-key": self._api_key},
@@ -795,6 +801,12 @@ class GeminiClient:
         if path.startswith(f"{self._api_version}/"):
             path = path[len(f"{self._api_version}/") :]
         url = self._endpoint(path)
+        from app.credentials.model_transport import requests_response
+
+        protected = requests_response("gemini", self._api_key, "GET", url)
+        if protected is not None:
+            protected.raise_for_status()
+            return protected.json()
         response = requests.get(
             url,
             headers={"x-goog-api-key": self._api_key},
@@ -821,6 +833,12 @@ class GeminiClient:
         ``HTTPError`` messages (which include the request URL) and any
         request/response logging.
         """
+        from app.credentials.model_transport import requests_response
+
+        protected = requests_response("gemini", self._api_key, "GET", video_uri)
+        if protected is not None:
+            protected.raise_for_status()
+            return protected.content
         response = requests.get(
             video_uri,
             headers={"x-goog-api-key": self._api_key},
@@ -839,6 +857,14 @@ class GeminiClient:
 
     def _post_json(self, path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         """Send POST request and return JSON response."""
+        from app.credentials.model_transport import requests_response
+
+        protected = requests_response(
+            "gemini", self._api_key, "POST", self._endpoint(path), payload
+        )
+        if protected is not None:
+            protected.raise_for_status()
+            return protected.json()
         response = requests.post(
             self._endpoint(path),
             headers={"x-goog-api-key": self._api_key},
@@ -861,6 +887,13 @@ class GeminiClient:
 
         response.raise_for_status()
         return response.json()
+
+    def _require_legacy_transport(self):
+        from app.credentials.references import is_reference
+        from app.credentials.client import CredentialHostUnavailable
+
+        if is_reference(self._api_key):
+            raise CredentialHostUnavailable("credential_model_helper_unavailable")
 
     @staticmethod
     def _extract_text(response: Dict[str, Any]) -> str:

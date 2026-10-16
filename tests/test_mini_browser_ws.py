@@ -1541,209 +1541,36 @@ def test_input_without_a_browser_is_ignored(env):
 # ─────────────────────────────────────────────────────────── password vault
 
 
-def test_vault_list_goes_to_requester_only_without_passwords(env):
+@pytest.mark.parametrize(
+    "operation", ["list", "add", "update", "delete", "reset", "get_secret"]
+)
+def test_retired_browser_vault_transport_cannot_read_or_write_sources(
+    env, captured_logs, operation
+):
     async def go():
-        loop_thread = threading.get_ident()
         ws, channel = connect(env)
-        _, other = connect(env)
-        await env.mb.handle(ws, "mini_browser_vault_list", {})
-        [reply] = channel.data("mini_browser_vault_list")
-        assert reply["entries"] == [
+        other, other_channel = connect(env)
+        await env.mb.handle(
+            ws,
+            "mini_browser_vault_" + operation,
             {
                 "id": "e1",
-                "site": "example.com",
-                "username": "jo",
-                "label": "",
-                "createdAt": "2026-10-09T00:00:00Z",
-                "updatedAt": "2026-10-09T00:00:00Z",
-                "lastUsedAt": None,
-            }
-        ]
-        assert reply["status"] == {
-            "ok": True,
-            "unreadable": False,
-            "protection": "dpapi",
-        }
-        assert other.sent == []
-        assert PASSWORD not in all_traffic(channel, other)
-        assert loop_thread not in env.vault.thread_ids  # off the UI loop
-
-    run(go)
-
-
-def test_vault_add_update_delete_reset(env):
-    async def go():
-        ws, channel = connect(env)
-        await env.mb.handle(
-            ws,
-            "mini_browser_vault_add",
-            {"site": "example.com", "username": "jo", "password": PASSWORD},
+                "site": "example.test",
+                "username": "private-login",
+                "password": PASSWORD,
+            },
         )
-        await env.mb.handle(
-            ws,
-            "mini_browser_vault_update",
-            {"id": "e1", "username": "jo2", "password": "", "label": "work"},
-        )
-        await env.mb.handle(ws, "mini_browser_vault_delete", {"id": "e1"})
-        await env.mb.handle(ws, "mini_browser_vault_reset", {})
-
-        assert env.vault.calls == [
-            ("add_entry", ("example.com", "jo", PASSWORD, ""), {}),
-            (
-                "update_entry",
-                ("e1",),
-                {"site": None, "username": "jo2", "password": None, "label": "work"},
-            ),
-            ("delete_entry", ("e1",), {}),
-            ("reset_unreadable", (), {}),
-        ]
-        results = channel.data("mini_browser_vault_result")
-        assert [(r["op"], r["ok"]) for r in results] == [
-            ("add", True),
-            ("update", True),
-            ("delete", True),  # already gone == done
-            ("reset", True),
-        ]
-        assert results[-1]["backupPath"].endswith(".unreadable-1")
-        assert len(env.vault_notices) == 4  # every change refreshes other tabs
-        assert PASSWORD not in all_traffic(channel)
-
-    run(go)
-
-
-def test_vault_errors_are_mapped_and_scrubbed(env, captured_logs):
-    async def go():
-        ws, channel = connect(env)
-        env.vault.fail = VaultError(
-            "MINI_BROWSER_VAULT_INVALID", detail=f"password {PASSWORD} is too weak"
-        )
-        await env.mb.handle(
-            ws,
-            "mini_browser_vault_add",
-            {"site": "example.com", "username": "jo", "password": PASSWORD},
-        )
-        env.vault.fail = VaultError("MINI_BROWSER_VAULT_UNREADABLE")
-        await env.mb.handle(
-            ws, "mini_browser_vault_update", {"id": "e1", "password": PASSWORD}
-        )
-        await env.mb.handle(ws, "mini_browser_vault_list", {})
-        env.vault.fail = VaultError("MINI_BROWSER_VAULT_IO", detail="disk full")
-        await env.mb.handle(ws, "mini_browser_vault_delete", {"id": "e1"})
-
-        add, update, delete = channel.data("mini_browser_vault_result")
-        assert (add["op"], add["ok"]) == ("add", False)
-        assert add["error"]["code"] == "MINI_BROWSER_VAULT_INVALID"
-        assert "[redacted]" in add["error"]["message"]
-        assert update["error"]["code"] == "MINI_BROWSER_VAULT_UNREADABLE"
-        assert update["error"]["title"] == "Password vault unreadable"
-        assert delete["error"]["code"] == "MINI_BROWSER_VAULT_IO"
-        assert "disk full" in delete["error"]["message"]
-        [listing] = channel.data("mini_browser_vault_list")
-        assert listing["entries"] == []
-        assert listing["error"]["code"] == "MINI_BROWSER_VAULT_UNREADABLE"
-        assert PASSWORD not in all_traffic(channel)
-        assert len(env.vault_notices) == 3  # failed changes still refresh
-
-    run(go)
-    assert not any(PASSWORD in line for line in captured_logs)
-
-
-def test_short_password_in_an_error_masks_the_whole_text(env):
-    async def go():
-        ws, channel = connect(env)
-        env.vault.fail = VaultError(
-            "MINI_BROWSER_VAULT_INVALID", detail="bad value q7 given"
-        )
-        await env.mb.handle(
-            ws,
-            "mini_browser_vault_add",
-            {"site": "example.com", "username": "jo", "password": "q7"},
-        )
-        [result] = channel.data("mini_browser_vault_result")
-        assert result["error"]["code"] == "MINI_BROWSER_VAULT_INVALID"
-        assert "q7" not in json.dumps(result)
-
-    run(go)
-
-
-@pytest.mark.parametrize(
-    "error,expected",
-    [
-        (VaultError("MINI_BROWSER_VAULT_INVALID"), "The login details are not valid."),
-        (
-            VaultError("MINI_BROWSER_VAULT_INVALID", detail="Enter the site address."),
-            "Enter the site address.",
-        ),
-        (
-            PlainVaultError("MINI_BROWSER_VAULT_INVALID"),
-            "The login details are not valid.",
-        ),
-        (
-            PlainVaultError("MINI_BROWSER_VAULT_IO", "disk full\nmore"),
-            "The password vault could not be saved: disk full",
-        ),
-    ],
-)
-def test_vault_error_messages_are_user_facing(env, error, expected):
-    async def go():
-        ws, channel = connect(env)
-        env.vault.fail = error
-        await env.mb.handle(ws, "mini_browser_vault_delete", {"id": "e1"})
-        [result] = channel.data("mini_browser_vault_result")
-        assert result["error"]["code"] == error.code
-        assert result["error"]["message"] == expected
-
-    run(go)
-
-
-def test_unexpected_vault_exception_never_leaks_the_password(env, captured_logs):
-    async def go():
-        ws, channel = connect(env)
-        env.vault.fail = ValueError(f"cannot encrypt {PASSWORD}")
-        await env.mb.handle(
-            ws,
-            "mini_browser_vault_add",
-            {"site": "example.com", "username": "jo", "password": PASSWORD},
-        )
-        [result] = channel.data("mini_browser_vault_result")
-        assert result["error"]["code"] == "MINI_BROWSER_INTERNAL"
-        assert PASSWORD not in all_traffic(channel)
-
-    run(go)
-    assert not any(PASSWORD in line for line in captured_logs)
-
-
-@pytest.mark.parametrize(
-    "msg_type,data",
-    [
-        (
-            "mini_browser_vault_add",
-            {"site": "a.com", "username": "jo", "password": 1234},
-        ),
-        (
-            "mini_browser_vault_add",
-            {"site": ["a.com"], "username": "jo", "password": "x"},
-        ),
-        (
-            "mini_browser_vault_add",
-            {"site": "a.com", "username": "jo", "password": "p" * 5000},
-        ),
-        ("mini_browser_vault_update", {"password": "x"}),
-        ("mini_browser_vault_update", {"id": {"$ne": 1}}),
-        ("mini_browser_vault_delete", {}),
-    ],
-)
-def test_malformed_vault_requests_never_reach_the_vault(env, msg_type, data):
-    async def go():
-        ws, channel = connect(env)
-        await env.mb.handle(ws, msg_type, data)
-        assert env.vault.calls == []
+        await drain(env)
         [result] = channel.data("mini_browser_vault_result")
         assert result["ok"] is False
-        assert result["error"]["code"] == "MINI_BROWSER_INVALID_INPUT"
-        assert "p" * 50 not in json.dumps(result)
+        assert "Settings > Credentials" in result["error"]
+        assert env.vault.calls == []
+        assert other_channel.sent == []
+        assert PASSWORD not in json.dumps(channel.sent)
+        assert "private-login" not in json.dumps(channel.sent)
 
     run(go)
+    assert not any(PASSWORD in line for line in captured_logs)
 
 
 # ─────────────────────────────────────────────────────────── install

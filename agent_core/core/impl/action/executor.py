@@ -685,8 +685,17 @@ class ActionExecutor:
     - Automatic requirement installation
     """
 
-    def __init__(self):
+    def __init__(
+        self,
+        *,
+        credential_profile_id: Optional[str] = None,
+        credential_profile_resolver=None,
+    ):
         self._inflight: Dict[str, Any] = {}
+        # Host-selected preference, never action metadata or agent-bundle state.
+        # The protected service still requires explicit native owner approval.
+        self._credential_profile_id = credential_profile_id
+        self._credential_profile_resolver = credential_profile_resolver
 
     async def execute_atomic_action(
         self,
@@ -718,6 +727,37 @@ class ActionExecutor:
         requirements = getattr(action, "requirements", [])
         if requirements and execution_mode == "internal":
             _ensure_requirements(requirements)
+
+        if execution_mode == "credential_isolated":
+            from app.credentials.consumer_runtime import execute_action
+
+            profile_id = self._credential_profile_id
+            if self._credential_profile_resolver is not None:
+                try:
+                    profile_id = await asyncio.to_thread(
+                        self._credential_profile_resolver
+                    )
+                except Exception:
+                    profile_id = None
+            if profile_id:
+                from uuid import UUID
+
+                try:
+                    profile_id = str(UUID(profile_id))
+                except (ValueError, TypeError, AttributeError):
+                    profile_id = None
+            if not profile_id or requirements:
+                return {
+                    "status": "error",
+                    "message": "Credential actions require an explicit profile and the protected host's standard library runtime",
+                }
+            return await execute_action(
+                action.code,
+                input_data,
+                profile_id=profile_id,
+                subject=action.name,
+                timeout=effective_timeout,
+            )
 
         if execution_mode == "internal":
             # Use async executor which handles both sync and async action functions

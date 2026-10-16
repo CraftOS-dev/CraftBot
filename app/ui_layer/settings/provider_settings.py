@@ -76,6 +76,9 @@ def save_settings_to_json(provider: str, api_key: str) -> bool:
 
         # Update API key if provided
         if api_key:
+            from app.credentials.references import parse
+
+            parse(api_key)
             if "api_keys" not in settings:
                 settings["api_keys"] = {}
 
@@ -166,6 +169,16 @@ def save_custom_provider(name: str, spec: Dict[str, Any]) -> Tuple[bool, str]:
 
     spec = dict(spec)
     inline_key = spec.pop("api_key", None)
+    if inline_key:
+        from app.credentials.references import parse
+
+        try:
+            parse(inline_key)
+        except ValueError:
+            return (
+                False,
+                "Use a saved credential reference from Settings > Credentials.",
+            )
 
     if _build_custom_profile(name, spec) is None:
         return False, (

@@ -12,6 +12,8 @@ Routes are registered on the browser adapter's aiohttp app.
 from __future__ import annotations
 
 import logging
+import asyncio
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Dict, Optional
 
@@ -84,6 +86,7 @@ class IntegrationBridge:
         # follow_redirects is OFF for the proxy: an allowed host could 302 to an
         # attacker-controlled host and the injected credentials would follow it.
         self._http_client = httpx.AsyncClient(timeout=30, follow_redirects=False)
+        self._credential_runs = {}
 
     def register_routes(self, app: web.Application) -> None:
         """Register integration bridge routes on the aiohttp app."""
@@ -93,11 +96,98 @@ class IntegrationBridge:
         app.router.add_post("/api/bridge/llm", self._handle_llm)
         app.router.add_post("/api/bridge/vlm", self._handle_vlm)
         app.router.add_post("/api/bridge/agent_request", self._handle_agent_request)
+        app.router.add_post("/api/credentials/worker", self._handle_credential_worker)
         logger.info("[INTEGRATION_BRIDGE] Routes registered")
 
     async def cleanup(self) -> None:
         """Close the HTTP client."""
         await self._http_client.aclose()
+        from app.credentials.client import request
+
+        for run_id in tuple(self._credential_runs):
+            try:
+                await asyncio.to_thread(request, "stop", run_id=run_id)
+            except Exception:
+                pass
+        self._credential_runs.clear()
+
+    async def _handle_credential_worker(self, request: web.Request) -> web.Response:
+        """Launch a separate revision-pinned worker; never relay secret-use RPC.
+
+        The existing bearer identifies the requesting project only. Native owner
+        consent and the worker's real AppContainer/job establish vault grants.
+        Bridge launches are development workers: the shared live/shadow token
+        cannot prove which deployment originated a request.
+        """
+        project = self._validate_token(request)
+        if not project:
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        self._credential_runs = {
+            key: value
+            for key, value in self._credential_runs.items()
+            if value[1] > time.monotonic()
+        }
+        try:
+            data = await request.json()
+            if type(data) is not dict:
+                raise ValueError()
+            operation = data.get("operation")
+            if operation == "launch" and set(data) == {
+                "operation",
+                "profile_id",
+                "files",
+                "entry",
+            }:
+                if len(self._credential_runs) >= 16:
+                    return web.json_response(
+                        {"error": "credential_use_limit"}, status=429
+                    )
+                result = await self._manager.launch_credential_worker(
+                    project,
+                    data["profile_id"],
+                    data["files"],
+                    data["entry"],
+                    development=True,
+                )
+                self._credential_runs[result["run_id"]] = (
+                    project,
+                    time.monotonic() + 900,
+                )
+            elif (
+                (
+                    operation in ("result", "program_result", "stop")
+                    and set(data) == {"operation", "run_id"}
+                )
+                or (
+                    operation == "response"
+                    and set(data) == {"operation", "run_id", "offset"}
+                )
+                or (
+                    operation == "stage_payload"
+                    and set(data) == {"operation", "run_id", "offset", "data", "done"}
+                )
+            ):
+                run = self._credential_runs.get(data["run_id"])
+                if run is None or run[0] != project:
+                    return web.json_response(
+                        {"error": "credential_use_denied"}, status=403
+                    )
+                from app.credentials.client import request as host_request
+
+                result = await asyncio.to_thread(
+                    host_request,
+                    operation,
+                    **{key: value for key, value in data.items() if key != "operation"},
+                )
+                if operation == "stop":
+                    del self._credential_runs[data["run_id"]]
+            else:
+                return web.json_response({"error": "credential_use_denied"}, status=403)
+            return web.json_response(result)
+        except Exception:
+            return web.json_response(
+                {"error": "credential_worker_unavailable"}, status=400
+            )
 
     # ------------------------------------------------------------------
     # Route handlers

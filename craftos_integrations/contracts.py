@@ -27,6 +27,37 @@ from typing import (
     runtime_checkable,
 )
 
+
+class SourceCredentialOperations(Protocol):
+    """Optional host executor for saved source references, never a key resolver.
+
+    Generated token accounts continue through Provider.build_client. Source
+    accounts never construct ordinary provider clients containing vault values.
+    """
+
+    async def execute(
+        self,
+        provider_id: str,
+        operation: str,
+        reference: str,
+        input_data: Dict[str, Any],
+    ) -> Dict[str, Any]: ...
+
+    def connect(
+        self,
+        provider_id: str,
+        reference: str,
+        *,
+        public_metadata: Optional[Dict[str, str]] = None,
+    ) -> Tuple[str, Dict[str, Any]]: ...
+
+    def client_for(
+        self, provider_id: str, reference: str, metadata: Dict[str, Any]
+    ) -> Any:
+        """Secret-free named-operation facade; never a provider SDK/auth client."""
+        ...
+
+
 # Sentinel identity for a credential whose provider cannot derive a stable
 # account key from it — LinkedIn and Notion tokens carry no id, for instance.
 # Upgraded in place on the first re-auth that DOES yield one, never duplicated

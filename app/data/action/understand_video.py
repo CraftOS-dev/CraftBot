@@ -119,18 +119,9 @@ def understand_video(input_data: dict) -> dict:
 
     if api_key:
         try:
-            from google import genai
-
-            client = genai.Client(api_key=api_key)
             import time
             from datetime import datetime
             from app.config import AGENT_WORKSPACE_ROOT
-
-            video_file = client.files.upload(file=video_path)
-
-            while video_file.state.name == "PROCESSING":
-                time.sleep(2)
-                video_file = client.files.get(name=video_file.name)
 
             vlm_model = get_vlm_model() or "gemini-1.5-pro"
             prompt = (
@@ -138,14 +129,27 @@ def understand_video(input_data: dict) -> dict:
                 if query
                 else "Understand and describe the contents of this video."
             )
-            response = client.models.generate_content(
-                model=vlm_model,
-                contents=[video_file, prompt],
-            )
+            from app.credentials.references import is_reference
 
-            client.files.delete(name=video_file.name)
+            if is_reference(api_key):
+                from app.credentials.media_clients import analyse_video
 
-            full_text = response.text
+                full_text = analyse_video(api_key, video_path, vlm_model, prompt)
+            else:
+                from google import genai
+
+                client = genai.Client(api_key=api_key)
+                video_file = client.files.upload(file=video_path)
+                try:
+                    while video_file.state.name == "PROCESSING":
+                        time.sleep(2)
+                        video_file = client.files.get(name=video_file.name)
+                    response = client.models.generate_content(
+                        model=vlm_model, contents=[video_file, prompt]
+                    )
+                    full_text = response.text
+                finally:
+                    client.files.delete(name=video_file.name)
             ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
             out_path = os.path.join(AGENT_WORKSPACE_ROOT, f"video_summary_{ts}.txt")
             with open(out_path, "w", encoding="utf-8") as f:

@@ -35,6 +35,7 @@ Subcommands:
   list          - List all credentials
   status        - Show integration status
   integrations  - List available integrations
+  vault         - Open shared credential-management guidance
 
 Use /<integration> commands to manage specific integrations:
   /google       - Google integration
@@ -64,6 +65,7 @@ Examples:
             "list": self._list_credentials,
             "status": self._show_status,
             "integrations": self._list_integrations,
+            "vault": self._vault_guidance,
         }
 
         handler = handlers.get(subcommand)
@@ -73,6 +75,12 @@ Examples:
         return CommandResult(
             success=False,
             message=f"Unknown subcommand: {subcommand}\nUse /help cred for usage.",
+        )
+
+    async def _vault_guidance(self) -> CommandResult:
+        return CommandResult(
+            success=True,
+            message="Open Settings > Credentials to select a profile, unlock it and manage saved source credentials. Values are entered through the protected local dialog. Agents and Agent Apps request approved operations using references; never paste passwords or API keys into chat. Existing tokens and sessions keep their current stores.",
         )
 
     async def _list_credentials(self) -> CommandResult:

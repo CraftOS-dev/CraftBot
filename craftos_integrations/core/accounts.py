@@ -260,6 +260,8 @@ class AccountManager:
         provider_id: str,
         identity: Optional[str],
         credential: Dict[str, Any],
+        *,
+        source_binding: bool = False,
     ) -> str:
         """Add or update an account after OAuth. Returns the stored identity.
 
@@ -279,8 +281,18 @@ class AccountManager:
         with self._store.locked(provider_id):
             raw = self._store.load(provider_id)
             account_set = AccountSet.from_dict(raw) if raw else AccountSet(primary="")
+            if source_binding and (
+                UNIDENTIFIED in account_set.accounts
+                or identity in account_set.accounts
+                and "source_reference" not in account_set.accounts[identity].credential
+            ):
+                raise ValueError("credential_account_already_connected")
             if identity in account_set.accounts:
-                account_set.accounts[identity].credential = credential
+                account_set.accounts[identity].credential = (
+                    {**account_set.accounts[identity].credential, **credential}
+                    if source_binding
+                    else credential
+                )
             elif UNIDENTIFIED in account_set.accounts:
                 # This provider previously stored a credential it could not
                 # derive an identity from. Now that we have one, rename the
@@ -296,7 +308,7 @@ class AccountManager:
                 )
             else:
                 account_set.accounts[identity] = AccountRecord(
-                    credential=credential, added_at=now
+                    credential=credential, added_at=now, listen=not source_binding
                 )
                 if not account_set.primary:
                     account_set.primary = identity

@@ -157,7 +157,18 @@ class LarkClient(BasePlatformClient):
             .register_p2_im_message_receive_v1(_on_message)
             .build()
         )
-        self._ws_client = lark.ws.Client(
+        from ...helpers.source_auth import is_reference, lark_ws_client
+
+        factory = (
+            (
+                lambda app_id, secret, **kw: lark_ws_client(
+                    lark.ws.Client, app_id, secret, **kw
+                )
+            )
+            if is_reference(cred.app_secret)
+            else lark.ws.Client
+        )
+        self._ws_client = factory(
             cred.app_id,
             cred.app_secret,
             event_handler=handler,

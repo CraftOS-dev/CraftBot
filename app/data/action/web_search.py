@@ -160,8 +160,25 @@ def web_search(input_data: dict) -> dict:
             if not api_key or not cse_id:
                 raise Exception("No Google API credentials")
 
-            service = build("customsearch", "v1", developerKey=api_key)
-            res = service.cse().list(q=q, cx=cse_id, num=min(n + 5, 10)).execute()
+            from app.credentials.references import is_reference
+
+            if is_reference(api_key):
+                import json
+                from app.credentials.invocation import invoke
+
+                response = invoke(
+                    api_key,
+                    "model_google",
+                    "custom_search",
+                    {"q": q, "cx": cse_id, "num": min(n + 5, 10)},
+                    subject="Google Custom Search",
+                )
+                if response["status"] != 200:
+                    raise RuntimeError("credential_operation_failed")
+                res = json.loads(response["body"])
+            else:
+                service = build("customsearch", "v1", developerKey=api_key)
+                res = service.cse().list(q=q, cx=cse_id, num=min(n + 5, 10)).execute()
             items = res.get("items", [])
 
             return [

@@ -35,6 +35,10 @@ def _unexpected(prefix: str, e: Exception) -> Dict[str, Any]:
 @asynccontextmanager
 async def _client_for_auth(api_id: int, api_hash: str, session_string: str = ""):
     """Connect a Telethon client and guarantee disconnect on exit (success or error)."""
+    from ...helpers.source_auth import is_reference
+
+    if is_reference(api_hash):
+        raise RuntimeError("credential_telegram_helper_required")
     client = TelegramClient(StringSession(session_string), api_id, api_hash)
     await client.connect()
     try:
@@ -47,6 +51,12 @@ async def _client_for_auth(api_id: int, api_hash: str, session_string: str = "")
 
 
 async def start_auth(api_id: int, api_hash: str, phone_number: str) -> Dict[str, Any]:
+    from ...helpers.source_auth import is_reference, telegram_exchange
+
+    if is_reference(api_hash):
+        return await telegram_exchange(
+            "send_code", api_id, api_hash, phone_number=phone_number
+        )
     if not _TELETHON_AVAILABLE:
         return _TELETHON_MISSING
     try:
@@ -73,6 +83,12 @@ async def start_auth(api_id: int, api_hash: str, phone_number: str) -> Dict[str,
 async def qr_login(
     api_id: int, api_hash: str, on_qr_url: Optional[Any] = None, timeout: int = 120
 ) -> Dict[str, Any]:
+    from ...helpers.source_auth import is_reference, telegram_exchange
+
+    if is_reference(api_hash):
+        return await telegram_exchange(
+            "qr_login", api_id, api_hash, on_qr_url=on_qr_url, timeout=timeout
+        )
     if not _TELETHON_AVAILABLE:
         return _TELETHON_MISSING
     try:
@@ -127,6 +143,23 @@ async def complete_auth(
     password: Optional[str] = None,
     pending_session_string: Optional[str] = None,
 ) -> Dict[str, Any]:
+    from ...helpers.source_auth import is_reference, telegram_exchange
+
+    if is_reference(api_hash):
+        if password:
+            return {
+                "error": "Save the 2FA password in the vault entry",
+                "details": {"status": "2fa_required"},
+            }
+        return await telegram_exchange(
+            "complete",
+            api_id,
+            api_hash,
+            phone_number=phone_number,
+            code=code,
+            phone_code_hash=phone_code_hash,
+            session_string=pending_session_string or "",
+        )
     if not _TELETHON_AVAILABLE:
         return _TELETHON_MISSING
     try:
@@ -182,3 +215,14 @@ async def complete_auth(
         }
     except Exception as e:
         return _unexpected("Failed to complete auth", e)
+
+
+async def complete_saved_password(api_id: int, api_hash: str, session_string: str):
+    """Finish a protected QR/code 2FA challenge using the vault password."""
+    from ...helpers.source_auth import is_reference, telegram_exchange
+
+    if not is_reference(api_hash):
+        return {"error": "A saved app credential with a password is required"}
+    return await telegram_exchange(
+        "complete_password", api_id, api_hash, session_string=session_string
+    )

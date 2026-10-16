@@ -443,6 +443,11 @@ def get_aws_credentials() -> Dict[str, str]:
     aws = settings.get("aws_credentials", {}) or {}
     endpoints = settings.get("endpoints", {}) or {}
 
+    if aws.get("auth_mode") == "vault":
+        return {
+            "source_reference": aws.get("source_reference", ""),
+            "region": endpoints.get("aws_region") or "us-east-1",
+        }
     return {
         "access_key_id": aws.get("access_key_id")
         or os.environ.get("AWS_ACCESS_KEY_ID", "")

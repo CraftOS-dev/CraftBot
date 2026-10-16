@@ -159,7 +159,16 @@ def fetch_credits(
     headers = {"Authorization": f"Bearer {api_key}"}
 
     try:
-        with httpx.Client(timeout=_CREDITS_TIMEOUT) as client:
+        from app.credentials.references import is_reference
+
+        if is_reference(api_key):
+            from app.credentials.model_transport import http_client
+
+            transport = http_client("openrouter", api_key)
+            headers = {}
+        else:
+            transport = httpx.Client(timeout=_CREDITS_TIMEOUT)
+        with transport as client:
             response = client.get(f"{url.rstrip('/')}/credits", headers=headers)
             if response.status_code == 404:
                 # Legacy fallback

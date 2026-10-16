@@ -128,6 +128,7 @@ export function ModelSettings() {
   // (multiple fields). All four are blank until the user fills them in;
   // unchanged values fall through to whatever is already in settings.json.
   const [newAwsAccessKeyId, setNewAwsAccessKeyId] = useState('')
+  const [newAwsReference, setNewAwsReference] = useState('')
   const [newAwsSecretAccessKey, setNewAwsSecretAccessKey] = useState('')
   const [newAwsSessionToken, setNewAwsSessionToken] = useState('')
   const [newAwsRegion, setNewAwsRegion] = useState('')
@@ -212,6 +213,7 @@ export function ModelSettings() {
             setNewApiKey('')
             setNewBaseUrl('')
             setNewAwsAccessKeyId('')
+            setNewAwsReference('')
             setNewAwsSecretAccessKey('')
             setNewAwsSessionToken('')
             setNewAwsRegion('')
@@ -358,7 +360,7 @@ export function ModelSettings() {
     ]
 
     return () => cleanups.forEach(cleanup => cleanup())
-  }, [isConnected, onMessage, send, dispatch, testBeforeSave, provider, newApiKey, newBaseUrl, baseUrls, selectedPullModel, showToast, newAwsAccessKeyId, newAwsSecretAccessKey, newAwsSessionToken, newAwsRegion, llmModel, vlmModel, setProvider, setLlmModel, setVlmModel, settleProvider, settleLlmModel, settleVlmModel])
+  }, [isConnected, onMessage, send, dispatch, testBeforeSave, provider, newApiKey, newBaseUrl, baseUrls, selectedPullModel, showToast, newAwsReference, newAwsAccessKeyId, newAwsSecretAccessKey, newAwsSessionToken, newAwsRegion, llmModel, vlmModel, setProvider, setLlmModel, setVlmModel, settleProvider, settleLlmModel, settleVlmModel])
 
   // Cached in the slice. Providers only change with a backend update; settings
   // and slow mode are refetched whenever they change (a save in any tab, a
@@ -432,6 +434,7 @@ export function ModelSettings() {
     setNewApiKey('')
     setNewBaseUrl('')
     setNewAwsAccessKeyId('')
+    setNewAwsReference('')
     setNewAwsSecretAccessKey('')
     setNewAwsSessionToken('')
     setNewAwsRegion('')
@@ -454,12 +457,14 @@ export function ModelSettings() {
   const buildAwsCredentialsPayload = () => {
     if (provider !== 'bedrock') return undefined
     const hasAny =
+      newAwsReference.length > 0 ||
       newAwsAccessKeyId.length > 0 ||
       newAwsSecretAccessKey.length > 0 ||
       newAwsSessionToken.length > 0 ||
       newAwsRegion.length > 0
     if (!hasAny) return undefined
     const payload: Record<string, string> = {}
+    if (newAwsReference) payload.source_reference = newAwsReference
     if (newAwsAccessKeyId) payload.access_key_id = newAwsAccessKeyId
     if (newAwsSecretAccessKey) payload.secret_access_key = newAwsSecretAccessKey
     if (newAwsSessionToken) payload.session_token = newAwsSessionToken
@@ -996,7 +1001,7 @@ export function ModelSettings() {
             const apiKeyBlock = requiresKey && (
               <div className={styles.formGroup}>
                 <label>
-                  {t('settings:model.apiKey.label')}
+                  Saved credential reference
                   {hasStoredKey ? (
                     <Badge variant="success" style={{ marginLeft: 8 }}>{t('settings:model.apiKey.configured')}</Badge>
                   ) : isSubConnected ? (
@@ -1009,10 +1014,10 @@ export function ModelSettings() {
                   <div className={styles.maskedKey}>{apiKeys[provider].masked_key}</div>
                 )}
                 <input
-                  type="password"
+                  type="text"
                   value={newApiKey}
                   onChange={(e) => { setNewApiKey(e.target.value); setHasChanges(true) }}
-                  placeholder={hasStoredKey ? t('settings:model.apiKey.replacePlaceholder') : t('settings:model.apiKey.enterPlaceholder')}
+                  placeholder="craftbot-vault://profile-id/credential-id/version"
                 />
                 {currentProvider?.openrouter_proxy && (
                   <p style={{ fontSize: '0.78rem', color: 'var(--text-muted, #888)', marginTop: 6, lineHeight: 1.4 }}>
@@ -1053,6 +1058,11 @@ export function ModelSettings() {
           {/* AWS Bedrock credentials */}
           {currentProvider?.is_bedrock && (
             <>
+              <div className={styles.formGroup}>
+                <label>Saved static AWS credential reference {awsCredentialsStatus?.has_source_reference && <Badge variant="success">Configured</Badge>}</label>
+                <input type="text" value={newAwsReference} onChange={e => { setNewAwsReference(e.target.value); setHasChanges(true) }} placeholder="craftbot-vault://profile-id/credential-id/version" autoComplete="off" />
+                <p>Save a service secret in Credentials with access_key_id and secret_access_key fields. Its permitted origin must match the reviewed Bedrock region helper. Existing temporary credentials retain their store.</p>
+              </div>
               <div className={styles.formGroup}>
                 <label>
                   {t('settings:model.bedrock.accessKeyId')}
@@ -1247,10 +1257,10 @@ export function ModelSettings() {
                       <div className={styles.maskedKey}>{apiKeys[effectiveImgProvider].masked_key}</div>
                     )}
                     <input
-                      type="password"
+                      type="text"
                       value={newImageGenApiKey}
                       onChange={(e) => { setNewImageGenApiKey(e.target.value); setImageGenHasChanges(true) }}
-                      placeholder={apiKeys[effectiveImgProvider]?.has_key ? t('settings:model.apiKey.replacePlaceholder') : t('settings:model.apiKey.enterPlaceholder')}
+                      placeholder="Saved credential reference from Settings > Credentials"
                     />
                   </div>
                 )}
@@ -1331,10 +1341,10 @@ export function ModelSettings() {
                       <div className={styles.maskedKey}>{apiKeys[effectiveVidProvider].masked_key}</div>
                     )}
                     <input
-                      type="password"
+                      type="text"
                       value={newVideoGenApiKey}
                       onChange={(e) => { setNewVideoGenApiKey(e.target.value); setVideoGenHasChanges(true) }}
-                      placeholder={apiKeys[effectiveVidProvider]?.has_key ? t('settings:model.apiKey.replacePlaceholder') : t('settings:model.apiKey.enterPlaceholder')}
+                      placeholder="Saved credential reference from Settings > Credentials"
                     />
                   </div>
                 )}

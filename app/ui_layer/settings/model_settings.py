@@ -78,10 +78,8 @@ def _save_settings(settings: Dict[str, Any]) -> bool:
 
 
 def _mask_api_key(api_key: str) -> str:
-    """Mask API key for display, showing first 4 and last 4 characters."""
-    if not api_key or len(api_key) < 12:
-        return "***" if api_key else ""
-    return f"{api_key[:4]}...{api_key[-4:]}"
+    """Status only. Ordinary Settings never displays a source-key fragment."""
+    return "configured" if api_key else ""
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -279,6 +277,8 @@ def get_model_settings() -> Dict[str, Any]:
         has_access_key = bool(aws_settings.get("access_key_id"))
         has_secret_key = bool(aws_settings.get("secret_access_key"))
         aws_creds_status = {
+            "has_source_reference": bool(aws_settings.get("source_reference"))
+            and aws_settings.get("auth_mode") == "vault",
             "has_access_key_id": has_access_key,
             "has_secret_access_key": has_secret_key,
             "has_session_token": bool(aws_settings.get("session_token")),
@@ -291,7 +291,8 @@ def get_model_settings() -> Dict[str, Any]:
         # badge logic in the frontend lights up for bedrock without special
         # casing. has_key = both keys present (or boto3 chain available).
         api_keys["bedrock"] = {
-            "has_key": has_access_key and has_secret_key,
+            "has_key": (has_access_key and has_secret_key)
+            or aws_creds_status["has_source_reference"],
             "masked_key": aws_creds_status["masked_access_key_id"] or "(boto3 chain)",
         }
 
@@ -439,6 +440,16 @@ def update_model_settings(
 
         # Update API key in settings.json
         if provider_for_key and api_key is not None:
+            from app.credentials.references import parse
+
+            if api_key:
+                try:
+                    parse(api_key)
+                except ValueError:
+                    return {
+                        "success": False,
+                        "error": "Save the key in Settings > Credentials, then select its source reference.",
+                    }
             info = PROVIDER_INFO.get(provider_for_key, {})
             settings_key = info.get("settings_key")
             if settings_key:
@@ -460,6 +471,38 @@ def update_model_settings(
 
         # Update AWS credentials block (bedrock-only)
         if aws_credentials:
+            if "source_reference" in aws_credentials:
+                from app.credentials.references import parse
+
+                if any(
+                    aws_credentials.get(field)
+                    for field in ("access_key_id", "secret_access_key", "session_token")
+                ):
+                    return {
+                        "success": False,
+                        "error": "Select a saved static credential or supply temporary session credentials separately.",
+                    }
+                try:
+                    parse(aws_credentials["source_reference"])
+                except ValueError:
+                    return {
+                        "success": False,
+                        "error": "Select a valid saved AWS service-secret reference.",
+                    }
+                settings["aws_credentials"]["source_reference"] = aws_credentials[
+                    "source_reference"
+                ]
+                settings["aws_credentials"]["auth_mode"] = "vault"
+            if (
+                aws_credentials.get("access_key_id")
+                or aws_credentials.get("secret_access_key")
+            ) and not aws_credentials.get("session_token"):
+                return {
+                    "success": False,
+                    "error": "Save static AWS keys in Credentials as a service secret with access_key_id and secret_access_key fields. Supply its reference here.",
+                }
+            if aws_credentials.get("session_token"):
+                settings["aws_credentials"]["auth_mode"] = "session"
             for field in ("access_key_id", "secret_access_key", "session_token"):
                 value = aws_credentials.get(field)
                 if value is not None:
@@ -520,6 +563,17 @@ def test_connection(
     Returns:
         Dict with test results
     """
+    if api_key:
+        from app.credentials.references import parse
+
+        try:
+            parse(api_key)
+        except (ValueError, TypeError):
+            return {
+                "success": False,
+                "provider": provider,
+                "message": "Choose a saved credential reference. Enter source values only in Credentials.",
+            }
     try:
         settings = _load_settings()
         api_keys_settings = settings.get("api_keys", {})
@@ -715,6 +769,16 @@ def validate_can_save(
     Returns:
         Dict with validation result and any warnings/errors
     """
+    if api_key:
+        from app.credentials.references import parse
+
+        try:
+            parse(api_key)
+        except (ValueError, TypeError):
+            return {
+                "can_save": False,
+                "error": "Choose a saved credential reference from Settings > Credentials.",
+            }
     try:
         warnings = []
         errors = []

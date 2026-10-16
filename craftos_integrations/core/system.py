@@ -20,6 +20,7 @@ from ..contracts import (
     OAuthTransport,
     Operation,
     Provider,
+    SourceCredentialOperations,
 )
 from ..logger import get_logger
 from .accounts import AccountManager
@@ -35,6 +36,7 @@ class IntegrationSystem:
         oauth: Optional[OAuthTransport] = None,
         sink: Optional[EventSink] = None,
         providers: Optional[List[Provider]] = None,
+        source_credentials: Optional[SourceCredentialOperations] = None,
     ) -> None:
         self.registry = IntegrationRegistry()
         for provider in providers or []:
@@ -45,6 +47,7 @@ class IntegrationSystem:
         self._store = store
         self._oauth = oauth
         self._sink = sink
+        self._source_credentials = source_credentials
         # Optional ListenerManager, attached by the host after construction
         # (system.listeners = manager). Mutation paths poke it via
         # reconcile_listeners() so UI changes take effect immediately.
@@ -96,6 +99,13 @@ class IntegrationSystem:
         return await operation.fn(client, input_data)
 
     def _client_for(self, provider: Provider, identity: str) -> Any:
+        credential = self.accounts.credential_for(provider.id, identity)
+        if "source_reference" in credential:
+            if self._source_credentials is None:
+                raise RuntimeError("credential_helper_unavailable")
+            return self._source_credentials.client_for(
+                provider.id, credential["source_reference"], credential
+            )
         cached = self.registry.get_cached_client(provider.id, identity)
         if cached is not None:
             return cached
@@ -107,6 +117,32 @@ class IntegrationSystem:
         client = provider.build_client(credential, persist)
         self.registry.cache_client(provider.id, identity, client)
         return client
+
+    def connect_source(
+        self,
+        provider_id: str,
+        reference: str,
+        *,
+        public_metadata: Optional[Dict[str, str]] = None,
+    ) -> str:
+        self._require_provider(provider_id)
+        if self._source_credentials is None:
+            raise RuntimeError("credential_helper_unavailable")
+        identity, metadata = self._source_credentials.connect(
+            provider_id,
+            reference,
+            **({"public_metadata": public_metadata} if public_metadata else {}),
+        )
+        if not identity or "source_reference" in metadata:
+            raise RuntimeError("credential_account_invalid")
+        # The adapter returns safe identity metadata only. No access/refresh
+        # token field is synthesized and no existing OAuth account is replaced.
+        return self.store_credential(
+            provider_id,
+            identity,
+            {**metadata, "source_reference": reference},
+            source_binding=True,
+        )
 
     def client_for(self, provider_id: str, identity: str) -> Any:
         """Public client path for core plumbing (e.g. ListenerManager):
@@ -207,11 +243,18 @@ class IntegrationSystem:
         return result
 
     def store_credential(
-        self, provider_id: str, identity: Optional[str], credential: Dict[str, Any]
+        self,
+        provider_id: str,
+        identity: Optional[str],
+        credential: Dict[str, Any],
+        *,
+        source_binding: bool = False,
     ) -> str:
         """OAuth-completion write path (used by add_account / re-auth)."""
         known = {a.identity for a in self.accounts.list_accounts(provider_id)}
-        stored = self.accounts.upsert_account(provider_id, identity, credential)
+        stored = self.accounts.upsert_account(
+            provider_id, identity, credential, source_binding=source_binding
+        )
         if stored not in known:
             self._apply_default_alias(provider_id, stored, credential)
         self.registry.invalidate(provider_id, stored)

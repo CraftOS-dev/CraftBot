@@ -107,6 +107,16 @@ def _create_openai_client(
     if default_headers:
         kwargs["default_headers"] = default_headers
 
+    if oauth_provider is None:
+        from app.credentials.references import is_reference
+
+        if is_reference(api_key):
+            from app.credentials.model_transport import http_client
+
+            kwargs["api_key"] = "vault-managed"
+            kwargs["http_client"] = http_client(provider, api_key, resolve_key)
+            return OpenAI(**kwargs)
+
     if oauth_provider is None and resolve_key is not None:
         # Credential pool: re-resolve the key per request (same SDK property
         # mechanism as subscription OAuth below), so a cooldown-driven
@@ -172,6 +182,15 @@ def _create_anthropic_client(*, api_key: str, resolve_key=None):
             "Install it with the Python that launches CraftBot: "
             "`python -m pip install 'anthropic>=0.97.0'`."
         ) from exc
+    from app.credentials.references import is_reference
+
+    if is_reference(api_key):
+        from app.credentials.model_transport import http_client
+
+        return Anthropic(
+            api_key="vault-managed",
+            http_client=http_client("anthropic", api_key, resolve_key),
+        )
     if resolve_key is None:
         return Anthropic(api_key=api_key)
 
@@ -597,6 +616,7 @@ class ModelFactory:
             # If unset, fall back to settings → AWS_REGION env → default.
             region = resolved_base_url or "us-east-1"
             access_key = secret_key = session_token = None
+            creds = {}
             try:
                 from app.config import get_aws_credentials  # type: ignore
 
@@ -609,6 +629,19 @@ class ModelFactory:
                 # Falling back to boto3's default credential chain (env, IAM
                 # role, SSO profile). Useful when running on an EC2/ECS host.
                 pass
+
+            if "source_reference" in creds:
+                from app.credentials.model_transport import VaultBedrockClient
+
+                return {
+                    **empty_context,
+                    "provider": provider,
+                    "model": model,
+                    "bedrock_client": VaultBedrockClient(
+                        creds["source_reference"], creds.get("region") or region
+                    ),
+                    "initialized": True,
+                }
 
             if boto3 is None:
                 if deferred:

@@ -1,13 +1,9 @@
 import { createSelector } from '@reduxjs/toolkit'
 import type { RootState } from '../index'
 import type { MiniBrowserTab } from '../../types'
-import { miniBrowserTabsAdapter, miniBrowserVaultAdapter } from '../slices/miniBrowserSlice'
+import { miniBrowserTabsAdapter } from '../slices/miniBrowserSlice'
 
 const tabSelectors = miniBrowserTabsAdapter.getSelectors((state: RootState) => state.miniBrowser.tabs)
-const vaultSelectors = miniBrowserVaultAdapter.getSelectors(
-  (state: RootState) => state.miniBrowser.vault.entries,
-)
-
 /** True once the backend has reported the browser state at least once. */
 export const selectMiniBrowserKnown = (state: RootState) => state.miniBrowser.known
 export const selectMiniBrowserStatus = (state: RootState) => state.miniBrowser.status
@@ -38,9 +34,3 @@ export const selectMiniBrowserInstall = (state: RootState) => state.miniBrowser.
 export const selectMiniBrowserNavResult = (state: RootState) => state.miniBrowser.navResult
 export const selectMiniBrowserEvents = (state: RootState) => state.miniBrowser.events
 export const selectMiniBrowserClipboard = (state: RootState) => state.miniBrowser.clipboard
-
-export const selectMiniBrowserVaultLoaded = (state: RootState) => state.miniBrowser.vault.loaded
-export const selectMiniBrowserVaultEntries = vaultSelectors.selectAll
-export const selectMiniBrowserVaultStatus = (state: RootState) => state.miniBrowser.vault.status
-export const selectMiniBrowserVaultError = (state: RootState) => state.miniBrowser.vault.error
-export const selectMiniBrowserVaultResult = (state: RootState) => state.miniBrowser.vault.result

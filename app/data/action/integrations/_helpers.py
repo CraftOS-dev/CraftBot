@@ -676,46 +676,70 @@ def system_connect_token(system, integration_id: str, credentials: Dict[str, str
     way the connect flow's ``login()`` does, then store the credential
     through the integration system (``store_credential``) — never through a single-account save. Returns (success, message).
     """
-    # Providers may carry their own verifier (the bridge-provider pattern —
-    # keeps each platform's connect logic in its provider package); the
-    # central table covers the three providers that predate it.
-    provider_obj = system.registry.get(integration_id)
-    verifier = getattr(provider_obj, "verify_token", None) or _TOKEN_VERIFIERS.get(
-        integration_id
-    )
-    if verifier is None:
-        # Mirrors the token-connect contract for field-less
-        # (OAuth-only) integrations.
-        return (
-            False,
-            f"Token-based login not supported for "
-            f"{display_name_for(system, integration_id)}",
-        )
-    try:
-        ok, message, credential = verifier(credentials)
-    except Exception as e:
-        return False, f"{integration_id} token verification failed: {e}"
-    if not ok or not credential:
-        return False, message
+    if "source_reference" in credentials:
+        if integration_id in ("lark", "lark_calendar", "lark_drive", "telegram_user"):
+            allowed_fields = (
+                {"source_reference", "app_id"}
+                if integration_id.startswith("lark")
+                else {"source_reference", "api_id", "phone_number", "code"}
+            )
+            if set(credentials) - allowed_fields:
+                return (
+                    False,
+                    "Only a saved reference and login identifiers/code are accepted. Save 2FA passwords in the vault.",
+                )
+            try:
+                from app.credentials.references import parse
 
-    provider = system.registry.get(integration_id)
-    identity = provider.identity_of(credential)
-    if not identity:
-        # Refuse rather than store under the UNIDENTIFIED sentinel: a second
-        # identity-less connect would land on the same sentinel key and
-        # silently REPLACE the first account's credential. The sentinel
-        # exists only for single-account files migrating in.
-        return False, (
-            f"Could not determine which account this "
-            f"{display_name_for(system, integration_id)} token belongs to — "
-            f"connect was aborted so an existing account can't be "
-            f"overwritten. Re-check the token and try again."
+                parse(credentials["source_reference"])
+                provider = system._require_provider(integration_id)
+                data = {k: v for k, v in credentials.items() if k != "source_reference"}
+                data[
+                    "app_secret"
+                    if integration_id.startswith("lark")
+                    else "api_hash_reference"
+                ] = credentials["source_reference"]
+                ok, message, credential = provider.verify_token(data)
+                if ok and credential is not None:
+                    identity = provider.identity_of(credential)
+                    system.store_credential(integration_id, identity, credential)
+                return ok, message
+            except Exception:
+                return (
+                    False,
+                    "Saved login requires the protected host and owner approval.",
+                )
+        allowed = (
+            {"source_reference", "phone_number_id"}
+            if integration_id == "whatsapp_business"
+            else {"source_reference", "access_token", "access_token_secret"}
+            if integration_id == "twitter"
+            else {"source_reference"}
         )
-    system.store_credential(integration_id, identity, credential)
-    # Slack has a listener; reconcile so a fresh token starts listening
-    # immediately (no-op when no manager is attached / no listener exists).
-    system.reconcile_listeners()
-    return True, message
+        if set(credentials) - allowed or not isinstance(
+            credentials["source_reference"], str
+        ):
+            return (
+                False,
+                "A saved source connection accepts only a credential reference.",
+            )
+        try:
+            metadata = {k: v for k, v in credentials.items() if k != "source_reference"}
+            system.connect_source(
+                integration_id,
+                credentials["source_reference"],
+                **({"public_metadata": metadata} if metadata else {}),
+            )
+            return True, "Saved credential connected through the protected host."
+        except Exception:
+            return (
+                False,
+                "Saved credential connection needs a supported helper and owner approval. Existing token connections remain available.",
+            )
+    return (
+        False,
+        "Save source credentials in Settings > Credentials and connect using their reference. Generated OAuth callbacks keep their current flow.",
+    )
 
 
 # Strong references to scheduled teardown tasks: a bare create_task result

@@ -47,6 +47,7 @@ export interface ApiKeyStatus {
 }
 
 export interface AwsCredentialsStatus {
+  has_source_reference?: boolean
   has_access_key_id: boolean
   has_secret_access_key: boolean
   has_session_token: boolean

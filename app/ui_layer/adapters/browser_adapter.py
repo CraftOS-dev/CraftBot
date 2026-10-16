@@ -1665,6 +1665,11 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
         # Mini Browser page: live view, browser controls and the password
         # vault (app/mini_browser/ws.py answers every failure itself).
+        elif msg_type == "credentials_request":
+            from app.credentials.settings import handle as handle_credentials
+
+            await handle_credentials(self, ws, data)
+
         elif isinstance(msg_type, str) and msg_type.startswith("mini_browser_"):
             mini_browser = getattr(self, "_mini_browser_ws", None)
             if mini_browser is not None:

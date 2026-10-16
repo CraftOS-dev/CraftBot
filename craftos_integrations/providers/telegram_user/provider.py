@@ -237,8 +237,12 @@ class TelegramUserProvider:
                 None,
             )
 
-        api_id_str = ConfigStore.get_oauth("TELEGRAM_API_ID")
-        api_hash = ConfigStore.get_oauth("TELEGRAM_API_HASH")
+        api_id_str = credentials.get("api_id") or ConfigStore.get_oauth(
+            "TELEGRAM_API_ID"
+        )
+        api_hash = credentials.get("api_hash_reference") or ConfigStore.get_oauth(
+            "TELEGRAM_API_HASH"
+        )
         if not api_id_str or not api_hash:
             return (
                 False,
@@ -266,6 +270,12 @@ class TelegramUserProvider:
                 "phone_code_hash": result["result"]["phone_code_hash"],
                 "session_string": result["result"]["session_string"],
             }
+            from ...helpers.source_auth import is_reference
+
+            if is_reference(api_hash):
+                _pending_telegram_auth[phone].update(
+                    app_reference=api_hash, api_id=api_id
+                )
             return (
                 False,
                 f"Verification code sent to {phone} — check your Telegram "
@@ -284,15 +294,38 @@ class TelegramUserProvider:
             )
 
         password = (credentials.get("password") or "").strip() or None
-        result = _run_coro(
-            helpers.complete_auth(
-                api_id=api_id,
-                api_hash=api_hash,
-                phone_number=phone,
-                code=code,
-                phone_code_hash=pending["phone_code_hash"],
-                password=password,
-                pending_session_string=pending["session_string"],
+        if pending.get("app_reference"):
+            from ...helpers.source_auth import is_reference
+
+            try:
+                if not is_reference(api_hash) or (
+                    pending["app_reference"].rsplit("/", 1)[0],
+                    pending["api_id"],
+                ) != (api_hash.rsplit("/", 1)[0], api_id):
+                    return (
+                        False,
+                        "This login belongs to another saved app credential. Request a new code.",
+                        None,
+                    )
+            except ValueError:
+                return False, "This login requires its saved app credential.", None
+        result = (
+            _run_coro(
+                helpers.complete_saved_password(
+                    api_id, api_hash, pending["session_string"]
+                )
+            )
+            if pending.get("saved_2fa")
+            else _run_coro(
+                helpers.complete_auth(
+                    api_id=api_id,
+                    api_hash=api_hash,
+                    phone_number=phone,
+                    code=code,
+                    phone_code_hash=pending["phone_code_hash"],
+                    password=password,
+                    pending_session_string=pending["session_string"],
+                )
             )
         )
 
@@ -302,6 +335,18 @@ class TelegramUserProvider:
             # state is kept for retries, cleared only where the CLI
             # clears it (expiry — the code_hash is dead).
             if details.get("status") == "2fa_required":
+                if pending.get("app_reference"):
+                    pending.update(
+                        saved_2fa=True,
+                        session_string=details.get(
+                            "session_string", pending["session_string"]
+                        ),
+                    )
+                    return (
+                        False,
+                        "A saved 2FA password is required. Correct it in the vault and retry. For a hash-only entry, create an app credential with api_hash and password, then request a new code.",
+                        None,
+                    )
                 return (
                     False,
                     "2FA enabled. Submit again with the code and your "

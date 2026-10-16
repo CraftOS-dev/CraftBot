@@ -2282,10 +2282,10 @@ class BrowserCore:
         return event
 
     def vault(self) -> Any:
-        """The credential vault (``vault.get_vault()``)."""
-        from app.mini_browser.vault import get_vault
+        """The ordinary browser process has no source-vault access."""
+        from app.mini_browser.errors import MiniBrowserError
 
-        return get_vault()
+        raise MiniBrowserError("MINI_BROWSER_VAULT_UNREADABLE")
 
     def ui_origins(self) -> frozenset:
         """CraftBot's own UI origins (``host:port``), never opened in the browser."""

@@ -236,7 +236,11 @@ def generate_standard(
         )
         logger.info(f"[BYTEPLUS STANDARD REQUEST] Messages count: {len(messages)}")
 
-        response = requests.post(url, json=payload, headers=headers, timeout=600)
+        from app.credentials.model_transport import requests_response
+
+        response = requests_response("byteplus", iface.api_key, "POST", url, payload)
+        if response is None:
+            response = requests.post(url, json=payload, headers=headers, timeout=600)
 
         # Log response status
         logger.info(f"[BYTEPLUS STANDARD RESPONSE] Status: {response.status_code}")
