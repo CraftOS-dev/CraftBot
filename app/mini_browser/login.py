@@ -941,14 +941,14 @@ def _outcome_message(outcome: str, kind: str, who: str, title: str) -> str:
         return (
             f"Submitted the saved login for {who}, but the site shows a CAPTCHA. "
             "Never try to solve it yourself: tell the user (send_message) to solve "
-            "it in the Mini Browser page and press Hand back, "
+            "it in this chat's browser panel and press Hand back, "
             f"{_WAIT_FOR_USER}."
         )
     if outcome == "needs_verification" and kind == "code":
         return (
             f"Submitted the saved login for {who}; the site now asks for a "
             "verification code. Ask the user for it (never guess it) and type it "
-            "in, or tell them to enter it in the Mini Browser page and press Hand "
+            "in, or tell them to enter it in this chat's browser panel and press Hand "
             f"back, {_WAIT_FOR_USER}."
         )
     if outcome == "needs_verification":
@@ -956,7 +956,7 @@ def _outcome_message(outcome: str, kind: str, who: str, title: str) -> str:
             f"Submitted the saved login for {who}; the site now wants the user to "
             f"confirm the sign-in (the page shows{shows}; for example approving a "
             "prompt on their phone). Ask the user to do that. If they have to act "
-            "in the Mini Browser page, tell them to press Hand back when done, "
+            "in this chat's browser panel, tell them to press Hand back when done, "
             f"{_WAIT_FOR_USER}; otherwise check again with mini_browser_wait "
             "(text=...) or mini_browser_read."
         )

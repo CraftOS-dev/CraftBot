@@ -98,5 +98,14 @@
     "replyTooltip": "Balas pesan ini",
     "copyTooltip": "Salin pesan",
     "copiedTooltip": "Tersalin!"
+  },
+  "browserPanel": {
+    "show": "Tampilkan peramban obrolan ini",
+    "running": "Peramban obrolan ini sedang menyala",
+    "browsing": "Agen sedang menjelajah",
+    "region": "Panel peramban"
+  },
+  "panel": {
+    "close": "Tutup panel"
   }
 }

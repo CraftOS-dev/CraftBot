@@ -2,12 +2,6 @@
   "page": {
     "label": "미니 브라우저"
   },
-  "chat": {
-    "placeholder": "에이전트에게 웹 작업을 맡겨 보세요…",
-    "show": "채팅 표시",
-    "hide": "채팅 숨기기",
-    "loading": "채팅을 준비하는 중…"
-  },
   "toolbar": {
     "label": "브라우저 컨트롤",
     "back": "뒤로",
@@ -53,7 +47,7 @@
     "owner": {
       "you": "나",
       "main": "메인 채팅",
-      "miniBrowser": "이 채팅",
+      "agent": "에이전트",
       "session": "채팅",
       "subagent": "하위 에이전트",
       "subagentOf": "하위 에이전트({{parent}})"
@@ -84,13 +78,17 @@
   "status": {
     "connecting": "미니 브라우저에 연결하는 중…",
     "starting": "브라우저를 시작하는 중…",
+    "resuming": "마지막으로 보던 곳에서 이어서 여는 중…",
+    "pausedTitle": "브라우저 일시 중지됨",
+    "pausedBody": "페이지가 마지막으로 보던 곳에서 다시 열립니다.",
+    "resume": "다시 시작",
     "installing": "브라우저를 설치하는 중…",
     "installingHint": "Chromium을 다운로드하고 있습니다. 몇 분 정도 걸릴 수 있습니다.",
     "installLog": "설치 로그",
     "installDone": "브라우저를 설치했습니다",
     "errorTitle": "브라우저에 문제가 발생했습니다",
     "stoppedTitle": "에이전트와 함께 웹 탐색하기",
-    "stoppedBody": "에이전트와 함께 쓰는 진짜 브라우저입니다. 에이전트가 일하는 모습을 실시간으로 지켜보고, 언제든 직접 조작할 수 있습니다.",
+    "stoppedBody": "이 채팅 전용 브라우저입니다. 에이전트가 일하는 모습을 실시간으로 지켜보고, 언제든 직접 조작할 수 있습니다.",
     "start": "브라우저 시작",
     "openSite": "사이트 열기",
     "tryAsking": "에이전트에게 이렇게 요청해 보세요",
@@ -108,7 +106,7 @@
     "install": "브라우저 설치",
     "installAgain": "다시 설치",
     "retry": "다시 시도",
-    "profileInUseHint": "미니 브라우저를 사용 중인 다른 CraftBot 창을 닫은 뒤 다시 시도해 주세요."
+    "profileInUseHint": "이 채팅의 브라우저를 사용 중인 다른 CraftBot을 닫은 뒤 다시 시도해 주세요."
   },
   "events": {
     "download": "{{name}} 다운로드 완료",
@@ -125,7 +123,7 @@
   },
   "confirm": {
     "shutdownTitle": "브라우저를 닫을까요?",
-    "shutdownMessage": "에이전트가 아직 탐색 중입니다. 브라우저를 닫으면 모든 탭이 닫히지만, 작업 중인 에이전트가 브라우저를 다시 열 수 있습니다. 에이전트를 멈추려면 해당 채팅에서 '중지'를 누르세요."
+    "shutdownMessage": "에이전트가 아직 탐색 중입니다. 브라우저를 닫으면 모든 탭이 닫히지만, 작업 중인 에이전트가 브라우저를 다시 열 수 있습니다. 에이전트를 멈추려면 '중지'를 누르세요."
   },
   "passwords": {
     "title": "저장된 비밀번호",
@@ -193,7 +191,7 @@
     },
     "MINI_BROWSER_PROFILE_IN_USE": {
       "title": "브라우저 프로필 사용 중",
-      "message": "다른 CraftBot 창이 미니 브라우저의 프로필을 사용하고 있습니다."
+      "message": "다른 CraftBot이 이 채팅의 브라우저 프로필을 사용하고 있습니다."
     },
     "MINI_BROWSER_LAUNCH_FAILED": {
       "title": "브라우저를 시작하지 못함",
@@ -234,6 +232,14 @@
     "MINI_BROWSER_TOO_MANY_TABS": {
       "title": "탭이 너무 많음",
       "message": "열린 탭이 너무 많습니다. 탭을 닫은 뒤 다시 시도해 주세요."
+    },
+    "MINI_BROWSER_TOO_MANY_BROWSERS": {
+      "title": "열린 브라우저가 너무 많음",
+      "message": "다른 채팅의 브라우저가 실행 중이며 사용되고 있습니다. 그중 하나를 닫거나 해당 에이전트의 작업이 끝날 때까지 기다려 주세요."
+    },
+    "MINI_BROWSER_SESSION_GONE": {
+      "title": "채팅이 삭제됨",
+      "message": "이 채팅이 삭제되어 브라우저도 함께 사라졌습니다."
     },
     "MINI_BROWSER_TIMEOUT": {
       "title": "시간 초과",

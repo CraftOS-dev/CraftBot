@@ -1,5 +1,5 @@
 ---
-version: 10
+version: 11
 purpose: agent operations manual
 ---
 
@@ -321,10 +321,11 @@ does                                             agent_app_usage + the agent-app
                                                  work by hand.
 
 needs a website USED, not just read: sign in,    Mini Browser. add_action_sets(["mini_browser"]) (or
-forms, shopping/booking, an account page on a    use_skill("mini-browser")): a real browser with the
-site with no connected integration               user's saved logins (mini_browser_login fills them
-                                                 from the password vault). Plain reading of public
-                                                 pages stays web_search / web_fetch.
+forms, shopping/booking, an account page on a    use_skill("mini-browser")): this chat's own real
+site with no connected integration               browser, with the user's saved logins
+                                                 (mini_browser_login fills them from the password
+                                                 vault). Plain reading of public pages stays
+                                                 web_search / web_fetch.
 ```
 
 Hard rule: "I don't have that context" / "I can't access that" may only be sent AFTER the matching check came back empty or disconnected.
@@ -1462,8 +1463,9 @@ To list every set currently visible to the runtime, call the `list_action_sets` 
 core                  Essential actions, always available
 file_operations       File and folder manipulation
 web_research          Internet search and browsing
-mini_browser          Mini Browser: a live Chromium with the user's saved logins; each
-                      agent drives its own tab, the user can watch and take control
+mini_browser          Mini Browser: this chat's own live Chromium with the user's saved
+                      logins; each agent drives its own tab, the user can watch and take
+                      control in the chat's browser panel
 mcp_playwright-mcp    Headless, invisible Playwright over MCP for automated app
                       verification (present while that MCP server is connected)
 document_processing   PDF and document handling
@@ -1508,7 +1510,7 @@ You cannot opt out of `core`, and `core` now carries the everyday surface: messa
 
 ### How sets reach you
 
-1. **By session type** — `<actions>` holds `core` plus the base sets of the session type, and nothing else, ever: main and chat sessions get `core` only; Agent App sessions also get `file_operations`, `code_execution`, `agent_app`; the Mini Browser session also gets `mini_browser`. Source: `SessionType.BASE_ACTION_SETS` in [agent_core/core/session/session.py](agent_core/core/session/session.py).
+1. **By session type** — `<actions>` holds `core` plus the base sets of the session type, and nothing else, ever: main and chat sessions get `core` only; Agent App sessions also get `file_operations`, `code_execution`, `agent_app`. Source: `SessionType.BASE_ACTION_SETS` in [agent_core/core/session/session.py](agent_core/core/session/session.py).
 2. **Mid-run** — call `add_action_sets(action_sets=[...])`. It is a read: one `action_schemas` event lands in your event stream with the schemas of every action in those sets that you cannot already see, plus the guidance of each integration among them (see `## Integrations`). Call those actions by name exactly like the ones in `<actions>`. Loading a set again is a no-op while its schemas are still in the stream. Names are matched leniently: case, and `-` / `_` / spaces in either direction (`mcp_playwright_mcp` → `mcp_playwright-mcp`, `Mini-Browser` → `mini_browser`), plus the old name `web_agent` → `mini_browser`. A name that matches no set (or two sets equally) is NOT loaded and comes back in `unknown_sets` with a `hint`: a misspelled connected MCP server gets its real name; "its MCP server is not connected" means a server configured in `mcp_config.json` whose connection is down (see `## MCP`).
 3. **Per run** — workflow runs (memory, proactive, skill slash commands) and `schedule_task(action_sets=[...])` deliver the run's sets the same way at run start. A user skill picked for the run (`/<skill>` or `schedule_task(skills=[...])`) also brings the sets its SKILL.md declares.
 4. **Via skill selection** — if a skill's `SKILL.md` frontmatter has `action-sets: [...]`, `use_skill` delivers those sets the same way. See `## Skills`.
@@ -1534,20 +1536,24 @@ Loading every set bloats the prompt and slows action selection — add only what
 
 ### The Mini Browser (`mini_browser`)
 
-Load the set (or `use_skill("mini-browser")`, which also explains the workflow) for websites that must be USED. The always-on prompt rule and the browser-mode note that point to it appear only while the set is registered and Chromium can launch on this machine. A Docker image (or a bare Linux) has no Chromium unless it was built with `python -m playwright install --with-deps chromium`; `MINI_BROWSER_CHROMIUM_MISSING` / `MINI_BROWSER_LAUNCH_FAILED` mean exactly that — tell the user, do not retry.
+Load the set (or `use_skill("mini-browser")`, which also explains the workflow) for websites that must be USED. Every session (main, each chat, each Agent App session) has a browser of its own: its own cookies and signed-in sites (the user's saved passwords are shared), shown in that chat's browser panel, which opens when you start browsing. Scheduled runs use the main session's browser; sub-agents use their parent session's. A browser starts with your first action and closes a few minutes after its panel is closed and your run has ended; when it starts again it reopens the pages it had open, as the user's tabs (switch to one with mini_browser_tabs to continue there); at most a few run at once (starting another closes the one idle the longest). The always-on prompt rule and the browser-mode note that point to it appear only while the set is registered and Chromium can launch on this machine. A Docker image (or a bare Linux) has no Chromium unless it was built with `python -m playwright install --with-deps chromium`; `MINI_BROWSER_CHROMIUM_MISSING` / `MINI_BROWSER_LAUNCH_FAILED` mean exactly that — tell the user, do not retry.
 
 ```
-tabs        each session works in its own tab. mini_browser_tabs list shows yours (url, title),
-            other agents' (label only, off-limits) and the user's (host only; viewed=true = on
-            their screen). To work on the page the user is looking at, switch to that tab.
+tabs        each agent works in its own tab of the chat's browser. mini_browser_tabs list shows
+            yours (url, title), the chat's other agents' (label only, off-limits) and the user's
+            (host only; viewed=true = on their screen). With no tab yet, your first action uses
+            the page the user has open in the panel; later, switch to that tab to work on it.
 new tabs    a click that opens a tab moves you to it; the result shows the new tab
 dialogs     confirm() / "leave this page?" are accepted automatically, prompt() is dismissed:
             you cannot decline them, so ask the user BEFORE clicking anything destructive
 the user    CAPTCHA / a sign-in with no saved login: tell the user (continue_work=true), then
             mini_browser_wait for_user=true: returns once they took control of your tab and
             handed it back (default 300 s, timeout_ms up to 900000); on timeout ask in chat
-closed      MINI_BROWSER_CLOSED: the user, an idle shutdown or a crash closed the browser and
-            your tabs are gone; navigate again only if the task still needs it
+closed      MINI_BROWSER_CLOSED: the user, an idle shutdown, another chat's browser needing
+            room, or a crash closed this chat's browser; it reopens its pages as the user's
+            tabs when it starts again; navigate again only if the task still needs it
+busy        MINI_BROWSER_TOO_MANY_BROWSERS: other chats' browsers are running and in use;
+            wait a little and retry once, then tell the user
 ```
 
 ### Tracking what you can see
@@ -1868,14 +1874,17 @@ file_index:
   prewarm_all_drives: bool       (build the find_files index for all drives at boot)
 
 mini_browser:                    (hot-reloaded: applies at once, except headless / channel /
-                                  locale / sound, which apply at the browser's next start)
+                                  locale / sound, which apply at a browser's next start;
+                                  every session has a browser of its own)
   headless: bool                 (default true; false opens a visible window)
   adblock / humanlike / show_cursor / allow_file_urls: bool   (defaults true / true / true / false)
   sound: bool                    (default true; false starts the browser muted)
   max_fps: int                   (default 12, 1-30)     jpeg_quality: int (default 70, 30-95)
   search_url: string             (default "https://duckduckgo.com/?q={query}")
   max_agent_tabs: int            (default 6 per agent, 1-20)
-  idle_shutdown_minutes: int     (default 30; 0 = never)
+  idle_shutdown_minutes: int     (default 3: a session's browser closes this long after its
+                                  panel closed and its run ended; 0 = never)
+  max_running_browsers: int      (default 4, 1-12: session browsers running at once)
   locale: string                 ("" = the OS locale)
   channel: string                (default "chromium"; "" = Playwright's headless shell)
 

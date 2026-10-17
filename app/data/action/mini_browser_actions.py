@@ -1,9 +1,11 @@
 """
 Mini Browser actions: agents drive a real Chromium tab the user can watch.
 
-Each agent (main session, chat sessions, scheduled runs, Agent App runs,
-sub-agents) gets its own tab in one shared, persistent browser profile, so
-the user's cookies and saved logins carry over. Every result carries a fresh
+Every session (the main session, each chat, each Agent App session) has a
+browser of its own, with its own persistent cookies and signed-in sites,
+shown in that chat's browser panel; the user's saved passwords are shared.
+Scheduled runs use the main session's browser and sub-agents their parent
+session's; each agent gets its own tab. Every result carries a fresh
 ``page`` observation with numbered elements, so the agent rarely needs a
 separate read between steps.
 
@@ -529,7 +531,7 @@ async def mini_browser_scroll(input_data: dict) -> dict:
         "(if they already control it, until they hand it back). Use for_user "
         "after an action is refused because the user took control, or after "
         "telling the user (send_message, continue_work=true) to do a step "
-        "only they can do in the Mini Browser page (a CAPTCHA, a sign-in). "
+        "only they can do in this chat's browser panel (a CAPTCHA, a sign-in). "
         "It returns early if the tab or browser is closed. With no argument "
         "it waits for the page to settle."
     ),
@@ -643,8 +645,8 @@ async def mini_browser_upload_file(input_data: dict) -> dict:
         "Two-step sign-ins (email first, then password) are handled. The "
         "result's outcome (signed_in, needs_verification, captcha or unknown) "
         "and message say what to do next; never assume success on unknown. "
-        "If no saved login matches the site, ask the user to add one in the "
-        "Mini Browser's Passwords panel or to sign in themselves in the live "
+        "If no saved login matches the site, ask the user to add one under "
+        "Passwords in the browser panel or to sign in themselves in the live "
         "view; never ask for a password in chat."
     ),
     mode="ALL",

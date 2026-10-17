@@ -2,12 +2,6 @@
   "page": {
     "label": "Peramban Mini"
   },
-  "chat": {
-    "placeholder": "Minta agen menjelajah web atau mengisi formulir…",
-    "show": "Tampilkan obrolan",
-    "hide": "Sembunyikan obrolan",
-    "loading": "Menyiapkan obrolan…"
-  },
   "toolbar": {
     "label": "Kontrol peramban",
     "back": "Kembali",
@@ -53,7 +47,7 @@
     "owner": {
       "you": "Anda",
       "main": "Obrolan utama",
-      "miniBrowser": "Obrolan ini",
+      "agent": "Agen",
       "session": "Obrolan",
       "subagent": "Subagen",
       "subagentOf": "Subagen ({{parent}})"
@@ -84,13 +78,17 @@
   "status": {
     "connecting": "Menyambung ke Peramban Mini…",
     "starting": "Memulai peramban…",
+    "resuming": "Melanjutkan dari tempat terakhir…",
+    "pausedTitle": "Peramban dijeda",
+    "pausedBody": "Halaman Anda dibuka kembali di tempat terakhir.",
+    "resume": "Lanjutkan",
     "installing": "Memasang peramban…",
     "installingHint": "Mengunduh Chromium. Ini bisa memakan waktu beberapa menit.",
     "installLog": "Log pemasangan",
     "installDone": "Peramban terpasang",
     "errorTitle": "Peramban mengalami masalah",
     "stoppedTitle": "Jelajahi web bersama agen Anda",
-    "stoppedBody": "Peramban sungguhan yang Anda gunakan bersama agen. Saksikan mereka bekerja secara langsung, atau ambil alih kapan saja.",
+    "stoppedBody": "Peramban milik obrolan ini sendiri. Saksikan agen Anda bekerja secara langsung, atau ambil alih kapan saja.",
     "start": "Mulai peramban",
     "openSite": "Buka situs",
     "tryAsking": "Coba minta agen",
@@ -108,7 +106,7 @@
     "install": "Pasang peramban",
     "installAgain": "Pasang ulang",
     "retry": "Coba lagi",
-    "profileInUseHint": "Tutup jendela CraftBot lain yang sedang memakai Peramban Mini, lalu coba lagi."
+    "profileInUseHint": "Tutup CraftBot lain yang sedang memakai peramban obrolan ini, lalu coba lagi."
   },
   "events": {
     "download": "{{name}} telah diunduh",
@@ -125,7 +123,7 @@
   },
   "confirm": {
     "shutdownTitle": "Tutup peramban?",
-    "shutdownMessage": "Agen masih menjelajah. Menutup peramban akan menutup semua tab, tetapi agen yang masih bekerja bisa membukanya lagi. Untuk menghentikan agen, tekan Hentikan di obrolannya."
+    "shutdownMessage": "Agen masih menjelajah. Menutup peramban akan menutup semua tab, tetapi agen yang masih bekerja bisa membukanya lagi. Untuk menghentikan agen, tekan Hentikan."
   },
   "passwords": {
     "title": "Kata sandi tersimpan",
@@ -193,7 +191,7 @@
     },
     "MINI_BROWSER_PROFILE_IN_USE": {
       "title": "Profil peramban sedang dipakai",
-      "message": "Jendela CraftBot lain sudah memakai profil Peramban Mini."
+      "message": "CraftBot lain sudah memakai profil peramban obrolan ini."
     },
     "MINI_BROWSER_LAUNCH_FAILED": {
       "title": "Peramban gagal dimulai",
@@ -234,6 +232,14 @@
     "MINI_BROWSER_TOO_MANY_TABS": {
       "title": "Terlalu banyak tab",
       "message": "Terlalu banyak tab yang terbuka. Tutup salah satu tab, lalu coba lagi."
+    },
+    "MINI_BROWSER_TOO_MANY_BROWSERS": {
+      "title": "Terlalu banyak peramban terbuka",
+      "message": "Peramban obrolan lain sedang berjalan dan dipakai. Tutup salah satunya, atau tunggu agennya selesai."
+    },
+    "MINI_BROWSER_SESSION_GONE": {
+      "title": "Obrolan dihapus",
+      "message": "Obrolan ini sudah dihapus, jadi perambannya juga hilang."
     },
     "MINI_BROWSER_TIMEOUT": {
       "title": "Waktu habis",

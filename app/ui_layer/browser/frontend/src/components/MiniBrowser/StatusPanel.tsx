@@ -23,13 +23,11 @@ interface StatusPanelProps {
   state: PanelState
   error: MiniBrowserError | null
   installLines: string[]
-  /** The chat is ready, so example prompts can be offered. */
-  chatAvailable: boolean
   onStart(): void
   onInstall(): void
   /** Put the cursor in the address bar. */
   onOpenSite(): void
-  /** Drop an example prompt into the chat composer. */
+  /** Drop an example prompt into this chat's composer. */
   onExample(prompt: string): void
 }
 
@@ -44,7 +42,6 @@ export function StatusPanel({
   state,
   error,
   installLines,
-  chatAvailable,
   onStart,
   onInstall,
   onOpenSite,
@@ -143,15 +140,18 @@ export function StatusPanel({
                 {installFailed ? t('minibrowser:status.installAgain') : t('minibrowser:status.install')}
               </Button>
             )}
-            <Button
-              variant={canInstall ? 'secondary' : 'primary'}
-              icon={<RotateCw size={16} />}
-              loading={pending === 'start'}
-              disabled={pending !== null}
-              onClick={start}
-            >
-              {t('minibrowser:status.retry')}
-            </Button>
+            {/* A deleted chat's browser never comes back: nothing to retry. */}
+            {code !== 'MINI_BROWSER_SESSION_GONE' && (
+              <Button
+                variant={canInstall ? 'secondary' : 'primary'}
+                icon={<RotateCw size={16} />}
+                loading={pending === 'start'}
+                disabled={pending !== null}
+                onClick={start}
+              >
+                {t('minibrowser:status.retry')}
+              </Button>
+            )}
           </div>
         </div>
       </div>
@@ -159,10 +159,32 @@ export function StatusPanel({
   }
 
   // Stopped: the friendly first screen.
+  return (
+    <StartPage
+      onOpenSite={onOpenSite}
+      onExample={onExample}
+      start={{ pending: pending === 'start', disabled: pending !== null, onStart: start }}
+    />
+  )
+}
+
+interface StartPageProps {
+  /** Put the cursor in the address bar. */
+  onOpenSite(): void
+  /** Drop an example prompt into this chat's composer. */
+  onExample(prompt: string): void
+  /** The browser is off: a Start button leads (its spinner while pending). */
+  start?: { pending: boolean; disabled: boolean; onStart(): void }
+}
+
+/** What this chat's browser is, and what to try: in place of a browser that
+ *  is off, and over a blank tab (a new chat's first tab). */
+export function StartPage({ onOpenSite, onExample, start }: StartPageProps) {
+  const { t } = useTranslation('minibrowser')
   const examples = [
-    t('minibrowser:status.examples.compare'),
-    t('minibrowser:status.examples.news'),
-    t('minibrowser:status.examples.research'),
+    t('status.examples.compare'),
+    t('status.examples.news'),
+    t('status.examples.research'),
   ]
   return (
     <div className={styles.panel}>
@@ -170,63 +192,63 @@ export function StatusPanel({
         <div className={styles.badge}>
           <Globe size={26} />
         </div>
-        <h2 className={styles.title}>{t('minibrowser:status.stoppedTitle')}</h2>
-        <p className={styles.body}>{t('minibrowser:status.stoppedBody')}</p>
+        <h2 className={styles.title}>{t('status.stoppedTitle')}</h2>
+        <p className={styles.body}>{t('status.stoppedBody')}</p>
         <div className={styles.actions}>
-          <Button
-            variant="primary"
-            icon={<Power size={16} />}
-            loading={pending === 'start'}
-            disabled={pending !== null}
-            onClick={start}
-          >
-            {t('minibrowser:status.start')}
-          </Button>
-          <Button variant="secondary" icon={<Globe size={16} />} onClick={onOpenSite}>
-            {t('minibrowser:status.openSite')}
+          {start && (
+            <Button
+              variant="primary"
+              icon={<Power size={16} />}
+              loading={start.pending}
+              disabled={start.disabled}
+              onClick={start.onStart}
+            >
+              {t('status.start')}
+            </Button>
+          )}
+          <Button variant={start ? 'secondary' : 'primary'} icon={<Globe size={16} />} onClick={onOpenSite}>
+            {t('status.openSite')}
           </Button>
         </div>
 
-        {chatAvailable && (
-          <div className={styles.examples}>
-            <span className={styles.examplesLabel}>{t('minibrowser:status.tryAsking')}</span>
-            <div className={styles.chips}>
-              {examples.map(example => (
-                <button
-                  key={example}
-                  type="button"
-                  className={styles.chip}
-                  onClick={() => onExample(example)}
-                  title={example}
-                >
-                  <MessageSquare size={13} />
-                  <span>{example}</span>
-                </button>
-              ))}
-            </div>
+        <div className={styles.examples}>
+          <span className={styles.examplesLabel}>{t('status.tryAsking')}</span>
+          <div className={styles.chips}>
+            {examples.map(example => (
+              <button
+                key={example}
+                type="button"
+                className={styles.chip}
+                onClick={() => onExample(example)}
+                title={example}
+              >
+                <MessageSquare size={13} />
+                <span>{example}</span>
+              </button>
+            ))}
           </div>
-        )}
+        </div>
 
         <ul className={styles.features}>
           <li>
             <Eye size={16} />
             <div>
-              <strong>{t('minibrowser:status.featureWatchTitle')}</strong>
-              <span>{t('minibrowser:status.featureWatchBody')}</span>
+              <strong>{t('status.featureWatchTitle')}</strong>
+              <span>{t('status.featureWatchBody')}</span>
             </div>
           </li>
           <li>
             <Hand size={16} />
             <div>
-              <strong>{t('minibrowser:status.featureControlTitle')}</strong>
-              <span>{t('minibrowser:status.featureControlBody')}</span>
+              <strong>{t('status.featureControlTitle')}</strong>
+              <span>{t('status.featureControlBody')}</span>
             </div>
           </li>
           <li>
             <KeyRound size={16} />
             <div>
-              <strong>{t('minibrowser:status.featureLoginsTitle')}</strong>
-              <span>{t('minibrowser:status.featureLoginsBody')}</span>
+              <strong>{t('status.featureLoginsTitle')}</strong>
+              <span>{t('status.featureLoginsBody')}</span>
             </div>
           </li>
         </ul>

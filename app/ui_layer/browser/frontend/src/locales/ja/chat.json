@@ -98,5 +98,14 @@
     "replyTooltip": "このメッセージに返信",
     "copyTooltip": "メッセージをコピー",
     "copiedTooltip": "コピーしました！"
+  },
+  "browserPanel": {
+    "show": "このチャットのブラウザを表示",
+    "running": "このチャットのブラウザは起動中です",
+    "browsing": "エージェントが閲覧中です",
+    "region": "ブラウザパネル"
+  },
+  "panel": {
+    "close": "パネルを閉じる"
   }
 }

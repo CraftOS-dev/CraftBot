@@ -1,6 +1,6 @@
 ---
 name: mini-browser
-description: Use the Mini Browser, a real Chromium with the user's saved logins that the user can watch live, for web tasks that need a site to be USED and not just read - signing in, filling and submitting forms, searching inside a site, shopping, booking, account pages, comparing pages across tabs, JavaScript-heavy or login-walled pages that web_fetch cannot read.
+description: Use the Mini Browser, this chat's own real Chromium (its own cookies and signed-in sites, plus the user's saved passwords) that the user can watch live in the chat's browser panel, for web tasks that need a site to be USED and not just read - signing in, filling and submitting forms, searching inside a site, shopping, booking, account pages, comparing pages across tabs, JavaScript-heavy or login-walled pages that web_fetch cannot read.
 argument-hint: '<what to do, on which site>'
 action-sets:
   - mini_browser
@@ -8,9 +8,10 @@ action-sets:
 
 # Mini Browser
 
-A real Chromium that keeps the user's cookies and saved logins. Every agent
-works in its own tab (opened by your first action); the user can watch any
-tab live in the Mini Browser page and take control of it.
+This chat's own real Chromium: its cookies and signed-in sites stay with this
+chat (saved passwords are shared). It starts with your first action, which
+opens your tab, and shows in the chat's browser panel, where the user
+watches and can take control. Sub-agents you spawn get tabs here too.
 
 ## The loop
 
@@ -69,15 +70,15 @@ clicking anything destructive, never after.
   password) and submits. Pass `username` only to choose between saved
   accounts.
 - Never type a password with `mini_browser_type` and never ask for one in
-  chat. No saved login: ask the user to add it in the Mini Browser's
-  Passwords panel, or to sign in themselves in the live view (the browser
-  stays signed in afterwards).
+  chat. No saved login: ask the user to add it under Passwords in the
+  browser panel, or to sign in themselves in the live view (this chat's
+  browser stays signed in afterwards).
 - Its `outcome`: `signed_in`; `needs_verification` (a code: ask the user for
   it, never guess; an approval on their phone: ask them, then wait with
   `text`); `captcha`; `unknown` (check the page, do not assume success).
 - A CAPTCHA, or any step only the user can do in the page: tell them
-  (send_message with continue_work=true) to do it in the Mini Browser page
-  and press Hand back, then call `mini_browser_wait` with `for_user=true`. It
+  (send_message with continue_work=true) to do it in the chat's browser
+  panel and press Hand back, then call `mini_browser_wait` with `for_user=true`. It
   waits while they take control of your tab and returns when they hand it
   back (5 minutes by default, `timeout_ms` up to 900000). On timeout, ask
   them in chat as your final message and continue from a fresh
@@ -89,10 +90,10 @@ clicking anything destructive, never after.
 
 `mini_browser_tabs`: `new` (with `url`) for side-by-side work, `switch`,
 `list`, `close`. The list shows your tabs (url, title), other agents' tabs
-(label only) and the user's tabs (host only; `viewed=true` is the one on
-their screen). Other agents' tabs are off-limits. To work on the page the
-user is looking at ("summarize the page I have open"), `switch` to their tab
-with `viewed=true`. A click that opens a new tab moves you to it; the result
+(label only, off-limits) and the user's tabs (host only; `viewed=true` is
+the one on their screen). With no tab yet, your first action uses the page
+the user has open; later, `switch` to their `viewed=true` tab for "the page
+I have open". A click that opens a new tab moves you to it; the result
 shows the new tab. Close the tabs you opened when the task is done.
 
 ## Safety
@@ -115,9 +116,11 @@ confirmation, booking, submitted form).
 - Nothing happened: read `events` (dialog, popup, download, blocked page),
   scroll, `mini_browser_wait` for text, or take another path (site search,
   a direct URL, a new tab).
-- `MINI_BROWSER_CLOSED`: the browser was closed (by the user, an idle
-  shutdown or a crash) and your tabs are gone. Navigate again only if the
-  task still needs it.
+- `MINI_BROWSER_CLOSED`: the browser closed (user, idle shutdown, room for
+  another chat's browser, or a crash); its pages reopen as user tabs.
+  Navigate again only if still needed.
+- `MINI_BROWSER_TOO_MANY_BROWSERS`: other chats' browsers are busy. Retry
+  once later, then tell the user.
 - `MINI_BROWSER_CHROMIUM_MISSING` / `MINI_BROWSER_LAUNCH_FAILED`: the browser
   cannot run on this machine (a Docker image has Chromium only when built
   with `python -m playwright install --with-deps chromium`). Tell the user

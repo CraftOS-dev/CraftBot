@@ -167,6 +167,14 @@ export const RESOURCES = {
     resource: 'mini_browser_vault',
     request: (send) => send({ type: 'mini_browser_vault_list' }),
   },
+  /** Which chats' browsers run and which have an agent browsing (their
+   *  browser panel's button, and the panel opening by itself). Asked once
+   *  per connection; the backend pushes every change after that. */
+  miniBrowserActivity: {
+    key: 'miniBrowserActivity',
+    resource: 'static',
+    request: (send) => send({ type: 'mini_browser_activity_query' }),
+  },
 
   // ── Static catalogs: refreshed after a reconnect ──
   playbooks: {

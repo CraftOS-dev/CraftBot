@@ -1,27 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { WifiOff } from 'lucide-react'
-import { ConfirmModal } from '../../components/ui'
+import { ConfirmModal } from '../ui'
 import { useWebSocket } from '../../contexts/WebSocketContext'
 import { useToast } from '../../contexts/ToastContext'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { selectSessionRunState } from '../../store/selectors/agent'
 import { selectConnected } from '../../store/selectors/connection'
 import {
-  selectMiniBrowserAdblock,
   selectMiniBrowserAgentBusy,
-  selectMiniBrowserError,
   selectMiniBrowserEvents,
-  selectMiniBrowserFollow,
   selectMiniBrowserInstall,
-  selectMiniBrowserKnown,
-  selectMiniBrowserNavResult,
-  selectMiniBrowserSessionId,
-  selectMiniBrowserSettings,
-  selectMiniBrowserStatus,
+  selectMiniBrowserLastFrame,
   selectMiniBrowserTabs,
+  selectMiniBrowserView,
   selectMiniBrowserViewedTab,
-  selectMiniBrowserViewport,
 } from '../../store/selectors/miniBrowser'
 import { setPendingPrefill } from '../../store/slices/chatInputSlice'
 import {
@@ -29,19 +22,21 @@ import {
   navResultDismissed,
   type MiniBrowserEventEntry,
 } from '../../store/slices/miniBrowserSlice'
-import type { MiniBrowserTab } from '../../types'
-import { ChatPanel } from './ChatPanel'
+import type { MiniBrowserSettings, MiniBrowserTab } from '../../types'
 import { canOpenDownload, downloadName, isDangerousDownload, stripFormatControls } from './downloads'
 import { LiveView, type LiveViewHandle } from './live/LiveView'
 import { PasswordsModal } from './PasswordsModal'
-import { StatusPanel, type PanelState } from './StatusPanel'
+import { ResumeView } from './ResumeView'
+import { StartPage, StatusPanel, type PanelState } from './StatusPanel'
 import { TabStrip } from './TabStrip'
 import { Toolbar, type AddressTarget, type StopTarget, type ToolbarHandle } from './Toolbar'
 import { sendAction, sendLive, useMiniBrowserViewer } from './useMiniBrowserSocket'
 import { useErrorText } from './useErrorText'
 import { useLatest } from './useLatest'
 import { useTabLabels } from './useTabLabels'
-import styles from './MiniBrowserPage.module.css'
+import styles from './SessionBrowserPanel.module.css'
+
+const DEFAULT_SETTINGS: MiniBrowserSettings = { humanlike: true, showCursor: true }
 
 /** The session whose run drives a tab: its owner, or a sub-agent's parent. */
 function driverSession(tab: MiniBrowserTab): string | null {
@@ -50,36 +45,46 @@ function driverSession(tab: MiniBrowserTab): string | null {
   return tab.owner
 }
 
+interface SessionBrowserPanelProps {
+  /** The chat session whose browser this is. Mount one panel per session
+   *  (key it by the session id): its live view, input and subscription
+   *  belong to that session for their whole lifetime. */
+  sessionId: string
+}
+
 /**
- * The Mini Browser: a live view of the real Chromium that the user and every
- * agent share, with tabs, an address bar, take-over controls, saved logins,
- * and the dedicated Mini Browser chat beside it.
+ * A chat's own browser in its panel: a live view of the session's
+ * Chromium, with tabs, an address bar, take-over controls and saved logins.
+ * Opening the panel turns the browser on; the session's agent drives its
+ * own tab(s) while the user watches and can take control at any moment.
  */
-export function MiniBrowserPage() {
+export function SessionBrowserPanel({ sessionId }: SessionBrowserPanelProps) {
   const { t } = useTranslation(['minibrowser', 'common'])
   const dispatch = useAppDispatch()
   const { stopSession, openFile, openFolder } = useWebSocket()
   const { showToast } = useToast()
-  const { ownerName } = useTabLabels()
+  const { ownerName } = useTabLabels(sessionId)
   const errorText = useErrorText()
 
   const connected = useAppSelector(selectConnected)
-  const known = useAppSelector(selectMiniBrowserKnown)
-  const status = useAppSelector(selectMiniBrowserStatus)
-  const error = useAppSelector(selectMiniBrowserError)
-  const sessionId = useAppSelector(selectMiniBrowserSessionId)
-  const tabs = useAppSelector(selectMiniBrowserTabs)
-  const viewedTab = useAppSelector(selectMiniBrowserViewedTab)
-  const follow = useAppSelector(selectMiniBrowserFollow)
-  const adblock = useAppSelector(selectMiniBrowserAdblock)
-  const settings = useAppSelector(selectMiniBrowserSettings)
-  const viewport = useAppSelector(selectMiniBrowserViewport)
+  const view = useAppSelector(state => selectMiniBrowserView(state, sessionId))
+  const tabs = useAppSelector(state => selectMiniBrowserTabs(state, sessionId))
+  const viewedTab = useAppSelector(state => selectMiniBrowserViewedTab(state, sessionId))
+  const agentBusy = useAppSelector(state => selectMiniBrowserAgentBusy(state, sessionId))
   const install = useAppSelector(selectMiniBrowserInstall)
-  const navResult = useAppSelector(selectMiniBrowserNavResult)
   const events = useAppSelector(selectMiniBrowserEvents)
-  const agentBusy = useAppSelector(selectMiniBrowserAgentBusy)
+  const lastFrame = useAppSelector(state => selectMiniBrowserLastFrame(state, sessionId))
 
-  // The Stop button stops the run driving the viewed tab.
+  const known = view !== undefined
+  const status = view?.status ?? 'stopped'
+  const error = view?.error ?? null
+  const follow = view?.follow ?? true
+  const adblock = view?.adblock ?? null
+  const settings = view?.settings ?? DEFAULT_SETTINGS
+  const viewport = view?.viewport ?? null
+  const navResult = view?.navResult ?? null
+
+  // The Stop button stops the run driving the viewed tab (this chat's).
   const driver = viewedTab ? driverSession(viewedTab) : null
   const driverRunState = useAppSelector(state => (driver ? selectSessionRunState(state, driver) : 'idle'))
   const driverActive = !!viewedTab?.busy || driverRunState !== 'idle'
@@ -92,8 +97,9 @@ export function MiniBrowserPage() {
   const liveViewRef = useRef<LiveViewHandle>(null)
   const toolbarRef = useRef<ToolbarHandle>(null)
 
-  // Viewer subscription + remote viewport sizing.
-  useMiniBrowserViewer(stageAreaRef, connected, viewport)
+  // Viewer subscription (opening the panel turns the browser on) and the
+  // browser's viewport sizing.
+  useMiniBrowserViewer(sessionId, stageAreaRef, connected, viewport)
 
   // ── Browser actions ───────────────────────────────────────────────────
   const viewedTabId = viewedTab?.id ?? null
@@ -104,43 +110,48 @@ export function MiniBrowserPage() {
   // The address bar opens what was typed in the tab the edit started on —
   // never in whichever tab came on screen meanwhile (that may be an agent's).
   const navigate = useCallback((text: string, target: AddressTarget) => {
-    dispatch(navResultDismissed())
+    dispatch(navResultDismissed(sessionId))
     const tab = target.tabId ? tabsRef.current.find(t => t.id === target.tabId) : undefined
     // An agent claimed the tab while the user was typing (handing it back to
     // the user is fine: that tab is theirs to navigate).
     const claimedMeanwhile = !!tab && tab.owner !== null && tab.owner !== target.owner
     if (tab && !claimedMeanwhile) {
       // Show the tab that is about to load.
-      if (tab.id !== viewedTabRef.current?.id) sendAction('mini_browser_tab', { action: 'switch', tabId: tab.id })
-      sendAction('mini_browser_navigate', { tabId: tab.id, url: text })
+      if (tab.id !== viewedTabRef.current?.id) {
+        sendAction('mini_browser_tab', { sessionId, action: 'switch', tabId: tab.id })
+      }
+      sendAction('mini_browser_navigate', { sessionId, tabId: tab.id, url: text })
     } else if (!target.tabId && tabsRef.current.length === 0) {
       // Nothing is open yet: the backend starts the browser and opens one.
-      sendAction('mini_browser_navigate', { url: text })
+      sendAction('mini_browser_navigate', { sessionId, url: text })
     } else {
       // The tab was closed, or an agent took it over meanwhile: open the
       // address in a new tab of the user's own instead.
-      sendAction('mini_browser_tab', { action: 'new', url: text })
+      sendAction('mini_browser_tab', { sessionId, action: 'new', url: text })
     }
-  }, [dispatch, tabsRef, viewedTabRef])
+  }, [dispatch, sessionId, tabsRef, viewedTabRef])
 
   const history = useCallback((action: 'back' | 'forward' | 'reload' | 'stop') => {
-    sendAction('mini_browser_history', viewedTabId ? { tabId: viewedTabId, action } : { action })
-  }, [viewedTabId])
+    sendAction(
+      'mini_browser_history',
+      viewedTabId ? { sessionId, tabId: viewedTabId, action } : { sessionId, action },
+    )
+  }, [sessionId, viewedTabId])
 
   const newTab = useCallback(() => {
-    sendAction('mini_browser_tab', { action: 'new' })
-  }, [])
+    sendAction('mini_browser_tab', { sessionId, action: 'new' })
+  }, [sessionId])
 
   const switchTab = useCallback((tabId: string) => {
-    sendAction('mini_browser_tab', { action: 'switch', tabId })
-  }, [])
+    sendAction('mini_browser_tab', { sessionId, action: 'switch', tabId })
+  }, [sessionId])
 
   const [confirmCloseTab, setConfirmCloseTab] = useState<MiniBrowserTab | null>(null)
   const [confirmShutdown, setConfirmShutdown] = useState(false)
 
   const closeTabNow = useCallback((tabId: string) => {
-    sendAction('mini_browser_tab', { action: 'close', tabId })
-  }, [])
+    sendAction('mini_browser_tab', { sessionId, action: 'close', tabId })
+  }, [sessionId])
 
   const requestCloseTab = useCallback((tab: MiniBrowserTab) => {
     // Closing a tab an agent is working in interrupts it: ask first.
@@ -149,8 +160,8 @@ export function MiniBrowserPage() {
   }, [closeTabNow])
 
   const setFollow = useCallback((next: boolean) => {
-    sendAction('mini_browser_view', { follow: next })
-  }, [])
+    sendAction('mini_browser_view', { sessionId, follow: next })
+  }, [sessionId])
 
   // While the user works in a tab, "follow" must not pull the view away to
   // whichever tab an agent touches next (mid-typing, mid-IME-composition,
@@ -159,8 +170,8 @@ export function MiniBrowserPage() {
   const stopFollowing = useCallback(() => {
     if (!followRef.current) return
     followRef.current = false
-    sendLive('mini_browser_view', { follow: false })
-  }, [followRef])
+    sendLive('mini_browser_view', { sessionId, follow: false })
+  }, [followRef, sessionId])
 
   const setAdblock = useCallback((enabled: boolean) => {
     sendAction('mini_browser_adblock', { enabled })
@@ -169,35 +180,29 @@ export function MiniBrowserPage() {
   const setControl = useCallback((take: boolean) => {
     if (!viewedTabId) return
     if (take) stopFollowing()
-    sendAction('mini_browser_control', { tabId: viewedTabId, take })
-  }, [stopFollowing, viewedTabId])
+    sendAction('mini_browser_control', { sessionId, tabId: viewedTabId, take })
+  }, [sessionId, stopFollowing, viewedTabId])
 
-  const start = useCallback(() => sendAction('mini_browser_start'), [])
+  const start = useCallback(() => sendAction('mini_browser_start', { sessionId }), [sessionId])
 
   const installBrowser = useCallback(() => {
     dispatch(installRequested())
     sendAction('mini_browser_install')
   }, [dispatch])
 
+  const shutdown = useCallback(() => sendAction('mini_browser_shutdown', { sessionId }), [sessionId])
+
   const requestShutdown = useCallback(() => {
     if (agentBusy) setConfirmShutdown(true)
-    else sendAction('mini_browser_shutdown')
-  }, [agentBusy])
+    else shutdown()
+  }, [agentBusy, shutdown])
 
   const stopAgent = useCallback(() => {
     if (stopTarget && stopTarget.runState !== 'stopping') stopSession(stopTarget.sessionId)
   }, [stopSession, stopTarget])
 
-  const onUserInput = stopFollowing
-
   const focusAddress = useCallback(() => toolbarRef.current?.focusAddress(), [])
   const focusPage = useCallback(() => liveViewRef.current?.focus(), [])
-
-  const contentRef = useRef<HTMLDivElement>(null)
-  // The chat sits under the browser (ChatPanel decides from the row's width).
-  const [stacked, setStacked] = useState(false)
-  // Bumped to make ChatPanel show the chat.
-  const [chatOpenSignal, setChatOpenSignal] = useState(0)
 
   // ── Notices from the browser (dialogs, downloads, blocks, crashes) ────
   // The headline is always in the user's language; the backend's own
@@ -265,7 +270,8 @@ export function MiniBrowserPage() {
     }
   }, [announceDownload, errorText, showToast, t, viewedTabRef])
 
-  // Only events that arrive while the page is open are announced.
+  // Only this session's events that arrive while the panel is open are
+  // announced.
   const announcedSeqRef = useRef<number | null>(null)
   useEffect(() => {
     const newest = events.length > 0 ? events[events.length - 1].seq : 0
@@ -273,9 +279,9 @@ export function MiniBrowserPage() {
     announcedSeqRef.current = newest
     if (since === null) return
     for (const event of events) {
-      if (event.seq > since) announce(event)
+      if (event.seq > since && event.sessionId === sessionId) announce(event)
     }
-  }, [events, announce])
+  }, [events, announce, sessionId])
 
   // A finished install says so (failures show in the status panel).
   const installDoneRef = useRef(install.doneSeq)
@@ -287,94 +293,104 @@ export function MiniBrowserPage() {
 
   // ── Derived view state ────────────────────────────────────────────────
   const panelState: PanelState | null = !known ? 'connecting' : status === 'ready' ? null : status
+  // While the browser starts again or is off, the page it left off on shows
+  // (dimmed) instead of a status screen.
+  const resumeMode = !lastFrame
+    ? null
+    : panelState === 'connecting' || panelState === 'starting'
+      ? 'resuming'
+      : panelState === 'stopped' ? 'paused' : null
+  // A blank tab of the user's (a new chat's first tab) shows what this
+  // browser is and what to try, instead of an empty page.
+  const blankTab = panelState === null
+    && !!viewedTab
+    && viewedTab.ownerKind === 'user'
+    && viewedTab.url === 'about:blank'
+    && !viewedTab.canGoBack
+    && !viewedTab.loading
+    && !viewedTab.crashed
   const browserOpen = known && status !== 'stopped' && status !== 'installing'
   const navError = navResult && !navResult.ok ? navResult.error : null
   const tabIdsKey = useMemo(() => tabs.map(tab => tab.id).join('\n'), [tabs])
 
   const [passwordsOpen, setPasswordsOpen] = useState(false)
 
+  // An example prompt goes into this chat's composer.
   const onExample = useCallback((prompt: string) => {
     dispatch(setPendingPrefill(prompt))
-    setChatOpenSignal(n => n + 1)
   }, [dispatch])
 
   return (
-    <div className={styles.page}>
-      <div ref={contentRef} className={`${styles.content} ${stacked ? styles.contentStacked : ''}`}>
-        <section className={styles.browserPanel} aria-label={t('minibrowser:page.label')}>
-          <Toolbar
-            ref={toolbarRef}
-            tab={viewedTab}
-            follow={follow}
-            adblock={adblock}
-            browserOpen={browserOpen}
-            navError={navError}
-            stopTarget={stopTarget}
-            onNavigate={navigate}
-            onHistory={history}
-            onFollow={setFollow}
-            onAdblock={setAdblock}
-            onOpenPasswords={() => setPasswordsOpen(true)}
-            onCloseBrowser={requestShutdown}
-            onStopAgent={stopAgent}
-            onDismissNavError={() => dispatch(navResultDismissed())}
-            onSubmitted={focusPage}
-          />
-          <TabStrip
-            tabs={tabs}
-            viewedTabId={viewedTabId}
-            onSwitch={switchTab}
-            onClose={requestCloseTab}
-            onNew={newTab}
-          />
-          {/* Fixed-size area: its size is the remote viewport (see useMiniBrowserViewer).
-              The live view stays mounted in every state so a frame that
-              arrives just before "ready" is never lost; the status panel
-              covers it until the browser is ready. */}
-          <div ref={stageAreaRef} className={styles.stageArea}>
-            <LiveView
-              ref={liveViewRef}
-              active={panelState === null}
-              tab={viewedTab}
-              tabIdsKey={tabIdsKey}
-              connected={connected}
-              showCursor={settings.showCursor}
-              ownerName={viewedTab ? ownerName(viewedTab) : ''}
-              onFocusAddress={focusAddress}
-              onHistory={history}
-              onControl={setControl}
-              onNewTab={newTab}
-              onUserInput={onUserInput}
-            />
-            {panelState !== null && (
-              <StatusPanel
-                state={panelState}
-                error={error}
-                installLines={install.lines}
-                chatAvailable={!!sessionId}
-                onStart={start}
-                onInstall={installBrowser}
-                onOpenSite={focusAddress}
-                onExample={onExample}
-              />
-            )}
-            {viewedTab?.loading && panelState === null && <div className={styles.loadingBar} aria-hidden="true" />}
-            {!connected && (
-              <div className={styles.disconnected} role="status">
-                <WifiOff size={22} />
-                <strong>{t('minibrowser:live.reconnecting')}</strong>
-                <span>{t('minibrowser:live.reconnectingHint')}</span>
-              </div>
-            )}
-          </div>
-        </section>
-
-        <ChatPanel
-          containerRef={contentRef}
+    <div className={styles.panel}>
+      {/* Tabs above the toolbar, as in Chrome: the viewed tab flows into it. */}
+      <TabStrip
+        sessionId={sessionId}
+        tabs={tabs}
+        viewedTabId={viewedTabId}
+        onSwitch={switchTab}
+        onClose={requestCloseTab}
+        onNew={newTab}
+      />
+      <Toolbar
+        ref={toolbarRef}
+        tab={viewedTab}
+        follow={follow}
+        adblock={adblock}
+        browserOpen={browserOpen}
+        navError={navError}
+        stopTarget={stopTarget}
+        onNavigate={navigate}
+        onHistory={history}
+        onFollow={setFollow}
+        onAdblock={setAdblock}
+        onOpenPasswords={() => setPasswordsOpen(true)}
+        onCloseBrowser={requestShutdown}
+        onStopAgent={stopAgent}
+        onDismissNavError={() => dispatch(navResultDismissed(sessionId))}
+        onSubmitted={focusPage}
+      />
+      {/* Its size is the browser's viewport (see useMiniBrowserViewer). The
+          live view stays mounted in every state so a frame that arrives just
+          before "ready" is never lost; the status panel covers it until the
+          browser is ready. */}
+      <div ref={stageAreaRef} className={styles.stageArea}>
+        <LiveView
+          ref={liveViewRef}
           sessionId={sessionId}
-          onStackedChange={setStacked}
-          openSignal={chatOpenSignal}
+          active={panelState === null}
+          tab={viewedTab}
+          tabIdsKey={tabIdsKey}
+          connected={connected}
+          showCursor={settings.showCursor}
+          ownerName={viewedTab ? ownerName(viewedTab) : ''}
+          onFocusAddress={focusAddress}
+          onHistory={history}
+          onControl={setControl}
+          onNewTab={newTab}
+          onUserInput={stopFollowing}
         />
+        {panelState !== null && (lastFrame && resumeMode ? (
+          <ResumeView frame={lastFrame} mode={resumeMode} onResume={start} />
+        ) : (
+          <StatusPanel
+            state={panelState}
+            error={error}
+            installLines={install.lines}
+            onStart={start}
+            onInstall={installBrowser}
+            onOpenSite={focusAddress}
+            onExample={onExample}
+          />
+        ))}
+        {blankTab && <StartPage onOpenSite={focusAddress} onExample={onExample} />}
+        {viewedTab?.loading && panelState === null && <div className={styles.loadingBar} aria-hidden="true" />}
+        {!connected && (
+          <div className={styles.disconnected} role="status">
+            <WifiOff size={22} />
+            <strong>{t('minibrowser:live.reconnecting')}</strong>
+            <span>{t('minibrowser:live.reconnectingHint')}</span>
+          </div>
+        )}
       </div>
 
       {passwordsOpen && <PasswordsModal isOpen={passwordsOpen} onClose={() => setPasswordsOpen(false)} />}
@@ -401,7 +417,7 @@ export function MiniBrowserPage() {
         variant="danger"
         onConfirm={() => {
           setConfirmShutdown(false)
-          sendAction('mini_browser_shutdown')
+          shutdown()
         }}
         onCancel={() => setConfirmShutdown(false)}
       />

@@ -54,6 +54,11 @@ function applyValue(state: UiSliceState, key: string, value: unknown) {
 export const { uiStateChanged, uiStateSynced } = uiSlice.actions
 export default uiSlice.reducer
 
+/** Action creator: back to the descriptor's default (its stored key is removed). */
+export function resetUiState<T>(descriptor: UiStateDescriptor<T>) {
+  return setUiState(descriptor, descriptor.defaultValue)
+}
+
 /** Action creator: set a descriptor's value (setting its default clears the key). */
 export function setUiState<T>(descriptor: UiStateDescriptor<T>, value: T) {
   return uiStateChanged({

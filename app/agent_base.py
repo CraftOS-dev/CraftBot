@@ -440,9 +440,9 @@ class AgentBase:
             event_stream_manager=self.event_stream_manager,
             llm_interface=self.llm,
         )
-        # A stream is removed when a sub-agent finishes or a chat is deleted:
-        # either way its Mini Browser tabs are no longer anyone's.
-        self.event_stream_manager.add_removal_listener(self._release_mini_browser_owner)
+        # A stream is removed when a sub-agent finishes (its Mini Browser tabs
+        # close) or a session is deleted (its browser and profile go).
+        self.event_stream_manager.add_removal_listener(self._on_stream_removed)
 
         InternalActionInterface.initialize(
             self.llm,
@@ -540,15 +540,12 @@ class AgentBase:
     async def delete_session(self, session_id: str) -> bool:
         """Delete a session: triggers, runtime lane, streams, persistence."""
         session = self.session_manager.get(session_id)
-        # The main session and the Mini Browser page's dedicated chat are
-        # fixtures of the UI; they can be cleared but never deleted.
-        if not session or session.type in (SessionType.MAIN, SessionType.MINI_BROWSER):
+        if not session or session.type == SessionType.MAIN:
             return False
         await self.trigger_service.cancel_sessions([session_id])
-        deleted = self.session_manager.delete_session(session_id)
-        if deleted:
-            self._notify_mini_browser("release_owner", session_id)
-        return deleted
+        # Removing its event stream also deletes its Mini Browser and profile
+        # (_on_stream_removed).
+        return self.session_manager.delete_session(session_id)
 
     async def clear_session(self, session_id: str) -> bool:
         """Clear a session's conversation (event stream, todos, budgets).
@@ -557,6 +554,21 @@ class AgentBase:
         concern); this handles the agent-side state.
         """
         return self.session_manager.clear_session(session_id)
+
+    def close_ui_artifact(self, session_id: str, artifact_id: str) -> int:
+        """The user closed a Generative UI output: the session's events keep
+        only a closed marker for it (``closed_artifact``), and the stream is
+        persisted so the stored copy loses the code too. Returns how many
+        events carried it."""
+        if not self.event_stream_manager.has_stream(session_id):
+            return 0
+        from app.generative_ui import closed_artifact
+
+        stream = self.event_stream_manager.get_stream_by_id(session_id)
+        count = stream.replace_ui_artifact(artifact_id, closed_artifact)
+        if count:
+            self._persist_session_stream(session_id)
+        return count
 
     def rename_session(self, session_id: str, title: str) -> bool:
         """Rename a session's sidebar title."""
@@ -1134,15 +1146,17 @@ class AgentBase:
         if old != new:
             self._notify_mini_browser("reload_settings")
 
-    def _release_mini_browser_owner(self, session_id: str, _stream: object) -> None:
-        """Event-stream removal listener: a sub-agent finished or a chat was
-        deleted, so its Mini Browser tabs are released. Runs on the remover's
-        thread (a sub-agent's pool thread), so it only hands work off."""
-        self._notify_mini_browser("release_owner", session_id)
+    def _on_stream_removed(self, session_id: str, _stream: object) -> None:
+        """Event-stream removal listener: a sub-agent finished (its Mini
+        Browser tabs close) or a session was deleted (every path that deletes
+        a session removes its stream: its browser closes for good and its
+        profile is deleted). Runs on the remover's thread (a sub-agent's pool
+        thread), so it only hands work off."""
+        self._notify_mini_browser("stream_removed", session_id)
 
     async def _shutdown_mini_browser(self) -> None:
-        """Close the Mini Browser at exit so Chromium flushes the persistent
-        profile (cookies, logins). A no-op when it was never used."""
+        """Close every session's Mini Browser at exit so Chromium flushes the
+        persistent profiles (cookies, logins). A no-op when none was used."""
         import sys
 
         if "app.mini_browser.host" not in sys.modules:
@@ -3005,9 +3019,11 @@ class AgentBase:
             if self._mini_browser_usable():
                 prompt += (
                     "\n\n## Mini Browser\n"
-                    "The user can watch your Mini Browser tabs live in the Mini Browser page and "
-                    "take control of them. When a site needs the user (a CAPTCHA, a sign-in with no "
-                    "saved login), tell them (send_message with continue_work=true) to do it there, "
+                    "This chat has a browser of its own (its own cookies and signed-in sites; "
+                    "saved passwords are shared). It opens in the chat's browser panel when you "
+                    "start browsing, so the user can watch your tabs live and take control of them. "
+                    "When a site needs the user (a CAPTCHA, a sign-in with no saved login), tell "
+                    "them (send_message with continue_work=true) to do it in the browser panel, "
                     "then call `mini_browser_wait` with for_user=true: it returns once they have "
                     "taken control of your tab and handed it back. If it times out, ask them in "
                     "chat as your final message. Ask for a 2FA code in chat; never guess one."
@@ -3111,14 +3127,14 @@ class AgentBase:
         self.state_manager.reset()
         self.event_stream_manager.clear_all()
         # clear_all() drops every stream but main's, while the sessions that
-        # outlive a reset (the Mini Browser chat, Agent App sessions) stay
-        # registered. Give them their own stream back FIRST: an id without
-        # one falls back to MAIN's stream, so their runs would read and write
-        # main's history (and clearing them would empty main's stream).
+        # outlive a reset (Agent App sessions) stay registered. Give them
+        # their own stream back FIRST: an id without one falls back to MAIN's
+        # stream, so their runs would read and write main's history (and
+        # clearing them would empty main's stream).
         self._recreate_session_streams()
         self.session_manager.clear_session(MAIN_SESSION_ID)
         for session in list(self.session_manager.sessions.values()):
-            if session.type in (SessionType.AGENT_APP, SessionType.MINI_BROWSER):
+            if session.type == SessionType.AGENT_APP:
                 self._clear_surviving_session(session)
 
         # 2. Stop file watcher to prevent interference during reset
@@ -3238,10 +3254,7 @@ class AgentBase:
                 get_usage_storage().clear_events()
                 self.session_manager.clear_session(MAIN_SESSION_ID)
                 for session in list(self.session_manager.sessions.values()):
-                    if session.type in (
-                        SessionType.AGENT_APP,
-                        SessionType.MINI_BROWSER,
-                    ):
+                    if session.type == SessionType.AGENT_APP:
                         self.session_manager.clear_session(session.id)
                 done.append(f"sessions ({count} chats deleted)")
             except Exception as e:

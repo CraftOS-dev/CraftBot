@@ -98,5 +98,14 @@
     "replyTooltip": "Responder a este mensaje",
     "copyTooltip": "Copiar mensaje",
     "copiedTooltip": "¡Copiado!"
+  },
+  "browserPanel": {
+    "show": "Mostrar el navegador de este chat",
+    "running": "El navegador de este chat está encendido",
+    "browsing": "El agente está navegando",
+    "region": "Panel del navegador"
+  },
+  "panel": {
+    "close": "Cerrar panel"
   }
 }

@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 import re
 import time
 from pathlib import Path
-from typing import List, Optional, Set, Tuple
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 from agent_core.core.event_stream.event import Event, EventRecord, EventType
 from agent_core.core.protocols.llm import LLMInterfaceProtocol
 from agent_core.core.prompts import EVENT_STREAM_SUMMARIZATION_PROMPT
@@ -825,6 +825,21 @@ class EventStream:
         with self._lock:
             for rec in self.tail_events:
                 rec.delivered = True
+
+    def replace_ui_artifact(
+        self, artifact_id: str, replace: Callable[[Dict[str, Any]], Dict[str, Any]]
+    ) -> int:
+        """Swap the UI artifact payload of every event that carries artifact
+        ``artifact_id`` for ``replace(payload)`` (the user closed it). Returns
+        how many events carried it."""
+        count = 0
+        with self._lock:
+            for rec in self.tail_events:
+                artifact = rec.event.ui_artifact
+                if artifact and artifact.get("id") == artifact_id:
+                    rec.event.ui_artifact = replace(artifact)
+                    count += 1
+        return count
 
     def mark_session_synced(self, call_type: str) -> None:
         """

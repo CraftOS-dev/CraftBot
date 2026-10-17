@@ -1,8 +1,10 @@
 import { createEntityAdapter, createSlice, type EntityState, type PayloadAction } from '@reduxjs/toolkit'
 import type {
+  MiniBrowserActivity,
   MiniBrowserError,
   MiniBrowserEvent,
   MiniBrowserEventLevel,
+  MiniBrowserLastFrame,
   MiniBrowserOwnerKind,
   MiniBrowserSettings,
   MiniBrowserStatePayload,
@@ -14,12 +16,16 @@ import type {
 } from '../../types'
 import { register } from '../socket/messageRegistry'
 
-// Mini Browser: the live Chromium shared by the user and every agent.
+// Mini Browser: every chat session has a browser of its own, shown in that
+// chat's browser panel. State is kept per session (`views`); tabs live in one
+// table (tab ids are unique across every session's browser), each tagged with
+// its session. `activity` says, for every session, whether its browser runs
+// and whether an agent is browsing in it (the chat's panel opens on that).
 //
 // Only low-frequency state lives here (lifecycle, tabs, vault, results).
 // Screencast frames and the agent's pointer arrive many times a second and
 // are deliberately NOT stored: the live view subscribes to them directly and
-// paints them without a React render (pages/MiniBrowser/live/).
+// paints them without a React render (components/MiniBrowser/live/).
 //
 // Every payload is parsed defensively — the backend is a separate process
 // and a malformed field must degrade to a sane default, never crash a render.
@@ -73,25 +79,36 @@ export interface MiniBrowserVaultState {
   result: MiniBrowserVaultResultState | null
 }
 
-interface MiniBrowserSliceState {
-  /** A `mini_browser_state` arrived at least once. */
-  known: boolean
+/** One session's browser, as its panel shows it. */
+export interface MiniBrowserSessionView {
   status: MiniBrowserStatus
   error: MiniBrowserError | null
-  sessionId: string | null
   adblock: boolean | null
   viewedTabId: string | null
   follow: boolean
   viewport: MiniBrowserViewport | null
   settings: MiniBrowserSettings
-  tabs: EntityState<MiniBrowserTab, string>
-  install: MiniBrowserInstallState
+  /** The session's tabs, in strip order (entities in `tabs`). */
+  tabIds: string[]
   navResult: MiniBrowserNavResultState | null
+}
+
+interface MiniBrowserSliceState {
+  /** Per session id; a session appears once its state was reported. */
+  views: Record<string, MiniBrowserSessionView>
+  /** Every session's tabs (each names its session). */
+  tabs: EntityState<MiniBrowserTab, string>
+  /** Per session id: its browser runs / an agent browses in it. */
+  activity: Record<string, MiniBrowserActivity>
+  /** Per session id: where its browser left off (none when there is no
+   *  picture to show). */
+  lastFrames: Record<string, MiniBrowserLastFrame>
+  install: MiniBrowserInstallState
   eventSeq: number
   /** The most recent events (oldest first), capped at MAX_EVENTS. */
   events: MiniBrowserEventEntry[]
   /** Reply to the last copy request; cleared once written to the clipboard.
-   *  `requestId` names the request it answers (null from an older backend). */
+   *  `requestId` names the request it answers. */
   clipboard: { seq: number; text: string; requestId: string | null } | null
   vault: MiniBrowserVaultState
 }
@@ -112,18 +129,11 @@ const sameIds = (a: readonly string[], b: readonly string[]): boolean =>
   a.length === b.length && a.every((id, i) => id === b[i])
 
 const initialState: MiniBrowserSliceState = {
-  known: false,
-  status: 'stopped',
-  error: null,
-  sessionId: null,
-  adblock: null,
-  viewedTabId: null,
-  follow: true,
-  viewport: null,
-  settings: DEFAULT_SETTINGS,
+  views: {},
   tabs: miniBrowserTabsAdapter.getInitialState(),
+  activity: {},
+  lastFrames: {},
   install: { lines: [], doneSeq: 0, ok: null, error: null },
-  navResult: null,
   eventSeq: 0,
   events: [],
   clipboard: null,
@@ -140,30 +150,72 @@ const miniBrowserSlice = createSlice({
   name: 'miniBrowser',
   initialState,
   reducers: {
-    // The backend re-sends the whole state on every change. Unchanged parts
-    // keep their identity, so a title change in one tab re-renders only what
-    // shows that tab — not the whole page.
+    // The backend re-sends a session's whole state on every change.
+    // Unchanged parts keep their identity, so a title change in one tab
+    // re-renders only what shows that tab — not the whole panel.
     applyState(state, action: PayloadAction<MiniBrowserStatePayload>) {
       const p = action.payload
-      state.known = true
-      state.status = p.status
-      if (!shallowEqual(state.error, p.error)) state.error = p.error
-      state.sessionId = p.sessionId
-      state.adblock = p.adblock
-      state.viewedTabId = p.viewedTabId
-      state.follow = p.follow
-      if (!shallowEqual(state.viewport, p.viewport)) state.viewport = p.viewport
-      if (!shallowEqual(state.settings, p.settings)) state.settings = p.settings
-
+      const previous = state.views[p.sessionId]
       const ids = p.tabs.map(tab => tab.id)
       const keep = new Set(ids)
-      for (const id of state.tabs.ids) {
-        if (!keep.has(id)) delete state.tabs.entities[id]
+      for (const id of previous?.tabIds ?? []) {
+        if (!keep.has(id)) {
+          delete state.tabs.entities[id]
+        }
       }
       for (const tab of p.tabs) {
         if (!shallowEqual(state.tabs.entities[tab.id] ?? null, tab)) state.tabs.entities[tab.id] = tab
       }
-      if (!sameIds(state.tabs.ids, ids)) state.tabs.ids = ids
+      const allIds = state.tabs.ids.filter(id => id in state.tabs.entities)
+      for (const id of ids) {
+        if (!allIds.includes(id)) allIds.push(id)
+      }
+      if (!sameIds(state.tabs.ids, allIds)) state.tabs.ids = allIds
+
+      if (!previous) {
+        state.views[p.sessionId] = {
+          status: p.status,
+          error: p.error,
+          adblock: p.adblock,
+          viewedTabId: p.viewedTabId,
+          follow: p.follow,
+          viewport: p.viewport,
+          settings: p.settings,
+          tabIds: ids,
+          navResult: null,
+        }
+        return
+      }
+      previous.status = p.status
+      if (!shallowEqual(previous.error, p.error)) previous.error = p.error
+      previous.adblock = p.adblock
+      previous.viewedTabId = p.viewedTabId
+      previous.follow = p.follow
+      if (!shallowEqual(previous.viewport, p.viewport)) previous.viewport = p.viewport
+      if (!shallowEqual(previous.settings, p.settings)) previous.settings = p.settings
+      if (!sameIds(previous.tabIds, ids)) previous.tabIds = ids
+    },
+    /** `mini_browser_activity`: a snapshot replaces every entry, an update
+     *  changes the sessions it names. */
+    activityReceived(
+      state,
+      action: PayloadAction<{ sessions: MiniBrowserActivity[]; snapshot: boolean }>,
+    ) {
+      if (action.payload.snapshot) state.activity = {}
+      for (const entry of action.payload.sessions) {
+        const current = state.activity[entry.sessionId]
+        if (!shallowEqual(current ?? null, entry)) state.activity[entry.sessionId] = entry
+      }
+    },
+    /** `mini_browser_last_frame`: a session's picture of where its browser
+     *  left off, or none (`frame` null). */
+    lastFrameReceived(
+      state,
+      action: PayloadAction<{ sessionId: string; frame: MiniBrowserLastFrame | null }>,
+    ) {
+      const { sessionId, frame } = action.payload
+      if (frame) state.lastFrames[sessionId] = frame
+      else delete state.lastFrames[sessionId]
     },
     eventReceived(state, action: PayloadAction<MiniBrowserEvent>) {
       state.eventSeq += 1
@@ -187,15 +239,21 @@ const miniBrowserSlice = createSlice({
       state.install.ok = action.payload.ok
       state.install.error = action.payload.error
     },
-    navResultReceived(state, action: PayloadAction<{ ok: boolean; error: MiniBrowserError | null }>) {
-      state.navResult = {
-        seq: (state.navResult?.seq ?? 0) + 1,
+    navResultReceived(
+      state,
+      action: PayloadAction<{ sessionId: string; ok: boolean; error: MiniBrowserError | null }>,
+    ) {
+      const view = state.views[action.payload.sessionId]
+      if (!view) return
+      view.navResult = {
+        seq: (view.navResult?.seq ?? 0) + 1,
         ok: action.payload.ok,
         error: action.payload.error,
       }
     },
-    navResultDismissed(state) {
-      state.navResult = null
+    navResultDismissed(state, action: PayloadAction<string>) {
+      const view = state.views[action.payload]
+      if (view) view.navResult = null
     },
     clipboardReceived(state, action: PayloadAction<{ text: string; requestId: string | null }>) {
       state.clipboard = {
@@ -227,11 +285,24 @@ const miniBrowserSlice = createSlice({
     ) {
       state.vault.result = { seq: (state.vault.result?.seq ?? 0) + 1, ...action.payload }
     },
+    /** A session was deleted: forget its browser. */
+    sessionForgotten(state, action: PayloadAction<string>) {
+      const view = state.views[action.payload]
+      if (view) {
+        for (const id of view.tabIds) delete state.tabs.entities[id]
+        state.tabs.ids = state.tabs.ids.filter(id => id in state.tabs.entities)
+        delete state.views[action.payload]
+      }
+      delete state.activity[action.payload]
+      delete state.lastFrames[action.payload]
+    },
   },
 })
 
 export const {
   applyState,
+  activityReceived,
+  lastFrameReceived,
   eventReceived,
   installRequested,
   installLine,
@@ -242,6 +313,7 @@ export const {
   clipboardConsumed,
   vaultListReceived,
   vaultResultReceived,
+  sessionForgotten,
 } = miniBrowserSlice.actions
 
 export default miniBrowserSlice.reducer
@@ -259,7 +331,10 @@ const finite = (v: unknown): number | null => (typeof v === 'number' && Number.i
 const clip = (text: string, max: number): string => (text.length > max ? `${text.slice(0, max)}…` : text)
 
 const STATUSES: readonly MiniBrowserStatus[] = ['stopped', 'starting', 'ready', 'installing', 'error']
-const OWNER_KINDS: readonly MiniBrowserOwnerKind[] = ['user', 'main', 'session', 'mini_browser', 'subagent']
+// A site icon is only ever an inline image (the backend loads it): a remote
+// URL would make the app fetch arbitrary hosts.
+const FAVICON = /^data:image\/(?:png|x-icon|gif|jpeg|webp|svg\+xml);base64,[A-Za-z0-9+/=]+$/
+const OWNER_KINDS: readonly MiniBrowserOwnerKind[] = ['user', 'main', 'session', 'subagent']
 const LEVELS: readonly MiniBrowserEventLevel[] = ['info', 'warning', 'error']
 
 /** `{code, title, message}` from the backend, or null when absent/empty. */
@@ -275,7 +350,7 @@ export function parseMiniBrowserError(v: unknown): MiniBrowserError | null {
   return { code: code || 'MINI_BROWSER_INTERNAL', title, message }
 }
 
-function parseTab(v: unknown): MiniBrowserTab | null {
+function parseTab(v: unknown, sessionId: string): MiniBrowserTab | null {
   if (!isDict(v)) return null
   const id = str(v.id)
   if (!id) return null
@@ -286,6 +361,7 @@ function parseTab(v: unknown): MiniBrowserTab | null {
     : owner ? 'session' : 'user'
   return {
     id,
+    sessionId,
     url: str(v.url, 'about:blank'),
     title: str(v.title),
     loading: bool(v.loading),
@@ -298,6 +374,7 @@ function parseTab(v: unknown): MiniBrowserTab | null {
     canGoBack: bool(v.canGoBack),
     canGoForward: bool(v.canGoForward),
     crashed: bool(v.crashed),
+    favicon: typeof v.favicon === 'string' && FAVICON.test(v.favicon) ? v.favicon : null,
   }
 }
 
@@ -308,17 +385,21 @@ function parseViewport(v: unknown): MiniBrowserViewport | null {
   return width && height && width > 0 && height > 0 ? { width, height } : null
 }
 
+function parseStatus(v: unknown): MiniBrowserStatus {
+  const raw = str(v)
+  return (STATUSES as readonly string[]).includes(raw) ? (raw as MiniBrowserStatus) : 'stopped'
+}
+
+/** A session's `mini_browser_state`; null without a session id. */
 export function parseMiniBrowserState(v: unknown): MiniBrowserStatePayload | null {
   if (!isDict(v)) return null
-  const rawStatus = str(v.status)
-  const status = (STATUSES as readonly string[]).includes(rawStatus)
-    ? (rawStatus as MiniBrowserStatus)
-    : 'stopped'
+  const sessionId = optStr(v.sessionId)
+  if (!sessionId) return null
   const tabs: MiniBrowserTab[] = []
   const seen = new Set<string>()
   if (Array.isArray(v.tabs)) {
     for (const raw of v.tabs) {
-      const tab = parseTab(raw)
+      const tab = parseTab(raw, sessionId)
       if (tab && !seen.has(tab.id)) {
         seen.add(tab.id)
         tabs.push(tab)
@@ -328,9 +409,9 @@ export function parseMiniBrowserState(v: unknown): MiniBrowserStatePayload | nul
   const settings = isDict(v.settings) ? v.settings : {}
   const viewedTabId = optStr(v.viewedTabId)
   return {
-    status,
+    sessionId,
+    status: parseStatus(v.status),
     error: parseMiniBrowserError(v.error),
-    sessionId: optStr(v.sessionId),
     adblock: optBool(v.adblock),
     viewedTabId: viewedTabId && seen.has(viewedTabId) ? viewedTabId : null,
     follow: bool(v.follow, true),
@@ -343,6 +424,13 @@ export function parseMiniBrowserState(v: unknown): MiniBrowserStatePayload | nul
   }
 }
 
+function parseActivity(v: unknown): MiniBrowserActivity | null {
+  if (!isDict(v)) return null
+  const sessionId = optStr(v.sessionId)
+  if (!sessionId) return null
+  return { sessionId, status: parseStatus(v.status), browsing: bool(v.browsing) }
+}
+
 function parseEvent(v: unknown): MiniBrowserEvent | null {
   if (!isDict(v)) return null
   const kind = str(v.kind)
@@ -352,6 +440,7 @@ function parseEvent(v: unknown): MiniBrowserEvent | null {
     kind,
     level: (LEVELS as readonly string[]).includes(rawLevel) ? (rawLevel as MiniBrowserEventLevel) : 'info',
     message: clip(str(v.message), MAX_EVENT_MESSAGE_CHARS),
+    sessionId: optStr(v.sessionId),
   }
   const tabId = optStr(v.tabId)
   const path = optStr(v.path)
@@ -402,6 +491,36 @@ register('mini_browser_state', (data, dispatch) => {
   if (parsed) dispatch(applyState(parsed))
 })
 
+register('mini_browser_activity', (data, dispatch) => {
+  if (!isDict(data)) return
+  const sessions: MiniBrowserActivity[] = []
+  if (Array.isArray(data.sessions)) {
+    for (const raw of data.sessions) {
+      const entry = parseActivity(raw)
+      if (entry) sessions.push(entry)
+    }
+  }
+  dispatch(activityReceived({ sessions, snapshot: data.snapshot === true }))
+})
+
+// Only an inline JPEG is accepted: a remote URL would make the app fetch
+// arbitrary hosts.
+const LAST_FRAME_IMAGE = /^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/
+
+register('mini_browser_last_frame', (data, dispatch) => {
+  if (!isDict(data)) return
+  const sessionId = optStr(data.sessionId)
+  if (!sessionId) return
+  const width = finite(data.width)
+  const height = finite(data.height)
+  const image = str(data.image)
+  const frame: MiniBrowserLastFrame | null =
+    LAST_FRAME_IMAGE.test(image) && width && height && width > 0 && height > 0
+      ? { image, width, height, url: str(data.url), title: str(data.title) }
+      : null
+  dispatch(lastFrameReceived({ sessionId, frame }))
+})
+
 register('mini_browser_event', (data, dispatch) => {
   const event = parseEvent(data)
   if (event) dispatch(eventReceived(event))
@@ -419,8 +538,10 @@ register('mini_browser_install_progress', (data, dispatch) => {
 
 register('mini_browser_nav_result', (data, dispatch) => {
   if (!isDict(data)) return
+  const sessionId = optStr(data.sessionId)
+  if (!sessionId) return
   const error = parseMiniBrowserError(data.error)
-  dispatch(navResultReceived({ ok: bool(data.ok, !error) && !error, error }))
+  dispatch(navResultReceived({ sessionId, ok: bool(data.ok, !error) && !error, error }))
 })
 
 register('mini_browser_clipboard', (data, dispatch) => {
@@ -457,4 +578,10 @@ register('mini_browser_vault_result', (data, dispatch) => {
     ok: bool(data.ok, !error) && !error,
     error,
   }))
+})
+
+// A deleted session's browser is gone with it (the backend deletes it too).
+register('session_deleted', (data, dispatch) => {
+  const sessionId = isDict(data) ? optStr(data.sessionId) : null
+  if (sessionId) dispatch(sessionForgotten(sessionId))
 })

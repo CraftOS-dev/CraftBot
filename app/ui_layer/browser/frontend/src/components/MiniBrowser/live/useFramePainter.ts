@@ -11,8 +11,11 @@ const isImageDataUrl = (value: unknown): value is string =>
 export function parseFrame(data: unknown): MiniBrowserFrame | null {
   if (typeof data !== 'object' || data === null) return null
   const d = data as Record<string, unknown>
-  if (typeof d.tabId !== 'string' || !isImageDataUrl(d.image)) return null
+  if (typeof d.sessionId !== 'string' || typeof d.tabId !== 'string' || !isImageDataUrl(d.image)) {
+    return null
+  }
   return {
+    sessionId: d.sessionId,
     tabId: d.tabId,
     image: d.image,
     width: typeof d.width === 'number' && d.width > 0 ? d.width : 0,

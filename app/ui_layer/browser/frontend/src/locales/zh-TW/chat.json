@@ -98,5 +98,14 @@
     "replyTooltip": "回覆此訊息",
     "copyTooltip": "複製訊息",
     "copiedTooltip": "已複製！"
+  },
+  "browserPanel": {
+    "show": "顯示這個對話的瀏覽器",
+    "running": "這個對話的瀏覽器已開啟",
+    "browsing": "代理正在瀏覽",
+    "region": "瀏覽器面板"
+  },
+  "panel": {
+    "close": "關閉面板"
   }
 }

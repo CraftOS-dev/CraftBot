@@ -116,6 +116,8 @@ interface WebSocketContextType extends WebSocketState {
   deleteSession: (sessionId: string) => void
   renameSession: (sessionId: string, title: string) => void
   clearSession: (sessionId: string) => void
+  /** Close a Generative UI output for good (its code and saved progress). */
+  closeGenerativeUI: (sessionId: string, artifactId: string) => void
   // Reasoning picker: a session's choice (the draft view keeps it locally
   // until its first message creates the session)
   setSessionReasoning: (sessionId: string, choice: ReasoningChoice) => void
@@ -398,6 +400,10 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     sendOrQueue(JSON.stringify({ type: 'session_clear', sessionId }))
   }, [sendOrQueue])
 
+  const closeGenerativeUI = useCallback((sessionId: string, artifactId: string) => {
+    sendOrQueue(JSON.stringify({ type: 'generative_ui_close', sessionId, artifactId }))
+  }, [sendOrQueue])
+
   const setSessionReasoning = useCallback((sessionId: string, choice: ReasoningChoice) => {
     if (sessionId === 'new') {
       dispatch(setUiState(UI_STATE.chat.draftReasoningEffort, choice))
@@ -654,6 +660,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     deleteSession,
     renameSession,
     clearSession,
+    closeGenerativeUI,
     setSessionReasoning,
     requestChatHistory,
     markSessionSeen,
@@ -686,7 +693,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     setActiveAgentApp,
     updateAgentAppTheme,
   }), [
-    state, sendMessage, sendCommand, stopSession, deleteSession, renameSession, clearSession,
+    state, sendMessage, sendCommand, stopSession, deleteSession, renameSession, clearSession, closeGenerativeUI,
     setSessionReasoning, requestChatHistory, markSessionSeen, openFile, openFolder, requestFilteredMetrics,
     subscribeDashboardMetrics, unsubscribeDashboardMetrics, requestOnboardingStep,
     submitOnboardingStep, skipOnboardingStep, goBackOnboardingStep, checkLocalLLM,

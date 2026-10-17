@@ -13,6 +13,7 @@ is used on the Mini Browser event loop, where blocking I/O is not allowed.
 
 from __future__ import annotations
 
+import hashlib
 import locale
 import math
 import os
@@ -22,9 +23,10 @@ import warnings
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Mapping, Optional, Tuple
+from typing import Any, Dict, FrozenSet, Mapping, Optional, Tuple
 
 from app.logger import logger
+from app.mini_browser import DEFAULT_OWNER
 
 DEFAULT_SEARCH_URL = "https://duckduckgo.com/?q={query}"
 
@@ -50,6 +52,7 @@ _RANGES: Dict[str, Tuple[int, int]] = {
     "jpeg_quality": (30, 95),
     "max_agent_tabs": (1, 20),
     "idle_shutdown_minutes": (0, 24 * 60),
+    "max_running_browsers": (1, 12),
 }
 _LOCALE_RE = re.compile(r"[A-Za-z]{2,3}(?:-[A-Za-z0-9]{1,8})*")
 _MAX_SEARCH_URL_CHARS = 2048
@@ -71,7 +74,12 @@ class MiniBrowserSettings:
     search_url: str = DEFAULT_SEARCH_URL
     allow_file_urls: bool = False
     max_agent_tabs: int = 6
-    idle_shutdown_minutes: int = 30  # 0 = never
+    # A session's browser closes this long after its panel was closed and its
+    # agent's run ended (0 = never).
+    idle_shutdown_minutes: int = 3
+    # Session browsers running at once; opening one more closes the one idle
+    # the longest (each is a Chromium of its own).
+    max_running_browsers: int = 4
     locale: str = ""  # "" = the OS locale
     channel: str = "chromium"  # "" = Playwright's default headless shell
 
@@ -241,11 +249,45 @@ def save_setting(key: str, value: Any) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def profile_dir() -> Path:
-    """The persistent Chromium profile (cookies, logins, local storage)."""
+# A session id used as it is for its profile folder name; anything else gets
+# a stable hashed name (no path separators, no reserved names, bounded length).
+_PLAIN_KEY_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}")
+_RESERVED_DIR_NAMES = frozenset(
+    {"con", "prn", "aux", "nul"}
+    | {f"com{i}" for i in range(1, 10)}
+    | {f"lpt{i}" for i in range(1, 10)}
+)
+PROFILE_LOCK_SUFFIX = ".lock"
+
+
+def profiles_root() -> Path:
+    """The folder holding every session's Chromium profile.
+
+    Kept out of the agent workspace: a profile holds the session's cookies
+    and signed-in sites, which the agent's file tools must never read.
+    """
     from app.config import APP_DATA_PATH
 
-    return Path(APP_DATA_PATH) / "mini_browser_profile"
+    return Path(APP_DATA_PATH) / "mini_browser_profiles"
+
+
+def profile_dir_name(key: str) -> str:
+    """The profile folder name of browser ``key`` (a session id). Pure."""
+    text = str(key or "")
+    if _PLAIN_KEY_RE.fullmatch(text) and text.lower() not in _RESERVED_DIR_NAMES:
+        return text
+    digest = hashlib.sha256(text.encode("utf-8", "surrogatepass")).hexdigest()
+    return f"s-{digest[:24]}"
+
+
+def profile_dir(key: str) -> Path:
+    """Session ``key``'s persistent Chromium profile (cookies, logins, storage)."""
+    return profiles_root() / profile_dir_name(key)
+
+
+def profile_lock_path(profile: Path) -> Path:
+    """The cross-process lock file kept next to ``profile``."""
+    return profile.parent / f"{profile.name}{PROFILE_LOCK_SUFFIX}"
 
 
 def workspace_dir(owner: Optional[str]) -> Path:
@@ -311,6 +353,88 @@ def session_record(session_id: Optional[str]) -> Any:
         return None
 
 
+def session_exists(session_id: Optional[str]) -> Optional[bool]:
+    """Whether the agent session ``session_id`` exists; None when unknown
+    (no agent runtime here: CLI tools, tests)."""
+    try:
+        manager = getattr(internal_action_interface(), "session_manager", None)
+    except Exception:
+        return None
+    if manager is None:
+        return None
+    if not session_id:
+        return False
+    try:
+        return manager.get(session_id) is not None
+    except Exception:
+        return None
+
+
+def live_session_ids() -> Optional[FrozenSet[str]]:
+    """Ids of the sessions the agent runtime has loaded; None when unknown."""
+    try:
+        manager = getattr(internal_action_interface(), "session_manager", None)
+        sessions = getattr(manager, "sessions", None) if manager is not None else None
+        if not isinstance(sessions, Mapping):
+            return None
+        return frozenset(key for key in list(sessions) if isinstance(key, str))
+    except Exception:
+        return None
+
+
+def persisted_session_ids() -> Optional[FrozenSet[str]]:
+    """Ids of every session row in session storage; None when it cannot be
+    read. Blocking I/O (SQLite): call it from a worker thread."""
+    try:
+        from app.usage.session_storage import get_session_storage
+
+        rows = get_session_storage().get_all_sessions()
+    except Exception as exc:
+        logger.debug(f"[MiniBrowser] Session storage unreadable: {type(exc).__name__}")
+        return None
+    return frozenset(
+        row["session_id"]
+        for row in rows
+        if isinstance(row, Mapping) and isinstance(row.get("session_id"), str)
+    )
+
+
+# Sub-agent ids (app/subagent/manager.py) start with this; a sub-agent drives
+# its parent session's browser.
+SUBAGENT_ID_PREFIX = "sub_"
+MAIN_SESSION_KEY = DEFAULT_OWNER  # the main session: scheduled runs browse there
+_MAX_SUBAGENT_DEPTH = 3
+
+
+def is_subagent_id(owner: Optional[str]) -> bool:
+    return isinstance(owner, str) and owner.startswith(SUBAGENT_ID_PREFIX)
+
+
+def browser_key(owner: Optional[str]) -> Optional[str]:
+    """The session whose browser ``owner`` drives.
+
+    A session drives its own browser; a sub-agent drives its parent
+    session's (a sub-agent spawned outside any session, the main one's).
+    None for an unknown sub-agent, or one nested deeper than sub-agents can
+    be: its browser is never guessed, since a wrong guess would hand it
+    another session's cookies and signed-in sites.
+    """
+    current = owner
+    for _depth in range(_MAX_SUBAGENT_DEPTH + 1):
+        if not isinstance(current, str) or not current:
+            return None
+        if not is_subagent_id(current):
+            return current
+        record = subagent_record(current)
+        if record is None:
+            return None
+        parent = record[0]
+        if not parent:
+            return MAIN_SESSION_KEY
+        current = parent
+    return None
+
+
 def subagent_record(
     owner: Optional[str],
 ) -> Optional[Tuple[Optional[str], str, Optional[datetime]]]:
@@ -319,7 +443,7 @@ def subagent_record(
     None when ``owner`` is not a known sub-agent. Sub-agent ids start with
     ``sub_``; ``created_at`` is naive UTC (as SubAgent stores it).
     """
-    if not owner or not owner.startswith("sub_"):
+    if not is_subagent_id(owner):
         return None
     try:
         manager = getattr(internal_action_interface(), "subagent_manager", None)

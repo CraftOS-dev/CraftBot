@@ -2,12 +2,6 @@
   "page": {
     "label": "迷你浏览器"
   },
-  "chat": {
-    "placeholder": "让智能体帮你浏览网页、搜索或填写表单…",
-    "show": "显示对话",
-    "hide": "隐藏对话",
-    "loading": "正在准备对话…"
-  },
   "toolbar": {
     "label": "浏览器控件",
     "back": "后退",
@@ -53,7 +47,7 @@
     "owner": {
       "you": "你",
       "main": "主对话",
-      "miniBrowser": "本对话",
+      "agent": "智能体",
       "session": "对话",
       "subagent": "子智能体",
       "subagentOf": "子智能体（{{parent}}）"
@@ -84,13 +78,17 @@
   "status": {
     "connecting": "正在连接迷你浏览器…",
     "starting": "正在启动浏览器…",
+    "resuming": "正在从上次离开的地方继续…",
+    "pausedTitle": "浏览器已暂停",
+    "pausedBody": "你的页面会从上次离开的地方重新打开。",
+    "resume": "继续",
     "installing": "正在安装浏览器…",
     "installingHint": "正在下载 Chromium，可能需要几分钟。",
     "installLog": "安装日志",
     "installDone": "浏览器已安装",
     "errorTitle": "浏览器遇到问题",
     "stoppedTitle": "和智能体一起浏览网页",
-    "stoppedBody": "一个与智能体共用的真实浏览器。你可以实时观看它们工作，也可以随时接手操作。",
+    "stoppedBody": "本对话专属的浏览器。你可以实时观看智能体工作，也可以随时接手操作。",
     "start": "启动浏览器",
     "openSite": "打开网站",
     "tryAsking": "试着这样问智能体",
@@ -108,7 +106,7 @@
     "install": "安装浏览器",
     "installAgain": "重新安装",
     "retry": "重试",
-    "profileInUseHint": "请关闭正在使用迷你浏览器的另一个 CraftBot 窗口，然后重试。"
+    "profileInUseHint": "请关闭正在使用本对话浏览器的另一个 CraftBot，然后重试。"
   },
   "events": {
     "download": "已下载 {{name}}",
@@ -125,7 +123,7 @@
   },
   "confirm": {
     "shutdownTitle": "要关闭浏览器吗？",
-    "shutdownMessage": "智能体仍在浏览。关闭浏览器会关闭所有标签页，但仍在工作的智能体可能会再次打开它。要让智能体停下来，请在它的对话中点击“停止”。"
+    "shutdownMessage": "智能体仍在浏览。关闭浏览器会关闭所有标签页，但仍在工作的智能体可能会再次打开它。要让智能体停下来，请点击“停止”。"
   },
   "passwords": {
     "title": "已保存的密码",
@@ -193,7 +191,7 @@
     },
     "MINI_BROWSER_PROFILE_IN_USE": {
       "title": "浏览器配置文件正在使用中",
-      "message": "另一个 CraftBot 窗口正在使用迷你浏览器的配置文件。"
+      "message": "另一个 CraftBot 正在使用本对话浏览器的配置文件。"
     },
     "MINI_BROWSER_LAUNCH_FAILED": {
       "title": "浏览器未能启动",
@@ -234,6 +232,14 @@
     "MINI_BROWSER_TOO_MANY_TABS": {
       "title": "标签页过多",
       "message": "打开的标签页太多了。请先关闭一个标签页，然后重试。"
+    },
+    "MINI_BROWSER_TOO_MANY_BROWSERS": {
+      "title": "打开的浏览器过多",
+      "message": "其他对话的浏览器正在运行并被使用。请关闭其中一个，或等待它的智能体完成。"
+    },
+    "MINI_BROWSER_SESSION_GONE": {
+      "title": "对话已删除",
+      "message": "此对话已被删除，因此它的浏览器也不存在了。"
     },
     "MINI_BROWSER_TIMEOUT": {
       "title": "已超时",

@@ -249,6 +249,27 @@ class ChatStorage:
             conn.commit()
             return cursor.lastrowid
 
+    def close_ui_artifact(self, session_id: str, artifact_id: str) -> int:
+        """The user closed a Generative UI output: every stored revision of it
+        keeps only a closed marker (``closed_artifact``), its code is dropped.
+        Returns how many messages carried it."""
+        from app.generative_ui import closed_artifact
+
+        with sqlite3.connect(self._db_path) as conn:
+            rows = conn.execute(
+                "SELECT id, ui_artifact FROM chat_messages "
+                "WHERE session_id = ? AND ui_artifact IS NOT NULL "
+                "AND json_extract(ui_artifact, '$.id') = ?",
+                (session_id, artifact_id),
+            ).fetchall()
+            for row_id, raw in rows:
+                conn.execute(
+                    "UPDATE chat_messages SET ui_artifact = ? WHERE id = ?",
+                    (json.dumps(closed_artifact(json.loads(raw))), row_id),
+                )
+            conn.commit()
+        return len(rows)
+
     def get_latest_ui_artifact(
         self, session_id: str, artifact_id: str
     ) -> Optional[dict]:

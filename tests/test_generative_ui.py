@@ -1,8 +1,9 @@
 """Artifact validation, delivery, history migrations and session-safe revisions."""
 
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -11,11 +12,12 @@ from agent_core.core.action_framework.registry import ActionRegistry
 from agent_core.core.impl.action.executor import ActionExecutor
 from agent_core.core.impl.event_stream.manager import EventStreamManager
 from app.data.action.render_ui import render_ui
-from app.generative_ui import MAX_HTML_BYTES, make_artifact
+from app.agent_base import AgentBase
+from app.generative_ui import MAX_HTML_BYTES, closed_artifact, make_artifact
 from app.internal_action_interface import InternalActionInterface
 from app.state.state_manager import StateManager
 from app.ui_layer.adapters.base import InterfaceAdapter
-from app.ui_layer.adapters.browser_adapter import BrowserChatComponent
+from app.ui_layer.adapters.browser_adapter import BrowserAdapter, BrowserChatComponent
 from app.ui_layer.components.types import ChatMessage
 from app.ui_layer.events.transformer import EventTransformer
 from app.usage.chat_storage import ChatStorage, StoredChatMessage
@@ -248,3 +250,118 @@ def test_revision_lookup_survives_context_folding(tmp_path, monkeypatch):
     data = {"artifact_id": original["id"], "title": "Revised", "html": "<p>Updated</p>"}
     assert asyncio.run(render_ui({**data, "_session_id": "mine"}))["revision"] == 8
     assert asyncio.run(render_ui({**data, "_session_id": "other"}))["status"] == "error"
+
+
+def stored(storage, message_id, session_id, data):
+    storage.insert_message(
+        StoredChatMessage(
+            message_id,
+            "CraftBot",
+            data["title"],
+            "agent",
+            1,
+            session_id=session_id,
+            ui_artifact=data,
+        )
+    )
+
+
+def test_closing_an_output_drops_its_code_but_keeps_its_numbering(
+    tmp_path, monkeypatch
+):
+    """Closed: every stored revision keeps only id, title and revision (so a
+    later revision numbers on); other outputs and sessions are untouched."""
+    first = artifact()
+    second = {**first, "revision": 2, "html": "<p>Two</p>"}
+    other = make_artifact({"title": "Other", "html": "<p>Other</p>"})
+    storage = ChatStorage(str(tmp_path / "chat.db"))
+    stored(storage, "r1", "mine", first)
+    stored(storage, "r2", "mine", second)
+    stored(storage, "b1", "mine", other)
+    stored(storage, "elsewhere", "theirs", first)
+
+    assert storage.close_ui_artifact("mine", first["id"]) == 2
+    rows = {m.message_id: m.ui_artifact for m in storage.get_messages()}
+    marker = {"id": first["id"], "title": first["title"], "closed": True}
+    assert rows["r1"] == {**marker, "revision": 1}
+    assert rows["r2"] == {**marker, "revision": 2}
+    assert rows["b1"] == other
+    assert rows["elsewhere"] == first
+    assert storage.close_ui_artifact("mine", "missing") == 0
+
+    # The agent can still revise it: the new revision numbers on.
+    streams = SimpleNamespace(
+        has_stream=lambda sid: True,
+        get_stream_by_id=lambda sid: SimpleNamespace(as_list=lambda: []),
+    )
+    monkeypatch.setattr(
+        InternalActionInterface,
+        "state_manager",
+        SimpleNamespace(event_stream_manager=streams),
+    )
+    monkeypatch.setattr("app.usage.chat_storage.get_chat_storage", lambda: storage)
+    monkeypatch.setattr(InternalActionInterface, "do_chat", AsyncMock())
+    data = {"artifact_id": first["id"], "title": "Again", "html": "<p>Again</p>"}
+    assert asyncio.run(render_ui({**data, "_session_id": "mine"}))["revision"] == 3
+
+
+def test_closing_an_output_drops_its_code_from_the_sessions_events():
+    first, other = artifact(), make_artifact({"title": "Other", "html": "<p>x</p>"})
+    streams = EventStreamManager(llm=SimpleNamespace())
+    stream = streams.create_stream("mine")
+    for data in (first, other):
+        stream.log(
+            "agent message",
+            data["title"],
+            event_type=EventType.AGENT_MESSAGE,
+            ui_artifact=data,
+        )
+    persist = Mock()
+    agent = SimpleNamespace(
+        event_stream_manager=streams, _persist_session_stream=persist
+    )
+    assert AgentBase.close_ui_artifact(agent, "mine", first["id"]) == 1
+    carried = [
+        record.event.ui_artifact
+        for record in stream.tail_events
+        if record.event.ui_artifact
+    ]
+    assert closed_artifact(first) in carried and other in carried
+    assert all("html" not in a for a in carried if a["id"] == first["id"])
+    persist.assert_called_once_with("mine")
+    assert AgentBase.close_ui_artifact(agent, "nobody", first["id"]) == 0
+
+
+def test_the_close_request_reaches_storage_events_and_every_client(tmp_path):
+    first = artifact()
+    storage = ChatStorage(str(tmp_path / "chat.db"))
+    stored(storage, "r1", "mine", first)
+    chat = BrowserChatComponent.__new__(BrowserChatComponent)
+    chat._messages = [
+        ChatMessage(
+            "CraftBot", first["title"], "agent", session_id="mine", ui_artifact=first
+        )
+    ]
+    chat._storage = storage
+    chat._db = ThreadPoolExecutor(max_workers=1)
+    agent = SimpleNamespace(close_ui_artifact=Mock(return_value=1))
+    adapter = SimpleNamespace(
+        _chat=chat,
+        _controller=SimpleNamespace(agent=agent),
+        _broadcast=AsyncMock(),
+    )
+    request = {"sessionId": "mine", "artifactId": first["id"]}
+    asyncio.run(BrowserAdapter._handle_generative_ui_close(adapter, request))
+
+    assert chat._messages[0].ui_artifact == closed_artifact(first)
+    assert storage.get_messages()[0].ui_artifact == closed_artifact(first)
+    agent.close_ui_artifact.assert_called_once_with("mine", first["id"])
+    adapter._broadcast.assert_awaited_once_with(
+        {"type": "generative_ui_closed", "data": request}
+    )
+
+    # A malformed request changes nothing.
+    for bad in ({}, {"sessionId": "mine"}, {"sessionId": "", "artifactId": "x"}):
+        asyncio.run(BrowserAdapter._handle_generative_ui_close(adapter, bad))
+    assert adapter._broadcast.await_count == 1
+    chat._db.shutdown()

@@ -3,18 +3,14 @@
     "version": "Version {{revision}}",
     "openOutput": "Open output",
     "output": "Output",
-    "outputs": "Outputs",
-    "conversation": "Conversation",
     "showOutputs": "Show outputs",
     "outputPanel": "Output panel",
-    "selectOutput": "Select output revision",
+    "tabsLabel": "Outputs",
+    "close": "Close output",
+    "closeNamed": "Close {{title}}",
+    "closed": "Closed",
+    "versions": "Versions",
     "resizePanel": "Resize conversation and output",
-    "fullscreen": "Fullscreen output",
-    "exitFullscreen": "Exit fullscreen",
-    "closeOutput": "Back to conversation",
-    "viewport": "Output viewport",
-    "desktop": "Desktop",
-    "phone": "Phone",
     "label": "Generative UI",
     "loading": "Preparing your preview…",
     "error": "This preview needs attention",
@@ -136,5 +132,14 @@
     "replyTooltip": "Reply to this message",
     "copyTooltip": "Copy message",
     "copiedTooltip": "Copied!"
+  },
+  "browserPanel": {
+    "show": "Show this chat's browser",
+    "running": "This chat's browser is on",
+    "browsing": "The agent is browsing",
+    "region": "Browser panel"
+  },
+  "panel": {
+    "close": "Close panel"
   }
 }

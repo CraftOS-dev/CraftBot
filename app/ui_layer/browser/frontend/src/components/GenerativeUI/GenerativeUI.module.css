@@ -1,24 +1,25 @@
 .artifact { display: flex; flex: 1; flex-direction: column; min-height: 0; min-width: 0; }
-.toolbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: 30px 36px; align-items: center; gap: 8px; padding: 10px 16px; border-bottom: 1px solid var(--border-primary); background: var(--bg-primary); flex-shrink: 0; }
-.toolbarTitle { min-width: 0; grid-column: 1; grid-row: 1; }
-.previewControls, .devices, .actions { display: flex; align-items: center; gap: 4px; }
-.previewControls { gap: 10px; grid-column: 1 / -1; grid-row: 2; justify-content: space-between; }
-.devices { padding: 3px; border: 1px solid var(--border-primary); border-radius: 8px; background: var(--bg-secondary); gap: 2px; }
-.toolbar button, .menu summary { display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 28px; padding: 4px 8px; border: 0; border-radius: 5px; background: transparent; color: var(--text-secondary); font-size: 12px; cursor: pointer; white-space: nowrap; }
-.devices button[aria-pressed=true] { background: var(--bg-primary); box-shadow: 0 1px 3px rgba(0,0,0,.12); color: var(--text-primary); }
-.toolbar button:hover, .menu summary:hover { background: var(--bg-hover); color: var(--text-primary); }
-.toolbar button:focus-visible, .menu summary:focus-visible, .resume:focus-visible, .error button:focus-visible { outline: 2px solid var(--text-secondary); outline-offset: 2px; }
-.toolbarActions { display: flex; justify-content: flex-end; grid-column: 2; grid-row: 1; }
-.canvas { flex: 1; display: flex; justify-content: center; min-height: 0; min-width: 0; padding: 16px; background: var(--bg-secondary); }
-.preview { position: relative; display: flex; flex-direction: column; width: 100%; max-width: 100%; min-height: 0; overflow: hidden; border: 1px solid var(--border-primary); border-radius: 12px; background: var(--bg-primary); box-shadow: 0 4px 20px rgba(0,0,0,.035); transition: max-width 280ms cubic-bezier(.22, 1, .36, 1), border-radius 280ms ease, box-shadow 280ms ease; }
-.phone { padding: 20px; }
-.phone .preview { max-width: 390px; border-radius: 24px; box-shadow: 0 12px 36px rgba(0,0,0,.1); }
+/* Reload and options: round icon buttons at the output tab strip's right end. */
+.controls { display: flex; align-items: center; gap: 2px; }
+.controls > button, .menu summary { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: var(--radius-full); background: transparent; color: var(--text-secondary); cursor: pointer; }
+.controls > button:hover, .menu summary:hover { background: var(--bg-selected-hover); color: var(--text-primary); }
+.controls > button:focus-visible, .menu summary:focus-visible, .menuItems button:focus-visible, .resume:focus-visible, .error button:focus-visible { outline: 2px solid var(--text-secondary); outline-offset: 2px; }
+/* The output is the pane: no frame or padding around it. On desktop it
+   fills the pane; a pane narrower than the 440px desktop canvas outputs are
+   built for shows the phone width (see the container query below). */
+.canvas { flex: 1; display: flex; justify-content: center; min-height: 0; min-width: 0; background: var(--bg-secondary); }
+.preview { position: relative; display: flex; flex-direction: column; width: 100%; max-width: 100%; min-height: 0; overflow: hidden; background: var(--bg-primary); }
 .frame { flex: 1; display: block; border: 0; width: 100%; min-height: 0; height: 100%; }
 .menu { position: relative; }
 .menu summary { list-style: none; }
 .menu summary::-webkit-details-marker { display: none; }
 .menuItems { position: absolute; top: calc(100% + 9px); right: 0; z-index: 5; display: grid; gap: 3px; width: 240px; padding: 6px; border: 1px solid var(--border-primary); border-radius: 10px; background: var(--bg-elevated); box-shadow: var(--shadow-md); }
-.menuItems button { justify-content: flex-start; padding: 9px 10px; }
+.menuItems button { display: flex; align-items: center; gap: 8px; width: 100%; padding: 9px 10px; border: 0; border-radius: 5px; background: transparent; color: var(--text-secondary); font-size: 12px; text-align: left; white-space: nowrap; cursor: pointer; }
+.menuItems button:hover { background: var(--bg-hover); color: var(--text-primary); }
+.versions { display: grid; gap: 1px; margin-top: 3px; padding-top: 6px; border-top: 1px solid var(--border-primary); }
+.versionsLabel { padding: 2px 10px 4px; color: var(--text-tertiary); font-size: 11px; }
+.versionCheck { display: grid; place-items: center; width: 15px; flex-shrink: 0; }
+.menuItems button[aria-pressed=true] { color: var(--text-primary); }
 .resetConfirmation { padding: 8px; font-size: 13px; color: var(--text-primary); }
 .resetConfirmation p { margin: 6px 0 14px; line-height: 1.5; font-size: 12px; color: var(--text-secondary); }
 .resetConfirmation > div { display: flex; justify-content: flex-end; gap: 6px; }
@@ -38,21 +39,15 @@
 .error p { margin: 8px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .error button { flex-shrink: 0; padding: 5px 8px; font-size: 12px; }
 @keyframes spin { to { transform: rotate(360deg); } }
-.canvas { transition: padding 280ms cubic-bezier(.22, 1, .36, 1); }
-.toolbar button, .menu summary, .resume, .error button { transition: background-color 140ms ease, color 140ms ease, box-shadow 140ms ease; }
+.controls > button, .menu summary, .menuItems button, .resume, .error button { transition: background-color 140ms ease, color 140ms ease, box-shadow 140ms ease; }
 .menu[open] .menuItems { animation: menuEnter 160ms cubic-bezier(.22, 1, .36, 1); transform-origin: top right; }
 .frameReady, .paused, .error, .resetConfirmation { animation: previewReveal 200ms ease-out; }
 @keyframes menuEnter { from { opacity: 0; transform: translateY(-5px) scale(.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
 @keyframes previewReveal { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
   .loading svg, .menu[open] .menuItems, .frameReady, .paused, .error, .resetConfirmation { animation: none; }
-  .preview, .canvas, .toolbar button, .menu summary, .resume, .error button { transition: none; }
+  .controls > button, .menu summary, .menuItems button, .resume, .error button { transition: none; }
 }
-@container output-pane (max-width: 640px) {
-  .toolbar { padding: 10px 16px; }
-  .canvas { padding: 10px; }
-  .phone { padding: 12px; }
-}
-@media (max-width: 768px) {
-  .toolbarTitle { padding-left: 36px; }
+@container output-pane (max-width: 439.98px) {
+  .preview { max-width: 390px; }
 }

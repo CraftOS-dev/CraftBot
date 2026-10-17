@@ -20,6 +20,8 @@ export interface KeyboardTarget {
 }
 
 interface KeyboardOptions {
+  /** The session whose browser the keyboard types into. */
+  sessionId: string
   sink: RefObject<HTMLTextAreaElement>
   input: LiveInput
   target: MutableRefObject<KeyboardTarget>
@@ -68,6 +70,7 @@ interface PendingCopy {
  * paste, copy/cut of the page's selection, and "Escape twice" to leave.
  */
 export function useKeyboardSink({
+  sessionId,
   sink,
   input,
   target,
@@ -98,7 +101,7 @@ export function useKeyboardSink({
     input.flushText()
     copySeqRef.current += 1
     const requestId = `copy-${copyPrefixRef.current}-${copySeqRef.current}`
-    if (!sendLive('mini_browser_copy', { tabId, requestId, cut })) return
+    if (!sendLive('mini_browser_copy', { sessionId, tabId, requestId, cut })) return
     const previous = copyRef.current
     if (previous) {
       previous.superseded = true
@@ -139,7 +142,7 @@ export function useKeyboardSink({
         input.sendTo(tabId, { kind: 'cut', requestId })
       }
     })
-  }, [input, onCopyFailed, target])
+  }, [input, onCopyFailed, sessionId, target])
 
   // The backend's copy reply arrives through the store.
   useEffect(() => {

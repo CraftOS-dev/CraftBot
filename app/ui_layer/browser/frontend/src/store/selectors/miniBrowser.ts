@@ -1,41 +1,73 @@
 import { createSelector } from '@reduxjs/toolkit'
 import type { RootState } from '../index'
-import type { MiniBrowserTab } from '../../types'
-import { miniBrowserTabsAdapter, miniBrowserVaultAdapter } from '../slices/miniBrowserSlice'
+import type { MiniBrowserActivity, MiniBrowserLastFrame, MiniBrowserTab } from '../../types'
+import {
+  miniBrowserVaultAdapter,
+  type MiniBrowserSessionView,
+} from '../slices/miniBrowserSlice'
 
-const tabSelectors = miniBrowserTabsAdapter.getSelectors((state: RootState) => state.miniBrowser.tabs)
+// Every chat session has a browser of its own: the per-session selectors take
+// the session id. createSelector memoizes per argument set (RTK's weakMap
+// memoization), so two panels on two sessions never evict each other.
+
 const vaultSelectors = miniBrowserVaultAdapter.getSelectors(
   (state: RootState) => state.miniBrowser.vault.entries,
 )
 
-/** True once the backend has reported the browser state at least once. */
-export const selectMiniBrowserKnown = (state: RootState) => state.miniBrowser.known
-export const selectMiniBrowserStatus = (state: RootState) => state.miniBrowser.status
-export const selectMiniBrowserError = (state: RootState) => state.miniBrowser.error
-/** The dedicated chat session behind the page (null until reported). */
-export const selectMiniBrowserSessionId = (state: RootState) => state.miniBrowser.sessionId
-export const selectMiniBrowserAdblock = (state: RootState) => state.miniBrowser.adblock
-export const selectMiniBrowserFollow = (state: RootState) => state.miniBrowser.follow
-export const selectMiniBrowserViewedTabId = (state: RootState) => state.miniBrowser.viewedTabId
-export const selectMiniBrowserViewport = (state: RootState) => state.miniBrowser.viewport
-export const selectMiniBrowserSettings = (state: RootState) => state.miniBrowser.settings
+const NO_TABS: MiniBrowserTab[] = []
 
-/** Tabs in strip order. */
-export const selectMiniBrowserTabs = tabSelectors.selectAll
+/** A session's browser as its panel shows it; undefined until reported. */
+export const selectMiniBrowserView = (
+  state: RootState,
+  sessionId: string,
+): MiniBrowserSessionView | undefined => state.miniBrowser.views[sessionId]
 
-export const selectMiniBrowserViewedTab = (state: RootState): MiniBrowserTab | null => {
-  const id = state.miniBrowser.viewedTabId
-  return id ? tabSelectors.selectById(state, id) ?? null : null
+/** A session's tabs, in strip order. */
+export const selectMiniBrowserTabs = createSelector(
+  [
+    (state: RootState, sessionId: string) => state.miniBrowser.views[sessionId]?.tabIds,
+    (state: RootState) => state.miniBrowser.tabs.entities,
+  ],
+  (ids, entities): MiniBrowserTab[] => {
+    if (!ids || ids.length === 0) return NO_TABS
+    const tabs: MiniBrowserTab[] = []
+    for (const id of ids) {
+      const tab = entities[id]
+      if (tab) tabs.push(tab)
+    }
+    return tabs
+  },
+)
+
+/** The tab on screen in a session's browser panel. */
+export const selectMiniBrowserViewedTab = (
+  state: RootState,
+  sessionId: string,
+): MiniBrowserTab | null => {
+  const id = state.miniBrowser.views[sessionId]?.viewedTabId
+  return id ? state.miniBrowser.tabs.entities[id] ?? null : null
 }
 
-/** Whether any agent is working in a tab right now. */
+/** Whether any agent is working in one of a session's tabs right now. */
 export const selectMiniBrowserAgentBusy = createSelector(
-  selectMiniBrowserTabs,
+  [selectMiniBrowserTabs],
   (tabs): boolean => tabs.some(tab => tab.busy && tab.ownerKind !== 'user'),
 )
 
+/** Where a session's browser left off: the picture shown while it starts
+ *  or is off (null: none to show). */
+export const selectMiniBrowserLastFrame = (
+  state: RootState,
+  sessionId: string,
+): MiniBrowserLastFrame | null => state.miniBrowser.lastFrames[sessionId] ?? null
+
+/** Whether a session's browser runs, and whether an agent browses in it. */
+export const selectMiniBrowserActivity = (
+  state: RootState,
+  sessionId: string,
+): MiniBrowserActivity | undefined => state.miniBrowser.activity[sessionId]
+
 export const selectMiniBrowserInstall = (state: RootState) => state.miniBrowser.install
-export const selectMiniBrowserNavResult = (state: RootState) => state.miniBrowser.navResult
 export const selectMiniBrowserEvents = (state: RootState) => state.miniBrowser.events
 export const selectMiniBrowserClipboard = (state: RootState) => state.miniBrowser.clipboard
 

@@ -2,12 +2,6 @@
   "page": {
     "label": "Mini Browser"
   },
-  "chat": {
-    "placeholder": "Ask the agent to browse, search or fill in a form…",
-    "show": "Show chat",
-    "hide": "Hide chat",
-    "loading": "Getting the chat ready…"
-  },
   "toolbar": {
     "label": "Browser controls",
     "back": "Back",
@@ -53,7 +47,7 @@
     "owner": {
       "you": "You",
       "main": "Main chat",
-      "miniBrowser": "This chat",
+      "agent": "Agent",
       "session": "Chat",
       "subagent": "Sub-agent",
       "subagentOf": "Sub-agent ({{parent}})"
@@ -84,13 +78,17 @@
   "status": {
     "connecting": "Connecting to the Mini Browser…",
     "starting": "Starting the browser…",
+    "resuming": "Picking up where you left off…",
+    "pausedTitle": "Browser paused",
+    "pausedBody": "Your pages reopen where you left off.",
+    "resume": "Resume",
     "installing": "Installing the browser…",
     "installingHint": "Downloading Chromium. This can take a few minutes.",
     "installLog": "Install log",
     "installDone": "Browser installed",
     "errorTitle": "The browser ran into a problem",
     "stoppedTitle": "Browse the web together with your agent",
-    "stoppedBody": "A real browser you share with your agents. Watch them work live, or step in whenever you like.",
+    "stoppedBody": "This chat's own browser. Watch your agent work live, or step in whenever you like.",
     "start": "Start browser",
     "openSite": "Open a site",
     "tryAsking": "Try asking the agent",
@@ -108,7 +106,7 @@
     "install": "Install browser",
     "installAgain": "Try installing again",
     "retry": "Try again",
-    "profileInUseHint": "Close the other CraftBot window that is using the Mini Browser, then try again."
+    "profileInUseHint": "Close the other CraftBot that is using this chat's browser, then try again."
   },
   "events": {
     "download": "Downloaded {{name}}",
@@ -125,7 +123,7 @@
   },
   "confirm": {
     "shutdownTitle": "Close the browser?",
-    "shutdownMessage": "An agent is still browsing. Closing the browser closes every tab, but an agent that is still working may open it again. To stop an agent, press Stop in its chat."
+    "shutdownMessage": "An agent is still browsing. Closing the browser closes every tab, but an agent that is still working may open it again. To stop the agent, press Stop."
   },
   "passwords": {
     "title": "Saved passwords",
@@ -194,7 +192,7 @@
     },
     "MINI_BROWSER_PROFILE_IN_USE": {
       "title": "Browser profile in use",
-      "message": "Another CraftBot window is already using the Mini Browser's profile."
+      "message": "Another CraftBot is already using this chat's browser profile."
     },
     "MINI_BROWSER_LAUNCH_FAILED": {
       "title": "The browser didn't start",
@@ -235,6 +233,14 @@
     "MINI_BROWSER_TOO_MANY_TABS": {
       "title": "Too many tabs",
       "message": "Too many tabs are open. Close a tab, then try again."
+    },
+    "MINI_BROWSER_TOO_MANY_BROWSERS": {
+      "title": "Too many browsers open",
+      "message": "Other chats' browsers are running and in use. Close one of them, or wait for its agent to finish."
+    },
+    "MINI_BROWSER_SESSION_GONE": {
+      "title": "Chat deleted",
+      "message": "This chat was deleted, so its browser is gone."
     },
     "MINI_BROWSER_TIMEOUT": {
       "title": "Timed out",

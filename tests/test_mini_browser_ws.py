@@ -4,8 +4,15 @@ Covers the request handlers, viewers and the thread-safe UI sink, the
 adapter wiring (dispatch, strict replies, the connection ``finally``), the
 error codebook registration and the settings in app/config.py.
 
-The browser host, the vault, the bridge and lifecycle are fakes: nothing here
-imports Playwright or starts Chromium.
+Every session has a browser of its own, shown in its chat's browser panel:
+requests name the session (``sessionId``), and state, frames, pointer moves
+and events go only to that session's viewers. The ``env`` fixture's
+``handle`` adds the default session (``SID``) to session requests that carry
+none, the way the panel always sends it; tests about the id itself use
+``env.raw_handle``.
+
+The browser host (with its fleet of session browsers), the vault, the bridge
+and lifecycle are fakes: nothing here imports Playwright or starts Chromium.
 """
 
 from __future__ import annotations
@@ -22,18 +29,35 @@ from aiohttp import web
 from aiohttp.test_utils import TestServer
 from loguru import logger as loguru_logger
 
-from agent_core.core.session import SessionType
 import app.config as app_config
 import app.mini_browser.ws as mbws
 import app.ui_layer.adapters.browser_adapter as browser_adapter_module
 from app.errors import make_error
-from app.mini_browser import ACTION_SET, SESSION_ID, SESSION_TITLE
 from app.mini_browser.errors import ERROR_SPECS, MiniBrowserError, ui_error
 from app.ui_layer.adapters.browser_adapter import BrowserAdapter
 from app.ui_layer.adapters.ws_auth import WsAuth
 
 PASSWORD = "hunter2-Secret!"
 TOKEN = "a" * 64
+SID = "chat-1"  # the session whose browser panel the tests use by default
+OTHER = "chat-2"
+# Requests about one session's browser (they name it: sessionId).
+SESSION_REQUESTS = frozenset(
+    {
+        "mini_browser_subscribe",
+        "mini_browser_unsubscribe",
+        "mini_browser_start",
+        "mini_browser_shutdown",
+        "mini_browser_navigate",
+        "mini_browser_history",
+        "mini_browser_input",
+        "mini_browser_resize",
+        "mini_browser_tab",
+        "mini_browser_view",
+        "mini_browser_control",
+        "mini_browser_copy",
+    }
+)
 
 
 # ─────────────────────────────────────────────────────────────────── fakes
@@ -63,7 +87,11 @@ class FakeChannel:
 
 
 class FakeCore:
-    def __init__(self) -> None:
+    """One session's browser."""
+
+    def __init__(self, key: str = SID, watched=lambda key: False) -> None:
+        self.key = key
+        self.watched = watched
         self.calls = []
         self.fail = {}
         self.status = "ready"
@@ -74,11 +102,21 @@ class FakeCore:
         # Set to an asyncio.Event to make the page "hang" on live input.
         self.input_gate = None
 
+    def has_viewers(self):
+        return self.watched(self.key)
+
+    def activity(self):
+        return {"sessionId": self.key, "status": self.status, "browsing": False}
+
+    def clear_launch_error(self):
+        if self.status == "error":
+            self.status, self.last_error = "stopped", None
+
     def state(self):
         return {
+            "sessionId": self.key,
             "status": self.status,
             "error": self.last_error,
-            "sessionId": "stale",
             "adblock": True,
             "viewedTabId": "t1",
             "follow": True,
@@ -97,6 +135,9 @@ class FakeCore:
 
     async def start(self):
         await self._record("start")
+
+    async def ensure_started(self):
+        await self._record("ensure_started")
 
     async def close(self):
         await self._record("close")
@@ -140,9 +181,6 @@ class FakeCore:
     async def set_viewport(self, width, height):
         await self._record("set_viewport", width, height)
 
-    async def set_adblock(self, enabled):
-        await self._record("set_adblock", enabled)
-
     async def set_streaming(self, active):
         await self._record("set_streaming", active)
 
@@ -150,18 +188,48 @@ class FakeCore:
         await self._record("push_frame_now")
 
 
+class FakeFleet:
+    """Every session's browser (created on first use, like the real fleet)."""
+
+    def __init__(self, make_core) -> None:
+        self.make_core = make_core
+        self.cores = {}
+        self.gone = set()  # deleted sessions
+        self.calls = []
+
+    def core(self, key):
+        if key in self.gone:
+            raise MiniBrowserError("MINI_BROWSER_SESSION_GONE")
+        if key not in self.cores:
+            self.cores[key] = self.make_core(key)
+        return self.cores[key]
+
+    def existing(self, key):
+        return self.cores.get(key)
+
+    def activity(self):
+        return [core.activity() for core in self.cores.values()]
+
+    async def set_adblock(self, enabled):
+        self.calls.append(("set_adblock", enabled))
+
+
 class FakeHost:
-    """The host contract: call() awaits fn(core); submit() is fire-and-forget."""
+    """The host contract: call(key) awaits fn(that session's core),
+    call_fleet() awaits fn(fleet), submit() is fire-and-forget on the fleet."""
 
-    def __init__(self, core: FakeCore) -> None:
-        self.core = core
+    def __init__(self, fleet: FakeFleet) -> None:
+        self.fleet = fleet
 
-    async def call(self, fn):
-        return await fn(self.core)
+    async def call(self, key, fn):
+        return await fn(self.fleet.core(key))
+
+    async def call_fleet(self, fn):
+        return await fn(self.fleet)
 
     def submit(self, fn):
         loop = asyncio.get_running_loop()
-        return asyncio.run_coroutine_threadsafe(fn(self.core), loop)
+        return asyncio.run_coroutine_threadsafe(fn(self.fleet), loop)
 
 
 class VaultError(MiniBrowserError):
@@ -262,45 +330,24 @@ class FakeLifecycle:
             raise self.error
 
 
-class FakeSessionManager:
-    def __init__(self, existing=None) -> None:
-        self.sessions = dict(existing or {})
-        self.created = []
-
-    def get(self, session_id):
-        return self.sessions.get(session_id)
-
-    def create_session(self, **kwargs):
-        self.created.append(kwargs)
-        session = SimpleNamespace(
-            id=kwargs["session_id"],
-            type=kwargs["session_type"],
-            title=kwargs["title"],
-            created_at="2026-10-09T00:00:00",
-            last_active_at="2026-10-09T00:00:00",
-            agent_app_project_id=None,
-            reasoning_effort=None,
-        )
-        self.sessions[session.id] = session
-        return session
-
-
-def make_adapter(session_manager=None) -> BrowserAdapter:
+def make_adapter() -> BrowserAdapter:
     """A real BrowserAdapter with only what these handlers touch."""
     adapter = BrowserAdapter.__new__(BrowserAdapter)
     adapter._channels = {}
     adapter._ws_auth = WsAuth(7926, token=TOKEN)
-    adapter._controller = SimpleNamespace(
-        agent=SimpleNamespace(session_manager=session_manager)
-    )
     return adapter
 
 
 @pytest.fixture
 def env(monkeypatch):
     e = SimpleNamespace()
-    e.core = FakeCore()
-    e.host = FakeHost(e.core)
+
+    def watched(key):
+        return e.mb.has_viewers(key)
+
+    e.fleet = FakeFleet(lambda key: FakeCore(key, watched))
+    e.core = e.fleet.core(SID)
+    e.host = FakeHost(e.fleet)
     e.host_started = True
     e.get_host_calls = 0
     e.vault = FakeVault()
@@ -309,7 +356,6 @@ def env(monkeypatch):
     e.settings = dict(app_config._get_default_settings()["mini_browser"])
     e.saved = []
     e.vault_notices = []
-    e.session_notices = []
 
     def get_host():
         e.get_host_calls += 1
@@ -325,14 +371,27 @@ def env(monkeypatch):
     monkeypatch.setattr(mbws, "_lifecycle", lambda: e.lifecycle)
     monkeypatch.setattr(mbws, "_load_settings", lambda: dict(e.settings))
     monkeypatch.setattr(mbws, "_save_setting", lambda k, v: e.saved.append((k, v)))
-    monkeypatch.setattr(mbws, "_preloaded_skills", lambda: [])
     monkeypatch.setattr(
         mbws, "_notify_vault_changed", lambda: e.vault_notices.append(True)
     )
-    monkeypatch.setattr(mbws, "_notify_sessions_changed", e.session_notices.append)
-    e.sessions = FakeSessionManager()
-    e.adapter = make_adapter(e.sessions)
+    # Where each session's browser left off (resume.py), never the real disk.
+    e.last_frames = {}
+    monkeypatch.setattr(
+        mbws,
+        "_last_frame",
+        lambda key: e.last_frames.get(key, {"sessionId": key, "image": None}),
+    )
+    e.adapter = make_adapter()
     e.mb = mbws.MiniBrowserWS(e.adapter)
+    e.raw_handle = e.mb.handle
+
+    async def handle(ws, msg_type, data):
+        # The panel always names its session; default it like the panel does.
+        if msg_type in SESSION_REQUESTS and isinstance(data, dict):
+            data = {"sessionId": SID, **data}
+        await e.raw_handle(ws, msg_type, data)
+
+    e.mb.handle = handle
     e.adapter._mini_browser_ws = e.mb
     return e
 
@@ -379,8 +438,9 @@ def all_traffic(*channels) -> str:
     return json.dumps([c.sent for c in channels])
 
 
-def frame(seq: int):
+def frame(seq: int, session: str = SID):
     return {
+        "sessionId": session,
         "tabId": "t1",
         "image": "data:image/jpeg;base64,AAAA",
         "width": 1280,
@@ -402,72 +462,99 @@ def test_subscribe_replies_state_to_requester_only(env):
         )
         await drain(env)
 
-        [state] = channel.data("mini_browser_state")
+        state = channel.data("mini_browser_state")[0]
         assert state["status"] == "ready"
-        assert state["sessionId"] == SESSION_ID  # the dedicated session now exists
+        assert state["sessionId"] == SID
         assert state["requestId"] == "req-1"  # strict reply echoes the request
         assert other.of_type("mini_browser_state") == []
-        assert env.mb.has_viewers()
-        # First viewer: streaming starts and the last frame is pushed.
+        assert env.mb.has_viewers(SID) and not env.mb.has_viewers(OTHER)
+        # First viewer: streaming starts and the last frame is pushed; the
+        # panel opening turns the session's browser on.
         assert ("set_streaming", True) in env.core.calls
         assert "push_frame_now" in env.core.names()
+        assert "ensure_started" in env.core.names()
 
     run(go)
 
 
-def test_subscribe_creates_and_announces_the_session_once(env):
+def test_opening_a_panel_turns_its_sessions_browser_on(env):
+    """The browser is off until the user opens the chat's panel (subscribe)
+    or its agent needs it; a failure to start shows in the panel's state."""
+
     async def go():
+        env.host_started = False
         ws, channel = connect(env)
-        _, other = connect(env)
-        browser_adapter_module._REQUEST_ID.set("req-9")
-        await env.mb.handle(ws, "mini_browser_subscribe", {})
-        await env.mb.handle(ws, "mini_browser_subscribe", {})
+        await env.mb.handle(ws, "mini_browser_subscribe", {"sessionId": OTHER})
         await drain(env)
+        assert env.host_started
+        assert "ensure_started" in env.fleet.cores[OTHER].names()
+        assert env.core.calls == []  # another session's browser is untouched
 
-        assert len(env.sessions.created) == 1
-        created = env.sessions.created[0]
-        assert created["session_type"] == "mini_browser"
-        assert created["session_id"] == SESSION_ID
-        assert created["title"] == SESSION_TITLE
-        # The browser set comes with the session type, not a create argument.
-        assert "action_sets" not in created
-        assert SessionType.BASE_ACTION_SETS[created["session_type"]] == (ACTION_SET,)
-        # Every tab upserts the new session; the broadcast carries no
-        # request id (it is not a reply to anyone).
-        for c in (channel, other):
-            [announced] = c.data("session_created")
-            assert announced["session"]["id"] == SESSION_ID
-            assert announced["session"]["type"] == "mini_browser"
-            assert announced["clientId"] is None
-            assert "requestId" not in announced
-        assert env.session_notices == [SESSION_ID]
-
-    run(go)
-
-
-def test_existing_session_is_reused_not_recreated(env):
-    async def go():
-        restored = SimpleNamespace(
-            id=SESSION_ID, type="mini_browser", title="Mini Browser"
+        env.fleet.cores[OTHER].fail["ensure_started"] = MiniBrowserError(
+            "MINI_BROWSER_TOO_MANY_BROWSERS", count=4, limit=4
         )
-        env.sessions.sessions[SESSION_ID] = restored
-        ws, channel = connect(env)
-        await env.mb.handle(ws, "mini_browser_subscribe", {})
+        env.fleet.cores[OTHER].status = "error"
+        env.fleet.cores[OTHER].last_error = ui_error(
+            "MINI_BROWSER_TOO_MANY_BROWSERS", count=4, limit=4
+        )
+        await env.mb.handle(ws, "mini_browser_subscribe", {"sessionId": OTHER})
         await drain(env)
-        assert env.sessions.created == []
-        assert channel.of_type("session_created") == []
-        assert env.mb.ensure_session() is restored
+        state = channel.data("mini_browser_state")[-1]
+        assert state["sessionId"] == OTHER and state["status"] == "error"
+        assert state["error"]["code"] == "MINI_BROWSER_TOO_MANY_BROWSERS"
+        assert channel.of_type("mini_browser_event") == []  # shown in the panel
 
     run(go)
 
 
-def test_state_has_no_session_id_until_the_session_exists(env):
+def test_a_panel_opening_on_a_browser_that_is_off_shows_where_it_left_off(env):
+    """Until the live page is back, the panel first gets the picture of where
+    the browser left off, then a "starting" state (opening it starts it)."""
+
     async def go():
-        env.adapter._controller.agent.session_manager = None  # no sessions at all
+        env.host_started = False
+        env.last_frames[OTHER] = {
+            "sessionId": OTHER,
+            "image": "data:image/jpeg;base64,AAAA",
+            "width": 1280,
+            "height": 800,
+            "url": "https://example.org/",
+            "title": "Example",
+        }
         ws, channel = connect(env)
-        await env.mb.handle(ws, "mini_browser_subscribe", {})
-        [state] = channel.data("mini_browser_state")
-        assert state["sessionId"] is None
+        await env.mb.handle(ws, "mini_browser_subscribe", {"sessionId": OTHER})
+        await drain(env)
+        kinds = [
+            m["type"]
+            for m in channel.sent
+            if m["type"] in ("mini_browser_last_frame", "mini_browser_state")
+        ]
+        assert kinds[:2] == ["mini_browser_last_frame", "mini_browser_state"]
+        assert channel.data("mini_browser_last_frame") == [env.last_frames[OTHER]]
+        first = channel.data("mini_browser_state")[0]
+        assert first["sessionId"] == OTHER and first["status"] == "starting"
+        assert first["error"] is None
+
+        # A running browser's panel gets no picture: its live page shows.
+        ws2, channel2 = connect(env)
+        await env.mb.handle(ws2, "mini_browser_subscribe", {})
+        await drain(env)
+        assert channel2.of_type("mini_browser_last_frame") == []
+        assert channel2.data("mini_browser_state")[0]["status"] == "ready"
+
+    run(go)
+
+
+def test_a_deleted_sessions_panel_says_why(env):
+    async def go():
+        env.fleet.gone.add("gone-chat")
+        ws, channel = connect(env)
+        await env.mb.handle(ws, "mini_browser_subscribe", {"sessionId": "gone-chat"})
+        await drain(env)
+        state = channel.data("mini_browser_state")[-1]
+        assert state["sessionId"] == "gone-chat"
+        assert state["status"] == "error" and state["tabs"] == []
+        assert state["error"]["code"] == "MINI_BROWSER_SESSION_GONE"
 
     run(go)
 
@@ -477,14 +564,15 @@ def test_passive_messages_never_start_the_browser(env):
         env.host_started = False
         ws, channel = connect(env)
         for msg_type in (
-            "mini_browser_subscribe",
             "mini_browser_adblock",
             "mini_browser_vault_list",
             "mini_browser_unsubscribe",
             "mini_browser_view",
             "mini_browser_shutdown",
+            "mini_browser_activity_query",
         ):
-            await env.mb.handle(ws, msg_type, {"type": msg_type})
+            data = {"enabled": True} if msg_type == "mini_browser_adblock" else {}
+            await env.mb.handle(ws, msg_type, data)
         await env.mb.handle(
             ws,
             "mini_browser_input",
@@ -494,31 +582,35 @@ def test_passive_messages_never_start_the_browser(env):
 
         assert env.get_host_calls == 0 and not env.host_started
         assert env.core.calls == []
+        # The state of a browser that never ran is synthesized.
         state = channel.data("mini_browser_state")[0]
-        assert state["status"] == "stopped"
+        assert state["sessionId"] == SID and state["status"] == "stopped"
         assert state["tabs"] == [] and state["viewedTabId"] is None
         assert state["viewport"] == {"width": 1280, "height": 800}
         assert state["settings"] == {"humanlike": True, "showCursor": True}
+        assert channel.data("mini_browser_activity") == [
+            {"sessions": [], "snapshot": True}
+        ]
         assert channel.of_type("mini_browser_event") == []
 
     run(go)
 
 
-def test_adblock_query_and_toggle_without_a_browser(env):
+def test_adblock_toggle_with_and_without_a_browser(env):
+    """One setting for every session's browser."""
+
     async def go():
         env.host_started = False
-        env.settings["adblock"] = False
-        ws, channel = connect(env)
-        await env.mb.handle(ws, "mini_browser_adblock", {})
-        assert channel.data("mini_browser_state")[-1]["adblock"] is False
-
+        ws, _ = connect(env)
         await env.mb.handle(ws, "mini_browser_adblock", {"enabled": True})
         assert env.saved == [("adblock", True)]  # persisted, no browser needed
         assert not env.host_started
 
         env.host_started = True
+        await env.mb.handle(ws, "mini_browser_subscribe", {})
+        await drain(env)
         await env.mb.handle(ws, "mini_browser_adblock", {"enabled": False})
-        assert ("set_adblock", False) in env.core.calls
+        assert env.fleet.calls == [("set_adblock", False)]  # every browser at once
 
     run(go)
 
@@ -534,13 +626,13 @@ def test_unsubscribe_and_forget_stop_streaming(env):
 
         await env.mb.handle(a, "mini_browser_unsubscribe", {})
         await drain(env)
-        assert env.mb.has_viewers()
+        assert env.mb.has_viewers(SID)
         assert ("set_streaming", False) not in env.core.calls  # b still watches
 
         env.mb.forget(b)
         env.mb.forget(object())  # unknown sockets are fine
         await drain(env)
-        assert not env.mb.has_viewers()
+        assert not env.mb.has_viewers(SID)
         assert ("set_streaming", False) in env.core.calls
 
     run(go)
@@ -551,24 +643,138 @@ def test_subscribe_from_a_closed_socket_is_ignored(env):
         ws, channel = connect(env)
         channel.closed = True
         await env.mb.handle(ws, "mini_browser_subscribe", {})
-        assert not env.mb.has_viewers()
+        assert not env.mb.has_viewers(SID)
         assert channel.sent == []
 
     run(go)
 
 
-def test_a_host_started_after_subscribe_learns_about_the_viewer(env):
+def test_a_host_started_by_a_request_learns_about_every_watched_panel(env):
     async def go():
         env.host_started = False
         ws, _ = connect(env)
-        await env.mb.handle(ws, "mini_browser_subscribe", {})
-        await drain(env)
-        assert env.core.calls == []  # nothing to stream yet
+        env.fleet.core(OTHER)  # its browser ran before
+        env.mb._add_viewer(ws, OTHER)  # a panel watching while no host runs
         await env.mb.handle(ws, "mini_browser_resize", {"width": 1024, "height": 768})
         await drain(env)
         assert env.host_started
-        assert ("set_streaming", True) in env.core.calls
         assert ("set_viewport", 1024, 768) in env.core.calls
+        assert ("set_streaming", True) in env.fleet.cores[OTHER].calls
+
+    run(go)
+
+
+def test_two_panels_watch_two_sessions_browsers(env):
+    """Two windows on two chats: each gets its own session's state, frames,
+    pointer and events, and each browser streams only while watched."""
+
+    async def go():
+        env.mb.on_start()
+        a, a_ch = connect(env)
+        b, b_ch = connect(env)
+        await env.mb.handle(a, "mini_browser_subscribe", {"sessionId": SID})
+        await env.mb.handle(b, "mini_browser_subscribe", {"sessionId": OTHER})
+        await drain(env)
+        assert env.mb.has_viewers(SID) and env.mb.has_viewers(OTHER)
+        a_ch.sent.clear()
+        b_ch.sent.clear()
+
+        env.mb.post("frame", frame(1, SID))
+        env.mb.post("frame", frame(2, OTHER))  # both wait for one flush
+        env.mb.post("state", {**env.core.state(), "status": "starting"})
+        env.mb.post("pointer", {"sessionId": OTHER, "tabId": "t9", "x": 0, "y": 0})
+        env.mb.post(
+            "event",
+            {"sessionId": SID, "kind": "notice", "level": "info", "message": "a"},
+        )
+        env.mb.post("frame", frame(3, "nobody-watches"))
+        await drain(env)
+        assert [d["seq"] for d in a_ch.data("mini_browser_frame")] == [1]
+        assert [d["seq"] for d in b_ch.data("mini_browser_frame")] == [2]
+        assert [d["sessionId"] for d in a_ch.data("mini_browser_state")] == [SID]
+        assert b_ch.of_type("mini_browser_state") == []
+        assert b_ch.data("mini_browser_pointer")[0]["tabId"] == "t9"
+        assert a_ch.of_type("mini_browser_pointer") == []
+        assert [e["message"] for e in a_ch.data("mini_browser_event")] == ["a"]
+        assert b_ch.of_type("mini_browser_event") == []
+
+        await env.mb.handle(a, "mini_browser_unsubscribe", {"sessionId": SID})
+        await drain(env)
+        assert ("set_streaming", False) in env.core.calls
+        assert ("set_streaming", False) not in env.fleet.cores[OTHER].calls
+
+    run(go)
+
+
+def test_requests_go_to_the_named_sessions_browser(env):
+    async def go():
+        ws, channel = connect(env)
+        await env.mb.handle(
+            ws, "mini_browser_navigate", {"sessionId": OTHER, "url": "a.example"}
+        )
+        await env.mb.handle(
+            ws,
+            "mini_browser_input",
+            {"sessionId": OTHER, "tabId": "t5", "event": {"kind": "key", "key": "a"}},
+        )
+        await env.mb.handle(
+            ws, "mini_browser_resize", {"sessionId": OTHER, "width": 900, "height": 700}
+        )
+        await drain(env)
+        other = env.fleet.cores[OTHER]
+        # (the page load runs in the background: the order may differ)
+        assert sorted(other.names()) == ["set_viewport", "ui_input", "ui_navigate"]
+        assert env.core.calls == []
+        [result] = channel.data("mini_browser_nav_result")
+        assert result == {"sessionId": OTHER, "ok": True}
+
+        await env.mb.handle(ws, "mini_browser_shutdown", {"sessionId": OTHER})
+        assert "close" in other.names() and "close" not in env.core.names()
+
+    run(go)
+
+
+@pytest.mark.parametrize("msg_type", sorted(SESSION_REQUESTS))
+@pytest.mark.parametrize("session", [None, "", 7, "s" * 200])
+def test_requests_about_a_session_must_name_it(env, msg_type, session):
+    async def go():
+        ws, channel = connect(env)
+        data = {"tabId": "t1", "url": "a.example", "action": "new", "take": True}
+        data.update(width=800, height=600, event={"kind": "key", "key": "a"})
+        if session is not None:
+            data["sessionId"] = session
+        await env.raw_handle(ws, msg_type, data)
+        await drain(env)
+        assert env.fleet.cores.keys() == {SID} and env.core.calls == []
+        replies = channel.data("mini_browser_event") + channel.data(
+            "mini_browser_nav_result"
+        )
+        codes = [r.get("code") or r["error"]["code"] for r in replies]
+        assert codes == ["MINI_BROWSER_INVALID_INPUT"]
+
+    run(go)
+
+
+def test_activity_snapshot_and_updates_reach_every_client(env):
+    async def go():
+        env.mb.on_start()
+        ws, channel = connect(env)
+        _, bystander = connect(env)  # no panel open: still told
+        env.fleet.core(OTHER)
+        await env.mb.handle(ws, "mini_browser_activity_query", {})
+        [snapshot] = channel.data("mini_browser_activity")
+        assert snapshot["snapshot"] is True
+        assert {s["sessionId"] for s in snapshot["sessions"]} == {SID, OTHER}
+        assert bystander.of_type("mini_browser_activity") == []  # a reply
+
+        update = {"sessionId": OTHER, "status": "ready", "browsing": True}
+        env.mb.post("activity", update)
+        await drain(env)
+        for c in (channel, bystander):
+            assert c.data("mini_browser_activity")[-1] == {
+                "sessions": [update],
+                "snapshot": False,
+            }
 
     run(go)
 
@@ -603,13 +809,13 @@ def test_frames_coalesce_to_the_latest(env):
         ws, channel = connect(env)
         await env.mb.handle(ws, "mini_browser_subscribe", {})
         flushes = []
-        real_flush = env.mb._flush_frame
+        real_flush = env.mb._flush_frames
 
         def counting_flush():
             flushes.append(1)
             real_flush()
 
-        env.mb._flush_frame = counting_flush
+        env.mb._flush_frames = counting_flush
         for seq in range(1, 6):
             env.mb.post("frame", frame(seq))  # all before the loop runs again
         await drain(env)
@@ -632,29 +838,38 @@ def test_post_from_the_browser_thread(env):
         loop_thread = threading.get_ident()
         channel.thread_ids.clear()
 
+        pointer = {"sessionId": SID, "tabId": "t1", "x": 0.5, "y": 0.5, "kind": "move"}
+
         def browser_thread():
-            assert env.mb.has_viewers()
+            assert env.mb.has_viewers(SID)
             for seq in range(1, 201):
                 env.mb.post("frame", frame(seq))
-            env.mb.post("pointer", {"tabId": "t1", "x": 0.5, "y": 0.5, "kind": "move"})
+            env.mb.post("pointer", pointer)
             env.mb.post(
-                "event", {"kind": "download", "level": "info", "message": "Saved"}
+                "event",
+                {
+                    "sessionId": SID,
+                    "kind": "download",
+                    "level": "info",
+                    "message": "Saved",
+                },
             )
             env.mb.post("state", {**env.core.state(), "status": "starting"})
 
         worker = threading.Thread(target=browser_thread)
         worker.start()
         worker.join()  # the loop is blocked meanwhile: every frame coalesces
-        await until(lambda: channel.of_type("mini_browser_state")[1:])
+        await until(
+            lambda: any(
+                s["status"] == "starting" for s in channel.data("mini_browser_state")
+            )
+        )
 
         assert [d["seq"] for d in channel.data("mini_browser_frame")] == [200]
-        assert channel.data("mini_browser_pointer") == [
-            {"tabId": "t1", "x": 0.5, "y": 0.5, "kind": "move"}
-        ]
+        assert channel.data("mini_browser_pointer") == [pointer]
         assert channel.data("mini_browser_event")[0]["message"] == "Saved"
         state = channel.data("mini_browser_state")[-1]
-        assert state["status"] == "starting"
-        assert state["sessionId"] == SESSION_ID  # overlaid on the UI loop
+        assert state["status"] == "starting" and state["sessionId"] == SID
         assert channel.thread_ids == {loop_thread}
 
     run(go)
@@ -667,18 +882,21 @@ def test_sink_messages_carry_no_request_id_and_skip_non_viewers(env):
         ws, channel = connect(env)
         _, bystander = connect(env)
         await env.mb.handle(ws, "mini_browser_subscribe", {})
+        await drain(env)
         channel.sent.clear()
-        env.mb.post("event", {"kind": "notice", "level": "info", "message": "hi"})
+        env.mb.post(
+            "event",
+            {"sessionId": SID, "kind": "notice", "level": "info", "message": "hi"},
+        )
         env.mb.post("install", {"line": "Downloading"})
         env.mb.post("bogus", {"x": 1})  # unknown kinds are dropped
         env.mb.post("event", "not a dict")
+        env.mb.post("event", {"kind": "notice", "message": "names no session"})
         await drain(env)
         types = [m["type"] for m in channel.sent]
         assert types == ["mini_browser_event", "mini_browser_install_progress"]
         assert all("requestId" not in m["data"] for m in channel.sent)
-        assert bystander.sent == [] or all(
-            m["type"] == "session_created" for m in bystander.sent
-        )
+        assert bystander.sent == []
 
     run(go)
 
@@ -688,8 +906,14 @@ def test_pointer_moves_skip_a_badly_lagging_socket(env):
         env.mb.on_start()
         ws, channel = connect(env, pending=9)
         await env.mb.handle(ws, "mini_browser_subscribe", {})
-        env.mb.post("pointer", {"tabId": "t1", "x": 0.1, "y": 0.1, "kind": "move"})
-        env.mb.post("event", {"kind": "notice", "level": "info", "message": "kept"})
+        env.mb.post(
+            "pointer",
+            {"sessionId": SID, "tabId": "t1", "x": 0.1, "y": 0.1, "kind": "move"},
+        )
+        env.mb.post(
+            "event",
+            {"sessionId": SID, "kind": "notice", "level": "info", "message": "kept"},
+        )
         await drain(env)
         assert channel.of_type("mini_browser_pointer") == []
         assert channel.of_type("mini_browser_event")  # state/events always go
@@ -699,12 +923,12 @@ def test_pointer_moves_skip_a_badly_lagging_socket(env):
 
 def test_post_without_viewers_or_loop_is_a_no_op(env):
     env.mb.post("frame", frame(1))  # never started: no loop
-    assert env.mb._frame is None
+    assert env.mb._frames == {}
 
     async def go():
         env.mb.on_start()
         env.mb.post("frame", frame(1))  # nobody watching
-        assert env.mb._frame is None
+        assert env.mb._frames == {}
 
     run(go)
 
@@ -717,9 +941,12 @@ def test_closed_viewer_is_pruned_on_delivery(env):
         await drain(env)
         env.core.calls.clear()
         channel.closed = True
-        env.mb.post("event", {"kind": "notice", "level": "info", "message": "x"})
+        env.mb.post(
+            "event",
+            {"sessionId": SID, "kind": "notice", "level": "info", "message": "x"},
+        )
         await drain(env)
-        assert not env.mb.has_viewers()
+        assert not env.mb.has_viewers(SID)
         assert ("set_streaming", False) in env.core.calls
 
     run(go)
@@ -731,10 +958,22 @@ def test_unserializable_payload_is_dropped_not_raised(env, captured_logs):
         ws, channel = connect(env)
         await env.mb.handle(ws, "mini_browser_subscribe", {})
         channel.sent.clear()
+        await drain(env)
+        channel.sent.clear()
         env.mb.post(
-            "pointer", {"tabId": "t1", "x": float("nan"), "y": 0, "kind": "move"}
+            "pointer",
+            {
+                "sessionId": SID,
+                "tabId": "t1",
+                "x": float("nan"),
+                "y": 0,
+                "kind": "move",
+            },
         )
-        env.mb.post("event", {"kind": "notice", "level": "info", "message": object()})
+        env.mb.post(
+            "event",
+            {"sessionId": SID, "kind": "notice", "level": "info", "message": object()},
+        )
         await drain(env)
         assert channel.sent == []
 
@@ -761,7 +1000,7 @@ def test_navigation_runs_in_the_background_and_reports(env):
         env.core.navigate_gate.set()
         await drain(env)
         [result] = channel.data("mini_browser_nav_result")
-        assert result == {"ok": True, "requestId": "req-nav"}
+        assert result == {"sessionId": SID, "ok": True, "requestId": "req-nav"}
 
     run(go)
 
@@ -776,7 +1015,7 @@ def test_navigation_failure_is_reported_to_the_requester(env):
         await env.mb.handle(ws, "mini_browser_navigate", {"url": "nope.invalid"})
         await drain(env)
         [result] = channel.data("mini_browser_nav_result")
-        assert result["ok"] is False
+        assert result["ok"] is False and result["sessionId"] == SID
         assert result["error"]["code"] == "MINI_BROWSER_NAVIGATION_FAILED"
         assert result["error"]["title"] == "Page failed to load"
         assert other.sent == []
@@ -801,7 +1040,7 @@ def test_handler_exceptions_become_error_replies(env, captured_logs):
         assert "boom" in nav["error"]["message"]
         assert "Call log" not in nav["error"]["message"]  # first line only
         [event] = channel.data("mini_browser_event")
-        assert event["kind"] == "error"
+        assert event["kind"] == "error" and event["sessionId"] == SID
         assert event["code"] == "MINI_BROWSER_TAB_NOT_FOUND"
         assert event["level"] == "warning"
         assert "t9" in event["message"]
@@ -1132,8 +1371,10 @@ def test_unknown_input_kind_and_unknown_types_are_ignored(env):
         await env.mb.handle(ws, "mini_browser_teleport", {"to": "mars"})
         assert env.core.calls == [] and channel.sent == []
         await env.mb.handle(ws, "mini_browser_subscribe", "not a dict")
-        assert channel.of_type("mini_browser_state")  # treated as {}
-        assert channel.of_type("mini_browser_event") == []
+        # Treated as {}: no session named, so nothing is watched.
+        assert not env.mb.has_viewers(SID)
+        [event] = channel.data("mini_browser_event")
+        assert event["code"] == "MINI_BROWSER_INVALID_INPUT"
 
     run(go)
 
@@ -1449,7 +1690,7 @@ def test_closing_the_browser_or_a_tab_drops_queued_input(env):
             env, ws, _key("a"), _key("b", tab="t2"), _key("c"), _key("d", tab="t2")
         )
         await env.mb.handle(ws, "mini_browser_tab", {"action": "close", "tabId": "t2"})
-        assert [tab for tab, _ in env.mb._input_queues[ws].items] == ["t1"]
+        assert [tab for _, tab, _ in env.mb._input_queues[ws].items] == ["t1"]
         await env.mb.handle(ws, "mini_browser_shutdown", {})
         gate.set()
         await drain(env)
@@ -1769,8 +2010,8 @@ def test_install_streams_progress_and_resets_the_launch_error(env, monkeypatch):
 
         states = channel.data("mini_browser_state")
         assert states[0]["status"] == "error"  # subscribe
-        assert states[1]["status"] == "installing"  # while installing
-        assert states[1]["error"] is None
+        installing = [s for s in states if s["status"] == "installing"]
+        assert installing and installing[0]["error"] is None  # while installing
         progress = channel.data("mini_browser_install_progress")
         assert [p.get("line") for p in progress[:-1]] == [
             "$ python -m playwright install chromium",
@@ -1794,15 +2035,19 @@ def test_install_failure_is_reported(env, monkeypatch, outcome):
 
     async def go():
         env.mb.on_start()
-        env.host_started = False
+        env.core.status = "error"
+        env.core.last_error = ui_error("MINI_BROWSER_CHROMIUM_MISSING")
         ws, channel = connect(env)
         await env.mb.handle(ws, "mini_browser_subscribe", {})
+        await drain(env)
         await env.mb.handle(ws, "mini_browser_install", {})
         [done] = channel.data("mini_browser_install_progress")
         assert done["done"] is True and done["ok"] is False
         assert done["error"]["code"] == "MINI_BROWSER_INSTALL_FAILED"
-        assert channel.data("mini_browser_state")[-1]["status"] == "stopped"
-        assert not env.host_started
+        # Still missing: the panel keeps offering the install.
+        last = channel.data("mini_browser_state")[-1]
+        assert last["status"] == "error"
+        assert last["error"]["code"] == "MINI_BROWSER_CHROMIUM_MISSING"
 
     run(go)
 
@@ -1856,7 +2101,7 @@ def test_shutdown_unregisters_cancels_and_closes_the_browser(env):
         await env.mb.shutdown()
         assert env.bridge.unregistered == [env.mb]
         assert env.lifecycle.calls == [mbws._LIFECYCLE_SHUTDOWN_S]
-        assert not env.mb.has_viewers()
+        assert not env.mb.has_viewers(SID)
         assert all(task.done() for task in env.mb._tasks)
         env.mb.post("frame", frame(1))  # after shutdown: dropped silently
 
@@ -1879,14 +2124,26 @@ def test_send_only_to_never_broadcasts(env):
     gone = object()
     ws, channel = connect(env)
     _, other = connect(env)
-    assert env.adapter._send_only_to(gone, {"type": "x", "data": {}}) is False
-    assert env.adapter._send_only_to(None, {"type": "x", "data": {}}) is False
+    assert env.adapter.send_only_to(gone, {"type": "x", "data": {}}) is False
+    assert env.adapter.send_only_to(None, {"type": "x", "data": {}}) is False
     channel.closed = True
-    assert env.adapter._send_only_to(ws, {"type": "x", "data": {}}) is False
+    assert env.adapter.send_only_to(ws, {"type": "x", "data": {}}) is False
     assert channel.sent == [] and other.sent == []
     channel.closed = False
-    assert env.adapter._send_only_to(ws, {"type": "x", "data": {"a": 1}}) is True
+    assert env.adapter.send_only_to(ws, {"type": "x", "data": {"a": 1}}) is True
     assert channel.sent == [{"type": "x", "data": {"a": 1}}]
+
+
+def test_the_adapter_hands_out_open_channels_only(env):
+    """The adapter interface the panels' protocol uses (MiniBrowserAdapter)."""
+    ws, channel = connect(env)
+    closed_ws, closed = connect(env)
+    closed.closed = True
+    assert env.adapter.client_channel(ws) is channel
+    assert env.adapter.client_channel(closed_ws) is None
+    assert env.adapter.client_channel(None) is None
+    assert env.adapter.client_channel(object()) is None
+    assert env.adapter.client_channels() == [channel]
 
 
 def test_adapter_without_mini_browser_ignores_its_messages():
@@ -2007,7 +2264,8 @@ def test_settings_defaults_when_absent(monkeypatch):
         "search_url": "https://duckduckgo.com/?q={query}",
         "allow_file_urls": False,
         "max_agent_tabs": 6,
-        "idle_shutdown_minutes": 30,
+        "idle_shutdown_minutes": 3,
+        "max_running_browsers": 4,
         "locale": "",
         "channel": "chromium",
     }
@@ -2025,6 +2283,7 @@ def test_settings_are_validated_and_clamped(monkeypatch):
         "allow_file_urls": True,
         "max_agent_tabs": True,
         "idle_shutdown_minutes": float("nan"),
+        "max_running_browsers": 0,
         "locale": " ja_JP ",
         "channel": "MSEdge",
     }
@@ -2041,7 +2300,8 @@ def test_settings_are_validated_and_clamped(monkeypatch):
     assert settings["search_url"] == "https://duckduckgo.com/?q={query}"
     assert settings["allow_file_urls"] is True
     assert settings["max_agent_tabs"] == 6
-    assert settings["idle_shutdown_minutes"] == 30
+    assert settings["idle_shutdown_minutes"] == 3
+    assert settings["max_running_browsers"] == 1  # clamped to at least one
     assert settings["locale"] == "ja-JP"
     assert settings["channel"] == "msedge"
 
@@ -2069,6 +2329,7 @@ SETTING_SAMPLES = (
         for value in ("20", " 5.6 ", 500, -3, 7.5, float("nan"), "inf", "x", True, None)
     ]
     + [("idle_shutdown_minutes", value) for value in ("0", 0, "90", 10**9, [], {})]
+    + [("max_running_browsers", value) for value in ("2", 0, 13, 4.4, "x", None)]
     + [
         ("search_url", value)
         for value in (

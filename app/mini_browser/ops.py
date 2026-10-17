@@ -2474,7 +2474,7 @@ async def _wait_for_user(core: Any, tab: Any, timeout_s: float) -> Dict[str, Any
             result["message"] = (
                 f"The user did not take control of this tab within {round(seconds)} s. "
                 "Ask them in chat what to do, as your final message (for example to "
-                "solve the check in the Mini Browser page and press Hand back), and "
+                "solve the check in this chat's browser panel and press Hand back), and "
                 "continue from a fresh mini_browser_read when they reply."
             )
             result["page"] = await page_observation(core, tab)

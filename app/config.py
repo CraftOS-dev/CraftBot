@@ -148,7 +148,10 @@ def _get_default_settings() -> Dict[str, Any]:
             "search_url": "https://duckduckgo.com/?q={query}",
             "allow_file_urls": False,
             "max_agent_tabs": 6,
-            "idle_shutdown_minutes": 30,  # 0 = never
+            # A session's browser closes this long after its panel was closed
+            # and its agent's run ended (0 = never).
+            "idle_shutdown_minutes": 3,
+            "max_running_browsers": 4,  # session browsers running at once
             "locale": "",  # "" = the OS locale
             "channel": "chromium",  # "" = Playwright's bundled headless shell
         },

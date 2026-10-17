@@ -1,4 +1,5 @@
-"""Live view: frames of the viewed tab, only while someone is watching.
+"""Live view: frames of a session browser's viewed tab, only while someone
+watches that session's browser panel.
 
 Uses CDP ``Page.startScreencast`` on the viewed tab's CDP session: Chromium
 pushes a JPEG whenever the page visibly changes (none while it is idle) and
@@ -9,7 +10,8 @@ screencast cannot start, screenshots are polled instead (identical frames are
 skipped). The last frame of each tab is kept so a new viewer gets a picture
 right away.
 
-Everything here runs on the Mini Browser host loop.
+Everything here runs on the Mini Browser host loop. Frames name their
+session (``sessionId``) and go only to that session's viewers.
 """
 
 from __future__ import annotations
@@ -37,7 +39,7 @@ _POLL_ACTIVE_WINDOW_S = 3.0
 
 
 class FrameStreamer:
-    """Streams the viewed tab of one :class:`BrowserCore` to the UI."""
+    """Streams the viewed tab of one session's :class:`BrowserCore` to the UI."""
 
     def __init__(self, core: "BrowserCore") -> None:
         self._core = core
@@ -104,7 +106,7 @@ class FrameStreamer:
         """Send the viewed tab's latest frame right away (a viewer just arrived)."""
         core = self._core
         tab_id = core.viewed_tab_id
-        if not tab_id or not bridge.has_viewers():
+        if not tab_id or not core.has_viewers():
             return
         frame = self._last_frames.get(tab_id)
         if frame is not None:
@@ -129,7 +131,7 @@ class FrameStreamer:
 
     def _wanted_tab(self) -> Optional["Tab"]:
         core = self._core
-        if core.status != "ready" or not bridge.has_viewers():
+        if core.status != "ready" or not core.has_viewers():
             return None
         tab = core.tabs.get(core.viewed_tab_id) if core.viewed_tab_id else None
         if tab is None or tab.crashed:
@@ -238,7 +240,7 @@ class FrameStreamer:
         last_digest: Optional[bytes] = None
         changed_at = time.monotonic()
         while self._mode == "poll" and self._tab_id == tab_id:
-            if not bridge.has_viewers():
+            if not self._core.has_viewers():
                 self._core.spawn(self.sync())
                 return
             try:
@@ -283,7 +285,7 @@ class FrameStreamer:
         pending, self._pending = self._pending, None
         if pending is None:
             return
-        if not bridge.has_viewers():
+        if not self._core.has_viewers():
             self._core.spawn(self.sync())  # nobody watches: stop capturing
             return
         tab_id, data, width, height = pending
@@ -291,6 +293,7 @@ class FrameStreamer:
 
     def _frame(self, tab_id: str, data: str, width: int, height: int) -> Dict[str, Any]:
         return {
+            "sessionId": self._core.key,
             "tabId": tab_id,
             "image": "data:image/jpeg;base64," + data,
             "width": width,
@@ -303,6 +306,9 @@ class FrameStreamer:
         self._last_frames[frame["tabId"]] = frame
         self._last_publish = time.monotonic()
         bridge.publish("frame", dict(frame))
+        self._core.note_frame(
+            frame["tabId"], frame["image"], frame["width"], frame["height"]
+        )
 
     def _cancel_flush(self) -> None:
         if self._flush_handle is not None:

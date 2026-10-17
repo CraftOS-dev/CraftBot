@@ -270,21 +270,26 @@ class _Core:
 
 
 class _Host:
-    def __init__(self, core):
-        self.core = core
+    """A fake host: every session's browser is the same fake core; the
+    sessions the calls were routed to are recorded in ``keys``."""
 
-    async def call(self, fn):
+    def __init__(self, core, keys=None):
+        self.core = core
+        self.keys = keys if keys is not None else []
+
+    async def call(self, key, fn):
+        self.keys.append(key)
         return await fn(self.core)
 
 
 @pytest.fixture
 def host(monkeypatch):
     """A fake app.mini_browser.host whose get_host() returns a fake host."""
-    state = SimpleNamespace(core=_Core(), started=0)
+    state = SimpleNamespace(core=_Core(), started=0, keys=[])
 
     def get_host():
         state.started += 1
-        return _Host(state.core)
+        return _Host(state.core, state.keys)
 
     monkeypatch.setitem(
         sys.modules, "app.mini_browser.host", SimpleNamespace(get_host=get_host)
@@ -317,6 +322,8 @@ def test_run_action_routes_to_the_callers_own_tab(host):
     assert host.core.calls == [
         ("chat42", "click", {"element_id": 3, "button": "left", "double": False})
     ]
+    # ... in the chat's own browser.
+    assert host.keys == ["chat42"]
 
 
 def test_owner_falls_back_to_the_action_context_then_the_default(host, monkeypatch):
@@ -328,7 +335,7 @@ def test_owner_falls_back_to_the_action_context_then_the_default(host, monkeypat
     )
 
     async def with_context():
-        var.set({"_session_id": "sub_1234"})
+        var.set({"_session_id": "chat7"})
         return await actions_api.run_action("read", {})
 
     asyncio.run(with_context())
@@ -336,7 +343,37 @@ def test_owner_falls_back_to_the_action_context_then_the_default(host, monkeypat
     monkeypatch.delitem(sys.modules, actions_api._CONTEXT_MODULE)
     asyncio.run(actions_api.run_action("read", {"_session_id": 5}))
     owners = [call[0] for call in host.core.calls]
-    assert owners == ["sub_1234", DEFAULT_OWNER, DEFAULT_OWNER]
+    assert owners == ["chat7", DEFAULT_OWNER, DEFAULT_OWNER]
+    assert host.keys == ["chat7", DEFAULT_OWNER, DEFAULT_OWNER]
+
+
+def test_a_sub_agent_works_in_its_parent_sessions_browser(host, monkeypatch):
+    """A sub-agent drives its own tab (owner = its id) in the browser of the
+    session that spawned it (key = the parent session)."""
+    from app.mini_browser import config
+
+    records = {
+        "sub_aaaa": ("chat9", "browser_agent", None),
+        "sub_bbbb": (None, "browser_agent", None),  # spawned outside any session
+    }
+    monkeypatch.setattr(config, "subagent_record", records.get)
+
+    asyncio.run(actions_api.run_action("read", {"_session_id": "sub_aaaa"}))
+    asyncio.run(actions_api.run_action("read", {"_session_id": "sub_bbbb"}))
+    assert [call[0] for call in host.core.calls] == ["sub_aaaa", "sub_bbbb"]
+    assert host.keys == ["chat9", DEFAULT_OWNER]
+
+
+def test_an_unknown_sub_agent_never_gets_a_guessed_browser(host, monkeypatch):
+    """A sub-agent whose session cannot be found is refused instead of
+    falling back to another session's browser (its signed-in sites)."""
+    from app.mini_browser import config
+
+    monkeypatch.setattr(config, "subagent_record", lambda owner: None)
+    result = asyncio.run(actions_api.run_action("read", {"_session_id": "sub_cccc"}))
+    assert result["status"] == "error"
+    assert result["error_code"] == "MINI_BROWSER_SESSION_GONE"
+    assert host.core.calls == [] and host.keys == []
 
 
 def test_invalid_input_is_answered_without_starting_the_browser(host):

@@ -40,15 +40,29 @@ ERROR_SPECS: Dict[str, Tuple[str, str, str, str]] = {
         "config",
         "error",
         "Browser not installed",
-        "The Mini Browser's Chromium is not installed yet. Install it from the "
-        "Mini Browser page, or run `python -m playwright install chromium`.",
+        "The Mini Browser's Chromium is not installed yet. Install it from a "
+        "chat's browser panel, or run `python -m playwright install chromium`.",
     ),
     "MINI_BROWSER_PROFILE_IN_USE": (
         "config",
         "error",
         "Browser profile in use",
-        "The Mini Browser profile is already in use by another CraftBot window. "
-        "Close the other window and try again.",
+        "This chat's browser profile is already in use by another CraftBot "
+        "instance. Close the other instance and try again.",
+    ),
+    "MINI_BROWSER_TOO_MANY_BROWSERS": (
+        "validation",
+        "warning",
+        "Too many browsers open",
+        "{count} chats already have their browser running and in use (at most "
+        "{limit} run at once). Wait for one of them to finish, or close a "
+        "browser from its chat's browser panel.",
+    ),
+    "MINI_BROWSER_SESSION_GONE": (
+        "not_found",
+        "warning",
+        "Chat deleted",
+        "The chat this browser belonged to has been deleted, so its browser is gone.",
     ),
     "MINI_BROWSER_LAUNCH_FAILED": (
         "internal",
@@ -67,8 +81,9 @@ ERROR_SPECS: Dict[str, Tuple[str, str, str, str]] = {
         "warning",
         "Browser closed",
         "The Mini Browser was closed (by the user, an idle shutdown or a crash), "
-        "so this action did not finish and your previous tabs are gone. Navigate "
-        "again if the task still needs the browser.",
+        "so this action did not finish. When it starts again it reopens the pages "
+        "it had open, as the user's tabs. Navigate again if the task still needs "
+        "the browser.",
     ),
     "MINI_BROWSER_TAB_CLOSED": (
         "not_found",
@@ -134,9 +149,9 @@ ERROR_SPECS: Dict[str, Tuple[str, str, str, str]] = {
         "warning",
         "The user's tab",
         "Tab {tab} is the user's own tab. You can switch to it only while the "
-        "user is viewing it in the Mini Browser and not using it (or when it is "
-        "blank). Open your own tab with mini_browser_tabs action='new', or ask "
-        "the user to show you the page.",
+        "user is viewing it in this chat's browser panel and not using it (or "
+        "when it is blank). Open your own tab with mini_browser_tabs "
+        "action='new', or ask the user to show you the page.",
     ),
     "MINI_BROWSER_TOO_MANY_TABS": (
         "validation",
@@ -168,8 +183,8 @@ ERROR_SPECS: Dict[str, Tuple[str, str, str, str]] = {
         "not_found",
         "warning",
         "No saved login",
-        "No saved login matches {site}. Ask the user to add one in the Mini "
-        "Browser's Passwords panel, or to sign in themselves in the live view.",
+        "No saved login matches {site}. Ask the user to add one under Passwords "
+        "in the browser panel, or to sign in themselves in the live view.",
     ),
     "MINI_BROWSER_LOGIN_FAILED": (
         "validation",

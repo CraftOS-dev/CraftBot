@@ -94,7 +94,7 @@ const clampDelta = (value: number): number => Math.max(-WHEEL_MAX_DELTA, Math.mi
 export function createLiveInput(
   getTarget: () => LiveTarget,
   isTabOpen: TabOpenCheck,
-  sender: InputSender = sendInput,
+  sender: InputSender,
 ): LiveInput {
   let text = ''
   let textTabId: string | null = null
@@ -277,9 +277,21 @@ export function createLiveInput(
   }
 }
 
-/** The live view's input sender, stable for the component's lifetime. */
-export function useLiveInput(target: MutableRefObject<LiveTarget>, isTabOpen: TabOpenCheck): LiveInput {
-  const input = useMemo(() => createLiveInput(() => target.current, isTabOpen), [target, isTabOpen])
+/** The live view's input sender for one session's browser, stable for the
+ *  component's lifetime (a panel is mounted per session). */
+export function useLiveInput(
+  sessionId: string,
+  target: MutableRefObject<LiveTarget>,
+  isTabOpen: TabOpenCheck,
+): LiveInput {
+  const input = useMemo(
+    () => createLiveInput(
+      () => target.current,
+      isTabOpen,
+      (tabId, event) => sendInput(sessionId, tabId, event),
+    ),
+    [sessionId, target, isTabOpen],
+  )
   useEffect(() => () => input.dispose(), [input])
   return input
 }

@@ -7,7 +7,6 @@ import {
   MessageCircle,
   LayoutDashboard,
   FolderOpen,
-  Globe,
   Settings,
   Waypoints,
   Box,
@@ -41,7 +40,7 @@ import { useAppSelector } from '../../store/hooks'
 import { UI_STATE } from '../../store/uiState'
 import { selectAgentAppProjects } from '../../store/selectors/agentApp'
 import { selectSkillMeta } from '../../store/selectors/agent'
-import { selectMainSession, selectChatSessions, selectMiniBrowserSession } from '../../store/selectors/sessions'
+import { selectMainSession, selectChatSessions } from '../../store/selectors/sessions'
 import { selectLastMessageIdBySession } from '../../store/selectors/messages'
 import { TopBar } from './TopBar'
 import styles from './NavBar.module.css'
@@ -52,9 +51,6 @@ interface NavItem {
   icon: React.ReactNode
   path: string
   tourAnchor?: TourAnchorId
-  /** Chat session behind the page: its busy/unread dot shows on the item
-   *  while the page isn't open. */
-  sessionId?: string
 }
 
 // Sidebar title with a typewriter reveal: when the auto-title replaces the
@@ -170,21 +166,11 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
   const location = useLocation()
   const navigate = useNavigate()
 
-  const miniBrowserSessionId = useAppSelector(selectMiniBrowserSession)?.id
-
   const utilityNavItems: NavItem[] = useMemo(() => [
     { id: 'dashboard', label: t('nav:items.dashboard'), icon: <LayoutDashboard size={16} />, path: '/dashboard', tourAnchor: 'nav-dashboard' },
     { id: 'memory', label: t('nav:items.memory'), icon: <Waypoints size={16} />, path: '/memory', tourAnchor: 'nav-memory' },
     { id: 'workspace', label: t('nav:items.workspace'), icon: <FolderOpen size={16} />, path: '/workspace', tourAnchor: 'nav-workspace' },
-    {
-      id: 'mini-browser',
-      label: t('nav:items.miniBrowser'),
-      icon: <Globe size={16} />,
-      path: '/mini-browser',
-      tourAnchor: 'nav-mini-browser',
-      sessionId: miniBrowserSessionId,
-    },
-  ], [t, miniBrowserSessionId])
+  ], [t])
 
   const settingsItem: NavItem = useMemo(
     () => ({ id: 'settings', label: t('nav:items.settings'), icon: <Settings size={16} />, path: '/settings' }),
@@ -869,11 +855,6 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
               >
                 <span className={styles.icon}>{item.icon}</span>
                 <span className={styles.label}>{item.label}</span>
-                {item.sessionId && !isActive(item.path) && (
-                  collapsed
-                    ? renderCollapsedDot([item.sessionId])
-                    : renderSessionDot(item.sessionId)
-                )}
               </button>
             ))}
 

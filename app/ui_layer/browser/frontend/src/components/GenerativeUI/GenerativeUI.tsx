@@ -1,15 +1,30 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
-import { Monitor, Smartphone, MoreHorizontal, RotateCcw, RefreshCw, Pause, Play, Loader2, AlertCircle } from 'lucide-react'
+import { Check, MoreHorizontal, RotateCcw, RefreshCw, Pause, Play, Loader2, AlertCircle } from 'lucide-react'
 import type { GenerativeUIArtifact } from '../../types'
 import { usePersistedState } from '../../hooks'
 import { UI_STATE } from '../../store/uiState'
 import { BRIDGE_CHANNEL, buildDocument, readHostTheme, validState } from './runtime'
 import styles from './GenerativeUI.module.css'
 
-interface Props { artifact: GenerativeUIArtifact; sessionId: string; toolbarTitle?: ReactNode; toolbarActions?: ReactNode }
+/** One revision of an output, in the options menu. */
+export interface OutputVersion { key: string; label: string; current: boolean }
 
-export function GenerativeUI({ artifact, sessionId, toolbarTitle, toolbarActions }: Props) {
+interface Props {
+  artifact: GenerativeUIArtifact
+  sessionId: string
+  /** Where the preview's controls (reload, options) go: the output tab
+   *  strip's right end. Nothing shows until it exists. */
+  controlsTarget: HTMLElement | null
+  /** The output's revisions (the options menu lists them from two on). */
+  versions: OutputVersion[]
+  onSelectVersion(key: string): void
+}
+
+/** One output running in its sandbox, with its reload and options controls
+ *  in the tab strip above it. */
+export function GenerativeUI({ artifact, sessionId, controlsTarget, versions, onSelectVersion }: Props) {
   const { t } = useTranslation('chat')
   const timeoutText = useRef('')
   timeoutText.current = t('generativeUI.timeout')
@@ -19,7 +34,6 @@ export function GenerativeUI({ artifact, sessionId, toolbarTitle, toolbarActions
   const frame = useRef<HTMLIFrameElement>(null)
   const options = useRef<HTMLDetailsElement>(null)
   const [attempt, setAttempt] = useState(0)
-  const [viewport, setViewport] = useState<'desktop' | 'phone'>('desktop')
   const [paused, setPaused] = useState(false)
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
   const [error, setError] = useState('')
@@ -88,7 +102,7 @@ export function GenerativeUI({ artifact, sessionId, toolbarTitle, toolbarActions
     setAttempt(value => value + 1)
   }
   const preview = (
-    <div className={`${styles.canvas} ${viewport === 'phone' ? styles.phone : ''}`}><div className={styles.preview}>
+    <div className={styles.canvas}><div className={styles.preview}>
       {paused ? <div className={styles.paused}>
         <span className={styles.statusIcon}><Pause size={22} /></span>
         <h3>{t('generativeUI.pausedTitle')}</h3><p>{t('generativeUI.paused')}</p>
@@ -106,14 +120,10 @@ export function GenerativeUI({ artifact, sessionId, toolbarTitle, toolbarActions
       </>}
     </div></div>
   )
-  const toolbar = <header className={styles.toolbar}>
-    <div className={styles.toolbarTitle}>{toolbarTitle}</div>
-    <div className={styles.previewControls}>
-    <div className={styles.devices} role="group" aria-label={t('generativeUI.viewport')}>
-      <button type="button" aria-pressed={viewport === 'desktop'} onClick={() => setViewport('desktop')}><Monitor size={14} /><span>{t('generativeUI.desktop')}</span></button>
-      <button type="button" aria-pressed={viewport === 'phone'} onClick={() => setViewport('phone')}><Smartphone size={14} /><span>{t('generativeUI.phone')}</span></button>
-    </div>
-    <div className={styles.actions}>
+  const closeMenu = () => {
+    if (options.current) options.current.open = false
+  }
+  const controls = <div className={styles.controls}>
       <button type="button" onClick={() => restart()} aria-label={t('generativeUI.retry')} title={t('generativeUI.retry')}><RefreshCw size={15} /></button>
       <details ref={options} className={styles.menu} onToggle={() => { if (!options.current?.open) setConfirmReset(false) }} onKeyDown={event => { if (event.key === 'Escape' && options.current) { event.preventDefault(); event.stopPropagation(); options.current.open = false; options.current.querySelector('summary')?.focus() } }}>
         <summary aria-label={t('generativeUI.options')} title={t('generativeUI.options')}><MoreHorizontal size={18} /></summary>
@@ -122,14 +132,20 @@ export function GenerativeUI({ artifact, sessionId, toolbarTitle, toolbarActions
             <strong>{t('generativeUI.resetTitle')}</strong><p>{t('generativeUI.resetDescription')}</p>
             <div><button type="button" onClick={() => { setConfirmReset(false); options.current?.querySelector('summary')?.focus() }}>{t('generativeUI.cancel')}</button><button type="button" className={styles.destructive} onClick={() => restart(true)}>{t('generativeUI.confirmReset')}</button></div>
           </div> : <>
-            {!paused && <button type="button" onClick={() => { if (options.current) options.current.open = false; setPaused(true) }}><Pause size={15} />{t('generativeUI.pause')}</button>}
+            {!paused && <button type="button" onClick={() => { closeMenu(); setPaused(true) }}><Pause size={15} />{t('generativeUI.pause')}</button>}
             <button type="button" onClick={() => setConfirmReset(true)}><RotateCcw size={15} />{t('generativeUI.reset')}</button>
+            {versions.length > 1 && <div className={styles.versions} role="group" aria-label={t('generativeUI.versions')}>
+              <span className={styles.versionsLabel}>{t('generativeUI.versions')}</span>
+              {versions.map(version => <button key={version.key} type="button" aria-pressed={version.current} onClick={() => { closeMenu(); if (!version.current) onSelectVersion(version.key) }}>
+                <span className={styles.versionCheck}>{version.current && <Check size={14} />}</span>{version.label}
+              </button>)}
+            </div>}
           </>}
         </div>
       </details>
     </div>
-    </div>
-    <div className={styles.toolbarActions}>{toolbarActions}</div>
-  </header>
-  return <div className={styles.artifact}>{toolbar}{preview}</div>
+  return <div className={styles.artifact}>
+    {controlsTarget && createPortal(controls, controlsTarget)}
+    {preview}
+  </div>
 }

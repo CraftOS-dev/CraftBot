@@ -23,7 +23,7 @@ import sys
 from typing import Any, Awaitable, Callable, Dict, FrozenSet, List, Optional, Tuple
 
 from app.logger import logger
-from app.mini_browser import DEFAULT_OWNER
+from app.mini_browser import DEFAULT_OWNER, config
 from app.mini_browser.errors import (
     MiniBrowserError,
     action_error,
@@ -576,6 +576,12 @@ async def run_action(op: str, input_data: dict) -> dict:
         return simulated_result(op)
     try:
         owner = resolve_owner(data)
+        # The browser of the caller's session (a sub-agent's parent session).
+        key = config.browser_key(owner)
+        if key is None:
+            # A sub-agent whose session is unknown never gets a guessed
+            # browser (it would see another session's signed-in sites).
+            return action_error("MINI_BROWSER_SESSION_GONE")
         if op in URL_OPS:
             # The address is resolved on the host loop, with the core's own
             # settings (see core_url_context).
@@ -589,8 +595,8 @@ async def run_action(op: str, input_data: dict) -> dict:
         from app.mini_browser.host import get_host
 
         host = get_host()
-        logger.debug(f"[MiniBrowser] {op} for {owner}")
-        result = await host.call(runner)
+        logger.debug(f"[MiniBrowser] {op} for {owner} in the browser of {key}")
+        result = await host.call(key, runner)
     except MiniBrowserError as exc:
         return from_exception(exc)
     except Exception as exc:

@@ -5,6 +5,10 @@ The engine tests drive a real (headless) Chromium against a local
 FAKE ops registry (the real ones are tested with the ops), the UI is a fake
 sink, and every path (profile, workspace, settings writes) points into a temp
 directory. Chromium tests skip when Playwright or its Chromium is missing.
+
+Every session has a browser of its own (``fleet.py``); these tests drive one
+session's browser (``SESSION``), whose agent and sub-agents are the owners.
+The fleet itself (several sessions) is tested in test_mini_browser_fleet.py.
 """
 
 from __future__ import annotations
@@ -31,12 +35,15 @@ from app.mini_browser import host as host_module
 from app.mini_browser.config import MiniBrowserSettings
 from app.mini_browser.core import BrowserCore
 from app.mini_browser.errors import MiniBrowserError
+from app.mini_browser.fleet import BrowserFleet
 from app.mini_browser.host import MiniBrowserHost
 from tests.mini_browser_fixtures import import_playwright_or_skip, skip_browser_missing
 
 ORIGINAL_WORKSPACE_DIR = config.workspace_dir
 SECRET = "Sup3r-Secret-Passw0rd"
 SLOW_RESPONSE_S = 12.0
+# The session whose browser the shared engine drives.
+SESSION = "engine-chat"
 
 
 def run(coro, timeout: float = 60.0):
@@ -72,6 +79,7 @@ def test_settings_are_validated_and_clamped():
             "jpeg_quality": 5,
             "max_agent_tabs": float("nan"),
             "idle_shutdown_minutes": -3,
+            "max_running_browsers": 99,
             "search_url": "javascript:alert(1)//{query}",
             "locale": "ja_JP",
             "channel": "MSEDGE",
@@ -84,10 +92,13 @@ def test_settings_are_validated_and_clamped():
     assert settings.jpeg_quality == 30
     assert settings.max_agent_tabs == 6  # unusable -> default
     assert settings.idle_shutdown_minutes == 0
+    assert settings.max_running_browsers == 12
     assert settings.search_url == "https://duckduckgo.com/?q={query}"
     assert settings.locale == "ja-JP"
     assert settings.channel == "msedge"
     assert MiniBrowserSettings.from_mapping(None) == MiniBrowserSettings()
+    defaults = MiniBrowserSettings()
+    assert (defaults.idle_shutdown_minutes, defaults.max_running_browsers) == (3, 4)
     assert (
         MiniBrowserSettings.from_mapping({"channel": "firefox"}).channel == "chromium"
     )
@@ -165,7 +176,17 @@ def test_workspace_paths_follow_the_owner(monkeypatch, tmp_path):
     fallback = Path(AGENT_WORKSPACE_ROOT) / "mini_browser"
     assert ORIGINAL_WORKSPACE_DIR("unknown-session") == fallback
     assert ORIGINAL_WORKSPACE_DIR(None) == fallback
-    assert config.profile_dir() == Path(APP_DATA_PATH) / "mini_browser_profile"
+    # Every session has a profile of its own, outside the agent workspace.
+    profiles = Path(APP_DATA_PATH) / "mini_browser_profiles"
+    assert config.profile_dir("chat-1") == profiles / "chat-1"
+    assert config.profile_lock_path(config.profile_dir("chat-1")) == (
+        profiles / "chat-1.lock"
+    )
+    # A sub-agent drives its parent session's browser.
+    assert config.browser_key("chat-1") == "chat-1"
+    assert config.browser_key("sub_1234abcd") == "chat-1"
+    assert config.browser_key("sub_missing") is None
+    assert config.browser_key("") is None
     record = config.subagent_record("sub_1234abcd")
     assert record == ("chat-1", "browser_agent", datetime(2026, 1, 1))
     assert config.subagent_record("chat-1") is None
@@ -182,6 +203,17 @@ def test_workspace_paths_without_agent_runtime(monkeypatch):
     assert config.session_record("main") is None
 
 
+def test_profile_folder_names_are_safe_and_stable():
+    plain = ["main", "a1b2c3d4e5f6", "agentapp_0f3a", "chat-7"]
+    for key in plain:
+        assert config.profile_dir_name(key) == key
+    odd = ["../escape", "con", "COM1", "a b", "x" * 80, "Ünïcode", ""]
+    names = [config.profile_dir_name(key) for key in odd]
+    assert all(name.startswith("s-") and len(name) == 26 for name in names)
+    assert len(set(names)) == len(names)  # distinct sessions, distinct folders
+    assert config.profile_dir_name("../escape") == config.profile_dir_name("../escape")
+
+
 def test_os_locale_is_a_language_tag(monkeypatch):
     tag = config.os_locale()
     assert tag and "_" not in tag and "." not in tag
@@ -192,10 +224,10 @@ def test_os_locale_is_a_language_tag(monkeypatch):
 def test_bridge_without_sink_is_silent():
     bridge.unregister_ui_sink(bridge.current_sink())
     bridge.publish("state", {"x": 1})  # no sink: nothing happens
-    assert bridge.has_viewers() is False
+    assert bridge.has_viewers("main") is False
 
     class Broken:
-        def has_viewers(self):
+        def has_viewers(self, key):
             raise RuntimeError("boom")
 
         def post(self, kind, payload):
@@ -205,7 +237,8 @@ def test_bridge_without_sink_is_silent():
     bridge.register_ui_sink(sink)
     try:
         bridge.publish("frame", {})  # never raises
-        assert bridge.has_viewers() is False
+        assert bridge.has_viewers("main") is False
+        assert bridge.has_viewers(None) is False
     finally:
         bridge.unregister_ui_sink(sink)
     assert bridge.current_sink() is None
@@ -224,12 +257,15 @@ def test_bridge_normalises_ui_origins():
     assert bridge.ui_origins() == frozenset()
 
 
-def test_lifecycle_hooks_never_start_the_browser(monkeypatch):
+def test_lifecycle_hooks_never_start_the_browser(monkeypatch, tmp_path):
     monkeypatch.setattr(host_module, "_host", None)
+    monkeypatch.setattr(config, "profiles_root", lambda: tmp_path / "profiles")
     lifecycle.on_run_state("main", "running")
-    lifecycle.release_owner("main")
+    lifecycle.release_owner("sub_00000001")
     lifecycle.cancel_owner("main")
     lifecycle.reload_settings()
+    lifecycle.stream_removed("sub_00000002")
+    lifecycle.session_deleted("main")  # the main session is never deleted
     lifecycle.on_run_state("", "running")  # junk is ignored too
     assert lifecycle.unavailable_reason() is None
     asyncio.run(lifecycle.shutdown(timeout=1.0))
@@ -244,48 +280,90 @@ def test_lifecycle_hooks_never_start_the_browser(monkeypatch):
     asyncio.run(lifecycle.shutdown(timeout=1.0))  # a second shutdown is a no-op
     # ... until it is explicitly reopened.
     host = host_module.restart_process_host()
-    host._factory = types.SimpleNamespace  # a stand-in core (no settings read)
+    host._factory = types.SimpleNamespace  # a stand-in fleet (no settings read)
     try:
         assert host_module.get_host() is host and host.is_running()
     finally:
         asyncio.run(host.shutdown(timeout=5))
 
 
+def test_a_deleted_sessions_profile_goes_even_without_a_browser_thread(
+    monkeypatch, tmp_path
+):
+    """No browser runs in this process: the profile a previous run left for a
+    deleted session is deleted right away (on a thread of its own)."""
+    monkeypatch.setattr(host_module, "_host", None)
+    monkeypatch.setattr(config, "profiles_root", lambda: tmp_path / "profiles")
+    profile = config.profile_dir("gone-chat")
+    (profile / "Default").mkdir(parents=True)
+    (profile / "Default" / "Cookies").write_bytes(b"cookie jar")
+    config.profile_lock_path(profile).write_bytes(b"")
+    keep = config.profile_dir("other-chat")
+    keep.mkdir(parents=True)
+    lifecycle.stream_removed("gone-chat")
+    deadline = time.monotonic() + 10
+    while profile.exists() and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert not profile.exists()
+    assert not config.profile_lock_path(profile).exists()
+    assert keep.exists()  # only the deleted session's profile
+    assert host_module._host is None  # nothing was started for it
+
+
 def test_host_runs_calls_on_its_own_thread_and_loop():
     class Probe:
+        """A stand-in fleet whose every session browser is itself."""
+
         def __init__(self):
             self.thread = threading.current_thread().name
             self.value = 0
+            self.keys = []
+
+        def core(self, key):
+            self.keys.append(key)
+            return self
 
         async def bump(self):
             self.value += 1
             return threading.current_thread().name
 
-    host = MiniBrowserHost(core_factory=Probe)
+    host = MiniBrowserHost(fleet_factory=Probe)
     marker: contextvars.ContextVar = contextvars.ContextVar("marker", default=None)
     try:
         assert not host.is_running()
         host.start()
         host.start()  # idempotent
         assert host.is_running()
-        assert host.core.thread == host_module.THREAD_NAME
+        assert host.fleet.thread == host_module.THREAD_NAME
 
         async def from_main_loop():
             marker.set("caller")
-            name = await host.call(lambda core: core.bump())
-            seen = await host.call(lambda core: _apply(lambda c: marker.get(), core))
-            nested = await host.call(lambda core: host.call(lambda again: again.bump()))
-            return name, seen, nested
+            name = await host.call_fleet(lambda fleet: fleet.bump())
+            seen = await host.call_fleet(
+                lambda fleet: _apply(lambda c: marker.get(), fleet)
+            )
+            nested = await host.call_fleet(
+                lambda fleet: host.call_fleet(lambda again: again.bump())
+            )
+            # call(key, ...) runs on that session's browser.
+            routed = await host.call("chat-9", lambda core: core.bump())
+            return name, seen, nested, routed
 
-        assert run(from_main_loop()) == ("mini-browser", "caller", "mini-browser")
+        assert run(from_main_loop()) == (
+            "mini-browser",
+            "caller",
+            "mini-browser",
+            "mini-browser",
+        )
+        assert host.fleet.keys == ["chat-9"]
 
         def subagent_style():  # a worker thread with its own event loop
-            return asyncio.run(host.call(lambda core: core.bump()))
+            return asyncio.run(host.call_fleet(lambda fleet: fleet.bump()))
 
         with concurrent.futures.ThreadPoolExecutor(2) as pool:
             names = list(pool.map(lambda _: subagent_style(), range(4)))
         assert names == ["mini-browser"] * 4
-        assert host.core.value == 6
+        assert host.fleet.value == 7
 
         # submit: fire-and-forget, in a clean context (no caller variables).
         marker.set("leaked?")
@@ -310,7 +388,7 @@ def test_host_runs_calls_on_its_own_thread_and_loop():
                     raise
                 return "never"
 
-            task = asyncio.ensure_future(host.call(slow))
+            task = asyncio.ensure_future(host.call_fleet(slow))
             while not started:
                 await asyncio.sleep(0.01)
             task.cancel()
@@ -444,15 +522,20 @@ class Site:
 
 
 class FakeSink:
-    """The UI side of the bridge, recording what the browser publishes."""
+    """The UI side of the bridge, recording what the browsers publish.
+
+    ``viewers``: True / False for every session, or the set of sessions whose
+    browser panel is open."""
 
     def __init__(self) -> None:
-        self.viewers = False
+        self.viewers: Any = False
         self._lock = threading.Lock()
         self._posts: List[tuple] = []
 
-    def has_viewers(self) -> bool:
-        return self.viewers
+    def has_viewers(self, key: str) -> bool:
+        if isinstance(self.viewers, (set, frozenset)):
+            return key in self.viewers
+        return bool(self.viewers)
 
     def post(self, kind: str, payload: Dict[str, Any]) -> None:
         with self._lock:
@@ -553,7 +636,7 @@ class Engine:
         )
 
     def call(self, fn, timeout: float = 60.0):
-        return run(self.host.call(fn), timeout)
+        return run(self.host.call(SESSION, fn), timeout)
 
     def inspect(self, fn):
         return self.call(lambda core: _apply(fn, core))
@@ -594,7 +677,7 @@ def engine(site, tmp_path_factory):
     patch = pytest.MonkeyPatch()
     root = tmp_path_factory.mktemp("mini_browser_engine")
     saved: list = []
-    patch.setattr(config, "profile_dir", lambda: root / "profile")
+    patch.setattr(config, "profile_dir", lambda key: root / "profiles" / key)
     patch.setattr(
         config, "workspace_dir", lambda owner: root / "workspace" / (owner or "_user")
     )
@@ -605,7 +688,7 @@ def engine(site, tmp_path_factory):
         idle_shutdown_minutes=0, max_agent_tabs=3, max_fps=10
     )
     host = MiniBrowserHost(
-        lambda: BrowserCore(
+        lambda: BrowserFleet(
             settings=settings,
             ops_registry=FAKE_OPS,
             launch_args=("--host-resolver-rules=MAP ads.doubleclick.net 127.0.0.1",),
@@ -667,39 +750,45 @@ def eng(engine):
 def test_start_close_are_idempotent_with_clear_status(eng, tmp_path, monkeypatch):
     time.sleep(0.2)  # let the shared engine's debounced state flush land first
     sink = FakeSink()
+    sink.viewers = {"own-chat"}  # its panel is open (state goes to its viewers)
     bridge.register_ui_sink(sink)
-    monkeypatch.setattr(config, "profile_dir", lambda: tmp_path / "own-profile")
+    monkeypatch.setattr(config, "profile_dir", lambda key: tmp_path / "own" / key)
     host = MiniBrowserHost(
-        lambda: BrowserCore(settings=MiniBrowserSettings(idle_shutdown_minutes=0))
+        lambda: BrowserFleet(settings=MiniBrowserSettings(idle_shutdown_minutes=0))
     )
+
+    def on(fn, timeout=60.0):
+        return run(host.call("own-chat", fn), timeout)
+
     try:
-        state = run(host.call(lambda core: _apply(lambda c: c.state(), core)))
+        state = on(lambda core: _apply(lambda c: c.state(), core))
         assert state["status"] == "stopped" and state["tabs"] == []
+        assert state["sessionId"] == "own-chat"
         with pytest.raises(MiniBrowserError) as info:
-            run(host.call(lambda core: core.ui_history(None, "back")))
+            on(lambda core: core.ui_history(None, "back"))
         assert info.value.code == "MINI_BROWSER_NOT_RUNNING"
 
         async def start_twice(core):
             await asyncio.gather(core.start(), core.start(), core.ensure_started())
             return core._context, core.status, len(core.tabs)
 
-        context, status, tabs = run(host.call(start_twice), 120)
+        context, status, tabs = on(start_twice, 120)
         assert status == "ready" and tabs == 1
-        assert (
-            run(host.call(lambda core: _apply(lambda c: c._context, core))) is context
+        assert on(lambda core: _apply(lambda c: c._context, core)) is context
+        on(lambda core: core.start())  # already running: no-op
+        on(lambda core: core.close())
+        on(lambda core: core.close())  # twice is fine
+        assert on(lambda core: _apply(lambda c: (c.status, c.tabs), core)) == (
+            "stopped",
+            {},
         )
-        run(host.call(lambda core: core.start()))  # already running: no-op
-        run(host.call(lambda core: core.close()))
-        run(host.call(lambda core: core.close()))  # twice is fine
-        assert run(
-            host.call(lambda core: _apply(lambda c: (c.status, c.tabs), core))
-        ) == ("stopped", {})
         # State publishing is debounced (~50 ms): changes inside that window
         # coalesce into the latest state, so give "stopped" time to go out.
         time.sleep(0.2)
-        run(host.call(lambda core: core.start()), 120)  # the profile lock was released
-        assert run(host.call(lambda core: _apply(lambda c: c.status, core))) == "ready"
+        on(lambda core: core.start(), 120)  # the profile lock was released
+        assert on(lambda core: _apply(lambda c: c.status, core)) == "ready"
         time.sleep(0.2)
+        assert {s["sessionId"] for s in sink.of("state")} == {"own-chat"}
         statuses = [s["status"] for s in sink.of("state")]
         remaining = iter(statuses)
         expected = ["starting", "ready", "stopped", "starting", "ready"]
@@ -712,14 +801,16 @@ def test_start_close_are_idempotent_with_clear_status(eng, tmp_path, monkeypatch
 
 
 def test_a_second_browser_on_the_same_profile_is_refused(eng):
+    """Another CraftBot (here: another host) opening the same session's
+    profile is refused; the profile lock is per session."""
     other = MiniBrowserHost(
-        lambda: BrowserCore(settings=MiniBrowserSettings(idle_shutdown_minutes=0))
+        lambda: BrowserFleet(settings=MiniBrowserSettings(idle_shutdown_minutes=0))
     )
     try:
         with pytest.raises(MiniBrowserError) as info:
-            run(other.call(lambda core: core.start()), 60)
+            run(other.call(SESSION, lambda core: core.start()), 60)
         assert info.value.code == "MINI_BROWSER_PROFILE_IN_USE"
-        state = run(other.call(lambda core: _apply(lambda c: c.state(), core)))
+        state = run(other.call(SESSION, lambda core: _apply(lambda c: c.state(), core)))
         assert state["status"] == "error"
         assert state["error"]["code"] == "MINI_BROWSER_PROFILE_IN_USE"
     finally:
@@ -728,6 +819,7 @@ def test_a_second_browser_on_the_same_profile_is_refused(eng):
 
 
 def test_state_payload_shape(eng):
+    eng.sink.viewers = {SESSION}  # the state goes to the session's viewers
     eng.op("shape-agent", "goto", url=eng.site.url("/page?t=Shape"))
     state = eng.inspect(lambda core: core.state())
     assert set(state) == {
@@ -742,7 +834,7 @@ def test_state_payload_shape(eng):
         "settings",
     }
     assert state["status"] == "ready" and state["error"] is None
-    assert state["sessionId"] == "mini_browser"
+    assert state["sessionId"] == SESSION
     assert state["viewport"] == {"width": 1280, "height": 800}
     assert set(state["settings"]) == {"humanlike", "showCursor"}
     assert state["viewedTabId"] in {t["id"] for t in state["tabs"]}
@@ -761,7 +853,10 @@ def test_state_payload_shape(eng):
             "canGoBack",
             "canGoForward",
             "crashed",
+            "favicon",
         }
+        # The site icon is an inline image the UI shows as is, or none.
+        assert tab["favicon"] is None or tab["favicon"].startswith("data:image/")
     mine = next(t for t in state["tabs"] if t["owner"] == "shape-agent")
     assert mine["ownerKind"] == "session" and mine["ownerLabel"] == "Chat"
     assert mine["parentOwner"] is None
@@ -839,10 +934,11 @@ def test_viewed_tab_claim_rule(eng):
     assert eng.op("claimer", "echo")["tab"]["id"] == user_tab
 
 
-def test_a_viewed_user_page_is_claimed_only_by_the_mini_browser_chat(eng):
-    """TAB-1 / agent-effectiveness SEC-1: an agent does not take over the page
-    the user is reading; the dedicated Mini Browser chat (which the user is
-    talking to) does, and any agent may on an explicit switch."""
+def test_a_viewed_user_page_is_claimed_only_by_the_sessions_own_agent(eng):
+    """TAB-1 / agent-effectiveness SEC-1: another agent (a sub-agent) does not
+    take over the page the user is reading in the chat's panel; the chat's
+    own agent (which the user is talking to) does, and any agent may on an
+    explicit switch."""
     reading = eng.call(lambda core: core.ui_new_tab(eng.site.url("/page?t=Reading")))
     eng.wait_until(
         lambda core: core.tabs[reading].url.endswith("t=Reading"), what="user page"
@@ -858,12 +954,12 @@ def test_a_viewed_user_page_is_claimed_only_by_the_mini_browser_chat(eng):
     assert switched["status"] == "success" and switched["tab"]["id"] == reading
     eng.inspect(lambda core: core.release_owner("background-chat", close_tabs=False))
 
-    # The dedicated chat claims the page the user is viewing.
+    # The chat's own agent claims the page the user is viewing.
     eng.call(lambda core: core.ui_switch_tab(reading))
     _idle(eng, reading)
-    dedicated = eng.op(mini_browser_package.SESSION_ID, "echo")
-    assert dedicated["tab"]["id"] == reading
-    eng.inspect(lambda core: core.release_owner(mini_browser_package.SESSION_ID, False))
+    own = eng.op(SESSION, "echo")
+    assert own["tab"]["id"] == reading
+    eng.inspect(lambda core: core.release_owner(SESSION, False))
 
     # A user page that is not viewed (and not blank) cannot be switched to.
     eng.call(lambda core: core.ui_new_tab())
@@ -942,16 +1038,30 @@ def test_max_tabs_per_owner(eng):
     )
 
 
-def test_release_owner_closes_its_tabs(eng):
-    eng.op("leaver", "echo")
-    eng.op("leaver", "tabs", action="new")
+def test_release_owner_closes_its_tabs(eng, monkeypatch):
+    """A finished sub-agent's tabs close in its parent session's browser."""
+    _fake_agent_runtime(
+        monkeypatch,
+        sessions={},
+        subagents={
+            "sub_leaver01": types.SimpleNamespace(
+                parent_task_id=SESSION,
+                agent_type="browser_agent",
+                created_at=datetime.utcnow().isoformat(),
+            )
+        },
+    )
+    eng.op("sub_leaver01", "echo")
+    eng.op("sub_leaver01", "tabs", action="new")
     assert (
-        eng.inspect(lambda core: sum(t.owner == "leaver" for t in core.tabs.values()))
+        eng.inspect(
+            lambda core: sum(t.owner == "sub_leaver01" for t in core.tabs.values())
+        )
         == 2
     )
-    lifecycle.release_owner("leaver")
+    lifecycle.stream_removed("sub_leaver01")  # the sub-agent's stream went away
     eng.wait_until(
-        lambda core: not any(t.owner == "leaver" for t in core.tabs.values()),
+        lambda core: not any(t.owner == "sub_leaver01" for t in core.tabs.values()),
         what="release",
     )
     assert eng.inspect(lambda core: len(core.tabs)) >= 1
@@ -980,7 +1090,7 @@ def test_owner_labels_and_kinds(eng, monkeypatch):
             )
         },
     )
-    for owner in ("chat-7", "main", "mini_browser", "sub_label01"):
+    for owner in ("chat-7", "main", "sub_label01"):
         eng.op(owner, "tabs", action="new")
     tabs = {
         t["owner"]: t
@@ -992,11 +1102,8 @@ def test_owner_labels_and_kinds(eng, monkeypatch):
         "Holiday plans",
     )
     assert tabs["main"]["ownerKind"] == "main"
-    assert (tabs["mini_browser"]["ownerKind"], tabs["mini_browser"]["ownerLabel"]) == (
-        "mini_browser",
-        "Mini Browser",
-    )
     assert tabs["sub_label01"]["ownerKind"] == "subagent"
+    assert tabs["sub_label01"]["parentOwner"] == "chat-7"
     assert (
         tabs["sub_label01"]["ownerLabel"]
         == "browser_agent (sub-agent of Holiday plans)"
@@ -1456,27 +1563,30 @@ def test_user_control_pauses_the_agent(eng):
 
 
 def test_cancel_owner_cancels_the_inflight_operation(eng):
-    tab_id = eng.op("stop-agent", "echo")["tab"]["id"]
+    """Stop on the session reaches its browser (lifecycle routes by session)."""
+    tab_id = eng.op(SESSION, "echo")["tab"]["id"]
 
     async def scenario():
         started = time.monotonic()
         slow = asyncio.ensure_future(
             eng.host.call(
+                SESSION,
                 lambda core: core.agent_op(
-                    "stop-agent", "goto", {"url": eng.site.url("/slow")}
-                )
+                    SESSION, "goto", {"url": eng.site.url("/slow")}
+                ),
             )
         )
         await asyncio.sleep(1.0)
-        lifecycle.cancel_owner("stop-agent")
+        lifecycle.cancel_owner(SESSION)
         with pytest.raises(asyncio.CancelledError):
             await asyncio.wait_for(slow, 5)
         cancelled_after = time.monotonic() - started
         begun = time.monotonic()
         after = await eng.host.call(
+            SESSION,
             lambda core: core.agent_op(
-                "stop-agent", "goto", {"url": eng.site.url("/page?t=After")}
-            )
+                SESSION, "goto", {"url": eng.site.url("/page?t=After")}
+            ),
         )
         return cancelled_after, time.monotonic() - begun, after
 
@@ -1529,7 +1639,12 @@ def test_screencast_streams_only_while_someone_watches(eng):
     time.sleep(1.0)
     assert _frames(eng) == []  # nobody watching: nothing captured or sent
 
-    eng.sink.viewers = True
+    eng.sink.viewers = {"another-chat"}  # watching another session's browser
+    eng.call(lambda core: core.set_streaming(True))
+    time.sleep(1.0)
+    assert _frames(eng) == []
+
+    eng.sink.viewers = {SESSION}
     eng.call(lambda core: core.set_streaming(True))
     started = time.monotonic()
     time.sleep(2.0)
@@ -1538,8 +1653,8 @@ def test_screencast_streams_only_while_someone_watches(eng):
     elapsed = time.monotonic() - started
     assert len(frames) <= 10 * elapsed + 3  # throttled to max_fps (10)
     frame = frames[-1]
-    assert set(frame) == {"tabId", "image", "width", "height", "seq"}
-    assert frame["tabId"] == tab_id
+    assert set(frame) == {"sessionId", "tabId", "image", "width", "height", "seq"}
+    assert frame["sessionId"] == SESSION and frame["tabId"] == tab_id
     assert frame["image"].startswith("data:image/jpeg;base64,")
     assert (frame["width"], frame["height"]) == (1280, 800)
     seqs = [f["seq"] for f in frames]
@@ -1610,8 +1725,20 @@ def test_agent_pointer_is_normalised_and_throttled(eng):
     eng.call(moves)
     pointers = eng.sink.of("pointer")
     assert 1 <= len(pointers) <= 4  # 30 moves in a burst are throttled
-    assert pointers[0] == {"tabId": tab_id, "x": 0.5, "y": 0.5, "kind": "move"}
-    assert pointers[-1] == {"tabId": tab_id, "x": 1.0, "y": 1.0, "kind": "down"}
+    assert pointers[0] == {
+        "sessionId": SESSION,
+        "tabId": tab_id,
+        "x": 0.5,
+        "y": 0.5,
+        "kind": "move",
+    }
+    assert pointers[-1] == {
+        "sessionId": SESSION,
+        "tabId": tab_id,
+        "x": 1.0,
+        "y": 1.0,
+        "kind": "down",
+    }
 
 
 # ── failures: crash, browser death, idle shutdown ────────────────────────────
@@ -1656,10 +1783,23 @@ def test_browser_death_relaunches_cleanly(eng):
 
 
 def test_idle_browser_shuts_down(eng):
+    """Closed after idle_shutdown_minutes with its panel closed and its
+    session's run over; an open panel or a run in progress keeps it."""
+
     def make_idle(core):
         core.settings = replace(core.settings, idle_shutdown_minutes=1)
         core._last_activity = time.monotonic() - 120
 
+    eng.sink.viewers = {SESSION}
+    eng.inspect(make_idle)
+    time.sleep(2 * 2.5)  # two watchdog rounds
+    assert eng.inspect(lambda core: core.status) == "ready"  # watched
+    eng.sink.viewers = False
+    lifecycle.on_run_state(SESSION, "running")
+    eng.inspect(make_idle)
+    time.sleep(2 * 2.5)
+    assert eng.inspect(lambda core: core.status) == "ready"  # its run goes on
+    lifecycle.on_run_state(SESSION, "idle")
     eng.inspect(make_idle)
     try:
         eng.wait_until(
@@ -1677,16 +1817,18 @@ def test_idle_browser_shuts_down(eng):
 
 
 def test_lifecycle_shutdown_stops_the_host(eng, tmp_path, monkeypatch):
-    monkeypatch.setattr(config, "profile_dir", lambda: tmp_path / "shutdown-profile")
+    monkeypatch.setattr(config, "profile_dir", lambda key: tmp_path / "sd" / key)
     host = MiniBrowserHost(
-        lambda: BrowserCore(
+        lambda: BrowserFleet(
             settings=MiniBrowserSettings(idle_shutdown_minutes=0), ops_registry=FAKE_OPS
         )
     )
     monkeypatch.setattr(host_module, "_host", host)
-    run(host.call(lambda core: core.agent_op("x", "echo", {})), 120)
+    run(host.call("x", lambda core: core.agent_op("x", "echo", {})), 120)
     lifecycle.on_run_state("x", "running")
-    future = host.submit(lambda core: _apply(lambda c: c._run_busy("x"), core))
+    future = host.submit(
+        lambda fleet: _apply(lambda f: f.existing("x")._run_busy("x"), fleet)
+    )
     assert future.result(timeout=5) is True
     asyncio.run(lifecycle.shutdown(timeout=15))
     assert not host.is_running()

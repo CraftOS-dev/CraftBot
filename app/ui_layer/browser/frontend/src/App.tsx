@@ -6,7 +6,6 @@ import { ChatPage } from './pages/Chat'
 import { DashboardPage } from './pages/Dashboard'
 import { MemoryPage } from './pages/Memory'
 import { ScreenPage } from './pages/Screen'
-import { MiniBrowserPage } from './pages/MiniBrowser'
 import { WorkspacePage } from './pages/Workspace'
 import { SettingsPage } from './pages/Settings'
 import { OnboardingPage } from './pages/Onboarding'
@@ -155,9 +154,6 @@ function App() {
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/memory" element={<MemoryPage />} />
         <Route path="/screen" element={<ScreenPage />} />
-        <Route path="/mini-browser" element={<MiniBrowserPage />} />
-        {/* The page's prototype name; keeps old links and bookmarks working. */}
-        <Route path="/web-agent" element={<Navigate to="/mini-browser" replace />} />
         <Route path="/workspace" element={<WorkspacePage />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/agent-app/:projectId" element={<AgentAppPageRoute />} />

@@ -98,5 +98,14 @@
     "replyTooltip": "回复此消息",
     "copyTooltip": "复制消息",
     "copiedTooltip": "已复制！"
+  },
+  "browserPanel": {
+    "show": "显示本对话的浏览器",
+    "running": "本对话的浏览器已开启",
+    "browsing": "智能体正在浏览",
+    "region": "浏览器面板"
+  },
+  "panel": {
+    "close": "关闭面板"
   }
 }

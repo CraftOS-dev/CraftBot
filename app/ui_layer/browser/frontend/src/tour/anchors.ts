@@ -21,7 +21,6 @@ export type TourAnchorId =
   | 'nav-dashboard'
   | 'nav-memory'
   | 'nav-workspace'
-  | 'nav-mini-browser'
   // On-page anchors for the Settings page: the whole category rail, plus the
   // individual tabs the tour calls out.
   | 'settings-categories'

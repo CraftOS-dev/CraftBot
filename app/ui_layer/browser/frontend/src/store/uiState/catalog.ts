@@ -24,6 +24,10 @@ import { defineUiState, defineUiStateFamily, oneOf } from './defineUiState'
 
 export type ThemePreference = 'dark' | 'light' | 'system'
 
+/** What a chat's panel shows: 'auto' = its newest Generative UI
+ *  output when it has one, else nothing; 'closed' = conversation only. */
+export type ChatPanelMode = 'auto' | 'output' | 'browser' | 'closed'
+
 export interface ChatReplyTarget {
   displayName: string
   originalContent: string
@@ -88,10 +92,19 @@ export const UI_STATE = {
     messageDetailsExpanded: defineUiStateFamily('chat.messageDetailsExpanded', false, 'session'),
     /** By [session id, artifact id]: explicit JSON state, separate from generated code. */
     artifactState: defineUiStateFamily<Record<string, unknown>>('chat.artifactState', {}, 'session'),
-    /** By session id: selected output revision, or 'closed' for conversation-only. */
+    /** By session id: what the panel shows (outputs or the chat's
+     *  browser, one at a time). */
+    panelMode: defineUiStateFamily<ChatPanelMode>('chat.panelMode', 'auto', 'session', {
+      isValid: oneOf(['auto', 'output', 'browser', 'closed']),
+    }),
+    /** By session id: the output revision on show ('' = the newest). */
     outputSelection: defineUiStateFamily('chat.outputSelection', '', 'session'),
-    /** Conversation's share of the desktop output workspace. */
-    outputSplitRatio: defineUiState('chat.outputSplitRatio', 0.42, 'preference', {
+    /** The chat's width in px beside its panel. */
+    conversationWidth: defineUiState('chat.conversationWidth', 640, 'preference', {
+      isValid: value => typeof value === 'number' && value > 0,
+    }),
+    /** The panel's share of the height when stacked above the chat. */
+    stackedPanelShare: defineUiState('chat.stackedPanelShare', 0.5, 'preference', {
       isValid: value => typeof value === 'number' && value > 0 && value < 1,
     }),
     /** By question message id: the typed free-text answer. */
@@ -106,14 +119,6 @@ export const UI_STATE = {
     chatPanelWidth: defineUiState('agentApp.chatPanelWidth', 350, 'preference'),
     /** Mobile chat panel height as a share of the page. */
     chatPanelMobileRatio: defineUiState('agentApp.chatPanelMobileRatio', 0.4, 'preference'),
-  },
-
-  miniBrowser: {
-    chatPanelOpen: defineUiState('miniBrowser.chatPanelOpen', true, 'preference'),
-    /** Desktop chat panel width in px. */
-    chatPanelWidth: defineUiState('miniBrowser.chatPanelWidth', 380, 'preference'),
-    /** Mobile chat panel height as a share of the page. */
-    chatPanelMobileRatio: defineUiState('miniBrowser.chatPanelMobileRatio', 0.4, 'preference'),
   },
 
   memory: {

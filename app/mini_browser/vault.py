@@ -1,7 +1,8 @@
 """Encrypted password vault for the Mini Browser.
 
-The user saves website logins in the Mini Browser's Passwords panel and agents
-sign in with them through ``login.autofill``. Passwords never travel back to
+The user saves website logins under Passwords in a chat's browser panel (one
+vault, shared by every session's browser) and agents sign in with them
+through ``login.autofill``. Passwords never travel back to
 the UI or to the model: :meth:`CredentialVault.list_entries` and
 :meth:`CredentialVault.status` carry no passwords. The only way out is
 :meth:`CredentialVault.candidates_for_url`, which the autofill code uses to

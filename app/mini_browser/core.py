@@ -1,17 +1,23 @@
-"""BrowserCore: the Mini Browser engine.
+"""BrowserCore: one session's browser.
 
-One persistent Chromium profile, shared by every agent and the user, each
-agent owner in its own tab(s). Lives entirely on the Mini Browser host loop
-(see ``host.py``): never call into it from another loop or thread except
-through ``MiniBrowserHost.call`` / ``submit``.
+Every agent session (main, each chat, each Agent App session) has a browser
+of its own: a Chromium with a persistent profile of its own (cookies,
+signed-in sites and storage never shared with another session), driven by
+the session's agent and its sub-agents, each owner in its own tab(s), and
+watched by the user in that chat's browser panel. ``BrowserFleet``
+(``fleet.py``) keeps one core per session and limits how many run at once.
+Lives entirely on the Mini Browser host loop (see ``host.py``): never call
+into it from another loop or thread except through ``MiniBrowserHost.call``
+/ ``submit``.
 
 What the core takes care of:
 
 - lifecycle: single-flight launch with clear error codes, a cross-process
   profile lock (never two browsers on one profile, never released while
   Chromium may still run on it), clean relaunch after the browser or the
-  Playwright driver dies, idle shutdown, a close that never cuts a launch
-  in half;
+  Playwright driver dies, idle shutdown (nobody watching the panel and the
+  session's run over), a close that never cuts a launch in half, and the
+  removal of the profile when the session is deleted;
 - tabs: per-owner tabs and claims, owner labels, popups inheriting their
   opener's owner, crash recovery in the same tab slot, at least one tab open;
   every tab it opens gets a browser window of its own, so no agent's tab is
@@ -21,8 +27,9 @@ What the core takes care of:
   saved into the owner's workspace (marked as coming from the Internet),
   network blocking (ads + CraftBot's own UI) without request interception, a
   main-frame guard;
-- UI: state publishing (debounced), the live-view stream, raw user input and
-  "take control";
+- UI: state publishing (debounced, to the session's viewers only), the
+  session's browsing activity (to every client: it opens the chat's browser
+  panel), the live-view stream, raw user input and "take control";
 - agents: :meth:`agent_op` runs one operation from ``ops.OPS`` under the tab
   lock and turns every outcome into a clean action result. An operation
   whose tab (or the whole browser) goes away ends at once with
@@ -36,6 +43,8 @@ is scrubbed with the secrets autofill typed into a tab.
 from __future__ import annotations
 
 import asyncio
+import base64
+import collections
 import contextvars
 import functools
 import itertools
@@ -43,23 +52,36 @@ import json
 import math
 import os
 import re
+import shutil
+import stat
 import sys
 import time
 import traceback
 from dataclasses import replace
 from pathlib import Path
-from typing import Any, Awaitable, Dict, List, Mapping, Optional, Set, Tuple
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Awaitable,
+    Dict,
+    Iterator,
+    List,
+    Mapping,
+    Optional,
+    Set,
+    Tuple,
+)
 from urllib.parse import urlsplit
 
 from app.logger import logger
 from app.mini_browser import (
     DEFAULT_OWNER,
-    SESSION_ID,
-    SESSION_TITLE,
     adblock,
     bridge,
     config,
+    favicons,
     lifecycle,
+    resume,
     urls,
 )
 from app.mini_browser.errors import (
@@ -83,12 +105,14 @@ from app.mini_browser.types import (
     EVENT_NOTICE,
     EVENT_POPUP,
     OWNER_KIND_MAIN,
-    OWNER_KIND_MINI_BROWSER,
     OWNER_KIND_SESSION,
     OWNER_KIND_SUBAGENT,
     OWNER_KIND_USER,
     Tab,
 )
+
+if TYPE_CHECKING:
+    from app.mini_browser.fleet import BrowserFleet
 
 DEFAULT_VIEWPORT: Tuple[int, int] = (1280, 800)
 VIEWPORT_WIDTH = (320, 3840)
@@ -156,14 +180,27 @@ RUN_STATES = lifecycle.RUN_STATES
 
 # Told once to every owner that had tabs when the browser closed (C2).
 RELAUNCH_NOTE = (
-    "Note: the Mini Browser was closed (by the user, an idle shutdown or a crash) "
-    "after your last action and has started again; your earlier tabs and pages "
-    "are gone."
+    "Note: this chat's browser was closed after your last action (by the user, "
+    "an idle shutdown, to make room for another chat's browser, or a crash) and "
+    "has started again with the pages it had open, now as the user's tabs; "
+    "mini_browser_tabs lists them (switch to one to continue there)."
 )
 CLOSED_NOTE = (
-    "Note: the Mini Browser was closed (by the user, an idle shutdown or a crash) "
-    "after your last action; your earlier tabs and pages are gone."
+    "Note: this chat's browser was closed after your last action (by the user, "
+    "an idle shutdown, to make room for another chat's browser, or a crash); "
+    "when it starts again it reopens the pages it had open, as the user's tabs."
 )
+# Where the browser left off (resume.py): the open pages are saved this long
+# after they last changed, the picture of the page on screen at most this
+# often while someone watches; the picture taken on close may take this long.
+PAGES_SAVE_DELAY_S = 1.0
+LAST_FRAME_SAVE_DELAY_S = 10.0
+LAST_FRAME_TIMEOUT_MS = 2000
+# Site icons remembered per browser run (icon address -> data: URL or none).
+FAVICON_CACHE_SIZE = 128
+# Deleting a session's profile: how often a file still held open is retried.
+PROFILE_DELETE_ATTEMPTS = 8
+PROFILE_DELETE_RETRY_S = 0.5
 
 _EVENT_LEVELS = {
     EVENT_DIALOG: "info",
@@ -267,23 +304,36 @@ _UI_GUARD_JS = (
 
 
 class BrowserCore:
-    """The Mini Browser engine (host loop only)."""
+    """One session's browser (host loop only)."""
 
     def __init__(
         self,
         settings: Optional[config.MiniBrowserSettings] = None,
         ops_registry: Optional[Mapping[str, Any]] = None,
         *,
+        key: str = config.MAIN_SESSION_KEY,
+        fleet: Optional["BrowserFleet"] = None,
+        tab_ids: Optional[Iterator[int]] = None,
         launch_args: Tuple[str, ...] = (),
     ) -> None:
-        """``ops_registry`` defaults to ``app.mini_browser.ops.OPS`` (imported on
-        first use); ``launch_args`` are extra Chromium switches (diagnostics,
-        tests). Without explicit ``settings``, settings.json is read now and
-        again before every launch."""
+        """``key`` is the session id this browser belongs to (its profile, its
+        viewers). ``fleet`` makes room before every launch (at most
+        ``settings.max_running_browsers`` run at once); without one the
+        browser launches on its own. ``tab_ids`` numbers the tabs (the fleet
+        shares one counter between every browser, so a tab id names one tab
+        in the whole UI). ``ops_registry`` defaults to
+        ``app.mini_browser.ops.OPS`` (imported on first use); ``launch_args``
+        are extra Chromium switches (diagnostics, tests). Without explicit
+        ``settings``, settings.json is read now and again before every
+        launch."""
+        self.key = key
+        self._fleet = fleet
         self._settings_from_config = settings is None
         self.settings: config.MiniBrowserSettings = (
             settings if settings is not None else config.load_settings()
         )
+        # Set when the session is deleted: this browser may never start again.
+        self.retired = False
         self.status = "stopped"
         self.last_error: Optional[Dict[str, str]] = None
         self.tabs: Dict[str, Tab] = {}
@@ -329,7 +379,9 @@ class BrowserCore:
         self._cuts: Dict[str, Dict[str, Tuple[str, float]]] = {}
         self._adoptions: Set[asyncio.Task] = set()
         self._front_tab: Dict[int, str] = {}  # window id -> its active tab id
-        self._tab_ids = itertools.count(1)
+        self._tab_ids: Iterator[int] = (
+            tab_ids if tab_ids is not None else itertools.count(1)
+        )
         self._owner_current: Dict[str, str] = {}
         self._owner_ops: Dict[str, Set[asyncio.Task]] = {}
         self._tab_switches: Dict[str, str] = {}  # owner -> popup now its tab
@@ -355,7 +407,88 @@ class BrowserCore:
         self._last_activity = time.monotonic()
         self._last_title_refresh = 0.0
         self._downloads_active = 0
+        # An agent operation ran during the session's current run: the run is
+        # "browsing" until it ends (see browsing()).
+        self._browsing_run = False
+        # The activity last published (published again only when it changes).
+        self._activity_sent: Optional[Dict[str, Any]] = None
+        # Where this browser left off (resume.py): its open pages are saved
+        # soon after they change, the picture of the page on screen every
+        # LAST_FRAME_SAVE_DELAY_S while someone watches, both on close. While
+        # the saved pages reopen at a launch, nothing is saved.
+        self._restoring = False
+        self._reopening: Set[str] = set()  # tabs whose reopened page has not loaded
+        self._pages_saved: Optional[resume.Pages] = None
+        self._pages_handle: Optional[asyncio.TimerHandle] = None
+        self._frame_unsaved: Optional[resume.LastFrame] = None
+        self._frame_handle: Optional[asyncio.TimerHandle] = None
+        self._save_lock = asyncio.Lock()
+        # Site icons (favicons.py): the lookup running per tab, and the icons
+        # already loaded this run, by icon address (None: there is none).
+        self._favicon_tasks: Dict[str, asyncio.Task] = {}
+        self._favicons: "collections.OrderedDict[str, Optional[str]]" = (
+            collections.OrderedDict()
+        )
         self._stream = FrameStreamer(self)
+
+    # ═════════════════════════════════════════════════════════════════════════
+    # Session
+    # ═════════════════════════════════════════════════════════════════════════
+
+    def has_viewers(self) -> bool:
+        """Whether someone watches this session's browser panel."""
+        return bridge.has_viewers(self.key)
+
+    def is_running(self) -> bool:
+        """Chromium is up or starting (it counts against the running limit)."""
+        if self._context is not None or self.status in ("starting", "ready"):
+            return True
+        task = self._start_task
+        return task is not None and not task.done()
+
+    def mark_starting(self) -> None:
+        """The fleet found room for this browser (``BrowserFleet.make_room``)."""
+        self._set_status("starting")
+
+    def clear_launch_error(self) -> None:
+        """Chromium was just installed: an earlier "browser missing" failure
+        no longer applies (the panel offers Start again)."""
+        if self.status == "error" and self._context is None:
+            self._set_status("stopped")
+
+    def is_idle(self) -> bool:
+        """Running, but nobody needs it now: no viewer, no agent operation, no
+        download and no run of its session in progress. The fleet may close it
+        to make room for another session's browser."""
+        return (
+            self.status == "ready"
+            and not self.has_viewers()
+            and not self._agent_busy()
+            and self._downloads_active == 0
+            and not lifecycle.is_run_busy(self.key)
+        )
+
+    @property
+    def last_activity(self) -> float:
+        """When this browser was last used (monotonic clock)."""
+        return self._last_activity
+
+    def browsing(self) -> bool:
+        """An agent is working in this browser: an operation is in flight, or
+        one ran during the session's run that is still going on. True once per
+        run, so the chat's browser panel opens when an agent starts browsing,
+        not again on every click."""
+        if self._agent_busy():
+            return True
+        return self._browsing_run and lifecycle.is_run_busy(self.key)
+
+    def activity(self) -> Dict[str, Any]:
+        """The ``mini_browser_activity`` entry of this session."""
+        return {
+            "sessionId": self.key,
+            "status": self.status,
+            "browsing": self.status in ("starting", "ready") and self.browsing(),
+        }
 
     # ═════════════════════════════════════════════════════════════════════════
     # Lifecycle
@@ -370,10 +503,13 @@ class BrowserCore:
 
         Waits for a close in progress, then (re)launches. Raises the launch's
         MiniBrowserError, or MINI_BROWSER_CLOSED when a close aborted the
-        launch this call waited for. Only the caller's own cancellation ever
-        raises a CancelledError here.
+        launch this call waited for, or MINI_BROWSER_SESSION_GONE once the
+        session was deleted. Only the caller's own cancellation ever raises a
+        CancelledError here.
         """
         for _attempt in range(4):
+            if self.retired:
+                raise MiniBrowserError("MINI_BROWSER_SESSION_GONE")
             close_task = self._close_task
             if close_task is not None and not close_task.done():
                 await asyncio.wait({close_task})
@@ -409,6 +545,22 @@ class BrowserCore:
             task = self._close_task = self.spawn(self._close())
         return task
 
+    async def remove_profile(self) -> bool:
+        """The session was deleted: close for good and delete its profile.
+
+        The browser never starts again (``retired``). The profile folder
+        (cookies, signed-in sites, storage) and its lock file are removed
+        once no Chromium runs on it any more. Returns whether it is gone.
+        """
+        self.retired = True
+        await self.close()
+        task = self._lock_release
+        if task is not None and not task.done():
+            await asyncio.wait(
+                {task}, timeout=PROFILE_FREE_WAIT_S + PROFILE_KILL_WAIT_S + 5.0
+            )
+        return await asyncio.to_thread(delete_profile, config.profile_dir(self.key))
+
     def reload_settings(self) -> None:
         """Re-read settings.json (in the background) and apply it.
 
@@ -439,8 +591,14 @@ class BrowserCore:
         if self._context is not None:
             self._set_status("ready")
             return
-        self._set_status("starting")
         try:
+            if self._fleet is not None:
+                # Sets "starting" the moment there is room (an idle browser of
+                # another session may be closed for it first).
+                await self._fleet.make_room(self)
+            else:
+                self._set_status("starting")
+            self._check_abort()
             if self._settings_from_config:
                 # Close + Start applies what changed in settings.json.
                 self._apply_settings(await asyncio.to_thread(config.load_settings))
@@ -486,11 +644,11 @@ class BrowserCore:
         except ImportError:
             raise MiniBrowserError("MINI_BROWSER_PLAYWRIGHT_MISSING") from None
 
-        profile = config.profile_dir()
+        profile = config.profile_dir(self.key)
         self._profile_path = profile
         await asyncio.to_thread(config.ensure_dir, profile)
         await self._await_lock_release()
-        lock = _ProfileLock(profile.parent / f"{profile.name}.lock")
+        lock = _ProfileLock(config.profile_lock_path(profile))
         if not await _acquire_profile_lock(lock):
             raise MiniBrowserError("MINI_BROWSER_PROFILE_IN_USE")
         self._profile_lock = lock
@@ -561,6 +719,7 @@ class BrowserCore:
         for page in list(context.pages):
             if page not in self._page_tabs and not page.is_closed():
                 await self._setup_page(self._register_tab(page, None))
+        await self._reopen_pages(profile)
         if not self.tabs:
             await self._open_tab(None)
         self._check_abort()
@@ -569,7 +728,8 @@ class BrowserCore:
         self._watchdog_task = self.spawn(self._watchdog())
         await self._stream.sync()
         logger.info(
-            f"[MiniBrowser] Chromium started (headless={self.settings.headless}, "
+            f"[MiniBrowser] Chromium started for {self.key} "
+            f"(headless={self.settings.headless}, "
             f"channel={self.settings.channel or 'default'})"
         )
 
@@ -664,11 +824,19 @@ class BrowserCore:
                 # the profile): it stops at its next step and cleans up.
                 self._abort_launch = True
                 await asyncio.wait({start})
+            frame = await self._save_where_left_off() if self._saving() else None
             had_browser = self._context is not None
             await self._teardown()
+            if self.has_viewers() and not self.retired:
+                # The panel stays open: it shows where the browser left off.
+                if frame is None:
+                    frame = await asyncio.to_thread(
+                        resume.resume_frame, config.profile_dir(self.key)
+                    )
+                bridge.publish("last_frame", resume.ui_payload(self.key, frame))
             self._set_status("stopped")
             if had_browser:
-                logger.info("[MiniBrowser] Chromium closed")
+                logger.info(f"[MiniBrowser] Chromium closed for {self.key}")
         finally:
             self._closing = False
             self._abort_launch = False
@@ -682,15 +850,21 @@ class BrowserCore:
             *self._nav_refresh.values(),
             *self._recoveries.values(),
             *self._probes.values(),
+            *self._favicon_tasks.values(),
         ]
         for task in tasks:
             if task is not None and task is not current and not task.done():
                 task.cancel()
         self._watchdog_task = None
+        self._cancel_saves()
+        self._reopening.clear()
+        self._pages_saved = None
         self._nav_refresh.clear()
         self._nav_dirty.clear()
         self._recoveries.clear()
         self._probes.clear()
+        self._favicon_tasks.clear()
+        self._favicons.clear()
         gone = list(self.tabs.values())
         for tab in gone:
             self._retire_secrets(tab)
@@ -713,6 +887,7 @@ class BrowserCore:
         self._own_targets.clear()
         self._abandoned_targets.clear()
         self.viewed_tab_id = None
+        self._browsing_run = False
         context, self._context = self._context, None
         pw, self._pw = self._pw, None
         session, self._browser_cdp = self._browser_cdp, None
@@ -892,12 +1067,13 @@ class BrowserCore:
                     "canGoBack": tab.can_go_back,
                     "canGoForward": tab.can_go_forward,
                     "crashed": tab.crashed,
+                    "favicon": tab.favicon,
                 }
             )
         return {
+            "sessionId": self.key,
             "status": self.status,
             "error": self.last_error,
-            "sessionId": SESSION_ID,
             "adblock": bool(self.settings.adblock),
             "viewedTabId": self.viewed_tab_id,
             "follow": self.follow,
@@ -916,6 +1092,7 @@ class BrowserCore:
 
     def _schedule_state(self) -> None:
         """Publish the state soon (changes within ~50 ms coalesce)."""
+        self._schedule_pages_save()
         if self._state_handle is not None or bridge.current_sink() is None:
             return
         try:
@@ -927,9 +1104,246 @@ class BrowserCore:
     def _flush_state(self) -> None:
         self._state_handle = None
         try:
-            bridge.publish("state", self.state())
+            if self.has_viewers():
+                bridge.publish("state", self.state())
+            self.publish_activity()
         except Exception as exc:
             logger.debug(f"[MiniBrowser] State publish failed: {type(exc).__name__}")
+
+    def publish_activity(self, *, force: bool = False) -> None:
+        """Tell every UI client whether this session's browser runs and an agent
+        browses in it (only when that changed, unless ``force``)."""
+        activity = self.activity()
+        if not force and activity == self._activity_sent:
+            return
+        self._activity_sent = activity
+        bridge.publish("activity", dict(activity))
+
+    # ═════════════════════════════════════════════════════════════════════════
+    # Where it left off (resume.py)
+    # ═════════════════════════════════════════════════════════════════════════
+
+    def _saving(self) -> bool:
+        """What is open may be saved: the browser runs (not dying, not
+        reopening the saved pages) and its session still exists."""
+        return (
+            self.status == "ready"
+            and self._context is not None
+            and self._context is not self._dead_context
+            and not self._restoring
+            and not self.retired
+        )
+
+    def _restorable(self, url: str) -> bool:
+        """A page worth reopening: an address the browser may open (not a
+        blank tab), holding no secret the vault typed."""
+        if not url or url == "about:blank" or len(url) > resume.MAX_URL_CHARS:
+            return False
+        try:
+            self._resolve(url, allow_search=False)
+        except MiniBrowserError:
+            return False
+        return not any(secret and secret in url for secret in self._secrets())
+
+    def _open_pages(self) -> resume.Pages:
+        """The pages open now, in tab order: at most ``resume.MAX_PAGES``, the
+        one on screen always among them."""
+        tabs = [tab for tab in self.tabs.values() if self._restorable(tab.url)]
+        viewed = self.tabs.get(self.viewed_tab_id or "")
+        if len(tabs) > resume.MAX_PAGES:
+            kept = tabs[: resume.MAX_PAGES]
+            if viewed in tabs and viewed not in kept:
+                kept[-1] = viewed
+            tabs = kept
+        return resume.Pages(
+            pages=tuple(
+                resume.Page(url=tab.url, title=_clip(tab.title, resume.MAX_TITLE_CHARS))
+                for tab in tabs
+            ),
+            viewed=tabs.index(viewed) if viewed in tabs else 0,
+        )
+
+    def _schedule_pages_save(self) -> None:
+        """Save the open pages soon (changes within PAGES_SAVE_DELAY_S coalesce)."""
+        if self._pages_handle is not None or not self._saving():
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        self._pages_handle = loop.call_later(PAGES_SAVE_DELAY_S, self._save_pages_soon)
+
+    def _save_pages_soon(self) -> None:
+        self._pages_handle = None
+        if self._saving():
+            self.spawn(self._save_pages())
+
+    async def _save_pages(self) -> None:
+        async with self._save_lock:
+            if not self._saving():
+                return
+            pages = self._open_pages()
+            if pages != self._pages_saved and await self._write_resume(
+                resume.save_pages, pages
+            ):
+                self._pages_saved = pages
+
+    def note_frame(self, tab_id: str, image: str, width: int, height: int) -> None:
+        """The live view sent a frame (``stream.py``): keep the viewed tab's as
+        the picture of where this browser left off, saved every
+        LAST_FRAME_SAVE_DELAY_S at most."""
+        tab = self.tabs.get(tab_id)
+        if tab is None or tab_id != self.viewed_tab_id or not self._saving():
+            return
+        data = image.split(",", 1)[1] if image.startswith("data:") else image
+        self._frame_unsaved = resume.LastFrame(
+            url=tab.url,
+            title=_clip(tab.title, resume.MAX_TITLE_CHARS),
+            width=int(width),
+            height=int(height),
+            image=data,
+        )
+        if self._frame_handle is None:
+            loop = asyncio.get_running_loop()
+            self._frame_handle = loop.call_later(
+                LAST_FRAME_SAVE_DELAY_S, self._save_frame_soon
+            )
+
+    def _save_frame_soon(self) -> None:
+        self._frame_handle = None
+        self.spawn(self._save_frame())
+
+    async def _save_frame(self) -> None:
+        async with self._save_lock:
+            frame, self._frame_unsaved = self._frame_unsaved, None
+            if frame is not None and self._saving() and self._keepable(frame):
+                await self._write_resume(resume.save_last_frame, frame)
+
+    def _keepable(self, frame: resume.LastFrame) -> bool:
+        return (
+            len(frame.image) <= resume.MAX_IMAGE_CHARS
+            and frame.width > 0
+            and frame.height > 0
+            and self._restorable(frame.url)
+        )
+
+    async def _save_where_left_off(self) -> Optional[resume.LastFrame]:
+        """The browser is closing: save its open pages and a fresh picture of
+        the page on screen. Returns that picture when it shows the page the
+        browser will reopen on screen (else None)."""
+        self._cancel_saves()
+        captured = await self._capture_viewed()
+        frame = captured or self._frame_unsaved
+        self._frame_unsaved = None
+        async with self._save_lock:
+            if not self._saving():
+                return None
+            pages = self._open_pages()
+            if pages != self._pages_saved and await self._write_resume(
+                resume.save_pages, pages
+            ):
+                self._pages_saved = pages
+            viewed = pages.viewed_page
+            if (
+                frame is None
+                or viewed is None
+                or frame.url != viewed.url
+                or not self._keepable(frame)
+                or not await self._write_resume(resume.save_last_frame, frame)
+            ):
+                return None
+            return frame
+
+    async def _capture_viewed(self) -> Optional[resume.LastFrame]:
+        """A picture of the viewed tab now, or None (a blank or crashed tab, or
+        the page did not answer in time)."""
+        tab = self.tabs.get(self.viewed_tab_id or "")
+        if tab is None or tab.crashed or not self._restorable(tab.url):
+            return None
+        try:
+            if tab.page.is_closed():
+                return None
+            jpeg = await asyncio.wait_for(
+                tab.page.screenshot(
+                    type="jpeg",
+                    quality=int(self.settings.jpeg_quality),
+                    timeout=LAST_FRAME_TIMEOUT_MS,
+                ),
+                LAST_FRAME_TIMEOUT_MS / 1000 + 1,
+            )
+        except Exception as exc:
+            logger.debug(f"[MiniBrowser] Last picture not taken: {type(exc).__name__}")
+            return None
+        width, height = self._page_size(tab)
+        return resume.LastFrame(
+            url=tab.url,
+            title=_clip(tab.title, resume.MAX_TITLE_CHARS),
+            width=width,
+            height=height,
+            image=base64.b64encode(jpeg).decode("ascii"),
+        )
+
+    async def _write_resume(self, save: Any, value: Any) -> bool:
+        """Write one resume file in a worker thread. Never raises."""
+        try:
+            await asyncio.to_thread(save, config.profile_dir(self.key), value)
+        except OSError as exc:
+            logger.debug(f"[MiniBrowser] Resume file not saved: {type(exc).__name__}")
+            return False
+        return True
+
+    def _cancel_saves(self) -> None:
+        for handle in (self._pages_handle, self._frame_handle):
+            if handle is not None:
+                handle.cancel()
+        self._pages_handle = self._frame_handle = None
+
+    async def _reopen_pages(self, profile: Path) -> None:
+        """Reopen the pages this browser had open when it last closed, as the
+        user's tabs, and show the one that was on screen. Their pages load in
+        the background; a page no longer allowed is skipped."""
+        saved = await asyncio.to_thread(resume.load_pages, profile)
+        self._pages_saved = saved
+        if saved is None or not saved.pages:
+            return
+        self._restoring = True
+        try:
+            blank = [
+                tab
+                for tab in self.tabs.values()
+                if tab.owner is None and _is_blank(tab)
+            ]
+            reopened: Dict[int, Tab] = {}
+            for index, page in enumerate(saved.pages):
+                self._check_abort()
+                try:
+                    url = self._resolve(page.url, allow_search=False).url
+                except MiniBrowserError:
+                    continue
+                try:
+                    tab = blank.pop(0) if blank else await self._open_tab(None)
+                except MiniBrowserError as exc:
+                    if exc.code == "MINI_BROWSER_CLOSED":
+                        raise
+                    logger.debug(f"[MiniBrowser] Pages not all reopened: {exc.code}")
+                    break
+                tab.url, tab.title, tab.loading = url, page.title, True
+                self._reopening.add(tab.id)
+                reopened[index] = tab
+                self.spawn(self._reopen(tab, url))
+            viewed = reopened.get(saved.viewed) or next(iter(reopened.values()), None)
+            if viewed is not None:
+                self.viewed_tab_id = viewed.id
+        finally:
+            self._restoring = False
+        self._schedule_state()
+
+    async def _reopen(self, tab: Tab, url: str) -> None:
+        try:
+            await self._open_in_background(tab, url)
+        finally:
+            self._reopening.discard(tab.id)
+            self._schedule_nav_refresh(tab)
 
     # ═════════════════════════════════════════════════════════════════════════
     # Streaming
@@ -1283,13 +1697,18 @@ class BrowserCore:
     async def set_adblock(self, enabled: bool) -> None:
         """Turn ad blocking on/off for every tab (no reload) and remember it."""
         enabled = bool(enabled)
-        self.settings = replace(self.settings, adblock=enabled)
         try:
             await asyncio.to_thread(config.save_setting, "adblock", enabled)
         except Exception as exc:
             logger.warning(
                 f"[MiniBrowser] Could not save the ad-block setting: {type(exc).__name__}"
             )
+        await self.apply_adblock(enabled)
+
+    async def apply_adblock(self, enabled: bool) -> None:
+        """Turn ad blocking on/off for every tab (no reload), not saved: the
+        fleet saves the setting once for every session's browser."""
+        self.settings = replace(self.settings, adblock=bool(enabled))
         await self.refresh_network_rules()
         self._schedule_state()
 
@@ -1355,13 +1774,21 @@ class BrowserCore:
         abandoned at once and the result is MINI_BROWSER_TAB_CLOSED /
         MINI_BROWSER_CLOSED, whatever the operation would have reported.
         """
-        owner = owner if isinstance(owner, str) and owner else DEFAULT_OWNER
+        owner = owner if isinstance(owner, str) and owner else self.key
         params = dict(params or {})
         task = asyncio.current_task()
         owner_tasks = self._owner_ops.setdefault(owner, set())
         if task is not None:
             owner_tasks.add(task)
         self._touch()
+        if (
+            not self._browsing_run
+            and lifecycle.is_run_busy(self.key)
+            and not self._is_revoked(owner)
+        ):
+            # The session's run is browsing from now on (its panel opens).
+            self._browsing_run = True
+        self._schedule_state()  # browsing() is true while this operation runs
         tab: Optional[Tab] = None
         # A popup an earlier action opened that became this owner's tab after
         # that action's result had gone out: this result says so first.
@@ -1554,8 +1981,8 @@ class BrowserCore:
 
         1) the owner's current tab (else its most recently used one);
         2) else the viewed tab if the owner may claim it: a blank user tab,
-           or any idle user tab for the dedicated Mini Browser chat (other
-           agents' tabs are never claimed);
+           or, for the session's own agent, the idle user tab the user is
+           viewing in the panel (other agents' tabs are never claimed);
         3) else a new tab, in a window of its own (at most
            ``settings.max_agent_tabs`` per owner).
         """
@@ -1955,9 +2382,10 @@ class BrowserCore:
         Its own tab always. Another agent's tab never. A user tab only when
         the user is not using it (no input for USER_ACTIVE_S, no take
         control) and either it is blank (about:blank with no history), or it
-        is the tab the user is viewing and the owner is the dedicated Mini
-        Browser chat, or the owner asked for it (``mini_browser_tabs``
-        action='switch', ``explicit``).
+        is the tab the user is viewing and the owner is the session's own
+        agent (the user opened the page in this chat's browser panel to work
+        on it with that agent), or the owner asked for it
+        (``mini_browser_tabs`` action='switch', ``explicit``).
         """
         if tab.user_control or tab.ops:
             return False
@@ -1969,7 +2397,7 @@ class BrowserCore:
             return False
         if _is_blank(tab):
             return True
-        return tab.id == self.viewed_tab_id and (owner == SESSION_ID or explicit)
+        return tab.id == self.viewed_tab_id and (owner == self.key or explicit)
 
     def _claim(self, tab: Tab, owner: str) -> None:
         previous = tab.owner
@@ -2007,12 +2435,6 @@ class BrowserCore:
 
     def _owner_info(self, owner: str, depth: int = 0) -> Tuple[str, str, Optional[str]]:
         """``(label, kind, parent)`` for an owner id, from the agent runtime."""
-        if owner == SESSION_ID:
-            return (
-                self._session_title(owner) or SESSION_TITLE,
-                OWNER_KIND_MINI_BROWSER,
-                None,
-            )
         if owner == DEFAULT_OWNER:
             return self._session_title(owner) or "Main", OWNER_KIND_MAIN, None
         if owner.startswith("sub_"):
@@ -2134,7 +2556,15 @@ class BrowserCore:
             self._schedule_state()
 
     def run_state_changed(self, owner: str) -> None:
-        """``lifecycle.on_run_state`` recorded a change: republish busy flags."""
+        """``lifecycle.on_run_state`` recorded a change: republish busy flags.
+
+        The session's run started or ended: browsing starts over, so the
+        first browser action of every run opens the panel (once), and a run
+        that never touches the browser never does.
+        """
+        if owner == self.key:
+            self._browsing_run = False
+        self._touch()  # the idle grace counts from the end of the run
         self._schedule_state()
 
     def release_owner(self, owner: str, close_tabs: bool) -> None:
@@ -2146,7 +2576,7 @@ class BrowserCore:
         """
         if not owner:
             return
-        viewing = bridge.has_viewers()
+        viewing = self.has_viewers()
         owned = [tab for tab in self.tabs.values() if tab.owner == owner]
         closing = [
             tab
@@ -2217,7 +2647,7 @@ class BrowserCore:
         if not (math.isfinite(px) and math.isfinite(py)):
             return
         tab.mouse_x, tab.mouse_y = px, py
-        if tab.id != self.viewed_tab_id or not bridge.has_viewers():
+        if tab.id != self.viewed_tab_id or not self.has_viewers():
             return
         kind = kind if kind in ("move", "down", "up", "click") else "move"
         now = time.monotonic()
@@ -2231,6 +2661,7 @@ class BrowserCore:
         bridge.publish(
             "pointer",
             {
+                "sessionId": self.key,
                 "tabId": tab.id,
                 "x": _clamp_unit(px / width),
                 "y": _clamp_unit(py / height),
@@ -2242,6 +2673,7 @@ class BrowserCore:
         """A notice for the tab's agent (attached to its next result) and a UI toast."""
         event = self._agent_notice(tab, kind, message, **extra)
         payload = {
+            "sessionId": self.key,
             "kind": event["kind"],
             "level": event.pop("_level"),
             "message": event["message"],
@@ -2640,6 +3072,7 @@ class BrowserCore:
         position = order.index(tab.id)
         del self.tabs[tab.id]
         tab.mark_closed(CLOSED_TAB)  # an operation on it ends at once
+        self._reopening.discard(tab.id)
         self._retire_secrets(tab)
         self._cuts.pop(tab.id, None)
         self._stream.forget_tab(tab.id)
@@ -2648,6 +3081,9 @@ class BrowserCore:
         self._nav_seq.pop(tab.id, None)
         self._blocks_reported.pop(tab.id, None)
         self._pointer_sent.pop(tab.id, None)
+        favicon_task = self._favicon_tasks.pop(tab.id, None)
+        if favicon_task is not None and not favicon_task.done():
+            favicon_task.cancel()
         self._nav_dirty.discard(tab.id)
         refresh = self._nav_refresh.pop(tab.id, None)
         if refresh is not None and refresh is not asyncio.current_task():
@@ -2961,7 +3397,12 @@ class BrowserCore:
             url = frame.url
         except Exception:
             return
-        if isinstance(url, str) and url and not url.startswith("chrome-error:"):
+        if (
+            isinstance(url, str)
+            and url
+            and not url.startswith("chrome-error:")
+            and not (url == "about:blank" and tab.id in self._reopening)
+        ):
             tab.url = url
         tab.unresponsive = False  # a committed document answers again
         self._bump_nav(tab)
@@ -3058,11 +3499,14 @@ class BrowserCore:
         # address that failed, as a browser does.
         error_page = url.startswith("chrome-error:")
         shown = entry_url if error_page and entry_url else url
+        reopening = tab.id in self._reopening
+        if shown == "about:blank" and reopening:
+            shown = ""  # the reopened page has not committed yet: keep its address
         if shown:
             tab.url = shown
-        if title is not None:
+        if title is not None and not (reopening and not shown):
             tab.title = _clip(title, 300)
-        pending = tab.id in self._pending_docs
+        pending = tab.id in self._pending_docs or reopening
         tab.loading = pending or (tab.loading if ready is None else ready != "complete")
         reason = urls.blocked_reason(
             tab.url,
@@ -3075,7 +3519,68 @@ class BrowserCore:
             # page that really loaded is sent away, never during a newer navigation.
             if not error_page and not pending:
                 await self._leave_page(tab)
+        if (
+            tab.favicon_page != tab.url
+            and not reopening
+            and ready in ("interactive", "complete")
+        ):
+            self._look_up_favicon(tab, error_page)
         self._schedule_state()
+
+    def _look_up_favicon(self, tab: Tab, error_page: bool) -> None:
+        """The tab shows a new page (its DOM is there): find its site icon. A
+        page that is no web page (blank, the browser's own, an error page)
+        has none."""
+        tab.favicon_page = page_url = tab.url
+        running = self._favicon_tasks.pop(tab.id, None)
+        if running is not None and not running.done():
+            running.cancel()
+        if error_page or not favicons.is_web(page_url):
+            tab.favicon = None
+            return
+        self._favicon_tasks[tab.id] = self.spawn(self._load_favicon(tab, page_url))
+
+    async def _load_favicon(self, tab: Tab, page_url: str) -> None:
+        try:
+            try:
+                links = await asyncio.wait_for(
+                    tab.page.evaluate(favicons.ICON_LINKS_JS), TITLE_TIMEOUT_S
+                )
+            except Exception:
+                links = None  # the page did not answer: try /favicon.ico
+            icon: Optional[str] = None
+            for address in favicons.candidates(page_url, links):
+                if address in self._favicons:
+                    self._favicons.move_to_end(address)
+                    icon = self._favicons[address]
+                else:
+                    context = self._context
+                    if context is None:
+                        return
+                    icon = await favicons.fetch_icon(
+                        context.request, address, self._icon_allowed
+                    )
+                    self._favicons[address] = icon
+                    while len(self._favicons) > FAVICON_CACHE_SIZE:
+                        self._favicons.popitem(last=False)
+                if icon is not None:
+                    break
+            if self.tabs.get(tab.id) is not tab or tab.favicon_page != page_url:
+                return  # closed, or on another page by now
+            if tab.favicon != icon:
+                tab.favicon = icon
+                self._schedule_state()
+        finally:
+            if self._favicon_tasks.get(tab.id) is asyncio.current_task():
+                del self._favicon_tasks[tab.id]
+
+    def _icon_allowed(self, url: str) -> bool:
+        """A site icon may load from an address the browser may open: never
+        CraftBot's own UI."""
+        return (
+            urls.blocked_reason(url, allow_file=False, ui_origins=self.ui_origins())
+            is None
+        )
 
     def _report_block(self, tab: Tab, url: str, reason: str) -> None:
         """One notice per blocked navigation (refreshes repeat)."""
@@ -3372,8 +3877,12 @@ class BrowserCore:
                     return  # the browser is gone: a close is under way
                 await self._stream.sync()
                 now = time.monotonic()
-                if bridge.has_viewers():
+                watched = self.has_viewers()
+                if watched or lifecycle.is_run_busy(self.key):
+                    # In use: the panel is open, or the session's run (which
+                    # may come back to the browser) is still going on.
                     self._last_activity = now
+                if watched:
                     if now - self._last_title_refresh >= TITLE_REFRESH_S:
                         self._last_title_refresh = now
                         for tab in list(self.tabs.values()):
@@ -3381,7 +3890,8 @@ class BrowserCore:
                 elif self._idle_expired(now):
                     minutes = self.settings.idle_shutdown_minutes
                     logger.info(
-                        f"[MiniBrowser] Closing Chromium after {minutes} idle minute(s)"
+                        f"[MiniBrowser] Closing the browser of {self.key} after "
+                        f"{minutes} idle minute(s)"
                     )
                     self._request_close()
                     return
@@ -3391,6 +3901,9 @@ class BrowserCore:
                 logger.debug(f"[MiniBrowser] Watchdog: {type(exc).__name__}")
 
     def _idle_expired(self, now: float) -> bool:
+        """Nobody has needed the browser for ``idle_shutdown_minutes``: its
+        panel closed, no agent operation and no download (the watchdog keeps
+        ``_last_activity`` fresh while the panel is open or a run goes on)."""
         minutes = self.settings.idle_shutdown_minutes
         return (
             minutes > 0
@@ -3872,6 +4385,74 @@ def _kill_processes(procs: List[Any], wait: float) -> None:
         psutil.wait_procs(procs, timeout=wait)
     except Exception:
         pass
+
+
+def delete_profile(profile: Path) -> bool:
+    """Delete a session's profile folder and its lock file. Blocking I/O.
+
+    Takes the profile's lock first, so a profile a browser still holds (in
+    this process or another CraftBot) is left alone; Chromium processes
+    still running on it after an unclean close are ended first. Files held
+    open for a moment longer (Windows) are retried. Returns whether the
+    profile is gone.
+    """
+    profile = Path(profile)
+    lock_path = config.profile_lock_path(profile)
+    if not profile.exists() and not lock_path.exists():
+        return True
+    lock = _ProfileLock(lock_path)
+    if not lock.acquire():
+        logger.info(
+            f"[MiniBrowser] Profile {profile.name} is in use; it is not deleted"
+        )
+        return False
+    try:
+        leftover = _profile_processes(profile)
+        if leftover:
+            _kill_processes(leftover, PROFILE_KILL_WAIT_S)
+        removed = _remove_tree(profile)
+    finally:
+        lock.release()
+    if removed:
+        try:
+            lock_path.unlink()
+        except FileNotFoundError:
+            pass
+        except OSError as exc:
+            logger.debug(
+                f"[MiniBrowser] Profile lock not removed: {type(exc).__name__}"
+            )
+        logger.info(f"[MiniBrowser] Deleted the browser profile {profile.name}")
+    return removed
+
+
+def _remove_tree(path: Path) -> bool:
+    """``shutil.rmtree`` that clears read-only flags and retries files still
+    held open for a moment (Windows). Blocking I/O. True once it is gone."""
+
+    def make_writable(func: Any, target: str, _error: Any) -> None:
+        os.chmod(target, stat.S_IWRITE)
+        func(target)
+
+    for attempt in range(PROFILE_DELETE_ATTEMPTS):
+        if not path.exists():
+            return True
+        try:
+            if sys.version_info >= (3, 12):
+                shutil.rmtree(path, onexc=make_writable)
+            else:
+                shutil.rmtree(path, onerror=make_writable)
+        except FileNotFoundError:
+            return True
+        except OSError as exc:
+            if attempt == PROFILE_DELETE_ATTEMPTS - 1:
+                logger.warning(
+                    f"[MiniBrowser] Could not delete the browser profile "
+                    f"{path.name}: {type(exc).__name__}"
+                )
+                return False
+            time.sleep(PROFILE_DELETE_RETRY_S)
+    return not path.exists()
 
 
 def _reserve_download_path(directory: Path, name: str) -> Path:

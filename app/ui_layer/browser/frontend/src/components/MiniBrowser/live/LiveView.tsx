@@ -32,6 +32,8 @@ export interface LiveViewHandle {
 }
 
 interface LiveViewProps {
+  /** The session whose browser this is (a live view serves one session). */
+  sessionId: string
   /** The browser is ready and the page is on screen. While false (starting,
    *  stopped, error…) the view stays mounted, so frames that arrive early are
    *  kept, but it takes no input. */
@@ -61,7 +63,7 @@ interface LiveViewProps {
  * component nor the chat beside it re-renders per frame.
  */
 export const LiveView = forwardRef<LiveViewHandle, LiveViewProps>(function LiveView(props, ref) {
-  const { active, tab, tabIdsKey, connected, showCursor, ownerName, onControl, onHistory, onNewTab } = props
+  const { sessionId, active, tab, tabIdsKey, connected, showCursor, ownerName, onControl, onHistory, onNewTab } = props
   const { t } = useTranslation(['minibrowser', 'common'])
   const { showToast } = useToast()
   const hintId = useId()
@@ -89,7 +91,7 @@ export const LiveView = forwardRef<LiveViewHandle, LiveViewProps>(function LiveV
     return !!open && !open.crashed
   }, [store])
 
-  const input = useLiveInput(latest, isTabOpen)
+  const input = useLiveInput(sessionId, latest, isTabOpen)
   const { hasFrame, shownFrameRef, onFrameLoad } = useFramePainter(imgRef, tabId, tabIdsKey)
   useAgentCursor({ stage: stageRef, img: imgRef, cursor: cursorRef, ripple: rippleRef }, tabId, showCursor, styles.cursorVisible)
 
@@ -140,6 +142,7 @@ export const LiveView = forwardRef<LiveViewHandle, LiveViewProps>(function LiveV
     showToast('error', t('minibrowser:live.copyFailed'))
   }, [showToast, t])
   const keyboard = useKeyboardSink({
+    sessionId,
     sink: sinkRef,
     input,
     target: latest,

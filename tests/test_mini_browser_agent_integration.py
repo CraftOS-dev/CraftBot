@@ -820,6 +820,7 @@ def fake_lifecycle(monkeypatch):
         "app.mini_browser.lifecycle",
         on_run_state=record("on_run_state"),
         release_owner=record("release_owner"),
+        stream_removed=record("stream_removed"),
         cancel_owner=record("cancel_owner"),
         reload_settings=record("reload_settings"),
         unavailable_reason=lambda: None,
@@ -882,14 +883,21 @@ def test_stop_finaliser_cancels_again_as_a_safety_net(bare_agent, fake_lifecycle
     assert ("on_run_state", ("chat1", "idle"), {}) in fake_lifecycle.calls
 
 
-def test_deleting_a_chat_releases_its_tabs(bare_agent, fake_lifecycle):
+def test_deleting_a_chat_deletes_it_through_the_session_manager(
+    bare_agent, fake_lifecycle
+):
+    """Its browser goes with its event stream (the removal listener below),
+    on every path that deletes a session, Agent App deletion included."""
     from agent_core.core.session import SessionType
+
+    deleted: List[str] = []
 
     class _SessionManager:
         def get(self, sid):
             return types.SimpleNamespace(id=sid, type=SessionType.CHAT)
 
         def delete_session(self, sid):
+            deleted.append(sid)
             return True
 
     class _TriggerService:
@@ -899,13 +907,14 @@ def test_deleting_a_chat_releases_its_tabs(bare_agent, fake_lifecycle):
     bare_agent.session_manager = _SessionManager()
     bare_agent.trigger_service = _TriggerService()
     assert asyncio.run(bare_agent.delete_session("chat1")) is True
-    assert fake_lifecycle.calls == [("release_owner", ("chat1",), {})]
+    assert deleted == ["chat1"]
+    assert fake_lifecycle.calls == []  # no second, direct notice
 
 
-@pytest.mark.parametrize("session_type", ["main", "mini_browser"])
+@pytest.mark.parametrize("session_type", ["main"])
 def test_fixture_sessions_cannot_be_deleted(bare_agent, fake_lifecycle, session_type):
-    """The main chat and the Mini Browser page's dedicated chat are UI
-    fixtures: deleting them is refused (they can still be cleared)."""
+    """The main chat is a UI fixture: deleting it is refused (it can still be
+    cleared)."""
     deleted: List[str] = []
 
     class _SessionManager:
@@ -926,13 +935,19 @@ def test_fixture_sessions_cannot_be_deleted(bare_agent, fake_lifecycle, session_
     assert deleted == [] and fake_lifecycle.calls == []
 
 
-def test_stream_removal_listener_releases_the_owner(bare_agent, fake_lifecycle):
+def test_stream_removal_listener_tells_the_mini_browser(bare_agent, fake_lifecycle):
+    """A finished sub-agent (its tabs close) or a deleted session (its browser
+    and profile go): lifecycle.stream_removed tells them apart."""
     from app.agent_base import AgentBase
 
-    bare_agent._release_mini_browser_owner("sub_1234", object())
-    assert fake_lifecycle.calls == [("release_owner", ("sub_1234",), {})]
+    bare_agent._on_stream_removed("sub_1234", object())
+    bare_agent._on_stream_removed("chat1", object())
+    assert fake_lifecycle.calls == [
+        ("stream_removed", ("sub_1234",), {}),
+        ("stream_removed", ("chat1",), {}),
+    ]
     init_source = inspect.getsource(AgentBase.__init__)
-    assert "add_removal_listener(self._release_mini_browser_owner)" in init_source
+    assert "add_removal_listener(self._on_stream_removed)" in init_source
 
 
 def test_lifecycle_failures_never_reach_the_agent(bare_agent, monkeypatch):
@@ -943,11 +958,11 @@ def test_lifecycle_failures_never_reach_the_agent(bare_agent, monkeypatch):
         monkeypatch,
         "app.mini_browser.lifecycle",
         on_run_state=boom,
-        release_owner=boom,
+        stream_removed=boom,
         cancel_owner=boom,
     )
     bare_agent._emit_run_state("chat1", "running")
-    bare_agent._release_mini_browser_owner("sub_1", None)
+    bare_agent._on_stream_removed("sub_1", None)
     assert bare_agent.busy_sessions == {"chat1"}
 
     # A missing lifecycle module (ImportError) is swallowed too.
@@ -1194,17 +1209,17 @@ def test_config_watcher_registers_the_mini_browser_reload(bare_agent, monkeypatc
 def test_full_reset_keeps_surviving_sessions_in_their_own_streams(
     tmp_path, monkeypatch, fake_lifecycle
 ):
-    """After /reset the Mini Browser chat and Agent App sessions keep their
-    own (emptied) streams instead of falling back to main's, and stay
-    persisted."""
+    """After /reset the Agent App sessions keep their own (emptied) streams
+    instead of falling back to main's, and stay persisted."""
     import app.usage.session_storage as storage_module
     from agent_core.core.impl.event_stream.manager import EventStreamManager
     from agent_core.core.impl.session.manager import SessionManager
     from agent_core.core.session import SessionType
     from agent_core.core.state import StateSession
     from app.agent_base import AgentBase
-    from app.mini_browser import SESSION_ID
     from app.usage.session_storage import SessionStorage
+
+    surviving = "agentapp_p1"
 
     storage = SessionStorage(db_path=str(tmp_path / "sessions.db"))
     monkeypatch.setattr(storage_module, "get_session_storage", lambda: storage)
@@ -1228,18 +1243,13 @@ def test_full_reset_keeps_surviving_sessions_in_their_own_streams(
     try:
         manager.ensure_main()
         manager.create_session(
-            session_type=SessionType.MINI_BROWSER,
-            title="Mini Browser",
-            session_id=SESSION_ID,
-        )
-        manager.create_session(
             session_type=SessionType.AGENT_APP,
             title="App",
             session_id="agentapp_p1",
             agent_app_project_id="p1",
         )
         chat = manager.create_session(session_type=SessionType.CHAT, title="c1")
-        streams.log(kind="user message", message="MB-BEFORE", task_id=SESSION_ID)
+        streams.log(kind="user message", message="APP-BEFORE", task_id=surviving)
         streams.log(kind="user message", message="MAIN-BEFORE", task_id="main")
 
         agent = AgentBase.__new__(AgentBase)
@@ -1261,15 +1271,14 @@ def test_full_reset_keeps_surviving_sessions_in_their_own_streams(
         asyncio.run(agent.reset_agent_state(None))
 
         assert manager.get(chat.id) is None
-        for session_id in (SESSION_ID, "agentapp_p1"):
-            assert manager.get(session_id) is not None
-            assert streams.has_stream(session_id), session_id
-        assert "MB-BEFORE" not in streams.snapshot_by_id(SESSION_ID)  # cleared
-        streams.log(kind="user message", message="MB-AFTER", task_id=SESSION_ID)
-        assert "MB-AFTER" in streams.snapshot_by_id(SESSION_ID)
-        assert "MB-AFTER" not in streams.snapshot_main()
+        assert manager.get(surviving) is not None
+        assert streams.has_stream(surviving)
+        assert "APP-BEFORE" not in streams.snapshot_by_id(surviving)  # cleared
+        streams.log(kind="user message", message="APP-AFTER", task_id=surviving)
+        assert "APP-AFTER" in streams.snapshot_by_id(surviving)
+        assert "APP-AFTER" not in streams.snapshot_main()
         persisted = {row["session_id"] for row in storage.get_all_sessions()}
-        assert {"main", SESSION_ID, "agentapp_p1"} <= persisted
+        assert {"main", surviving} <= persisted
     finally:
         for session_id in list(manager.sessions):
             StateSession.end(session_id)

@@ -35,6 +35,7 @@ from app.mini_browser import host as host_module
 from app.mini_browser.config import MiniBrowserSettings
 from app.mini_browser.core import BrowserCore
 from app.mini_browser.errors import MiniBrowserError
+from app.mini_browser.fleet import BrowserFleet
 from app.mini_browser.host import MiniBrowserHost
 from tests.mini_browser_fixtures import (
     BROWSER_MISSING_CODES,
@@ -44,6 +45,9 @@ from tests.mini_browser_fixtures import (
 
 SECRET = "a*b~c d!é€Zq9"  # '*', '~', space, non-ASCII: every encoding differs
 SLOW_S = 8.0
+# The session whose browser these tests drive (its agent and sub-agents are
+# the owners).
+KEY = "fixes-chat"
 
 
 def run(coro, timeout: float = 90.0):
@@ -256,7 +260,7 @@ def test_unavailable_reason_follows_launch_results():
 
 
 def test_launch_failure_codes_reach_unavailable_reason(tmp_path, monkeypatch):
-    monkeypatch.setattr(config, "profile_dir", lambda: tmp_path / "profile")
+    monkeypatch.setattr(config, "profile_dir", lambda key: tmp_path / "profile")
     core = BrowserCore(settings=MiniBrowserSettings(idle_shutdown_minutes=0))
 
     async def scenario():
@@ -291,7 +295,7 @@ def test_reload_settings_submits_an_awaitable_and_never_starts(monkeypatch):
         async def reload_settings_now(self):
             self.reloaded.set()
 
-    host = MiniBrowserHost(Core)
+    host = MiniBrowserHost(Core)  # a stand-in fleet
     monkeypatch.setattr(host_module, "_host", host)
     warnings: List[str] = []
     from app.logger import logger
@@ -302,7 +306,7 @@ def test_reload_settings_submits_an_awaitable_and_never_starts(monkeypatch):
     try:
         host.start()
         lifecycle.reload_settings()
-        assert host.core.reloaded.wait(5)
+        assert host.fleet.reloaded.wait(5)
     finally:
         logger.remove(sink_id)
         asyncio.run(host.shutdown(timeout=5))
@@ -313,7 +317,7 @@ def test_reload_settings_submits_an_awaitable_and_never_starts(monkeypatch):
 
 
 class SlowCore:
-    """A stand-in core whose work unwinds slowly when cancelled."""
+    """A stand-in fleet whose work unwinds slowly when cancelled."""
 
     def __init__(self) -> None:
         self.calls = 0
@@ -331,7 +335,7 @@ class SlowCore:
             raise
         return "never"
 
-    async def close(self) -> None:
+    async def close_all(self) -> None:
         return None
 
 
@@ -348,7 +352,7 @@ def test_calls_during_and_after_shutdown_fail_fast():
             while not stop.is_set():
                 try:
                     outcomes.append(
-                        await asyncio.wait_for(host.call(lambda c: c.work()), 20)
+                        await asyncio.wait_for(host.call_fleet(lambda c: c.work()), 20)
                     )
                 except MiniBrowserError as exc:
                     outcomes.append(exc.code)
@@ -361,7 +365,7 @@ def test_calls_during_and_after_shutdown_fail_fast():
         asyncio.run(loop())
 
     async def scenario():
-        stubborn = asyncio.ensure_future(host.call(lambda c: c.stubborn()))
+        stubborn = asyncio.ensure_future(host.call_fleet(lambda c: c.stubborn()))
         await asyncio.sleep(0.3)
         started = time.monotonic()
         await host.shutdown(timeout=3)
@@ -391,13 +395,13 @@ def test_calls_during_and_after_shutdown_fail_fast():
     # After shutdown: refused at once, never a silent restart.
     started = time.monotonic()
     with pytest.raises(MiniBrowserError) as info:
-        run(host.call(lambda c: c.work()))
+        run(host.call_fleet(lambda c: c.work()))
     assert info.value.code == "MINI_BROWSER_NOT_RUNNING"
     assert time.monotonic() - started < 1 and not host.is_running()
     # An explicit restart is possible.
     host.reopen()
     try:
-        assert run(host.call(lambda c: c.work())) == "ok"
+        assert run(host.call_fleet(lambda c: c.work())) == "ok"
     finally:
         asyncio.run(host.shutdown(timeout=5))
 
@@ -507,13 +511,17 @@ class Site:
 
 
 class FakeSink:
+    """``viewers``: True / False for every session, or a set of sessions."""
+
     def __init__(self) -> None:
-        self.viewers = False
+        self.viewers: Any = False
         self._lock = threading.Lock()
         self._posts: List[tuple] = []
 
-    def has_viewers(self) -> bool:
-        return self.viewers
+    def has_viewers(self, key: str) -> bool:
+        if isinstance(self.viewers, (set, frozenset)):
+            return key in self.viewers
+        return bool(self.viewers)
 
     def post(self, kind: str, payload: Dict[str, Any]) -> None:
         with self._lock:
@@ -658,7 +666,7 @@ class Engine:
         self.host, self.sink, self.site, self.root = host, sink, site, root
 
     def call(self, fn, timeout: float = 90.0):
-        return run(self.host.call(fn), timeout)
+        return run(self.host.call(KEY, fn), timeout)
 
     def inspect(self, fn):
         return self.call(lambda core: _apply(fn, core))
@@ -697,7 +705,7 @@ def engine(site, tmp_path_factory):
     import_playwright_or_skip()
     patch = pytest.MonkeyPatch()
     root = tmp_path_factory.mktemp("mini_browser_fixes")
-    patch.setattr(config, "profile_dir", lambda: root / "profile")
+    patch.setattr(config, "profile_dir", lambda key: root / "profile")
     patch.setattr(
         config, "workspace_dir", lambda owner: root / "workspace" / (owner or "_user")
     )
@@ -708,7 +716,7 @@ def engine(site, tmp_path_factory):
         idle_shutdown_minutes=0, max_agent_tabs=6, max_fps=10
     )
     host = MiniBrowserHost(
-        lambda: BrowserCore(
+        lambda: BrowserFleet(
             settings=settings, ops_registry=FAKE_OPS, launch_args=LAUNCH_ARGS
         )
     )
@@ -795,20 +803,20 @@ def test_close_during_start_gives_closed_not_cancelled(tmp_path, monkeypatch):
     closes the browser: the op returns MINI_BROWSER_CLOSED (never a
     CancelledError its caller did not ask for)."""
     import_playwright_or_skip()
-    monkeypatch.setattr(config, "profile_dir", lambda: tmp_path / "profile")
+    monkeypatch.setattr(config, "profile_dir", lambda key: tmp_path / "profile")
     monkeypatch.setattr(config, "workspace_dir", lambda owner: tmp_path / "ws")
     host = MiniBrowserHost(
-        lambda: BrowserCore(
+        lambda: BrowserFleet(
             settings=MiniBrowserSettings(idle_shutdown_minutes=0), ops_registry=FAKE_OPS
         )
     )
 
     async def scenario(delay):
         caller = asyncio.ensure_future(
-            host.call(lambda c: c.agent_op("chat-1", "echo", {}))
+            host.call(KEY, lambda c: c.agent_op("chat-1", "echo", {}))
         )
         await asyncio.sleep(delay)
-        await host.call(lambda c: c.close())
+        await host.call(KEY, lambda c: c.close())
         try:
             result = await asyncio.wait_for(caller, 90)
         except asyncio.CancelledError:
@@ -984,12 +992,12 @@ def test_cancelling_an_op_while_it_opens_its_tab_leaves_no_orphans(eng):
 
 
 def test_stop_before_the_host_starts_still_revokes_subagents(tmp_path, monkeypatch):
-    monkeypatch.setattr(config, "profile_dir", lambda: tmp_path / "profile")
+    monkeypatch.setattr(config, "profile_dir", lambda key: tmp_path / "profile")
     monkeypatch.setattr(host_module, "_host", None)
     created = (datetime.utcnow() - timedelta(minutes=1)).isoformat()
     _fake_agent_runtime(
         monkeypatch,
-        sessions={},
+        sessions={"chat-x": types.SimpleNamespace(title="Chat X", workspace_dir=None)},
         subagents={
             "sub_early001": types.SimpleNamespace(
                 parent_task_id="chat-x", agent_type="browser_agent", created_at=created
@@ -1000,17 +1008,20 @@ def test_stop_before_the_host_starts_still_revokes_subagents(tmp_path, monkeypat
     lifecycle.cancel_owner("chat-x")  # the user pressed Stop: no browser thread yet
     lifecycle.on_run_state("chat-x", "stopping")
     host = MiniBrowserHost(
-        lambda: BrowserCore(
+        lambda: BrowserFleet(
             settings=MiniBrowserSettings(idle_shutdown_minutes=0), ops_registry=FAKE_OPS
         )
     )
     try:
-        stopped = run(host.call(lambda core: core.agent_op("sub_early001", "echo", {})))
+        stopped = run(
+            host.call("chat-x", lambda core: core.agent_op("sub_early001", "echo", {}))
+        )
         busy = run(
             host.call(
+                "chat-x",
                 lambda core: _apply(
                     lambda c: (c._run_busy("chat-x"), c._run_busy("sub_early001")), core
-                )
+                ),
             )
         )
     finally:
@@ -1024,16 +1035,18 @@ def test_a_hook_during_host_start_is_not_lost(monkeypatch):
     monkeypatch.setattr(host_module, "_host", None)
 
     def factory():
-        core = BrowserCore(
+        fleet = BrowserFleet(
             settings=MiniBrowserSettings(idle_shutdown_minutes=0), ops_registry=FAKE_OPS
         )
         lifecycle.on_run_state("chat-y", "running")  # fired while start() runs
-        return core
+        return fleet
 
     host = MiniBrowserHost(factory)
     try:
         busy = run(
-            host.call(lambda core: _apply(lambda c: c._run_busy("chat-y"), core))
+            host.call(
+                "chat-y", lambda core: _apply(lambda c: c._run_busy("chat-y"), core)
+            )
         )
     finally:
         asyncio.run(host.shutdown(timeout=10))
@@ -1049,18 +1062,18 @@ def test_close_during_launch_is_clean_and_quick(tmp_path, monkeypatch, delay):
     the profile, the profile lock is free and an immediate relaunch works."""
     import_playwright_or_skip()
     profile = tmp_path / "profile"
-    monkeypatch.setattr(config, "profile_dir", lambda: profile)
+    monkeypatch.setattr(config, "profile_dir", lambda key: profile)
     host = MiniBrowserHost(
-        lambda: BrowserCore(
+        lambda: BrowserFleet(
             settings=MiniBrowserSettings(idle_shutdown_minutes=0), ops_registry=FAKE_OPS
         )
     )
 
     async def scenario():
-        starting = asyncio.ensure_future(host.call(lambda c: c.start()))
+        starting = asyncio.ensure_future(host.call(KEY, lambda c: c.start()))
         await asyncio.sleep(delay)
         started = time.monotonic()
-        await host.call(lambda c: c.close())
+        await host.call(KEY, lambda c: c.close())
         took = time.monotonic() - started
         try:
             await asyncio.wait_for(starting, 60)
@@ -1076,13 +1089,13 @@ def test_close_during_launch_is_clean_and_quick(tmp_path, monkeypatch, delay):
             "MINI_BROWSER_PLAYWRIGHT_MISSING",
         ):
             skip_browser_missing(outcome)
-        status = run(host.call(lambda c: _apply(lambda core: core.status, c)))
+        status = run(host.call(KEY, lambda c: _apply(lambda core: core.status, c)))
         gone = _wait_for(lambda: not _profile_processes(profile), 10)
         lock_free = _wait_for(lambda: _lock_free(profile), 5)
         relaunch_started = time.monotonic()
-        run(host.call(lambda c: c.start()), 120)
+        run(host.call(KEY, lambda c: c.start()), 120)
         relaunch_took = time.monotonic() - relaunch_started
-        ready = run(host.call(lambda c: _apply(lambda core: core.status, c)))
+        ready = run(host.call(KEY, lambda c: _apply(lambda core: core.status, c)))
     finally:
         asyncio.run(host.shutdown(timeout=20))
     assert outcome in ("MINI_BROWSER_CLOSED", "started")
@@ -1096,15 +1109,15 @@ def test_close_during_launch_is_clean_and_quick(tmp_path, monkeypatch, delay):
 def test_app_exit_during_launch_is_quick_and_leaves_nothing(tmp_path, monkeypatch):
     import_playwright_or_skip()
     profile = tmp_path / "profile"
-    monkeypatch.setattr(config, "profile_dir", lambda: profile)
+    monkeypatch.setattr(config, "profile_dir", lambda key: profile)
     host = MiniBrowserHost(
-        lambda: BrowserCore(
+        lambda: BrowserFleet(
             settings=MiniBrowserSettings(idle_shutdown_minutes=0), ops_registry=FAKE_OPS
         )
     )
 
     async def scenario():
-        starting = asyncio.ensure_future(host.call(lambda c: c.start()))
+        starting = asyncio.ensure_future(host.call(KEY, lambda c: c.start()))
         await asyncio.sleep(0.8)
         started = time.monotonic()
         await host.shutdown(timeout=8)
@@ -1159,15 +1172,15 @@ def test_driver_death_is_noticed_and_the_relaunch_is_quick(tmp_path, monkeypatch
     psutil = pytest.importorskip("psutil")
     import_playwright_or_skip()
     profile = tmp_path / "profile"
-    monkeypatch.setattr(config, "profile_dir", lambda: profile)
+    monkeypatch.setattr(config, "profile_dir", lambda key: profile)
     host = MiniBrowserHost(
-        lambda: BrowserCore(
+        lambda: BrowserFleet(
             settings=MiniBrowserSettings(idle_shutdown_minutes=0), ops_registry=FAKE_OPS
         )
     )
     try:
         try:
-            first = run(host.call(lambda c: c.agent_op("chat-d", "echo", {})), 120)
+            first = run(host.call(KEY, lambda c: c.agent_op("chat-d", "echo", {})), 120)
         except MiniBrowserError as exc:
             _chromium_or_skip(exc)
             raise
@@ -1188,11 +1201,14 @@ def test_driver_death_is_noticed_and_the_relaunch_is_quick(tmp_path, monkeypatch
         assert drivers, "could not find this browser's driver"
         for driver in drivers:
             driver.kill()
+
         # Noticed without any agent action (the watchdog probes the connection).
-        status = lambda: run(host.call(lambda c: _apply(lambda core: core.status, c)))  # noqa: E731
+        def status():
+            return run(host.call(KEY, lambda c: _apply(lambda core: core.status, c)))
+
         assert _wait_for(lambda: status() == "stopped", 8), status()
         started = time.monotonic()
-        again = run(host.call(lambda c: c.agent_op("chat-d", "echo", {})), 120)
+        again = run(host.call(KEY, lambda c: c.agent_op("chat-d", "echo", {})), 120)
         took = time.monotonic() - started
     finally:
         asyncio.run(host.shutdown(timeout=20))
@@ -1206,7 +1222,7 @@ def test_driver_death_is_noticed_and_the_relaunch_is_quick(tmp_path, monkeypatch
 
 def test_settings_apply_at_the_next_start_and_live(tmp_path, monkeypatch):
     import_playwright_or_skip()
-    monkeypatch.setattr(config, "profile_dir", lambda: tmp_path / "profile")
+    monkeypatch.setattr(config, "profile_dir", lambda key: tmp_path / "profile")
     values: Dict[str, Any] = {
         "idle_shutdown_minutes": 0,
         "max_agent_tabs": 2,
@@ -1214,32 +1230,37 @@ def test_settings_apply_at_the_next_start_and_live(tmp_path, monkeypatch):
     }
     monkeypatch.setattr(config, "load_settings", lambda: MiniBrowserSettings(**values))
     host = MiniBrowserHost(
-        lambda: BrowserCore(ops_registry=FAKE_OPS)
+        lambda: BrowserFleet(ops_registry=FAKE_OPS)
     )  # settings.json-backed
     monkeypatch.setattr(host_module, "_host", host)
 
     def current(name):
         return run(
-            host.call(lambda c: _apply(lambda core: getattr(core.settings, name), c))
+            host.call(
+                KEY, lambda c: _apply(lambda core: getattr(core.settings, name), c)
+            )
         )
 
     try:
         try:
-            run(host.call(lambda c: c.start()), 120)
+            run(host.call(KEY, lambda c: c.start()), 120)
         except MiniBrowserError as exc:
             _chromium_or_skip(exc)
             raise
         assert current("max_agent_tabs") == 2
         values["max_agent_tabs"] = 5
-        run(host.call(lambda c: c.close()))
-        run(host.call(lambda c: c.start()), 120)  # Close + Start applies edits
+        run(host.call(KEY, lambda c: c.close()))
+        run(host.call(KEY, lambda c: c.start()), 120)  # Close + Start applies edits
         assert current("max_agent_tabs") == 5
         values["adblock"] = False
         values["max_fps"] = 20
         lifecycle.reload_settings()  # settings.json hot reload: live settings
         assert _wait_for(lambda: current("adblock") is False, 5)
         assert current("max_fps") == 20
-        assert run(host.call(lambda c: _apply(lambda core: core.status, c))) == "ready"
+        assert (
+            run(host.call(KEY, lambda c: _apply(lambda core: core.status, c)))
+            == "ready"
+        )
     finally:
         asyncio.run(host.shutdown(timeout=20))
 
@@ -1433,10 +1454,8 @@ def test_unsaved_user_page_is_not_left_silently(eng):
             core.tabs[tab_id], "last_user_input", time.monotonic() - 60
         )
     )
-    result = eng.op(
-        mini_browser_package.SESSION_ID, "goto", url=eng.site.url("/page?t=Away")
-    )
-    assert result["tab"]["id"] == tab_id  # the dedicated chat claimed the viewed page
+    result = eng.op(KEY, "goto", url=eng.site.url("/page?t=Away"))
+    assert result["tab"]["id"] == tab_id  # the chat's own agent claimed the viewed page
     assert result["url"].endswith("/unsaved")  # ... but did not leave it
     dialogs = [e for e in result.get("events", []) if e["kind"] == "dialog"]
     assert dialogs and dialogs[0]["dialog"] == "beforeunload"

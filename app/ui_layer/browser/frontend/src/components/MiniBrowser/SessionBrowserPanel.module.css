@@ -1,22 +1,7 @@
-/* Mini Browser page: the browser on the left, the Mini Browser chat on the
-   right (ChatPanel). Below 768px, or when the row is too narrow for both,
-   the two stack vertically. */
+/* A chat's browser, in the chat's panel (the Generative UI output pane's
+   place): the browser toolbar, the tabs, and the live page. */
 
-.page {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  overflow: hidden;
-}
-
-.content {
-  display: flex;
-  flex: 1;
-  min-height: 0;
-  overflow: hidden;
-}
-
-.browserPanel {
+.panel {
   display: flex;
   flex-direction: column;
   flex: 1;
@@ -88,19 +73,6 @@
   color: var(--text-primary);
   font-size: var(--text-base);
   font-weight: var(--font-semibold);
-}
-
-/* ── Stacked: the chat (see ChatPanel) under the browser ─────────────── */
-/* Below 768px, and wherever the row is too narrow for both side by side. */
-
-.contentStacked {
-  flex-direction: column;
-}
-
-@media (max-width: 768px) {
-  .content {
-    flex-direction: column;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {

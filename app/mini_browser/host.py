@@ -3,15 +3,16 @@
 Playwright objects belong to the event loop that created them, but Mini
 Browser callers live on several loops: the main agent/UI loop, and each
 sub-agent's private loop (``spawn_subagent`` runs ``asyncio.run`` in a worker
-thread). So the browser gets one home: a daemon thread named ``mini-browser``
+thread). So the browsers get one home: a daemon thread named ``mini-browser``
 running its own loop. Every Playwright object, lock and background task of
-the browser lives there, and callers marshal into it with :meth:`call`
-(request/response, caller cancellation propagates) or :meth:`submit`
-(fire-and-forget).
+every session's browser lives there, and callers marshal into it with
+:meth:`call` (one session's browser) or :meth:`call_fleet` (all of them),
+both request/response with caller cancellation propagating, or
+:meth:`submit` (fire-and-forget).
 
 Starting the host only starts the thread and builds the
-:class:`~app.mini_browser.core.BrowserCore`; Chromium itself starts on first
-real use.
+:class:`~app.mini_browser.fleet.BrowserFleet`; a session's Chromium starts
+on first real use.
 
 :meth:`MiniBrowserHost.shutdown` is terminal: from the moment it begins,
 every call fails fast with MINI_BROWSER_NOT_RUNNING (never hangs on a
@@ -24,6 +25,7 @@ from __future__ import annotations
 import asyncio
 import concurrent.futures
 import contextvars
+import functools
 import sys
 import threading
 import time
@@ -33,6 +35,7 @@ from app.logger import logger
 
 if TYPE_CHECKING:
     from app.mini_browser.core import BrowserCore
+    from app.mini_browser.fleet import BrowserFleet
 
 T = TypeVar("T")
 
@@ -42,10 +45,10 @@ _CANCEL_GRACE_S = 5.0
 _CANCEL_ROUNDS = 5
 
 
-def _default_core_factory() -> "BrowserCore":
-    from app.mini_browser.core import BrowserCore
+def _default_fleet_factory() -> "BrowserFleet":
+    from app.mini_browser.fleet import BrowserFleet
 
-    return BrowserCore()
+    return BrowserFleet()
 
 
 def _not_running() -> Exception:
@@ -55,16 +58,16 @@ def _not_running() -> Exception:
 
 
 class MiniBrowserHost:
-    """A daemon thread + event loop that owns one :class:`BrowserCore`."""
+    """A daemon thread + event loop that owns the :class:`BrowserFleet`."""
 
     def __init__(
-        self, core_factory: Optional[Callable[[], "BrowserCore"]] = None
+        self, fleet_factory: Optional[Callable[[], "BrowserFleet"]] = None
     ) -> None:
-        self._factory = core_factory or _default_core_factory
+        self._factory = fleet_factory or _default_fleet_factory
         self._lock = threading.Lock()
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._thread: Optional[threading.Thread] = None
-        self._core: Optional["BrowserCore"] = None
+        self._fleet: Optional["BrowserFleet"] = None
         # Set when shutdown() begins; cleared only by reopen().
         self._closed = False
         # Strong references to fire-and-forget tasks (host loop only).
@@ -76,11 +79,11 @@ class MiniBrowserHost:
     # ── state ────────────────────────────────────────────────────────────────
 
     @property
-    def core(self) -> "BrowserCore":
-        core = self._core
-        if core is None:
+    def fleet(self) -> "BrowserFleet":
+        fleet = self._fleet
+        if fleet is None:
             raise RuntimeError("The Mini Browser host is not running")
-        return core
+        return fleet
 
     @property
     def loop(self) -> Optional[asyncio.AbstractEventLoop]:
@@ -104,7 +107,7 @@ class MiniBrowserHost:
     # ── lifecycle ────────────────────────────────────────────────────────────
 
     def start(self) -> None:
-        """Start the thread, loop and core (not Chromium). Idempotent, thread-safe.
+        """Start the thread, loop and fleet (not Chromium). Idempotent, thread-safe.
 
         Raises MINI_BROWSER_NOT_RUNNING once the host was shut down.
         """
@@ -129,7 +132,7 @@ class MiniBrowserHost:
                 raise RuntimeError(
                     f"The Mini Browser host failed to start: {type(error).__name__}"
                 ) from error
-            self._loop, self._thread, self._core = loop, thread, box["core"]
+            self._loop, self._thread, self._fleet = loop, thread, box["fleet"]
             self._submitted = set()
         logger.debug("[MiniBrowser] Host thread started")
 
@@ -145,7 +148,7 @@ class MiniBrowserHost:
         with self._lock:
             if self._thread is not None and self._thread.is_alive():
                 raise RuntimeError("The Mini Browser host is still stopping")
-            self._loop = self._thread = self._core = None
+            self._loop = self._thread = self._fleet = None
             self._closed = False
 
     def _run(
@@ -153,13 +156,16 @@ class MiniBrowserHost:
     ) -> None:
         asyncio.set_event_loop(loop)
         try:
-            box["core"] = self._factory()
+            fleet = box["fleet"] = self._factory()
         except BaseException as exc:  # reported to start()
             box["error"] = exc
             ready.set()
             asyncio.set_event_loop(None)
             loop.close()
             return
+        start_background = getattr(fleet, "start_background", None)
+        if callable(start_background):
+            loop.call_soon(start_background)
         ready.set()
         try:
             loop.run_forever()
@@ -203,8 +209,17 @@ class MiniBrowserHost:
                 except Exception:
                     pass  # completed meanwhile
 
-    async def call(self, fn: Callable[["BrowserCore"], Awaitable[T]]) -> T:
-        """Run ``fn(core)`` on the host loop and return its result.
+    async def call(self, key: str, fn: Callable[["BrowserCore"], Awaitable[T]]) -> T:
+        """Run ``fn(core)`` on session ``key``'s browser and return its result.
+
+        The session's browser is created (not started) on first use; a
+        session that no longer exists raises MINI_BROWSER_SESSION_GONE. Works
+        from any loop or thread, like :meth:`call_fleet`.
+        """
+        return await self.call_fleet(functools.partial(_on_core, key, fn))
+
+    async def call_fleet(self, fn: Callable[["BrowserFleet"], Awaitable[T]]) -> T:
+        """Run ``fn(fleet)`` on the host loop and return its result.
 
         Works from any loop or thread. Cancelling the caller cancels the work
         on the host loop. Once the host is shutting down (or shut down) it
@@ -213,17 +228,17 @@ class MiniBrowserHost:
         the caller did not ask for.
         """
         self.start()
-        loop, core = self._loop, self._core
-        if loop is None or core is None or self._closed:
+        loop, fleet = self._loop, self._fleet
+        if loop is None or fleet is None or self._closed:
             raise _not_running()
         try:
             running = asyncio.get_running_loop()
         except RuntimeError:
             running = None
         if running is loop:
-            return await fn(core)
+            return await fn(fleet)
         try:
-            future = asyncio.run_coroutine_threadsafe(_invoke(fn, core), loop)
+            future = asyncio.run_coroutine_threadsafe(_invoke(fn, fleet), loop)
         except RuntimeError:
             raise _not_running() from None
         self._track(future)
@@ -245,9 +260,9 @@ class MiniBrowserHost:
         return wrapped.result()
 
     def submit(
-        self, fn: Callable[["BrowserCore"], Awaitable[Any]], *, start: bool = True
+        self, fn: Callable[["BrowserFleet"], Awaitable[Any]], *, start: bool = True
     ) -> concurrent.futures.Future:
-        """Fire-and-forget ``fn(core)`` on the host loop. Thread-safe.
+        """Fire-and-forget ``fn(fleet)`` on the host loop. Thread-safe.
 
         ``fn`` must return an awaitable. Runs in a clean context (no caller
         context variables). Failures are logged and set on the returned
@@ -262,15 +277,15 @@ class MiniBrowserHost:
         except Exception as exc:
             result.set_exception(exc)
             return result
-        loop, core = self._loop, self._core
-        if loop is None or core is None or not self.is_running():
+        loop, fleet = self._loop, self._fleet
+        if loop is None or fleet is None or not self.is_running():
             result.set_exception(_not_running())
             return result
 
         def schedule() -> None:
             if not result.set_running_or_notify_cancel():
                 return
-            task = contextvars.Context().run(loop.create_task, _logged(fn, core))
+            task = contextvars.Context().run(loop.create_task, _logged(fn, fleet))
             self._submitted.add(task)
             task.add_done_callback(lambda t: self._finish_submitted(t, result))
 
@@ -299,22 +314,22 @@ class MiniBrowserHost:
             result.set_result(task.result())
 
     async def shutdown(self, timeout: float = 10.0) -> None:
-        """Close Chromium, stop the loop and join the thread. Never raises.
+        """Close every browser, stop the loop and join the thread. Never raises.
 
         Terminal: calls made from now on fail with MINI_BROWSER_NOT_RUNNING
         until :meth:`reopen`. Calling it again is a no-op.
         """
         with self._lock:
             self._closed = True
-            loop, thread, core = self._loop, self._thread, self._core
+            loop, thread, fleet = self._loop, self._thread, self._fleet
         if loop is None or thread is None:
             return
         deadline = time.monotonic() + max(1.0, float(timeout))
         if thread is threading.current_thread():
             # Called from the host loop itself: it cannot join its own thread.
             try:
-                if core is not None:
-                    await core.close()
+                if fleet is not None:
+                    await fleet.close_all()
             except Exception as exc:
                 logger.warning(
                     f"[MiniBrowser] Browser close failed: {type(exc).__name__}"
@@ -322,9 +337,9 @@ class MiniBrowserHost:
             finally:
                 loop.stop()
             return
-        if thread.is_alive() and not loop.is_closed() and core is not None:
+        if thread.is_alive() and not loop.is_closed() and fleet is not None:
             try:
-                future = asyncio.run_coroutine_threadsafe(core.close(), loop)
+                future = asyncio.run_coroutine_threadsafe(fleet.close_all(), loop)
                 await asyncio.wait_for(
                     asyncio.wrap_future(future),
                     max(0.5, deadline - time.monotonic() - 1.0),
@@ -346,7 +361,7 @@ class MiniBrowserHost:
             self._fail_pending()
         with self._lock:
             if self._thread is thread and not thread.is_alive():
-                self._loop = self._thread = self._core = None
+                self._loop = self._thread = self._fleet = None
         logger.debug("[MiniBrowser] Host stopped")
 
 
@@ -362,16 +377,22 @@ def _new_loop() -> asyncio.AbstractEventLoop:
 
 
 async def _invoke(
-    fn: Callable[["BrowserCore"], Awaitable[T]], core: "BrowserCore"
+    fn: Callable[["BrowserFleet"], Awaitable[T]], fleet: "BrowserFleet"
 ) -> T:
-    return await fn(core)
+    return await fn(fleet)
+
+
+async def _on_core(
+    key: str, fn: Callable[["BrowserCore"], Awaitable[T]], fleet: "BrowserFleet"
+) -> T:
+    return await fn(fleet.core(key))
 
 
 async def _logged(
-    fn: Callable[["BrowserCore"], Awaitable[Any]], core: "BrowserCore"
+    fn: Callable[["BrowserFleet"], Awaitable[Any]], fleet: "BrowserFleet"
 ) -> Any:
     try:
-        return await fn(core)
+        return await fn(fleet)
     except asyncio.CancelledError:
         raise
     except Exception as exc:
@@ -407,7 +428,7 @@ _host: Optional[MiniBrowserHost] = None
 
 
 def get_host() -> MiniBrowserHost:
-    """The process-wide host, started (thread + core; Chromium starts lazily).
+    """The process-wide host, started (thread + fleet; Chromium starts lazily).
 
     Raises MINI_BROWSER_NOT_RUNNING after :func:`shutdown_process_host`
     (app exit) until :func:`restart_process_host`.

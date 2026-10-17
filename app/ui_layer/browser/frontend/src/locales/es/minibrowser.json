@@ -2,12 +2,6 @@
   "page": {
     "label": "Mininavegador"
   },
-  "chat": {
-    "placeholder": "Pide al agente que navegue o rellene formularios…",
-    "show": "Mostrar chat",
-    "hide": "Ocultar chat",
-    "loading": "Preparando el chat…"
-  },
   "toolbar": {
     "label": "Controles del navegador",
     "back": "Atrás",
@@ -53,7 +47,7 @@
     "owner": {
       "you": "Tú",
       "main": "Chat principal",
-      "miniBrowser": "Este chat",
+      "agent": "Agente",
       "session": "Chat",
       "subagent": "Subagente",
       "subagentOf": "Subagente ({{parent}})"
@@ -84,13 +78,17 @@
   "status": {
     "connecting": "Conectando con el Mininavegador…",
     "starting": "Iniciando el navegador…",
+    "resuming": "Retomando donde lo dejaste…",
+    "pausedTitle": "Navegador en pausa",
+    "pausedBody": "Tus páginas se vuelven a abrir donde las dejaste.",
+    "resume": "Reanudar",
     "installing": "Instalando el navegador…",
     "installingHint": "Descargando Chromium. Puede tardar unos minutos.",
     "installLog": "Registro de instalación",
     "installDone": "Navegador instalado",
     "errorTitle": "El navegador tuvo un problema",
     "stoppedTitle": "Navega por la web junto a tu agente",
-    "stoppedBody": "Un navegador real que compartes con tus agentes. Míralos trabajar en directo o toma el control cuando quieras.",
+    "stoppedBody": "El navegador propio de este chat. Mira a tu agente trabajar en directo o toma el control cuando quieras.",
     "start": "Iniciar navegador",
     "openSite": "Abrir un sitio",
     "tryAsking": "Prueba a pedirle al agente",
@@ -108,7 +106,7 @@
     "install": "Instalar navegador",
     "installAgain": "Volver a instalar",
     "retry": "Reintentar",
-    "profileInUseHint": "Cierra la otra ventana de CraftBot que está usando el Mininavegador y vuelve a intentarlo."
+    "profileInUseHint": "Cierra el otro CraftBot que está usando el navegador de este chat y vuelve a intentarlo."
   },
   "events": {
     "download": "Descargado: {{name}}",
@@ -125,7 +123,7 @@
   },
   "confirm": {
     "shutdownTitle": "¿Cerrar el navegador?",
-    "shutdownMessage": "Un agente sigue navegando. Al cerrar el navegador se cierran todas las pestañas, pero un agente que siga trabajando puede volver a abrirlo. Para detener a un agente, pulsa Detener en su chat."
+    "shutdownMessage": "Un agente sigue navegando. Al cerrar el navegador se cierran todas las pestañas, pero un agente que siga trabajando puede volver a abrirlo. Para detener al agente, pulsa Detener."
   },
   "passwords": {
     "title": "Contraseñas guardadas",
@@ -194,7 +192,7 @@
     },
     "MINI_BROWSER_PROFILE_IN_USE": {
       "title": "Perfil del navegador en uso",
-      "message": "Otra ventana de CraftBot ya está usando el perfil del Mininavegador."
+      "message": "Otro CraftBot ya está usando el perfil del navegador de este chat."
     },
     "MINI_BROWSER_LAUNCH_FAILED": {
       "title": "El navegador no se inició",
@@ -235,6 +233,14 @@
     "MINI_BROWSER_TOO_MANY_TABS": {
       "title": "Demasiadas pestañas",
       "message": "Hay demasiadas pestañas abiertas. Cierra una e inténtalo de nuevo."
+    },
+    "MINI_BROWSER_TOO_MANY_BROWSERS": {
+      "title": "Demasiados navegadores abiertos",
+      "message": "Los navegadores de otros chats están abiertos y en uso. Cierra uno o espera a que su agente termine."
+    },
+    "MINI_BROWSER_SESSION_GONE": {
+      "title": "Chat eliminado",
+      "message": "Este chat se eliminó, así que su navegador ya no existe."
     },
     "MINI_BROWSER_TIMEOUT": {
       "title": "Se agotó el tiempo",

@@ -2,12 +2,12 @@
 """
 Browser sub-agent.
 
-Drives its OWN tab in the user's Mini Browser (a real Chromium with the
-user's cookies and logins, shared by every agent) to complete one
-interactive web task: searching inside a site, clicking through results,
-filling a form, comparing offers. The Mini Browser gives every caller
-(here: the sub-agent's own id) a separate tab, so several browser agents
-can run in parallel without touching each other's pages.
+Drives its OWN tab in its parent session's Mini Browser (a real Chromium
+with that chat's cookies and signed-in sites, shown in the chat's browser
+panel) to complete one interactive web task: searching inside a site,
+clicking through results, filling a form, comparing offers. The browser
+gives every caller (here: the sub-agent's own id) a separate tab, so several
+browser agents can run in parallel without touching each other's pages.
 
 Deliberately NOT allowed: ``mini_browser_login``. A sub-agent browses pages
 the spawning agent has not vetted, so it never gets to type the user's saved
@@ -29,9 +29,10 @@ from app.subagent.registry import register_subagent
 
 SYSTEM_PROMPT = """\
 You are a web-browsing sub-agent. You complete ONE web task by driving your
-OWN tab in the user's Mini Browser: a real Chromium that keeps the user's
-cookies and logins, and that the user may be watching live. Other agents
-work in other tabs at the same time; never use theirs.
+OWN tab in the Mini Browser of the chat that spawned you: a real Chromium
+that keeps that chat's cookies and signed-in sites, and that the user may be
+watching live in the chat's browser panel. Other agents work in other tabs
+at the same time; never use theirs.
 
 You have no memory of past conversations and see nothing of the spawning
 agent's context beyond the query.

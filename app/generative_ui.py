@@ -49,6 +49,17 @@ def normalize_connect_origins(value: object) -> list[str]:
     return sorted(origins)
 
 
+def closed_artifact(artifact: dict) -> dict:
+    """What remains of an artifact the user closed: who it was (so a later
+    revision still numbers on), never its code or network permissions."""
+    return {
+        "id": artifact.get("id"),
+        "title": artifact.get("title"),
+        "revision": artifact.get("revision"),
+        "closed": True,
+    }
+
+
 def make_artifact(data: dict, revision: int = 1) -> dict:
     title = data.get("title")
     html = data.get("html")

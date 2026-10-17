@@ -11,11 +11,12 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-# Who owns a tab. ``None`` owner == a tab the user opened themselves.
+# Who owns a tab. ``None`` owner == a tab the user opened themselves. Every
+# session has a browser of its own, so a tab's owner is that session's agent
+# or one of its sub-agents.
 OWNER_KIND_USER = "user"
 OWNER_KIND_MAIN = "main"  # the main session (also scheduled/proactive runs)
 OWNER_KIND_SESSION = "session"  # a chat / Agent App session
-OWNER_KIND_MINI_BROWSER = "mini_browser"  # the dedicated Mini Browser chat
 OWNER_KIND_SUBAGENT = "subagent"
 
 # Agent-facing notice kinds collected on a tab and attached to the owner's
@@ -77,6 +78,11 @@ class Tab:
 
     # Per-page CDP session (network blocking, screencast, stop-loading).
     cdp: Any = None
+
+    # The site icon as a data: URL (None: none known), and the page address
+    # it was looked up for.
+    favicon: Optional[str] = None
+    favicon_page: str = ""
 
     # In-flight agent operation tasks (so Stop can cancel them).
     ops: Set[asyncio.Task] = field(default_factory=set)

@@ -12,10 +12,17 @@ const RIPPLE_MS = 480
 export function parsePointer(data: unknown): MiniBrowserPointer | null {
   if (typeof data !== 'object' || data === null) return null
   const d = data as Record<string, unknown>
-  if (typeof d.tabId !== 'string' || typeof d.x !== 'number' || typeof d.y !== 'number') return null
+  if (typeof d.sessionId !== 'string' || typeof d.tabId !== 'string') return null
+  if (typeof d.x !== 'number' || typeof d.y !== 'number') return null
   if (!Number.isFinite(d.x) || !Number.isFinite(d.y)) return null
   const kind = d.kind === 'down' || d.kind === 'up' || d.kind === 'click' ? d.kind : 'move'
-  return { tabId: d.tabId, x: Math.min(1, Math.max(0, d.x)), y: Math.min(1, Math.max(0, d.y)), kind }
+  return {
+    sessionId: d.sessionId,
+    tabId: d.tabId,
+    x: Math.min(1, Math.max(0, d.x)),
+    y: Math.min(1, Math.max(0, d.y)),
+    kind,
+  }
 }
 
 interface AgentCursorElements {

@@ -20,7 +20,7 @@ export interface ChatMessageOption {
 }
 
 export interface ChatMessage {
-  uiArtifact?: GenerativeUIArtifact
+  uiArtifact?: GenerativeUIArtifact | ClosedGenerativeUIArtifact
   sender: string
   content: string
   style: 'user' | 'agent' | 'system' | 'error' | 'info'
@@ -48,6 +48,15 @@ export interface GenerativeUIArtifact {
   html: string
   revision: number
   connect_origins?: string[]
+  closed?: false
+}
+
+/** What remains of an output the user closed: who it was, never its code. */
+export interface ClosedGenerativeUIArtifact {
+  id: string
+  title: string
+  revision: number
+  closed: true
 }
 
 // Recorded as optionSelected when the user dismisses a pinned question
@@ -58,10 +67,9 @@ export const QUESTION_DISMISSED = '__dismissed__'
 // Session Types
 // ─────────────────────────────────────────────────────────────────────
 
-// 'mini_browser' is the dedicated chat behind the Mini Browser page. Like
-// 'agent_app' it never appears in the sidebar's chat list (that list keeps
-// only type 'chat').
-export type SessionType = 'main' | 'chat' | 'agent_app' | 'mini_browser'
+// 'agent_app' sessions never appear in the sidebar's chat list (that list
+// keeps only type 'chat').
+export type SessionType = 'main' | 'chat' | 'agent_app'
 
 /** How hard the model reasons, picked per chat session in the chat input
  *  (agent_core/core/models/reasoning.py ReasoningChoice). */
@@ -153,6 +161,8 @@ export type WSMessageType =
   | 'session_updated'
   | 'session_deleted'
   | 'session_cleared'
+  | 'generative_ui_close'
+  | 'generative_ui_closed'
   | 'session_busy'
   | 'session_stop'
   | 'agent_state'
@@ -164,6 +174,7 @@ export type WSMessageType =
   // Mini Browser (client → server)
   | 'mini_browser_subscribe'
   | 'mini_browser_unsubscribe'
+  | 'mini_browser_activity_query'
   | 'mini_browser_start'
   | 'mini_browser_shutdown'
   | 'mini_browser_install'
@@ -182,7 +193,9 @@ export type WSMessageType =
   | 'mini_browser_vault_reset'
   // Mini Browser (server → client; mini_browser_vault_list goes both ways)
   | 'mini_browser_state'
+  | 'mini_browser_activity'
   | 'mini_browser_frame'
+  | 'mini_browser_last_frame'
   | 'mini_browser_pointer'
   | 'mini_browser_event'
   | 'mini_browser_install_progress'
@@ -932,16 +945,17 @@ export interface AgentAppDeleteResponse {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Mini Browser — a real Chromium shared by the user and every agent.
-// Wire contract: spec §7 / app/mini_browser/ws.py. Frames and agent pointer
-// moves are high-frequency and never enter Redux (see pages/MiniBrowser).
+// Mini Browser — every chat session has a real Chromium of its own, shown
+// in the chat's browser panel. Wire contract: app/mini_browser/ws.py.
+// Frames and agent pointer moves are high-frequency and never enter Redux
+// (see components/MiniBrowser).
 // ─────────────────────────────────────────────────────────────────────
 
 /** Browser lifecycle, from `mini_browser_state.status`. */
 export type MiniBrowserStatus = 'stopped' | 'starting' | 'ready' | 'installing' | 'error'
 
 /** Who a tab belongs to; 'user' is a tab the user opened themselves. */
-export type MiniBrowserOwnerKind = 'user' | 'main' | 'session' | 'mini_browser' | 'subagent'
+export type MiniBrowserOwnerKind = 'user' | 'main' | 'session' | 'subagent'
 
 /** A user-presentable backend error (`errors.ui_error`). */
 export interface MiniBrowserError {
@@ -952,6 +966,8 @@ export interface MiniBrowserError {
 
 export interface MiniBrowserTab {
   id: string
+  /** The session whose browser holds the tab. */
+  sessionId: string
   url: string
   title: string
   loading: boolean
@@ -969,6 +985,8 @@ export interface MiniBrowserTab {
   canGoBack: boolean
   canGoForward: boolean
   crashed: boolean
+  /** The site icon, an inline `data:image/…;base64,…` (null: none known). */
+  favicon: string | null
 }
 
 export interface MiniBrowserViewport {
@@ -981,12 +999,11 @@ export interface MiniBrowserSettings {
   showCursor: boolean
 }
 
-/** Payload of `mini_browser_state`. */
+/** Payload of `mini_browser_state`: one session's browser. */
 export interface MiniBrowserStatePayload {
+  sessionId: string
   status: MiniBrowserStatus
   error: MiniBrowserError | null
-  /** The dedicated chat session behind the page. */
-  sessionId: string | null
   /** null until the backend has reported it. */
   adblock: boolean | null
   viewedTabId: string | null
@@ -997,8 +1014,18 @@ export interface MiniBrowserStatePayload {
   settings: MiniBrowserSettings
 }
 
+/** One entry of `mini_browser_activity`: a session's browser runs, and
+ *  whether an agent is browsing in it (true once per run: it opens the
+ *  chat's browser panel). */
+export interface MiniBrowserActivity {
+  sessionId: string
+  status: MiniBrowserStatus
+  browsing: boolean
+}
+
 /** Payload of `mini_browser_frame` (latest-wins; never stored in Redux). */
 export interface MiniBrowserFrame {
+  sessionId: string
   tabId: string
   /** `data:image/jpeg;base64,…` */
   image: string
@@ -1008,10 +1035,24 @@ export interface MiniBrowserFrame {
   seq: number
 }
 
+/** Where a session's browser left off (`mini_browser_last_frame`): a picture
+ *  of the page it had on screen, shown dimmed while the browser starts or is
+ *  off. */
+export interface MiniBrowserLastFrame {
+  /** `data:image/jpeg;base64,…` */
+  image: string
+  /** CSS px of the page viewport the picture shows. */
+  width: number
+  height: number
+  url: string
+  title: string
+}
+
 export type MiniBrowserPointerKind = 'move' | 'down' | 'up' | 'click'
 
 /** Payload of `mini_browser_pointer`: the agent's mouse, 0..1 of the frame. */
 export interface MiniBrowserPointer {
+  sessionId: string
   tabId: string
   x: number
   y: number
@@ -1025,6 +1066,8 @@ export interface MiniBrowserEvent {
   kind: string
   level: MiniBrowserEventLevel
   message: string
+  /** The session whose browser it concerns (null: not one session's). */
+  sessionId: string | null
   tabId?: string
   /** Saved file for downloads. */
   path?: string
@@ -1045,6 +1088,7 @@ export interface MiniBrowserInstallProgress {
 
 /** Payload of `mini_browser_nav_result` (address bar requests only). */
 export interface MiniBrowserNavResult {
+  sessionId: string
   ok: boolean
   error?: MiniBrowserError
 }

@@ -2,12 +2,6 @@
   "page": {
     "label": "迷你瀏覽器"
   },
-  "chat": {
-    "placeholder": "請代理幫你瀏覽網頁、搜尋或填寫表單…",
-    "show": "顯示對話",
-    "hide": "隱藏對話",
-    "loading": "正在準備對話…"
-  },
   "toolbar": {
     "label": "瀏覽器控制項",
     "back": "上一頁",
@@ -53,7 +47,7 @@
     "owner": {
       "you": "你",
       "main": "主要對話",
-      "miniBrowser": "這個對話",
+      "agent": "代理",
       "session": "對話",
       "subagent": "子代理",
       "subagentOf": "子代理（{{parent}}）"
@@ -84,13 +78,17 @@
   "status": {
     "connecting": "正在連線到迷你瀏覽器…",
     "starting": "正在啟動瀏覽器…",
+    "resuming": "正在從上次離開的地方繼續…",
+    "pausedTitle": "瀏覽器已暫停",
+    "pausedBody": "你的頁面會從上次離開的地方重新開啟。",
+    "resume": "繼續",
     "installing": "正在安裝瀏覽器…",
     "installingHint": "正在下載 Chromium，可能需要幾分鐘。",
     "installLog": "安裝記錄",
     "installDone": "瀏覽器已安裝",
     "errorTitle": "瀏覽器發生問題",
     "stoppedTitle": "和代理一起瀏覽網頁",
-    "stoppedBody": "一個與代理共用的真實瀏覽器。你可以即時觀看它們工作，也可以隨時接手操作。",
+    "stoppedBody": "這個對話專屬的瀏覽器。你可以即時觀看代理工作，也可以隨時接手操作。",
     "start": "啟動瀏覽器",
     "openSite": "開啟網站",
     "tryAsking": "試著這樣請代理幫忙",
@@ -108,7 +106,7 @@
     "install": "安裝瀏覽器",
     "installAgain": "重新安裝",
     "retry": "重試",
-    "profileInUseHint": "請關閉正在使用迷你瀏覽器的另一個 CraftBot 視窗，然後再試一次。"
+    "profileInUseHint": "請關閉正在使用這個對話瀏覽器的另一個 CraftBot，然後再試一次。"
   },
   "events": {
     "download": "已下載 {{name}}",
@@ -125,7 +123,7 @@
   },
   "confirm": {
     "shutdownTitle": "要關閉瀏覽器嗎？",
-    "shutdownMessage": "代理仍在瀏覽中。關閉瀏覽器會關閉所有分頁，但仍在工作的代理可能會再次開啟它。若要讓代理停止，請在它的對話中按「停止」。"
+    "shutdownMessage": "代理仍在瀏覽中。關閉瀏覽器會關閉所有分頁，但仍在工作的代理可能會再次開啟它。若要讓代理停止，請按「停止」。"
   },
   "passwords": {
     "title": "已儲存的密碼",
@@ -193,7 +191,7 @@
     },
     "MINI_BROWSER_PROFILE_IN_USE": {
       "title": "瀏覽器設定檔使用中",
-      "message": "另一個 CraftBot 視窗正在使用迷你瀏覽器的設定檔。"
+      "message": "另一個 CraftBot 正在使用這個對話瀏覽器的設定檔。"
     },
     "MINI_BROWSER_LAUNCH_FAILED": {
       "title": "瀏覽器無法啟動",
@@ -234,6 +232,14 @@
     "MINI_BROWSER_TOO_MANY_TABS": {
       "title": "分頁太多",
       "message": "開啟的分頁太多了。請先關閉一個分頁，然後再試一次。"
+    },
+    "MINI_BROWSER_TOO_MANY_BROWSERS": {
+      "title": "開啟的瀏覽器太多",
+      "message": "其他對話的瀏覽器正在執行並使用中。請關閉其中一個，或等它的代理完成。"
+    },
+    "MINI_BROWSER_SESSION_GONE": {
+      "title": "對話已刪除",
+      "message": "這個對話已被刪除，因此它的瀏覽器也不存在了。"
     },
     "MINI_BROWSER_TIMEOUT": {
       "title": "已逾時",

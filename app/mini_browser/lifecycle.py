@@ -1,10 +1,12 @@
 """Hooks the agent runtime calls into the Mini Browser.
 
-Called by ``AgentBase`` (run state changes, Stop, deleted chats, finished
+Called by ``AgentBase`` (run state changes, Stop, deleted sessions, finished
 sub-agents, settings changes, shutdown), possibly from other threads (a
 sub-agent finishing on its worker thread). Every hook is thread-safe, returns
-immediately, never starts the browser and never raises: when the Mini
-Browser was never used there is nothing to do.
+immediately, never starts a browser and never raises: when a session's
+browser was never used there is nothing to do. Every session has a browser
+of its own (``fleet.py``); a hook about a sub-agent goes to its parent
+session's browser.
 
 What the hooks report is recorded HERE, process-wide, before it is handed to
 a running browser: the run state of every session and the moment each Stop
@@ -21,6 +23,7 @@ from datetime import datetime, timedelta
 from typing import Any, Awaitable, Callable, Dict, Optional
 
 from app.logger import logger
+from app.mini_browser import config
 
 RUN_STATES = frozenset({"running", "stopping", "idle"})
 BUSY_STATES = frozenset({"running", "stopping"})
@@ -40,6 +43,9 @@ _lock = threading.Lock()
 _run_states: Dict[str, str] = {}
 _parent_stops: Dict[str, datetime] = {}
 _unavailable: Optional[str] = None
+# A browser started in this process: a later launch failure is that
+# session's own trouble (a damaged profile), not "no browser here".
+_ever_launched = False
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -52,22 +58,56 @@ def on_run_state(session_id: str, state: str) -> None:
     if not record_run_state(session_id, state):
         return
 
-    async def apply(core: Any) -> None:
-        core.run_state_changed(session_id)
+    async def apply(fleet: Any) -> None:
+        core = fleet.existing(config.browser_key(session_id))
+        if core is not None:
+            core.run_state_changed(session_id)
 
     _submit(session_id, apply, "run state")
 
 
-def release_owner(session_id: str) -> None:
-    """A chat was deleted or a sub-agent finished: close its tabs."""
-    if not _valid(session_id):
+def stream_removed(session_id: str) -> None:
+    """A session's event stream was removed: either a sub-agent finished
+    (its tabs close) or a session was deleted (its browser and profile go)."""
+    if config.is_subagent_id(session_id):
+        release_owner(session_id)
+    else:
+        session_deleted(session_id)
+
+
+def release_owner(owner: str) -> None:
+    """A sub-agent finished: close its tabs in its parent session's browser."""
+    if not _valid(owner):
+        return
+    forget_owner(owner)
+
+    async def apply(fleet: Any) -> None:
+        core = fleet.existing(config.browser_key(owner))
+        if core is not None:
+            core.release_owner(owner, close_tabs=True)
+
+    _submit(owner, apply, "release")
+
+
+def session_deleted(session_id: str) -> None:
+    """A session was deleted: close its browser for good and delete its
+    profile (its cookies and signed-in sites). When no browser ran in this
+    process, the profile a previous run left is deleted right away."""
+    if not _valid(session_id) or session_id == config.MAIN_SESSION_KEY:
         return
     forget_owner(session_id)
 
-    async def apply(core: Any) -> None:
-        core.release_owner(session_id, close_tabs=True)
+    async def apply(fleet: Any) -> None:
+        await fleet.remove(session_id)
 
-    _submit(session_id, apply, "release")
+    if _submit(session_id, apply, "session deletion"):
+        return
+    threading.Thread(
+        target=_delete_profile_now,
+        args=(session_id,),
+        name="mini-browser-profile-delete",
+        daemon=True,
+    ).start()
 
 
 def cancel_owner(session_id: str, include_children: bool = True) -> None:
@@ -82,8 +122,10 @@ def cancel_owner(session_id: str, include_children: bool = True) -> None:
     if include_children:
         record_parent_stop(session_id)
 
-    async def apply(core: Any) -> None:
-        await core.cancel_owner_ops(session_id, include_children=include_children)
+    async def apply(fleet: Any) -> None:
+        core = fleet.existing(config.browser_key(session_id))
+        if core is not None:
+            await core.cancel_owner_ops(session_id, include_children=include_children)
 
     _submit(session_id, apply, "cancel")
 
@@ -94,30 +136,31 @@ def reload_settings() -> None:
     Live settings (ad blocking, frame rate and quality, human-like input,
     per-agent tab limit, idle shutdown, search page, file URLs) apply at
     once; launch settings (headless, channel, locale, sound) at the next start.
-    A no-op when the browser thread never started: the browser reads the
-    settings when it starts.
+    A no-op when the browser thread never started: the browsers read the
+    settings when they start.
     """
 
-    async def apply(core: Any) -> None:
-        await core.reload_settings_now()
+    async def apply(fleet: Any) -> None:
+        await fleet.reload_settings_now()
 
     _submit("settings", apply, "settings reload")
 
 
 def unavailable_reason() -> Optional[str]:
-    """Why the Mini Browser cannot run here, or None.
+    """Why the Mini Browser cannot run on this machine, or None.
 
-    ``MINI_BROWSER_CHROMIUM_MISSING`` / ``MINI_BROWSER_PLAYWRIGHT_MISSING`` /
-    ``MINI_BROWSER_LAUNCH_FAILED`` after the latest launch attempt failed
-    that way; None after a successful launch (or before any launch). Never
-    starts anything.
+    ``MINI_BROWSER_CHROMIUM_MISSING`` / ``MINI_BROWSER_PLAYWRIGHT_MISSING``
+    after the latest launch attempt failed that way, and
+    ``MINI_BROWSER_LAUNCH_FAILED`` when no browser has started in this
+    process yet; None after a successful launch (or before any launch).
+    Never starts anything.
     """
     with _lock:
         return _unavailable
 
 
 async def shutdown(timeout: float = 15.0) -> None:
-    """App exit: close Chromium (flushing cookies and logins) and stop the thread.
+    """App exit: close every browser (flushing cookies and logins) and stop the thread.
 
     The process-wide browser host stays closed afterwards: later calls get
     MINI_BROWSER_NOT_RUNNING instead of relaunching Chromium during exit
@@ -192,27 +235,35 @@ def forget_owner(session_id: Any) -> None:
 
 
 def note_launch_result(code: Optional[str]) -> None:
-    """The browser engine reports each launch: None = it started.
+    """A session's browser reports each launch: None = it started.
 
-    Only the failures in ``UNAVAILABLE_CODES`` mark the browser unavailable;
-    other failures (a profile in use, a close during the launch) leave the
-    previous verdict alone.
+    Only the failures in ``UNAVAILABLE_CODES`` mark the browser unavailable:
+    a missing Chromium or Playwright always, a failed launch only while no
+    browser has started in this process (once one has, the machine can run
+    them and a failure is that session's own, e.g. a damaged profile). Other
+    failures (a profile in use, a close during the launch, too many
+    browsers) leave the previous verdict alone.
     """
-    global _unavailable
+    global _unavailable, _ever_launched
     with _lock:
         if code is None:
             _unavailable = None
+            _ever_launched = True
+        elif code == "MINI_BROWSER_LAUNCH_FAILED":
+            if not _ever_launched:
+                _unavailable = code
         elif code in UNAVAILABLE_CODES:
             _unavailable = code
 
 
 def _reset_for_tests() -> None:
     """Forget every record (tests only)."""
-    global _unavailable
+    global _unavailable, _ever_launched
     with _lock:
         _run_states.clear()
         _parent_stops.clear()
         _unavailable = None
+        _ever_launched = False
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -224,17 +275,34 @@ def _valid(session_id: Any) -> bool:
     return isinstance(session_id, str) and bool(session_id)
 
 
-def _submit(what_for: Any, fn: Callable[[Any], Awaitable[None]], what: str) -> None:
-    """Hand ``fn`` to a running browser thread; nothing happens otherwise."""
+def _submit(what_for: Any, fn: Callable[[Any], Awaitable[None]], what: str) -> bool:
+    """Hand ``fn(fleet)`` to a running browser thread; nothing happens
+    otherwise. Returns whether it was handed over."""
     if not _valid(what_for):
-        return
+        return False
     try:
         from app.mini_browser.host import get_host_if_started
 
         host = get_host_if_started()
         if host is not None:
             host.submit(fn, start=False)
+            return True
     except Exception as exc:
         logger.debug(
             f"[MiniBrowser] Lifecycle {what} hook failed: {type(exc).__name__}"
+        )
+    return False
+
+
+def _delete_profile_now(session_id: str) -> None:
+    """Delete a deleted session's profile while no browser thread runs
+    (blocking: runs on a daemon thread). Never raises."""
+    try:
+        from app.mini_browser.core import delete_profile
+
+        delete_profile(config.profile_dir(session_id))
+    except Exception as exc:
+        logger.warning(
+            f"[MiniBrowser] Could not delete the browser profile of a deleted "
+            f"session: {type(exc).__name__}"
         )

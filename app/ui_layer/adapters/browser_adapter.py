@@ -422,6 +422,26 @@ class BrowserChatComponent(ChatComponentProtocol):
             }
         )
 
+    async def close_ui_artifact(self, session_id: str, artifact_id: str) -> int:
+        """The user closed a Generative UI output: loaded and stored messages
+        keep only a closed marker for it. Returns how many stored messages
+        carried it."""
+        from app.generative_ui import closed_artifact
+
+        for message in self._messages:
+            artifact = message.ui_artifact
+            if (
+                message.session_id == session_id
+                and artifact
+                and artifact.get("id") == artifact_id
+            ):
+                message.ui_artifact = closed_artifact(artifact)
+        if not self._storage:
+            return 0
+        return await self.run_storage(
+            self._storage.close_ui_artifact, session_id, artifact_id
+        )
+
     def drop_session_messages(self, session_id: str) -> None:
         """Drop a session's messages from memory only (storage already cleared
         by the caller — e.g. the /clear command or session_clear handler)."""
@@ -895,8 +915,9 @@ class BrowserAdapter(InterfaceAdapter):
         # Latest build todo list per Agent App, replayed to reconnecting tabs.
         self._agent_app_todos: Dict[str, list] = {}
         self._metrics_subscribers: Set = set()
-        # Mini Browser page: its viewers, live view and requests. Constructing
-        # it starts nothing (no browser thread, no Chromium).
+        # Chat browser panels (every session's Mini Browser): their viewers,
+        # live views and requests. Constructing it starts nothing (no browser
+        # thread, no Chromium).
         try:
             from app.mini_browser.ws import MiniBrowserWS
 
@@ -1590,6 +1611,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         elif msg_type == "session_clear":
             await self._handle_session_clear(data)
 
+        elif msg_type == "generative_ui_close":
+            await self._handle_generative_ui_close(data)
+
         elif msg_type == "session_list":
             await self._handle_session_list(ws)
 
@@ -1663,7 +1687,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             file_path = data.get("path", "")
             await self._handle_open_folder(file_path)
 
-        # Mini Browser page: live view, browser controls and the password
+        # Chat browser panels: live view, browser controls and the password
         # vault (app/mini_browser/ws.py answers every failure itself).
         elif isinstance(msg_type, str) and msg_type.startswith("mini_browser_"):
             mini_browser = getattr(self, "_mini_browser_ws", None)
@@ -4449,6 +4473,34 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             await self.broadcast_session_cleared(session_id)
         except Exception as e:
             logger.error(f"[SESSION] Clear failed for {session_id}: {e}")
+
+    async def _handle_generative_ui_close(self, data: Dict[str, Any]) -> None:
+        """The user closed a Generative UI output: its code goes from the
+        chat storage and the session's events (a closed marker stays, so a
+        later revision still numbers on), and every client drops it."""
+        session_id = data.get("sessionId")
+        artifact_id = data.get("artifactId")
+        if not (
+            isinstance(session_id, str)
+            and session_id
+            and isinstance(artifact_id, str)
+            and artifact_id
+        ):
+            return
+        try:
+            await self._chat.close_ui_artifact(session_id, artifact_id)
+            await asyncio.to_thread(
+                self._controller.agent.close_ui_artifact, session_id, artifact_id
+            )
+        except Exception as e:
+            logger.error(f"[GENERATIVE_UI] Close of {artifact_id} failed: {e}")
+            return
+        await self._broadcast(
+            {
+                "type": "generative_ui_closed",
+                "data": {"sessionId": session_id, "artifactId": artifact_id},
+            }
+        )
 
     async def _handle_session_list(self, ws=None) -> None:
         """Send the current session list."""
@@ -8584,16 +8636,28 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             return
         await self._broadcast(message)
 
-    def _send_only_to(self, ws, message: Dict[str, Any]) -> bool:
+    # ── Outbound channels for the chat browser panels (app/mini_browser/ws.py,
+    # MiniBrowserAdapter): direct per-socket delivery, never a broadcast. ──
+
+    def send_only_to(self, ws, message: Dict[str, Any]) -> bool:
         """Send to one connection only. Unlike ``_send_to`` there is no
         broadcast fallback: when that connection is gone the message is
         dropped, so replies meant for one tab (saved logins) never reach
         another. Returns whether it was queued."""
-        channel = self._channels.get(ws) if ws is not None else None
-        if channel is None or channel.closed:
+        channel = self.client_channel(ws)
+        if channel is None:
             return False
         channel.send_json(_with_request_id(message))
         return True
+
+    def client_channel(self, ws) -> Optional[ClientChannel]:
+        """The open outbound channel of ``ws``, or None when it is gone."""
+        channel = self._channels.get(ws) if ws is not None else None
+        return None if channel is None or channel.closed else channel
+
+    def client_channels(self) -> List[ClientChannel]:
+        """The open outbound channel of every connected socket."""
+        return [channel for channel in self._channels.values() if not channel.closed]
 
     async def _handle_whatsapp_start_qr(self, ws=None, force: bool = False) -> None:
         """Start a WhatsApp link flow and return the QR to the requesting

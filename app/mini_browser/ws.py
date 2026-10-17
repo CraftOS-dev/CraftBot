@@ -1,43 +1,49 @@
 # -*- coding: utf-8 -*-
-"""WebSocket side of the Mini Browser page, and the browser's UI sink.
+"""WebSocket side of the chat browser panels, and the browsers' UI sink.
 
-``MiniBrowserWS`` lives in the browser UI adapter, on the UI event loop, and
-has three jobs.
+Every agent session has a browser of its own (``fleet.py``), shown in that
+chat's browser panel. ``MiniBrowserWS`` lives in the browser UI adapter, on
+the UI event loop, and has three jobs.
 
 **Requests.** ``handle`` takes every ``mini_browser_*`` message from a
-browser tab, validates and clamps it, and turns it into a call on the browser
-host (``app.mini_browser.host``; the browser itself runs on its own thread)
-or on the password vault. A handler never raises: an unhandled error would
-be broadcast into every tab's main chat, so each failure is answered to the
-requesting socket only, as ``{code, title, message}``. Page loads, history
-moves, new tabs and explicit starts run as background tasks, so a slow site
-never blocks the socket's message lane. Live-view input is queued per socket
-and applied in order by one drain task; while the page lags, mouse moves
-coalesce (latest wins) and wheel steps add up, so a hung page never builds a
-backlog in front of the user's keystrokes, and closing the browser or taking
-and handing back control (their own lanes) never wait behind it. Replies
-(``{type, data}``):
+browser tab, validates and clamps it, and turns it into a call on the
+browser host (``app.mini_browser.host``; the browsers run on their own
+thread) or on the password vault. Requests about a session's browser name
+the session (``sessionId``); tab ids are unique across every session's
+browser. A handler never raises: an unhandled error would be broadcast into
+every tab's main chat, so each failure is answered to the requesting socket
+only, as ``{code, title, message}``. Page loads, history moves, new tabs and
+starts run as background tasks, so a slow site never blocks the socket's
+message lane. Live-view input is queued per socket and applied in order by
+one drain task; while the page lags, mouse moves coalesce (latest wins) and
+wheel steps add up, so a hung page never builds a backlog in front of the
+user's keystrokes, and closing a browser or taking and handing back control
+(their own lanes) never wait behind it. Replies (``{type, data}``):
 
-- ``mini_browser_navigate`` -> ``mini_browser_nav_result {ok, error?}``
-- ``mini_browser_copy`` -> ``mini_browser_clipboard {text}``
+- ``mini_browser_navigate`` -> ``mini_browser_nav_result {sessionId, ok, error?}``
+- ``mini_browser_copy`` -> ``mini_browser_clipboard {text, requestId?}``
+- ``mini_browser_activity_query`` -> ``mini_browser_activity {sessions, snapshot}``
 - ``mini_browser_vault_list`` -> ``mini_browser_vault_list {entries, status, error?}``
 - other vault requests -> ``mini_browser_vault_result {op, ok, error?}``
-- subscribe, the ad-block query -> ``mini_browser_state``
+- subscribe, start, shutdown, the ad-block switch -> ``mini_browser_state``
 - any other failure -> ``mini_browser_event {kind: "error", level, code, title,
-  message}``
+  message, sessionId?}``
 
-**Viewers.** Only sockets that subscribed (the Mini Browser page is open)
-receive browser state, frames, agent cursor moves, events and install
-progress, and the browser streams its screen only while one exists. Passive
-messages (subscribe, unsubscribe, the ad-block query, the vault) never start
-Chromium; while the browser host has never started, its state is synthesized
-here.
+**Viewers.** A socket subscribes to the session whose browser panel it
+shows; only that session's viewers receive its browser's state, frames,
+agent cursor moves and events, and a browser streams its screen only while
+it has a viewer. Opening the panel (subscribe) starts that session's
+browser. Every client receives ``mini_browser_activity`` (which session
+browsers run, and whether an agent is browsing in them, which opens that
+chat's panel); viewers receive install progress. While the browser host has
+never started, a session's state is synthesized here.
 
 **UI sink.** The browser thread publishes through ``bridge.publish``, which
 calls ``post`` here; ``post`` hops onto the UI loop in a clean context (no
 request id of whatever request happens to be running). Frames are coalesced
-into one latest-frame slot, and a socket that is still behind gets no new
-frame, so a slow tab never queues a backlog of images in front of its chat.
+into one latest-frame slot per session, and a socket that is still behind
+gets no new frame, so a slow tab never queues a backlog of images in front
+of its chat.
 
 Passwords never travel to a browser tab: vault replies carry no password,
 and any error text built from a request that carried one (a vault password,
@@ -59,14 +65,16 @@ from typing import (
     Callable,
     Deque,
     Dict,
+    FrozenSet,
     List,
     Optional,
+    Protocol,
     Sequence,
+    Set,
     Tuple,
 )
 
 from app.logger import logger
-from app.mini_browser import SESSION_ID, SESSION_TITLE, SKILL_NAME
 from app.mini_browser.errors import (
     ERROR_SPECS,
     MiniBrowserError,
@@ -75,7 +83,7 @@ from app.mini_browser.errors import (
     ui_error,
 )
 
-__all__ = ["MiniBrowserWS"]
+__all__ = ["MiniBrowserAdapter", "MiniBrowserWS"]
 
 # Bridge message kind -> WebSocket message type.
 _MESSAGE_TYPES: Dict[str, str] = {
@@ -83,8 +91,12 @@ _MESSAGE_TYPES: Dict[str, str] = {
     "frame": "mini_browser_frame",
     "pointer": "mini_browser_pointer",
     "event": "mini_browser_event",
+    "activity": "mini_browser_activity",
     "install": "mini_browser_install_progress",
+    "last_frame": "mini_browser_last_frame",
 }
+# Kinds about one session's browser (their payload names it: sessionId).
+_SESSION_KINDS = frozenset({"state", "frame", "pointer", "event", "last_frame"})
 # Queued-message backlog above which a socket is skipped for this kind: a
 # frame is only worth sending to a socket that has caught up (the next frame
 # replaces it anyway), a cursor move to one that is not badly behind.
@@ -154,6 +166,7 @@ _LIFECYCLE_SHUTDOWN_S = 8.0  # inside _SHUTDOWN_TIMEOUT_S, so it can finish clea
 _HANDLERS: Dict[str, str] = {
     "mini_browser_subscribe": "_handle_subscribe",
     "mini_browser_unsubscribe": "_handle_unsubscribe",
+    "mini_browser_activity_query": "_handle_activity_query",
     "mini_browser_start": "_handle_start",
     "mini_browser_shutdown": "_handle_shutdown",
     "mini_browser_install": "_handle_install",
@@ -172,6 +185,25 @@ _HANDLERS: Dict[str, str] = {
     "mini_browser_vault_delete": "_handle_vault_delete",
     "mini_browser_vault_reset": "_handle_vault_reset",
 }
+
+
+class MiniBrowserAdapter(Protocol):
+    """What ``MiniBrowserWS`` needs from the browser UI adapter."""
+
+    @property
+    def ui_hosts(self) -> FrozenSet[str]:
+        """CraftBot's own UI origins (``host:port``): no browser opens them."""
+
+    def client_channel(self, ws: Any) -> Any:
+        """The open outbound channel of socket ``ws`` (``closed``, ``pending``,
+        ``send_text``), or None when that socket is gone."""
+
+    def client_channels(self) -> List[Any]:
+        """The open outbound channel of every connected socket."""
+
+    def send_only_to(self, ws: Any, message: Dict[str, Any]) -> bool:
+        """Send ``message`` to socket ``ws`` only (never broadcast); whether
+        it was queued."""
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -208,6 +240,14 @@ def _bridge() -> Any:
     return bridge
 
 
+def _last_frame(key: str) -> Dict[str, Any]:
+    """Session ``key``'s ``mini_browser_last_frame``: where its browser left
+    off (``resume.py``). Blocking file I/O: run it in a worker thread."""
+    from app.mini_browser import config, resume
+
+    return resume.ui_payload(key, resume.resume_frame(config.profile_dir(key)))
+
+
 def _lifecycle() -> Any:
     from app.mini_browser import lifecycle
 
@@ -226,19 +266,6 @@ def _save_setting(key: str, value: Any) -> None:
     set_mini_browser_setting(key, value)
 
 
-def _preloaded_skills() -> List[str]:
-    """[SKILL_NAME] when the Mini Browser skill is installed and enabled."""
-    try:
-        from app.skill import skill_manager
-
-        skill = skill_manager.get_skill(SKILL_NAME)
-    except Exception:
-        return []
-    if skill is not None and (skill.enabled or getattr(skill, "is_system", False)):
-        return [SKILL_NAME]
-    return []
-
-
 def _notify_vault_changed() -> None:
     """Every tab showing saved logins refetches them (the data never broadcasts)."""
     try:
@@ -252,18 +279,6 @@ def _notify_vault_changed() -> None:
         logger.debug(f"[MINI_BROWSER] Vault change notice failed: {e}")
 
 
-def _notify_sessions_changed(session_id: str) -> None:
-    try:
-        from app.ui_layer.events.resource_changes import (
-            Resource,
-            notify_resource_changed,
-        )
-
-        notify_resource_changed(Resource.SESSIONS, [session_id])
-    except Exception as e:
-        logger.debug(f"[MINI_BROWSER] Session change notice failed: {e}")
-
-
 def _run_install(log: Callable[[str], None]) -> Tuple[bool, str]:
     """Download Playwright's Chromium (blocking: runs on a worker thread)."""
     from app.provision import default_context
@@ -274,12 +289,32 @@ def _run_install(log: Callable[[str], None]) -> Tuple[bool, str]:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Host-loop helpers (run inside host.call on the browser thread)
+# Host-loop helpers (run inside host.call / call_fleet on the browser thread)
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-async def _core_state(core: Any) -> Dict[str, Any]:
-    return core.state()
+async def _existing_state(key: str, fleet: Any) -> Optional[Dict[str, Any]]:
+    """Session ``key``'s browser state, or None when it was never used."""
+    core = fleet.existing(key)
+    return core.state() if core is not None else None
+
+
+async def _on_existing(
+    key: str, fn: Callable[[Any], Awaitable[Any]], fleet: Any
+) -> Any:
+    """``fn(core)`` on session ``key``'s browser if it was ever used (else None)."""
+    core = fleet.existing(key)
+    return await fn(core) if core is not None else None
+
+
+async def _activity(fleet: Any) -> List[Dict[str, Any]]:
+    return fleet.activity()
+
+
+async def _clear_launch_errors(fleet: Any) -> None:
+    """After an install, an earlier "browser missing" failure no longer applies."""
+    for core in list(fleet.cores.values()):
+        core.clear_launch_error()
 
 
 async def _copy_selection(
@@ -308,13 +343,6 @@ def _cut_key(ws: Any, request_id: str) -> str:
     """A cut's request id, scoped to the viewer connection that sent it: every
     viewer counts its own ids, so two viewers' cuts never share a record."""
     return f"{id(ws):x}:{request_id}"
-
-
-async def _clear_launch_error(core: Any) -> None:
-    """After an install, an earlier "browser missing" failure no longer applies."""
-    if getattr(core, "status", None) == "error":
-        core.status = "stopped"
-        core.last_error = None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -371,6 +399,14 @@ def _short_id(value: Any, name: str, *, required: bool) -> Optional[str]:
     ):
         raise _invalid(f"{name} is not a valid id.")
     return value
+
+
+def _required_id(value: Any, name: str) -> str:
+    """A required tab / session id (see :func:`_short_id`)."""
+    checked = _short_id(value, name, required=True)
+    if checked is None:  # unreachable: _short_id raises for a missing id
+        raise _invalid(f"{name} is required.")
+    return checked
 
 
 def _flag(value: Any, name: str) -> bool:
@@ -653,29 +689,41 @@ async def _in_daemon_thread(fn: Callable[..., Any], *args: Any) -> Any:
 
 
 class _InputQueue:
-    """One socket's live input that has not reached the browser yet.
+    """One socket's live input that has not reached its browser yet.
 
     Events are applied one at a time, in arrival order, by a single drain
     task. While the page lags behind, continuous input is coalesced at the
     tail (see :func:`_coalesce`), so a slow or hung page costs a few queued
     events instead of a backlog of hover moves that would hold up keystrokes.
+    Each event names its session's browser and its tab.
     """
 
     __slots__ = ("items", "task", "current", "overflowed")
 
     def __init__(self) -> None:
-        self.items: Deque[Tuple[str, Dict[str, Any]]] = deque()
+        self.items: Deque[Tuple[str, str, Dict[str, Any]]] = deque()
         self.task: Optional[asyncio.Task] = None
-        self.current: Optional[str] = None  # tab of the event being applied
+        # (session, tab) of the event being applied.
+        self.current: Optional[Tuple[str, str]] = None
         self.overflowed = False
 
-    def pending_for(self, tab_id: str) -> bool:
-        """Whether input for ``tab_id`` is queued or being applied."""
-        return self.current == tab_id or any(tab == tab_id for tab, _ in self.items)
+    def pending_for(self, key: str, tab_id: str) -> bool:
+        """Whether input for ``tab_id`` of session ``key`` is queued or being applied."""
+        target = (key, tab_id)
+        return self.current == target or any(
+            (session, tab) == target for session, tab, _ in self.items
+        )
 
-    def drop_tab(self, tab_id: str) -> int:
-        """Forget the queued (not yet applied) input of ``tab_id``."""
-        kept = [(tab, event) for tab, event in self.items if tab != tab_id]
+    def drop_tab(self, key: str, tab_id: str) -> int:
+        """Forget the queued (not yet applied) input of one tab."""
+        return self._drop(lambda session, tab: session == key and tab == tab_id)
+
+    def drop_session(self, key: str) -> int:
+        """Forget the queued (not yet applied) input of a session's browser."""
+        return self._drop(lambda session, _tab: session == key)
+
+    def _drop(self, matches: Callable[[str, str], bool]) -> int:
+        kept = [item for item in self.items if not matches(item[0], item[1])]
         dropped = len(self.items) - len(kept)
         if dropped:
             self.items = deque(kept)
@@ -683,7 +731,10 @@ class _InputQueue:
 
 
 def _coalesce(
-    items: Deque[Tuple[str, Dict[str, Any]]], tab_id: str, event: Dict[str, Any]
+    items: Deque[Tuple[str, str, Dict[str, Any]]],
+    key: str,
+    tab_id: str,
+    event: Dict[str, Any],
 ) -> bool:
     """Merge ``event`` into the newest queued event if both are continuous
     input of the same kind on the same tab: a move replaces the queued move
@@ -694,22 +745,55 @@ def _coalesce(
     """
     if not items:
         return False
-    last_tab, last = items[-1]
-    if last_tab != tab_id or last["kind"] != event["kind"]:
+    last_key, last_tab, last = items[-1]
+    if last_key != key or last_tab != tab_id or last["kind"] != event["kind"]:
         return False
     if event["kind"] == "mouse":
         if event["action"] != "move" or last["action"] != "move":
             return False
-        items[-1] = (tab_id, event)
+        items[-1] = (key, tab_id, event)
         return True
     if event["kind"] == "wheel":
         dx = last["dx"] + event["dx"]
         dy = last["dy"] + event["dy"]
         if abs(dx) > _MAX_WHEEL_DELTA or abs(dy) > _MAX_WHEEL_DELTA:
             return False
-        items[-1] = (tab_id, {**event, "dx": dx, "dy": dy})
+        items[-1] = (key, tab_id, {**event, "dx": dx, "dy": dy})
         return True
     return False
+
+
+def _session_id(data: Dict[str, Any]) -> str:
+    """The session whose browser a request is about."""
+    return _required_id(data.get("sessionId"), "sessionId")
+
+
+def _optional_session_id(data: Dict[str, Any]) -> Optional[str]:
+    """The request's session id when it carries a valid one, else None."""
+    try:
+        return _short_id(data.get("sessionId"), "sessionId", required=False)
+    except MiniBrowserError:
+        return None
+
+
+def _dump(msg_type: str, data: Dict[str, Any]) -> Optional[str]:
+    try:
+        return json.dumps({"type": msg_type, "data": data}, allow_nan=False)
+    except (TypeError, ValueError) as e:
+        logger.warning(f"[MINI_BROWSER] Dropped an unserializable {msg_type}: {e}")
+        return None
+
+
+async def _sync_core_stream(core: Any) -> None:
+    await core.set_streaming(core.has_viewers())
+
+
+async def _push_frame(core: Any) -> None:
+    await core.push_frame_now()
+
+
+async def _close_core(core: Any) -> None:
+    await core.close()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -718,22 +802,27 @@ def _coalesce(
 
 
 class MiniBrowserWS:
-    """Mini Browser requests, viewers and UI sink for one browser adapter.
+    """Browser-panel requests, viewers and UI sink for one browser adapter.
 
     Everything except ``has_viewers`` and ``post`` runs on the UI loop;
     those two are called from the browser thread.
     """
 
-    def __init__(self, adapter: Any) -> None:
+    def __init__(self, adapter: MiniBrowserAdapter) -> None:
         self._adapter = adapter
         self._loop: Optional[asyncio.AbstractEventLoop] = None
-        # Subscribed sockets (UI loop only) and a count other threads may read.
-        self._viewers: set = set()
-        self._viewer_count = 0
-        # Latest-frame slot, filled by the browser thread, drained on the UI loop.
+        # Sockets watching each session's browser, and the sessions each
+        # socket watches (UI loop only).
+        self._viewers: Dict[str, Set[Any]] = {}
+        self._watching: Dict[Any, Set[str]] = {}
+        # Sessions with a viewer, read by the browser thread (replaced, never
+        # mutated, so a read never needs a lock).
+        self._watched: FrozenSet[str] = frozenset()
+        # The latest frame of each session, filled by the browser thread and
+        # drained on the UI loop.
         self._frame_lock = threading.Lock()
-        self._frame: Optional[Dict[str, Any]] = None
-        self._frame_scheduled = False
+        self._frames: Dict[str, Dict[str, Any]] = {}
+        self._frames_scheduled = False
         self._tasks: set = set()
         self._installing = False
         # Live input per socket, waiting for the browser (UI loop only).
@@ -753,17 +842,18 @@ class MiniBrowserWS:
 
     async def shutdown(self) -> None:
         """Adapter stopping: detach from the bridge, end background work and
-        close Chromium (it holds a lock on its profile). Never raises."""
+        close every browser (each holds a lock on its profile). Never raises."""
         try:
             _bridge().unregister_ui_sink(self)
         except Exception as e:
             logger.debug(f"[MINI_BROWSER] Sink unregister failed: {first_line(e)}")
         self._loop = None
         with self._frame_lock:
-            self._frame = None
-            self._frame_scheduled = False
+            self._frames.clear()
+            self._frames_scheduled = False
         self._viewers.clear()
-        self._viewer_count = 0
+        self._watching.clear()
+        self._watched = frozenset()
         self._input_queues.clear()
         tasks = [task for task in self._tasks if not task.done()]
         for task in tasks:
@@ -783,115 +873,163 @@ class MiniBrowserWS:
             logger.warning(f"[MINI_BROWSER] Browser shutdown failed: {first_line(e)}")
 
     def forget(self, ws: Any) -> None:
-        """A socket closed: it is no longer a viewer, and its input that has
-        not reached the browser yet is dropped. Never raises."""
+        """A socket closed: it watches no browser any more, and its input that
+        has not reached a browser yet is dropped. Never raises."""
         try:
             queue = self._input_queues.pop(ws, None)
             if queue is not None:
                 queue.items.clear()
-            self._drop_viewer(ws)
+            self._forget_viewer(ws)
         except Exception as e:
             logger.debug(f"[MINI_BROWSER] forget failed: {first_line(e)}")
 
     # ── UI sink (thread-safe) ────────────────────────────────────────────────
 
-    def has_viewers(self) -> bool:
-        """Whether any socket is watching the Mini Browser. Thread-safe."""
-        return self._viewer_count > 0
+    def has_viewers(self, key: str) -> bool:
+        """Whether any socket watches session ``key``'s browser. Thread-safe."""
+        return key in self._watched
 
     def post(self, kind: str, payload: Dict[str, Any]) -> None:
-        """Deliver a bridge message to the viewers. Thread-safe, never blocks.
+        """Deliver a bridge message. Thread-safe, never blocks.
 
-        ``kind`` is one of state / frame / pointer / event / install. Frames
-        are coalesced: only the newest one waiting for the UI loop is sent.
+        ``kind`` is one of state / frame / pointer / event (to the viewers of
+        the session the payload names), activity (to every client) or
+        install (to every viewer). Frames are coalesced: only the newest one
+        of each session waiting for the UI loop is sent.
         """
         loop = self._loop
-        if (
-            loop is None
-            or self._viewer_count == 0
-            or kind not in _MESSAGE_TYPES
-            or not isinstance(payload, dict)
-        ):
+        if loop is None or kind not in _MESSAGE_TYPES or not isinstance(payload, dict):
             return
         data = dict(payload)  # the producer may reuse its dict
+        key = data.get("sessionId")
+        if kind in _SESSION_KINDS:
+            if not isinstance(key, str) or key not in self._watched:
+                return
+        elif kind == "install" and not self._watched:
+            return
         context = contextvars.Context()
         try:
             if kind == "frame":
                 with self._frame_lock:
-                    self._frame = data
-                    if self._frame_scheduled:
+                    self._frames[key] = data
+                    if self._frames_scheduled:
                         return
-                    self._frame_scheduled = True
+                    self._frames_scheduled = True
                 try:
-                    loop.call_soon_threadsafe(self._flush_frame, context=context)
+                    loop.call_soon_threadsafe(self._flush_frames, context=context)
                 except RuntimeError:
                     with self._frame_lock:
-                        self._frame_scheduled = False
-                        self._frame = None
+                        self._frames_scheduled = False
+                        self._frames.clear()
                     raise
             else:
                 loop.call_soon_threadsafe(self._deliver, kind, data, context=context)
         except RuntimeError:
             pass  # the UI loop is closed (shutting down): nobody to deliver to
 
-    def _flush_frame(self) -> None:
+    def _flush_frames(self) -> None:
         with self._frame_lock:
-            data, self._frame = self._frame, None
-            self._frame_scheduled = False
-        if data is not None:
+            frames, self._frames = self._frames, {}
+            self._frames_scheduled = False
+        for data in frames.values():
             self._deliver("frame", data)
 
     def _deliver(self, kind: str, data: Dict[str, Any]) -> None:
-        """UI loop: send one bridge message to every viewer."""
+        """UI loop: send one bridge message to whoever it is for."""
         try:
-            if kind == "state":
-                data = self._overlay_state(data)
-            self._send_to_viewers(_MESSAGE_TYPES[kind], data, _MAX_PENDING.get(kind))
+            msg_type = _MESSAGE_TYPES[kind]
+            if kind == "activity":
+                self._send_to_all(msg_type, {"sessions": [data], "snapshot": False})
+            elif kind == "install":
+                self._send_to_viewers(None, msg_type, data)
+            else:
+                if kind == "state":
+                    data = self._overlay_state(data)
+                self._send_to_viewers(
+                    data["sessionId"], msg_type, data, _MAX_PENDING.get(kind)
+                )
         except Exception as e:
             logger.warning(f"[MINI_BROWSER] {kind} delivery failed: {first_line(e)}")
 
     def _send_to_viewers(
-        self, msg_type: str, data: Dict[str, Any], max_pending: Optional[int] = None
+        self,
+        key: Optional[str],
+        msg_type: str,
+        data: Dict[str, Any],
+        max_pending: Optional[int] = None,
     ) -> None:
-        """Queue one message for each subscribed socket (never via _broadcast)."""
-        if not self._viewers:
+        """Queue one message for each socket watching session ``key``'s browser
+        (``key`` None: watching any browser). Never via a broadcast."""
+        sockets = (
+            list(self._viewers.get(key, ()))
+            if key is not None
+            else list(self._watching)
+        )
+        if not sockets:
             return
-        try:
-            text = json.dumps({"type": msg_type, "data": data}, allow_nan=False)
-        except (TypeError, ValueError) as e:
-            logger.warning(f"[MINI_BROWSER] Dropped an unserializable {msg_type}: {e}")
+        text = _dump(msg_type, data)
+        if text is None:
             return
-        channels = getattr(self._adapter, "_channels", {})
-        for ws in list(self._viewers):
-            channel = channels.get(ws)
+        for ws in sockets:
+            channel = self._adapter.client_channel(ws)
             if channel is None or channel.closed:
-                self._drop_viewer(ws)
+                self._forget_viewer(ws)
             elif max_pending is None or channel.pending <= max_pending:
+                channel.send_text(text)
+
+    def _send_to_all(self, msg_type: str, data: Dict[str, Any]) -> None:
+        """Queue one message for every connected socket."""
+        channels = self._adapter.client_channels()
+        if not channels:
+            return
+        text = _dump(msg_type, data)
+        if text is None:
+            return
+        for channel in channels:
+            if not channel.closed:
                 channel.send_text(text)
 
     # ── viewers and streaming ────────────────────────────────────────────────
 
-    def _channel(self, ws: Any) -> Any:
-        channel = (
-            getattr(self._adapter, "_channels", {}).get(ws) if ws is not None else None
-        )
-        return None if channel is None or channel.closed else channel
+    def _add_viewer(self, ws: Any, key: str) -> bool:
+        """``ws`` watches session ``key``'s browser; True for its first viewer."""
+        viewers = self._viewers.setdefault(key, set())
+        first = not viewers
+        viewers.add(ws)
+        self._watching.setdefault(ws, set()).add(key)
+        if first:
+            self._watched = frozenset(self._viewers)
+        return first
 
-    def _drop_viewer(self, ws: Any) -> None:
-        if ws not in self._viewers:
+    def _drop_viewer(self, ws: Any, key: str) -> None:
+        viewers = self._viewers.get(key)
+        if not viewers or ws not in viewers:
             return
-        self._viewers.discard(ws)
-        self._viewer_count = len(self._viewers)
-        if not self._viewers:
-            self._sync_streaming()
+        viewers.discard(ws)
+        keys = self._watching.get(ws)
+        if keys is not None:
+            keys.discard(key)
+            if not keys:
+                del self._watching[ws]
+        if not viewers:
+            del self._viewers[key]
+            self._watched = frozenset(self._viewers)
+            self._sync_streaming(key)
 
-    def _sync_streaming(self) -> None:
-        """Tell the browser to stream iff someone is watching (read when it runs)."""
+    def _forget_viewer(self, ws: Any) -> None:
+        for key in list(self._watching.get(ws, ())):
+            self._drop_viewer(ws, key)
+
+    def _watches(self, ws: Any, key: str) -> bool:
+        return ws in self._viewers.get(key, ())
+
+    def _sync_streaming(self, key: str) -> None:
+        """Tell session ``key``'s browser to stream iff someone watches it."""
         host = _host_if_started()
         if host is not None:
             self._submit(
                 host,
-                lambda core: core.set_streaming(self.has_viewers()),
+                functools.partial(_on_existing, key, _sync_core_stream),
                 "set_streaming",
             )
 
@@ -904,66 +1042,6 @@ class MiniBrowserWS:
         except Exception as e:
             logger.debug(f"[MINI_BROWSER] {what} not sent: {first_line(e)}")
 
-    # ── the dedicated chat session ───────────────────────────────────────────
-
-    def _session_manager(self) -> Any:
-        controller = getattr(self._adapter, "_controller", None)
-        agent = getattr(controller, "agent", None)
-        return getattr(agent, "session_manager", None)
-
-    def _session_exists(self) -> bool:
-        manager = self._session_manager()
-        try:
-            return manager is not None and manager.get(SESSION_ID) is not None
-        except Exception:
-            return False
-
-    def ensure_session(self) -> Any:
-        """The dedicated Mini Browser chat session, created if it is missing.
-
-        Mirrors ``AgentAppManager.ensure_project_session``: a fixed id, the
-        browser's action set in <actions> (the mini_browser session type's
-        base set) and its skill, when installed and enabled, preloaded,
-        persisted by the SessionManager — so after a restart it is
-        restored, not recreated. Clients learn about a new session from a
-        ``session_created`` broadcast (the sessions store upserts it) and a
-        ``sessions`` resource change. Idempotent; None without a session
-        manager.
-        """
-        manager = self._session_manager()
-        if manager is None:
-            return None
-        session = manager.get(SESSION_ID)
-        if session is not None:
-            return session
-
-        from agent_core.core.session import SessionType
-
-        session = manager.create_session(
-            session_type=SessionType.MINI_BROWSER,
-            title=SESSION_TITLE,
-            session_id=SESSION_ID,
-            selected_skills=_preloaded_skills(),
-        )
-        logger.info(f"[MINI_BROWSER] Created the dedicated session '{session.id}'")
-        self._announce_session(session)
-        return session
-
-    def _announce_session(self, session: Any) -> None:
-        try:
-            info = self._adapter._session_info(session)
-            message = {
-                "type": "session_created",
-                "data": {"session": info, "clientId": None},
-            }
-            # Clean context: the broadcast must not carry this request's id.
-            self._spawn(lambda: self._adapter._broadcast(message), clean=True)
-        except Exception as e:
-            logger.warning(
-                f"[MINI_BROWSER] Could not announce the session: {first_line(e)}"
-            )
-        _notify_sessions_changed(session.id)
-
     # ── state ────────────────────────────────────────────────────────────────
 
     def _ui_hosts(self) -> frozenset:
@@ -973,24 +1051,20 @@ class MiniBrowserWS:
             return frozenset()
 
     def _overlay_state(self, state: Dict[str, Any]) -> Dict[str, Any]:
-        """What only this side knows: the session id (once the session exists)
-        and an install in progress."""
-        state = dict(state)
-        state["sessionId"] = SESSION_ID if self._session_exists() else None
+        """What only this side knows: a Chromium install in progress."""
         if self._installing and state.get("status") in ("stopped", "error"):
-            state["status"] = "installing"
-            state["error"] = None
+            state = {**state, "status": "installing", "error": None}
         return state
 
     async def _synthesized_state(
-        self, error: Optional[Dict[str, str]] = None
+        self, key: str, error: Optional[Dict[str, str]] = None
     ) -> Dict[str, Any]:
-        """The state of a browser host that is not running (never starts it)."""
+        """The state of a session browser that was never used (never starts it)."""
         settings = await asyncio.to_thread(_load_settings)
         return {
+            "sessionId": key,
             "status": "error" if error else "stopped",
             "error": error,
-            "sessionId": None,
             "adblock": bool(settings.get("adblock", True)),
             "viewedTabId": None,
             "follow": True,
@@ -1002,34 +1076,51 @@ class MiniBrowserWS:
             },
         }
 
-    async def _state_snapshot(self) -> Dict[str, Any]:
-        """Current ``mini_browser_state`` payload. Never starts the browser."""
+    async def _state_snapshot(
+        self, key: str, error: Optional[Dict[str, str]] = None
+    ) -> Dict[str, Any]:
+        """Session ``key``'s current ``mini_browser_state``. Never starts a
+        browser. ``error`` is shown when the browser has no error of its own
+        (a request about it failed before it existed)."""
         state: Any = None
-        error: Optional[Dict[str, str]] = None
         host = _host_if_started()
         if host is not None:
             try:
-                state = await asyncio.wait_for(host.call(_core_state), _STATE_TIMEOUT_S)
+                state = await asyncio.wait_for(
+                    host.call_fleet(functools.partial(_existing_state, key)),
+                    _STATE_TIMEOUT_S,
+                )
             except asyncio.TimeoutError:
-                error = _error_reply(
+                error = error or _error_reply(
                     "MINI_BROWSER_TIMEOUT",
-                    {"what": "The Mini Browser", "seconds": int(_STATE_TIMEOUT_S)},
+                    {"what": "The browser", "seconds": int(_STATE_TIMEOUT_S)},
                 )
             except Exception as e:
-                error = _error_reply("MINI_BROWSER_INTERNAL", {"detail": first_line(e)})
+                error = error or _error_reply(
+                    "MINI_BROWSER_INTERNAL", {"detail": first_line(e)}
+                )
         if not isinstance(state, dict):
-            state = await self._synthesized_state(error)
+            state = await self._synthesized_state(key, error)
+        elif error is not None and not state.get("error"):
+            state = {**state, "status": "error", "error": error}
         return self._overlay_state(state)
 
-    async def _publish_state(self, ws: Any = None) -> None:
-        """Send the current state to every viewer (and to ``ws`` if it is not one)."""
+    async def _publish_state(
+        self, key: str, ws: Any = None, error: Optional[Dict[str, str]] = None
+    ) -> None:
+        """Send session ``key``'s state to its viewers (and to ``ws`` if it
+        does not watch it)."""
         try:
-            state = await self._state_snapshot()
-            self._send_to_viewers("mini_browser_state", state)
-            if ws is not None and ws not in self._viewers:
+            state = await self._state_snapshot(key, error)
+            self._send_to_viewers(key, "mini_browser_state", state)
+            if ws is not None and not self._watches(ws, key):
                 self._send(ws, "mini_browser_state", state)
         except Exception as e:
             logger.debug(f"[MINI_BROWSER] State refresh failed: {first_line(e)}")
+
+    async def _publish_watched_states(self) -> None:
+        for key in list(self._viewers):
+            await self._publish_state(key)
 
     # ── request plumbing ─────────────────────────────────────────────────────
 
@@ -1061,7 +1152,9 @@ class MiniBrowserWS:
             raise
         except MiniBrowserError as e:
             logger.debug(f"[MINI_BROWSER] {msg_type} refused: {e.code}")
-            self._reply_error(ws, msg_type, _error_reply(e.code, e.fields, secrets))
+            self._reply_error(
+                ws, msg_type, data, _error_reply(e.code, e.fields, secrets)
+            )
         except Exception as e:
             # Type and first line only: a traceback's locals could hold a
             # password typed into a page or sent to the vault.
@@ -1072,6 +1165,7 @@ class MiniBrowserWS:
             self._reply_error(
                 ws,
                 msg_type,
+                data,
                 _error_reply("MINI_BROWSER_INTERNAL", {"detail": detail}, secrets),
             )
 
@@ -1111,13 +1205,24 @@ class MiniBrowserWS:
     def _send(self, ws: Any, msg_type: str, data: Dict[str, Any]) -> None:
         """Reply to ``ws`` only; dropped if it is gone (never broadcast)."""
         try:
-            self._adapter._send_only_to(ws, {"type": msg_type, "data": data})
+            self._adapter.send_only_to(ws, {"type": msg_type, "data": data})
         except Exception as e:
             logger.warning(f"[MINI_BROWSER] Could not send {msg_type}: {first_line(e)}")
 
-    def _reply_error(self, ws: Any, msg_type: str, error: Dict[str, str]) -> None:
+    def _reply_error(
+        self,
+        ws: Any,
+        msg_type: str,
+        data: Dict[str, Any],
+        error: Dict[str, str],
+    ) -> None:
+        session = _optional_session_id(data)
         if msg_type == "mini_browser_navigate":
-            self._send(ws, "mini_browser_nav_result", {"ok": False, "error": error})
+            self._send(
+                ws,
+                "mini_browser_nav_result",
+                {"sessionId": session, "ok": False, "error": error},
+            )
         elif msg_type == "mini_browser_vault_list":
             self._send(
                 ws,
@@ -1140,6 +1245,7 @@ class MiniBrowserWS:
                 "mini_browser_event",
                 {
                     "kind": "error",
+                    "sessionId": session,
                     "level": _level(error.get("code", "")),
                     "code": error.get("code"),
                     "title": error.get("title"),
@@ -1157,62 +1263,106 @@ class MiniBrowserWS:
         """The browser host, started if needed (its thread, not Chromium).
 
         Starting waits for the host thread to come up, so it happens on a
-        worker thread, never on the UI loop. A host started here after the
-        page subscribed learns right away that someone is watching.
+        worker thread, never on the UI loop. A host started here after
+        panels subscribed learns right away which browsers are watched.
         """
         host = _host_if_started()
         if host is not None:
             return host
         host = await asyncio.to_thread(_get_host)
-        if self._viewers:
-            self._sync_streaming()
+        for key in list(self._viewers):
+            self._sync_streaming(key)
         return host
 
     # ── handlers: viewers and lifecycle ──────────────────────────────────────
 
     async def _handle_subscribe(self, ws: Any, data: Dict[str, Any]) -> None:
-        if self._channel(ws) is None:
+        """The chat's browser panel opened: watch that session's browser, and
+        turn the browser on."""
+        key = _session_id(data)
+        if self._adapter.client_channel(ws) is None:
             return  # the socket is already gone
-        first_viewer = not self._viewers
-        self._viewers.add(ws)
-        self._viewer_count = len(self._viewers)
+        first_viewer = self._add_viewer(ws, key)
+        state = await self._state_snapshot(key)
+        if state.get("status") != "ready":
+            # Until the live page is back, the panel shows where the browser
+            # left off (or nothing: an earlier picture may be out of date).
+            last_frame = await asyncio.to_thread(_last_frame, key)
+            self._send(ws, "mini_browser_last_frame", last_frame)
+        if state.get("status") == "stopped":
+            # Opening the panel turns the browser on (below): say so at once.
+            state = {**state, "status": "starting", "error": None}
+        self._send(ws, "mini_browser_state", state)
+        host = await self._start_host()
+        if not self._watches(ws, key):
+            return  # the panel closed meanwhile
+        if first_viewer:
+            self._sync_streaming(key)
+        self._submit(
+            host, functools.partial(_on_existing, key, _push_frame), "push_frame_now"
+        )
+        self._spawn(lambda: self._open_browser(ws, host, key))
+
+    async def _open_browser(self, ws: Any, host: Any, key: str) -> None:
+        """Start session ``key``'s browser for its panel. A failure is shown in
+        the panel (the state names it), not as a separate error."""
+        error: Optional[Dict[str, str]] = None
         try:
-            self.ensure_session()
+            await host.call(key, lambda core: core.ensure_started())
+        except asyncio.CancelledError:
+            raise
+        except MiniBrowserError as e:
+            logger.debug(f"[MINI_BROWSER] Browser of {key} not started: {e.code}")
+            error = _error_reply(e.code, e.fields)
         except Exception as e:
-            logger.warning(f"[MINI_BROWSER] Session not created: {first_line(e)}")
-        self._send(ws, "mini_browser_state", await self._state_snapshot())
-        host = _host_if_started()
-        if host is not None and ws in self._viewers:
-            if first_viewer:
-                self._sync_streaming()
-            self._submit(host, lambda core: core.push_frame_now(), "push_frame_now")
+            logger.warning(
+                f"[MINI_BROWSER] Browser of {key} not started: {type(e).__name__}"
+            )
+            error = _error_reply("MINI_BROWSER_INTERNAL", {"detail": first_line(e)})
+        await self._publish_state(key, ws, error)
 
     async def _handle_unsubscribe(self, ws: Any, data: Dict[str, Any]) -> None:
-        self._drop_viewer(ws)
+        self._drop_viewer(ws, _session_id(data))
+
+    async def _handle_activity_query(self, ws: Any, data: Dict[str, Any]) -> None:
+        """Which session browsers run and which have an agent browsing (a
+        client that just connected; updates follow as they happen)."""
+        host = _host_if_started()
+        sessions: List[Dict[str, Any]] = []
+        if host is not None:
+            sessions = await asyncio.wait_for(
+                host.call_fleet(_activity), _STATE_TIMEOUT_S
+            )
+        self._send(
+            ws, "mini_browser_activity", {"sessions": sessions, "snapshot": True}
+        )
 
     async def _handle_start(self, ws: Any, data: Dict[str, Any]) -> None:
+        key = _session_id(data)
         host = await self._start_host()
 
         async def start() -> None:
             try:
-                await host.call(lambda core: core.start())
+                await host.call(key, lambda core: core.start())
             except Exception:
-                await self._publish_state(ws)  # e.g. status "error" + the reason
+                await self._publish_state(key, ws)  # e.g. status "error" + the reason
                 raise
-            await self._publish_state(ws)
+            await self._publish_state(key, ws)
 
         self._background(ws, "mini_browser_start", data, start)
 
     async def _handle_shutdown(self, ws: Any, data: Dict[str, Any]) -> None:
+        """Close one session's browser (its panel's Close button)."""
+        key = _session_id(data)
         host = _host_if_started()
         # Input still on its way to the closing browser has nowhere to go.
         for queue in self._input_queues.values():
-            queue.items.clear()
+            queue.drop_session(key)
         try:
             if host is not None:
-                await host.call(lambda core: core.close())
+                await host.call_fleet(functools.partial(_on_existing, key, _close_core))
         finally:
-            await self._publish_state(ws)
+            await self._publish_state(key, ws)
 
     async def _handle_install(self, ws: Any, data: Dict[str, Any]) -> None:
         if self._installing:
@@ -1220,7 +1370,7 @@ class MiniBrowserWS:
             return
         self._installing = True
         try:
-            await self._publish_state(ws)  # status "installing"
+            await self._publish_watched_states()  # status "installing"
             logger.info("[MINI_BROWSER] Installing Chromium")
             ok, detail = await _in_daemon_thread(_run_install, self._install_log)
         except Exception as e:
@@ -1232,7 +1382,7 @@ class MiniBrowserWS:
             host = _host_if_started()
             if host is not None:
                 try:
-                    await host.call(_clear_launch_error)
+                    await host.call_fleet(_clear_launch_errors)
                 except Exception as e:
                     logger.debug(f"[MINI_BROWSER] Status reset failed: {first_line(e)}")
             done: Dict[str, Any] = {"done": True, "ok": True}
@@ -1245,10 +1395,10 @@ class MiniBrowserWS:
                     "MINI_BROWSER_INSTALL_FAILED", {"detail": detail or "unknown error"}
                 ),
             }
-        self._send_to_viewers("mini_browser_install_progress", done)
-        if ws not in self._viewers:
+        self._send_to_viewers(None, "mini_browser_install_progress", done)
+        if ws not in self._watching:
             self._send(ws, "mini_browser_install_progress", done)
-        await self._publish_state(ws)
+        await self._publish_watched_states()
 
     def _install_log(self, line: str) -> None:
         """Install output (worker thread) -> viewers' progress panel."""
@@ -1259,17 +1409,19 @@ class MiniBrowserWS:
     # ── handlers: browsing ───────────────────────────────────────────────────
 
     async def _handle_navigate(self, ws: Any, data: Dict[str, Any]) -> None:
+        key = _session_id(data)
         tab_id = _short_id(data.get("tabId"), "tabId", required=False)
         text = _url_text(data.get("url"), required=True)
         host = await self._start_host()
 
         async def navigate() -> None:
-            await host.call(lambda core: core.ui_navigate(tab_id, text))
-            self._send(ws, "mini_browser_nav_result", {"ok": True})
+            await host.call(key, lambda core: core.ui_navigate(tab_id, text))
+            self._send(ws, "mini_browser_nav_result", {"sessionId": key, "ok": True})
 
         self._background(ws, "mini_browser_navigate", data, navigate)
 
     async def _handle_history(self, ws: Any, data: Dict[str, Any]) -> None:
+        key = _session_id(data)
         tab_id = _short_id(data.get("tabId"), "tabId", required=False)
         action = data.get("action")
         if action not in _HISTORY_ACTIONS:
@@ -1279,10 +1431,11 @@ class MiniBrowserWS:
             ws,
             "mini_browser_history",
             data,
-            lambda: host.call(lambda core: core.ui_history(tab_id, action)),
+            lambda: host.call(key, lambda core: core.ui_history(tab_id, action)),
         )
 
     async def _handle_tab(self, ws: Any, data: Dict[str, Any]) -> None:
+        key = _session_id(data)
         action = data.get("action")
         if action == "new":
             url = _url_text(data.get("url"), required=False)
@@ -1291,23 +1444,25 @@ class MiniBrowserWS:
                 ws,
                 "mini_browser_tab",
                 data,
-                lambda: host.call(lambda core: core.ui_new_tab(url)),
+                lambda: host.call(key, lambda core: core.ui_new_tab(url)),
             )
         elif action == "switch":
-            tab_id = _short_id(data.get("tabId"), "tabId", required=True)
-            await self._running_host().call(lambda core: core.ui_switch_tab(tab_id))
+            tab_id = _required_id(data.get("tabId"), "tabId")
+            await self._running_host().call(
+                key, lambda core: core.ui_switch_tab(tab_id)
+            )
         elif action == "close":
-            tab_id = _short_id(data.get("tabId"), "tabId", required=True)
+            tab_id = _required_id(data.get("tabId"), "tabId")
             host = self._running_host()
             # Input queued for a tab that is closing would only fail.
             for queue in self._input_queues.values():
-                queue.drop_tab(tab_id)
-            await host.call(lambda core: core.ui_close_tab(tab_id))
+                queue.drop_tab(key, tab_id)
+            await host.call(key, lambda core: core.ui_close_tab(tab_id))
         else:
             raise _invalid("action must be new, switch or close.")
 
     async def _handle_input(self, ws: Any, data: Dict[str, Any]) -> None:
-        """Validate one live-view event and queue it for the browser.
+        """Validate one live-view event and queue it for its browser.
 
         Returns as soon as it is queued: the socket's drain task applies the
         events in order (see _InputQueue), so a lagging page never holds up
@@ -1316,18 +1471,21 @@ class MiniBrowserWS:
         event = _input_event(data.get("event"))
         if event is None:
             return  # an unknown kind of input is ignored
-        tab_id = _short_id(data.get("tabId"), "tabId", required=True)
+        key = _session_id(data)
+        tab_id = _required_id(data.get("tabId"), "tabId")
         if _host_if_started() is None:
             return  # no browser to type into
         if event["kind"] == "cut":
             event = {**event, "requestId": _cut_key(ws, event["requestId"])}
-        self._queue_input(ws, tab_id, event)
+        self._queue_input(ws, key, tab_id, event)
 
-    def _queue_input(self, ws: Any, tab_id: str, event: Dict[str, Any]) -> None:
+    def _queue_input(
+        self, ws: Any, key: str, tab_id: str, event: Dict[str, Any]
+    ) -> None:
         queue = self._input_queues.get(ws)
         if queue is None:
             queue = self._input_queues[ws] = _InputQueue()
-        if not _coalesce(queue.items, tab_id, event):
+        if not _coalesce(queue.items, key, tab_id, event):
             if len(queue.items) >= _MAX_QUEUED_INPUT:
                 # The page stopped taking input; tell the user once per backlog.
                 if not queue.overflowed:
@@ -1339,28 +1497,30 @@ class MiniBrowserWS:
                     self._reply_error(
                         ws,
                         "mini_browser_input",
+                        {"sessionId": key},
                         _error_reply("MINI_BROWSER_PAGE_UNRESPONSIVE"),
                     )
                 return
-            queue.items.append((tab_id, event))
+            queue.items.append((key, tab_id, event))
         if queue.task is None or queue.task.done():
             queue.task = self._spawn(lambda: self._drain_input(ws, queue), clean=True)
 
     async def _drain_input(self, ws: Any, queue: _InputQueue) -> None:
         """Apply a socket's queued input one event at a time, in order."""
         while queue.items and self._input_queues.get(ws) is queue:
-            tab_id, event = queue.items.popleft()
+            key, tab_id, event = queue.items.popleft()
             host = _host_if_started()
             if host is None:
                 queue.items.clear()  # the browser host is gone
                 return
-            queue.current = tab_id
+            queue.current = (key, tab_id)
             try:
                 await self._guarded(
                     ws,
                     "mini_browser_input",
-                    {"event": event},  # its text is scrubbed from any error
-                    lambda: self._apply_input(host, tab_id, event),
+                    # Its text is scrubbed from any error.
+                    {"event": event, "sessionId": key},
+                    lambda: self._apply_input(host, key, tab_id, event),
                 )
             finally:
                 queue.current = None
@@ -1368,15 +1528,19 @@ class MiniBrowserWS:
                 queue.overflowed = False
 
     @staticmethod
-    async def _apply_input(host: Any, tab_id: str, event: Dict[str, Any]) -> None:
+    async def _apply_input(
+        host: Any, key: str, tab_id: str, event: Dict[str, Any]
+    ) -> None:
         try:
-            await host.call(lambda core: core.ui_input(tab_id, event))
+            await host.call(key, lambda core: core.ui_input(tab_id, event))
         except MiniBrowserError as e:
             if (event["kind"], event.get("action")) not in _CONTINUOUS_INPUT:
                 raise
             logger.debug(f"[MINI_BROWSER] {event['kind']} input dropped: {e.code}")
 
-    async def _settle_input(self, ws: Any, tab_id: str, *, drop_late: bool) -> None:
+    async def _settle_input(
+        self, ws: Any, key: str, tab_id: str, *, drop_late: bool
+    ) -> None:
         """Wait (at most _INPUT_SETTLE_S) until the input ``ws`` queued for
         ``tab_id`` has been applied, so a request that must follow it (copy
         the selection it made, hand the tab back) does. ``drop_late``: input
@@ -1386,10 +1550,10 @@ class MiniBrowserWS:
             return
         loop = asyncio.get_running_loop()
         deadline = loop.time() + _INPUT_SETTLE_S
-        while queue.pending_for(tab_id) and self._input_queues.get(ws) is queue:
+        while queue.pending_for(key, tab_id) and self._input_queues.get(ws) is queue:
             if loop.time() >= deadline:
                 if drop_late:
-                    dropped = queue.drop_tab(tab_id)
+                    dropped = queue.drop_tab(key, tab_id)
                     if dropped:
                         logger.info(
                             f"[MINI_BROWSER] Dropped {dropped} input event(s) the "
@@ -1399,47 +1563,52 @@ class MiniBrowserWS:
             await asyncio.sleep(_INPUT_SETTLE_POLL_S)
 
     async def _handle_resize(self, ws: Any, data: Dict[str, Any]) -> None:
+        key = _session_id(data)
         width = _int_in(data.get("width"), "width", _VIEWPORT_WIDTH)
         height = _int_in(data.get("height"), "height", _VIEWPORT_HEIGHT)
         # Starts the host (not Chromium) so the first launch already has the size.
         host = await self._start_host()
-        await host.call(lambda core: core.set_viewport(width, height))
+        await host.call(key, lambda core: core.set_viewport(width, height))
 
     async def _handle_view(self, ws: Any, data: Dict[str, Any]) -> None:
+        key = _session_id(data)
         tab_id = _short_id(data.get("tabId"), "tabId", required=False)
         follow = data.get("follow")
         if follow is not None:
             follow = _flag(follow, "follow")
         host = _host_if_started()
         if host is not None:  # nothing to view before the browser exists
-            await host.call(lambda core: core.ui_view(tab_id, follow))
+            await host.call_fleet(
+                functools.partial(
+                    _on_existing, key, lambda core: core.ui_view(tab_id, follow)
+                )
+            )
 
     async def _handle_control(self, ws: Any, data: Dict[str, Any]) -> None:
-        tab_id = _short_id(data.get("tabId"), "tabId", required=True)
+        key = _session_id(data)
+        tab_id = _required_id(data.get("tabId"), "tabId")
         take = _flag(data.get("take"), "take")
         host = self._running_host()
         if not take:
             # Control runs in its own lane: let the user's last keystrokes and
             # clicks land before the agent gets the tab back (otherwise they
             # would arrive afterwards and take control again).
-            await self._settle_input(ws, tab_id, drop_late=True)
-        await host.call(lambda core: core.ui_control(tab_id, take))
+            await self._settle_input(ws, key, tab_id, drop_late=True)
+        await host.call(key, lambda core: core.ui_control(tab_id, take))
 
     async def _handle_adblock(self, ws: Any, data: Dict[str, Any]) -> None:
-        enabled = data.get("enabled")
-        if enabled is None:  # a query: answer without starting anything
-            self._send(ws, "mini_browser_state", await self._state_snapshot())
-            return
-        enabled = _flag(enabled, "enabled")
+        """Ad blocking on/off: one setting for every session's browser."""
+        enabled = _flag(data.get("enabled"), "enabled")
         host = _host_if_started()
         if host is not None:
-            await host.call(lambda core: core.set_adblock(enabled))
+            await host.call_fleet(lambda fleet: fleet.set_adblock(enabled))
         else:
             await asyncio.to_thread(_save_setting, "adblock", enabled)
-        await self._publish_state(ws)
+        await self._publish_watched_states()
 
     async def _handle_copy(self, ws: Any, data: Dict[str, Any]) -> None:
-        tab_id = _short_id(data.get("tabId"), "tabId", required=True)
+        key = _session_id(data)
+        tab_id = _required_id(data.get("tabId"), "tabId")
         # Echoed back, so the page matches the reply to its request (a cut
         # deletes the selection only once ITS copy has arrived).
         request_id = _short_id(data.get("requestId"), "requestId", required=False)
@@ -1452,8 +1621,10 @@ class MiniBrowserWS:
         )
         host = self._running_host()
         # The selection may come from input still on its way (a drag, Ctrl+A).
-        await self._settle_input(ws, tab_id, drop_late=False)
-        text = await host.call(lambda core: _copy_selection(core, tab_id, cut_request))
+        await self._settle_input(ws, key, tab_id, drop_late=False)
+        text = await host.call(
+            key, lambda core: _copy_selection(core, tab_id, cut_request)
+        )
         reply: Dict[str, Any] = {"text": text}
         if request_id is not None:
             reply["requestId"] = request_id
