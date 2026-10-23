@@ -32,8 +32,9 @@ Listener state is safely per-instance: ``_poll_offset``, ``_bot_info``,
 ``_catchup_done``, ``_poll_task``, and ``_listening`` all live on the
 client instance — no module-level offset or singleton session, so two
 concurrently listening bot accounts never fight. The one shared bit is
-the module-level *config* file (``telegram_bot_config.json``, the
-``self_messages_only`` knob) read inside ``_process_update`` — a global
+the module-level *config* file (``telegram_bot_config.json``, including
+the private-chat filter and owner/reply contact lists) read inside
+``_process_update`` — a global
 read-only preference applied to every bot account alike, not offset
 state, so it is left as-is.
 """
@@ -125,6 +126,20 @@ class TelegramBotProvider:
     ]
     config_class = TelegramBotConfig
     config_fields = [
+        {
+            "key": "self_user_ids",
+            "label": "Owner control user IDs",
+            "type": "list",
+            "placeholder": "123456789",
+            "help": "Treat private messages from these numeric Telegram user IDs as your own instructions, including access to Agent Apps, files, commands, and integrations. Applies to all connected bot accounts. Only add IDs you control. Auto-reply contacts below receive conversational replies without this access.",
+        },
+        {
+            "key": "auto_reply_contact_ids",
+            "label": "Auto-reply contact IDs",
+            "type": "list",
+            "placeholder": "123456789, 987654321",
+            "help": "Allow automatic conversational replies in private chats with these Telegram user IDs. Applies to all connected bot accounts. Use numeric IDs from incoming messages, not names or @usernames. Remove an ID to disable replies. This does not grant owner permissions.",
+        },
         {
             "key": "self_messages_only",
             "label": "Private DMs only",

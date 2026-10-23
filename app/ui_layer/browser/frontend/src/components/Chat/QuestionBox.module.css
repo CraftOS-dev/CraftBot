@@ -113,14 +113,23 @@
   cursor: not-allowed;
 }
 
+/* Send button stays at the bottom edge as a multi-line answer grows. */
 .freeTextRow {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   gap: var(--space-2);
 }
 
+/* Multi-line like the chat composer: Enter sends, Shift+Enter adds a line;
+   grows to the composer's max height, then scrolls. */
 .freeTextInput {
   flex: 1;
+  display: block;
+  box-sizing: border-box;
+  resize: none;
+  max-height: 116px;
+  overflow-y: auto;
+  line-height: var(--leading-normal);
   padding: var(--space-2);
   background: var(--bg-primary);
   border: 1px solid var(--border-primary);
@@ -147,6 +156,8 @@
   justify-content: center;
   width: 28px;
   height: 28px;
+  /* Centered on a one-line answer field (line + padding + border). */
+  margin-bottom: calc((var(--text-sm) * var(--leading-normal) + 2 * var(--space-2) + 2px - 28px) / 2);
   border-radius: 50%;
   background: transparent;
   border: 1px solid var(--border-primary);

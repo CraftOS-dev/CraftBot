@@ -31,6 +31,40 @@
     "stopRun": "실행 중지",
     "stoppingRun": "실행 중지하는 중"
   },
+  "reasoning": {
+    "title": "추론",
+    "picker": "추론 강도",
+    "header": "추론 · {{model}}",
+    "withLevel": "{{choice}} · {{level}}",
+    "dynamic": "모델이 결정",
+    "defaultTag": "기본값",
+    "notConfigurable": "{{model}}에서는 추론을 조정할 수 없습니다",
+    "clamped": "이 모델에서는 {{requested}}을(를) 사용할 수 없어 {{effective}}을(를) 사용합니다.",
+    "context": {
+      "label": "컨텍스트",
+      "summarizesAt": "{{max}}에서 요약"
+    },
+    "cache": {
+      "label": "캐시",
+      "hit": "{{percent}} 캐시됨",
+      "notReported": "보고되지 않음",
+      "notYet": "아직 캐시 없음",
+      "timeLeft": "남은 시간",
+      "about": "~{{time}}",
+      "expired": "만료됨",
+      "noExpiry": "고정 만료 없음"
+    },
+    "choice": {
+      "provider_default": "제공자 기본값",
+      "off": "끄기",
+      "minimal": "최소",
+      "low": "낮음",
+      "medium": "보통",
+      "high": "높음",
+      "xhigh": "매우 높음",
+      "max": "최대"
+    }
+  },
   "reply": {
     "replyingTo": "답장 대상: <1>{{name}}</1>",
     "cancel": "답장 취소"
@@ -63,7 +97,7 @@
     "aria": "에이전트의 질문",
     "asking": "{{sender}}이(가) 묻습니다",
     "queuePosition": "{{total}}개 중 1번째",
-    "dismissHint": "닫기. 에이전트가 답변 없이 진행합니다.",
+    "dismissHint": "닫고 작업을 중단합니다. 다음 메시지를 보낼 때까지 에이전트가 멈춥니다.",
     "dismissAria": "질문 닫기",
     "recommended": "(권장)",
     "freeTextPlaceholder": "또는 직접 답변을 입력하세요...",
@@ -78,5 +112,14 @@
     "replyTooltip": "이 메시지에 답장",
     "copyTooltip": "메시지 복사",
     "copiedTooltip": "복사됨!"
+  },
+  "browserPanel": {
+    "show": "이 채팅의 브라우저 보기",
+    "running": "이 채팅의 브라우저가 켜져 있습니다",
+    "browsing": "에이전트가 탐색 중입니다",
+    "region": "브라우저 패널"
+  },
+  "panel": {
+    "close": "패널 닫기"
   }
 }

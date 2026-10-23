@@ -2229,30 +2229,11 @@ async def agent_app_marketplace_list(input_data: dict) -> dict:
     if input_data.get("simulated_mode"):
         return {"status": "success", "apps": [], "message": "0 apps (simulated)."}
     import asyncio
-    import json as _json
-    import re as _re
-    import ssl
-    import urllib.request
 
     from app.agent_app import marketplace_source
 
-    CATALOGUE_URL = marketplace_source.catalogue_url()
-
-    def _fetch() -> dict:
-        try:
-            import certifi
-
-            ctx = ssl.create_default_context(cafile=certifi.where())
-        except Exception:
-            ctx = ssl.create_default_context()
-        req = urllib.request.Request(CATALOGUE_URL, headers={"User-Agent": "CraftBot"})
-        with urllib.request.urlopen(req, timeout=20, context=ctx) as r:
-            raw = r.read().decode()
-        # Tolerate trailing commas in hand-edited JSON.
-        return _json.loads(_re.sub(r",\s*([}\]])", r"\1", raw))
-
     try:
-        catalogue = await asyncio.get_event_loop().run_in_executor(None, _fetch)
+        catalogue = await asyncio.to_thread(marketplace_source.fetch_catalogue)
         apps = catalogue.get("apps", [])
         return {
             "status": "success",

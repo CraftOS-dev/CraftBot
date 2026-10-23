@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en"><head><meta charset="UTF-8"><title>Agent App media QA</title></head>
+<body>
+<h1>Agent App media QA</h1>
+<button id="av">Test microphone and camera</button>
+<button id="screen">Test screen capture</button>
+<output id="result">Waiting</output>
+<script type="module">
+  if (new URLSearchParams(location.search).has('child')) {
+    const result = document.querySelector('#result')
+    async function capture(getStream) {
+      try {
+        const stream = await getStream()
+        result.textContent = stream.getTracks().map(track => track.kind).sort().join(',')
+        stream.getTracks().forEach(track => track.stop())
+      } catch (error) {
+        result.textContent = `${error.name}: ${error.message}`
+      }
+    }
+    document.querySelector('#av').onclick = () => capture(() => navigator.mediaDevices.getUserMedia({audio: true, video: true}))
+    document.querySelector('#screen').onclick = () => capture(() => navigator.mediaDevices.getDisplayMedia({video: true}))
+  } else {
+    const { getOrCreateIframe } = await import('/src/pages/AgentApp/iframePool.ts')
+    const frame = getOrCreateIframe('media-qa', 'http://localhost:7935/tests/agent-app-media.html?child=1')
+    frame.title = 'Cross-origin Agent App media fixture'
+    frame.style.cssText = 'position:fixed;top:90px;left:0;width:900px;height:500px;visibility:visible;pointer-events:auto;z-index:10'
+  }
+</script>
+</body></html>

@@ -10,7 +10,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import time
-from typing import Any, Dict, TYPE_CHECKING
+from typing import Any, Dict, Optional, TYPE_CHECKING
 
 from .config import get_cache_config
 
@@ -78,8 +78,10 @@ class GeminiCacheManager:
         system_prompt: str,
         user_prompt: str,
         call_type: str,
-        temperature: float,
+        temperature: Optional[float],
         max_tokens: int,
+        thinking_budget: Optional[int] = None,
+        thinking_level: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Get response using explicit cache, creating cache if needed.
 
@@ -87,12 +89,21 @@ class GeminiCacheManager:
             system_prompt: The system prompt to cache.
             user_prompt: The user prompt for this request.
             call_type: Type of LLM call (e.g., "reasoning", "action_selection").
-            temperature: Sampling temperature.
+            temperature: Sampling temperature (None: not sent).
             max_tokens: Maximum output tokens.
+            thinking_budget: Reasoning token budget (Gemini 2.5), forwarded
+                to every generation call.
+            thinking_level: Reasoning level (Gemini 3.x), forwarded to every
+                generation call.
 
         Returns:
             Response dict with tokens_used, content, cached_tokens, etc.
         """
+        thinking: Dict[str, Any] = {
+            "thinking_budget": thinking_budget,
+            "thinking_level": thinking_level,
+        }
+
         # Check if system prompt is large enough for explicit caching
         # Gemini requires at least 1024 tokens; skip explicit cache if too small
         estimated_tokens = self._estimate_tokens(system_prompt)
@@ -109,6 +120,7 @@ class GeminiCacheManager:
                 temperature=temperature,
                 max_output_tokens=max_tokens,
                 json_mode=True,
+                **thinking,
             )
 
         cache_key = self._make_cache_key(system_prompt, call_type)
@@ -132,6 +144,7 @@ class GeminiCacheManager:
                         temperature=temperature,
                         max_output_tokens=max_tokens,
                         json_mode=True,
+                        **thinking,
                     )
                 except Exception as e:
                     logger.warning(
@@ -166,6 +179,7 @@ class GeminiCacheManager:
                     temperature=temperature,
                     max_output_tokens=max_tokens,
                     json_mode=True,
+                    **thinking,
                 )
         except Exception as e:
             logger.warning(
@@ -185,6 +199,7 @@ class GeminiCacheManager:
             temperature=temperature,
             max_output_tokens=max_tokens,
             json_mode=True,
+            **thinking,
         )
 
     def invalidate_cache(self, system_prompt: str, call_type: str) -> None:

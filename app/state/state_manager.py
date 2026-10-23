@@ -138,6 +138,7 @@ class StateManager:
         continue_work: bool = False,
         suggested_responses: Optional[List[str]] = None,
         allow_free_text: bool = True,
+        ui_artifact: Optional[dict] = None,
     ) -> None:
         """Record an agent message to a session's event stream.
 
@@ -182,6 +183,7 @@ class StateManager:
             platform=platform,
             continue_work=continue_work,
             question=question,
+            ui_artifact=ui_artifact,
             task_id=target,
         )
 

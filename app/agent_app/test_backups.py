@@ -619,6 +619,8 @@ print("§7 settings surface: OK")
 # build on this machine). Skipped when absent — §1-§7 stay deterministic.
 import json as _json  # noqa: E402
 import os as _os  # noqa: E402
+import platform as _platform  # noqa: E402
+import sys as _sys  # noqa: E402
 import socket as _socket  # noqa: E402
 import subprocess as _sp  # noqa: E402
 import time as _time  # noqa: E402
@@ -641,10 +643,13 @@ def _pinned_pb_binary() -> Path:
         root = Path(cache)
     elif _os.name == "nt":
         root = Path(_os.environ["LOCALAPPDATA"]) / "craftos-agent-app" / "pb"
+    elif _sys.platform == "darwin":
+        root = Path.home() / "Library/Caches/craftos-agent-app/pb"
     else:
         root = Path.home() / ".cache" / "craftos-agent-app" / "pb"
     exe = "pocketbase.exe" if _os.name == "nt" else "pocketbase"
-    return root / version / exe
+    arch = "arm64" if _platform.machine().lower() in ("arm64", "aarch64") else "amd64"
+    return root / version / f"{_sys.platform}-{arch}" / exe
 
 
 _pb_bin = _pinned_pb_binary()

@@ -210,9 +210,33 @@ class IntegrationSystem:
         self, provider_id: str, identity: Optional[str], credential: Dict[str, Any]
     ) -> str:
         """OAuth-completion write path (used by add_account / re-auth)."""
+        known = {a.identity for a in self.accounts.list_accounts(provider_id)}
         stored = self.accounts.upsert_account(provider_id, identity, credential)
+        if stored not in known:
+            self._apply_default_alias(provider_id, stored, credential)
         self.registry.invalidate(provider_id, stored)
         return stored
+
+    def _apply_default_alias(
+        self, provider_id: str, identity: str, credential: Dict[str, Any]
+    ) -> None:
+        """Name a NEW account with the provider's suggestion, if it has one.
+
+        For providers whose identity is opaque (a token fingerprint, a
+        numeric id) — the user sees a name instead of a hash. Never
+        overwrites: runs only on first store, and a suggestion that is
+        taken or invalid is skipped; the user can always rename.
+        """
+        provider = self.registry.get(provider_id)
+        suggest = getattr(provider, "default_alias", None)
+        if suggest is None:
+            return
+        try:
+            alias = suggest(credential)
+            if alias:
+                self.accounts.set_alias(provider_id, identity, alias)
+        except Exception as exc:  # taken alias, provider bug — never fatal
+            logger.info(f"[ACCOUNTS] {provider_id}: default alias skipped ({exc})")
 
     def update_credential(
         self, provider_id: str, identity: str, credential: Dict[str, Any]

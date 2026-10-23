@@ -6,7 +6,10 @@ import asyncio
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Optional
 
+from agent_core.core.event_stream.event import EventType
+from agent_core.core.models.reasoning import ReasoningChoice
 from agent_core.utils.logger import logger
+from app.i18n import tui
 from app.ui_layer.events.event_bus import EventBus
 from app.ui_layer.events.event_types import UIEvent, UIEventType
 from app.ui_layer.events.transformer import EventTransformer
@@ -247,6 +250,7 @@ class UIController:
         adapter_id: str = "",
         session_id: Optional[str] = None,
         client_id: Optional[str] = None,
+        agent_text: Optional[str] = None,
     ) -> None:
         """
         Handle user input from any interface.
@@ -258,6 +262,9 @@ class UIController:
             adapter_id: ID of the adapter that sent the message
             session_id: The session the message was typed in (main if omitted)
             client_id: Optional originating client id (echo suppression)
+            agent_text: What the agent receives instead of `message` (e.g.
+                the message marked as the answer to a pinned question). The
+                user bubble always shows `message`.
         """
         if not message.strip():
             return
@@ -297,7 +304,7 @@ class UIController:
 
         # Route to agent — the destination session is explicit; no routing.
         payload = {
-            "text": message,
+            "text": agent_text or message,
             "sender": {"id": adapter_id or "user", "type": "user"},
             "session_id": session_id,
         }
@@ -349,69 +356,111 @@ class UIController:
             question: The question message's text (for the agent-side marker).
             session_id: The session the question belongs to.
             dismissed: True when the user closed the question unanswered —
-                no bubble is painted; the agent is told to proceed on its
-                own judgment.
+                the user is interrupting the task, so nothing wakes the
+                agent; a system bubble records the interruption.
             adapter_id: ID of the adapter that sent the response.
             pending_questions: Contents of the session's OTHER still-
                 unanswered questions. Appended as a reminder so the agent
                 doesn't re-ask questions that are still pinned in the UI.
         """
-        question_excerpt = " ".join(question.split())
-        if len(question_excerpt) > 200:
-            question_excerpt = question_excerpt[:200] + "..."
-
         if dismissed:
-            agent_text = (
-                f"[QUESTION DISMISSED] The user dismissed your question "
-                f'("{question_excerpt}") without answering. Do NOT re-ask '
-                f"it; proceed using your best judgment."
-            )
-        else:
-            if not value.strip():
-                return
-            agent_text = f'[ANSWERING YOUR QUESTION "{question_excerpt}"] {value}'
-
-            # Paint the answer as a user bubble (and persist it) — only the
-            # answer text; the marker is agent-facing context.
-            self._event_bus.emit(
-                UIEvent(
-                    type=UIEventType.AGENT_STATE_CHANGED,
-                    data={
-                        "state": AgentStateType.WORKING.value,
-                        "status_message": "Agent is working...",
-                        "session_id": session_id,
-                    },
-                    source_adapter=adapter_id,
+            # Share the stop button's cancellation and continuation cleanup,
+            # including runs parked between turns rather than actively busy.
+            await self.stop_run(session_id)
+            # One event, two audiences (as with the stop button): the SYSTEM
+            # bubble tells the user the interruption landed; the stream copy
+            # tells the agent's next run why its question went unanswered.
+            try:
+                self._agent.event_stream_manager.log(
+                    "system",
+                    f"The user dismissed your question "
+                    f'("{self._question_excerpt(question)}") and interrupted '
+                    f"the task. Do NOT continue it or re-ask the question; "
+                    f"wait for the user's next message.",
+                    event_type=EventType.SYSTEM,
+                    display_message=tui("question_dismissed"),
+                    task_id=session_id or "main",
                 )
-            )
-            self._event_bus.emit(
-                UIEvent(
-                    type=UIEventType.USER_MESSAGE,
-                    data={
-                        "message": value,
-                        "adapter_id": adapter_id,
-                        "session_id": session_id,
-                    },
-                    source_adapter=adapter_id,
+                self._agent.state_manager.bump_event_stream()
+            except Exception:
+                logger.warning(
+                    "[UI] Failed to log question-dismissed event", exc_info=True
                 )
-            )
+            return
 
-        if pending_questions:
-            listed = " | ".join(
-                f'"{" ".join(q.split())[:120]}"' for q in pending_questions
+        if not value.strip():
+            return
+
+        # Paint the answer as a user bubble (and persist it) — only the
+        # answer text; the marker is agent-facing context.
+        self._event_bus.emit(
+            UIEvent(
+                type=UIEventType.AGENT_STATE_CHANGED,
+                data={
+                    "state": AgentStateType.WORKING.value,
+                    "status_message": "Agent is working...",
+                    "session_id": session_id,
+                },
+                source_adapter=adapter_id,
             )
-            agent_text += (
-                f"\n[Your other question(s) are STILL PINNED in the user's UI "
-                f"awaiting their response — do NOT re-send them: {listed}]"
+        )
+        self._event_bus.emit(
+            UIEvent(
+                type=UIEventType.USER_MESSAGE,
+                data={
+                    "message": value,
+                    "adapter_id": adapter_id,
+                    "session_id": session_id,
+                },
+                source_adapter=adapter_id,
             )
+        )
 
         await self._agent._handle_chat_message(
             {
-                "text": agent_text,
+                "text": self.question_answer_text(question, value, pending_questions),
                 "sender": {"id": adapter_id or "user", "type": "user"},
                 "session_id": session_id,
             }
         )
+
+    @staticmethod
+    def _question_excerpt(question: str) -> str:
+        excerpt = " ".join(question.split())
+        if len(excerpt) > 200:
+            excerpt = excerpt[:200] + "..."
+        return excerpt
+
+    @staticmethod
+    def question_answer_text(
+        question: str, answer: str, pending_questions: Optional[list] = None
+    ) -> str:
+        """
+        The agent-facing copy of an answer to a pinned question.
+
+        Names the question being answered, then lists the session's other
+        still-pinned questions so the agent doesn't re-ask them. Shared by
+        answers from the question box and replies typed in the chat input.
+
+        Args:
+            question: The answered question message's text.
+            answer: What the agent should read as the answer.
+            pending_questions: Contents of the session's OTHER still-
+                unanswered questions.
+        """
+        text = (
+            f'[ANSWERING YOUR QUESTION "{UIController._question_excerpt(question)}"] '
+            f"{answer}"
+        )
+        if pending_questions:
+            listed = " | ".join(
+                f'"{" ".join(q.split())[:120]}"' for q in pending_questions
+            )
+            text += (
+                f"\n[Your other question(s) are STILL PINNED in the user's UI "
+                f"awaiting their response — do NOT re-send them: {listed}]"
+            )
+        return text
 
     async def handle_option_click(self, value: str, session_id: str) -> None:
         """
@@ -428,8 +477,17 @@ class UIController:
         elif value == "abort_limit":
             await self._agent.handle_limit_abort(session_id)
 
-    async def handle_prompt_enhance(self, user_message: str) -> str:
-        return await self._agent._handle_prompt_enhance(user_message=user_message)
+    async def handle_prompt_enhance(
+        self,
+        user_message: str,
+        session_id: Optional[str],
+        reasoning_choice: Optional[ReasoningChoice],
+    ) -> str:
+        return await self._agent._handle_prompt_enhance(
+            user_message=user_message,
+            session_id=session_id,
+            reasoning_choice=reasoning_choice,
+        )
 
     # ─────────────────────────────────────────────────────────────────────
     # Event Processing

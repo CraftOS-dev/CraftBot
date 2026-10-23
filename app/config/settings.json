@@ -1,5 +1,5 @@
 {
-  "version": "1.4.3",
+  "version": "1.4.4",
   "general": {
     "agent_name": "CraftBot",
     "os_language": "en",
@@ -16,7 +16,6 @@
     "processing_threshold": 23
   },
   "context": {
-    "reserve_tokens": 16384,
     "keep_recent_tokens": 20000
   },
   "model": {

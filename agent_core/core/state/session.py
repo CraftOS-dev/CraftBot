@@ -20,17 +20,33 @@ Usage:
 
     # At session deletion:
     StateSession.end(session_id)
+
+    # Around work done for a session (its serial loop, or a call made for it
+    # outside the loop), so context-scoped consumers can find it:
+    with StateSession.bind(session_id):
+        ...
+    state = StateSession.bound()      # None outside any bound session
 """
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field
-from typing import ClassVar, Optional, Dict, Any, TYPE_CHECKING
+from typing import ClassVar, Iterator, Optional, Dict, Any, TYPE_CHECKING
 
 from agent_core.core.state.types import AgentProperties
 
 if TYPE_CHECKING:
     from agent_core.core.session.session import Session
+
+
+#: Id of the session whose work runs in the current context. asyncio tasks
+#: and asyncio.to_thread inherit it, so everything a session's loop starts
+#: (actions, sub-agents, LLM calls) sees the session that started it.
+_bound_session_id: ContextVar[Optional[str]] = ContextVar(
+    "bound_session_id", default=None
+)
 
 
 @dataclass
@@ -127,6 +143,21 @@ class StateSession:
     def end(cls, session_id: str) -> None:
         """Remove a session's state (session deletion)."""
         cls._instances.pop(session_id, None)
+
+    @classmethod
+    @contextmanager
+    def bind(cls, session_id: str) -> Iterator[None]:
+        """Mark the current context as doing work for ``session_id``."""
+        token = _bound_session_id.set(session_id)
+        try:
+            yield
+        finally:
+            _bound_session_id.reset(token)
+
+    @classmethod
+    def bound(cls) -> Optional["StateSession"]:
+        """State of the session the current context works for, if any."""
+        return cls.get_or_none(_bound_session_id.get())
 
     @classmethod
     def get_all_session_ids(cls) -> list[str]:

@@ -8,7 +8,7 @@ retrieval during task execution, improving performance and predictability.
 """
 
 import platform as platform_lib
-from typing import List, Dict, Set, Optional
+from typing import Iterable, List, Dict, Set, Optional
 import logging
 
 logger = logging.getLogger("ActionSetManager")
@@ -19,12 +19,30 @@ DEFAULT_SET_DESCRIPTIONS: Dict[str, str] = {
     "core": "Essential actions always available (send_message, task management, set management)",
     "file_operations": "File and folder manipulation (read, write, search, edit)",
     "web_research": "Internet search and browsing (web search, fetch URLs)",
+    "mini_browser": (
+        "Mini Browser: a live Chromium with the user's saved logins and cookies; "
+        "each agent drives its own tab while the user can watch and take control. "
+        "USE it to operate websites: logging in, filling and submitting forms, "
+        "searching inside a site, shopping/booking, JavaScript-heavy or "
+        "login-walled pages, anything web_fetch could not read. NOT for plain "
+        "lookups (web_search / web_fetch are faster)."
+    ),
+    "mcp_playwright-mcp": (
+        "Headless, invisible Playwright browser over MCP (separate profile "
+        "without the user's logins) for automated app verification such as "
+        "walk_verify. To browse or act on websites for the user, use "
+        "mini_browser instead."
+    ),
     "document_processing": "PDF and document handling (read, create, convert)",
     "image": "Image viewing, analysis, and OCR (screenshots, photos, diagrams)",
     "video": "Video analysis and understanding — describe, summarise, or answer questions about video files (MP4, AVI, MOV)",
     "clipboard": "Clipboard read/write operations",
     "shell": "Command line and Python execution",
 }
+
+# Renamed sets: old name -> current name. Sessions and schedules persist set
+# names, so an old name must keep compiling to the renamed set's actions.
+SET_ALIASES: Dict[str, str] = {"web_agent": "mini_browser"}
 
 
 class ActionSetManager:
@@ -60,44 +78,47 @@ class ActionSetManager:
             - Actions are filtered by their visibility mode
             - Actions can belong to multiple sets
         """
+        # Always include core set; renamed sets resolve to their new name.
+        required_sets: Set[str] = {SET_ALIASES.get(s, s) for s in selected_sets}
+        required_sets.add("core")
+        compiled = [meta.name for meta in self.actions_in_sets(required_sets, mode)]
+        logger.debug(f"Compiled {len(compiled)} actions from sets: {required_sets}")
+        return compiled
+
+    def actions_in_sets(self, set_names: Iterable[str], mode: str = "CLI") -> list:
+        """Metadata of every action in any of exactly these sets.
+
+        Unlike compile_action_list, "core" is not added implicitly. Uses each
+        action's implementation for the current platform and filters by
+        visibility mode.
+
+        Args:
+            set_names: Action set names.
+            mode: Visibility mode filter - "CLI", "GUI", or "ALL".
+
+        Returns:
+            List of ActionMetadata, in registry order.
+        """
         from agent_core import registry_instance, PLATFORM_ALL
 
-        # Always include core set
-        required_sets: Set[str] = set(selected_sets) | {"core"}
-        compiled: List[str] = []
-
-        # Get current platform for implementation lookup
+        required_sets = set(set_names)
         current_platform = platform_lib.system().lower()
-
-        for action_name, platform_impls in registry_instance._registry.items():
-            # Get the best implementation for current platform
+        found = []
+        for platform_impls in registry_instance._registry.values():
             impl = platform_impls.get(current_platform) or platform_impls.get(
                 PLATFORM_ALL
             )
-
             if impl is None:
                 continue
-
             metadata = impl.metadata
-
-            # Check if action belongs to any of the required sets
+            # Actions that declare no set are never compiled into a list.
             action_sets = getattr(metadata, "action_sets", [])
-            if not action_sets:
-                # Actions without action_sets are not included (backward compatibility)
-                # They will be included via RAG fallback if needed
-                continue
-
             if not self._action_in_sets(action_sets, required_sets):
                 continue
-
-            # Filter by visibility mode
             if not self._is_visible_in_mode(metadata.mode, mode):
                 continue
-
-            compiled.append(action_name)
-
-        logger.debug(f"Compiled {len(compiled)} actions from sets: {required_sets}")
-        return compiled
+            found.append(metadata)
+        return found
 
     def _action_in_sets(self, action_sets: List[str], required_sets: Set[str]) -> bool:
         """Check if an action belongs to any of the required sets."""

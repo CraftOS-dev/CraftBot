@@ -33,6 +33,7 @@ from agent_core.core.session import (
 )
 from agent_core.core.state import StateSession
 from agent_core.core.impl.llm import LLMCallType
+from agent_core.core.models.reasoning import ReasoningChoice
 
 from agent_core.utils.logger import logger
 
@@ -133,10 +134,10 @@ class SessionManager:
         session_type: str = SessionType.CHAT,
         title: str = "",
         session_id: Optional[str] = None,
-        action_sets: Optional[List[str]] = None,
         selected_skills: Optional[List[str]] = None,
         agent_app_project_id: Optional[str] = None,
         gui_mode: bool = False,
+        reasoning_effort: Optional[ReasoningChoice] = None,
     ) -> Session:
         """
         Create a new persistent session.
@@ -145,10 +146,13 @@ class SessionManager:
             session_type: main | chat | agent_app.
             title: Sidebar title ("New chat" placeholder until auto-titled).
             session_id: Explicit id (main / agent-app); random hex otherwise.
-            action_sets: Extra action sets to load on top of core.
             selected_skills: Skills to preload (slash-command entry, Agent App).
             agent_app_project_id: Backing project for agent_app sessions.
             gui_mode: Whether the session starts in GUI mode.
+            reasoning_effort: The session's reasoning choice (the draft
+                chat's picker value when a draft becomes a session); None
+                stores no choice, so each request runs at the default level
+                of the model serving it.
 
         Returns:
             The created Session.
@@ -161,25 +165,19 @@ class SessionManager:
 
         workspace_dir = self._prepare_workspace_dir(sid)
 
-        from app.action.action_set import action_set_manager
-
-        selected_sets = list(action_sets or [])
-        visibility_mode = "GUI" if gui_mode else "CLI"
-        compiled_actions = action_set_manager.compile_action_list(
-            selected_sets, mode=visibility_mode
-        )
-
         session = Session(
             id=sid,
             type=session_type,
             title=title or ("Main" if session_type == SessionType.MAIN else "New chat"),
-            action_sets=selected_sets,
-            compiled_actions=compiled_actions,
             selected_skills=list(selected_skills or []),
             workspace_dir=str(workspace_dir),
             agent_app_project_id=agent_app_project_id,
             gui_mode=gui_mode,
+            reasoning_effort=(
+                reasoning_effort.value if reasoning_effort is not None else None
+            ),
         )
+        self._compile_actions(session)
         self.sessions[sid] = session
 
         # Per-session isolated state (counters, current todo, ...)
@@ -238,9 +236,14 @@ class SessionManager:
         return True
 
     def clear_session(self, session_id: str) -> bool:
-        """Clear a session's conversation: event stream, todos, run counters.
+        """Start a session over as a new session.
 
-        The session itself (title, loaded action sets/skills) is kept.
+        Everything the agent knows about the session goes back to what
+        create_session gives it: event stream, LLM session state, todos,
+        token counters, loaded skills and per-session runtime state; a chat
+        goes back to "New chat" so its next request titles it again. Its
+        identity stays: id, type, workspace folder, Agent App project,
+        reasoning choice and GUI mode. The caller stops any run first.
         """
         session = self.sessions.get(session_id)
         if not session:
@@ -248,22 +251,33 @@ class SessionManager:
 
         session.todos = []
         session.reset_run_counters()
+        session.total_input_tokens = 0
+        session.total_output_tokens = 0
+        session.total_cache_tokens = 0
+        session.selected_skills = []
+        if session.type == SessionType.CHAT:
+            session.title = "New chat"
+        StateSession.end(session_id)
+        StateSession.start(
+            session_id, current_session=session, gui_mode=session.gui_mode
+        )
 
-        stream = self.event_stream_manager.get_stream_by_id(session_id)
-        if stream is not None and hasattr(stream, "clear"):
-            stream.clear()
+        # Only the session's own stream: get_stream_by_id falls back to the
+        # main session's, which a clear of another session must never touch.
+        if self.event_stream_manager and self.event_stream_manager.has_stream(
+            session_id
+        ):
+            self.event_stream_manager.get_stream_by_id(session_id).clear()
 
-        # Reset per-session LLM caches so the next call rebuilds from the
-        # now-empty stream.
+        # Forget the session's conversation on the LLM side and register it
+        # afresh, as create_session does, so the next request starts a new
+        # session prefix. Caches shared with other sessions are kept.
         if self.llm_interface and self.context_engine:
-            try:
-                self.llm_interface.remove_session_caches(session_id)
-            except Exception:
-                pass
+            self.llm_interface.restart_session(session_id)
             self._create_session_caches(session_id)
 
         self._persist(session)
-        logger.info(f"[SessionManager] Session {session_id} cleared")
+        logger.info(f"[SessionManager] Session {session_id} started over")
         return True
 
     def rename_session(self, session_id: str, title: str) -> bool:
@@ -275,21 +289,29 @@ class SessionManager:
         self._persist(session)
         return True
 
+    def set_reasoning_effort(self, session_id: str, choice: ReasoningChoice) -> bool:
+        """Set a session's reasoning choice (the chat input's picker).
+
+        Takes effect from the session's next LLM request.
+        """
+        session = self.sessions.get(session_id)
+        if not session:
+            return False
+        session.reasoning_effort = choice.value
+        self._persist(session)
+        return True
+
     # ─────────────────────── Restore ─────────────────────────────────────────
 
     def restore_session(self, session: Session) -> Session:
         """Register a session loaded from persistence at boot.
 
-        Recompiles the action list (the installed action registry may have
-        changed between runs) and re-registers per-session state, but does
-        NOT touch the persisted event stream — the caller restores that.
+        Compiles the action list (the installed action registry may have
+        changed between runs) and re-registers per-session state, including
+        its LLM session caches, but does NOT touch the persisted event
+        stream — the caller restores that.
         """
-        from app.action.action_set import action_set_manager
-
-        visibility_mode = "GUI" if session.gui_mode else "CLI"
-        session.compiled_actions = action_set_manager.compile_action_list(
-            session.action_sets, mode=visibility_mode
-        )
+        self._compile_actions(session)
         if not session.workspace_dir:
             session.workspace_dir = str(self._prepare_workspace_dir(session.id))
         else:
@@ -299,6 +321,12 @@ class SessionManager:
         StateSession.start(
             session.id, current_session=session, gui_mode=session.gui_mode
         )
+
+        # LLM session caches live in memory, so a restored session has none.
+        # Without them every turn takes the stateless path and resends the
+        # whole prompt, of which only the system prompt hits the KV cache.
+        if self.llm_interface and self.context_engine:
+            self._create_session_caches(session.id)
         return session
 
     # ─────────────────────── Todo Management ─────────────────────────────────
@@ -380,69 +408,19 @@ class SessionManager:
 
     # ─────────────────────── Capability Management ───────────────────────────
 
-    def add_action_sets(
-        self, session_id: str, sets_to_add: List[str]
-    ) -> Dict[str, Any]:
-        """Add action sets to a session and recompile its action list."""
-        session = self.sessions.get(session_id)
-        if not session:
-            return {"success": False, "error": f"No session {session_id}"}
+    @staticmethod
+    def _compile_actions(session: Session) -> None:
+        """Compile the actions a session prints in <actions>.
 
+        A function of the session's type (and GUI mode) only, so it is
+        recomputed rather than stored: a set loaded during a run delivers its
+        schemas through the event stream and never lands here.
+        """
         from app.action.action_set import action_set_manager
 
-        current_sets = set(session.action_sets)
-        new_sets = set(sets_to_add) - current_sets
-        session.action_sets = list(current_sets | new_sets)
-
-        visibility_mode = "GUI" if session.gui_mode else "CLI"
-        old_actions = set(session.compiled_actions)
         session.compiled_actions = action_set_manager.compile_action_list(
-            session.action_sets, mode=visibility_mode
+            session.base_action_sets, mode="GUI" if session.gui_mode else "CLI"
         )
-        new_actions = set(session.compiled_actions) - old_actions
-
-        self._persist(session)
-
-        logger.debug(
-            f"[SessionManager] Added action sets {sets_to_add} to {session_id}, "
-            f"now {len(session.compiled_actions)} actions"
-        )
-        return {
-            "success": True,
-            "current_sets": session.action_sets,
-            "added_actions": list(new_actions),
-            "total_actions": len(session.compiled_actions),
-        }
-
-    def remove_action_sets(
-        self, session_id: str, sets_to_remove: List[str]
-    ) -> Dict[str, Any]:
-        """Remove action sets from a session and recompile."""
-        session = self.sessions.get(session_id)
-        if not session:
-            return {"success": False, "error": f"No session {session_id}"}
-
-        from app.action.action_set import action_set_manager
-
-        sets_to_remove_filtered = [s for s in sets_to_remove if s != "core"]
-        current_sets = set(session.action_sets)
-        session.action_sets = list(current_sets - set(sets_to_remove_filtered))
-
-        visibility_mode = "GUI" if session.gui_mode else "CLI"
-        old_actions = set(session.compiled_actions)
-        session.compiled_actions = action_set_manager.compile_action_list(
-            session.action_sets, mode=visibility_mode
-        )
-        removed_actions = old_actions - set(session.compiled_actions)
-
-        self._persist(session)
-
-        return {
-            "success": True,
-            "current_sets": session.action_sets,
-            "removed_actions": list(removed_actions),
-            "total_actions": len(session.compiled_actions),
-        }
 
     def add_skill(self, session_id: str, skill_name: str) -> bool:
         """Load a skill into a session (additive)."""
@@ -463,11 +441,6 @@ class SessionManager:
             session.selected_skills.remove(skill_name)
             self._persist(session)
         return True
-
-    def get_action_sets(self, session_id: str) -> List[str]:
-        """Get a session's loaded action sets."""
-        session = self.sessions.get(session_id)
-        return session.action_sets.copy() if session else []
 
     def get_compiled_actions(self, session_id: str) -> List[str]:
         """Get a session's compiled action list."""

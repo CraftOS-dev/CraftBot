@@ -6,9 +6,9 @@ by clicking Connect on the YouTube card. Credential is saved to
 ``youtube.json``.
 
 Scopes used:
-  - ``youtube.readonly`` - list channels, fetch video metadata, search
-  - ``youtube.force-ssl`` - required for any write op (subscribe, comment,
-    rate, manage playlists). Same scope shape as the Workspace meta.
+  - ``youtube.force-ssl`` - authorizes every implemented read and write
+    method, including channel/playlist reads, subscriptions, ratings and
+    comments. No separate read-only permission is requested.
 
 The YouTube Data API v3 is the only surface used; everything goes through
 ``https://www.googleapis.com/youtube/v3``.

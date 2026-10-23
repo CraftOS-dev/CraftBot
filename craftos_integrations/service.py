@@ -22,11 +22,15 @@ is useful for capability checks, not for calls.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
+from threading import RLock
 
 from dataclasses import asdict, fields as dc_fields
 
 from .credentials_store import has_config, load_config, save_config
+
+# UI saves and owner actions share one configuration transaction boundary.
+_CONFIG_LOCK = RLock()
 
 
 def _resolve_provider(integration: str):
@@ -200,7 +204,38 @@ def get_config(integration: str) -> Optional[Dict[str, Any]]:
     return asdict(obj)
 
 
-def update_config(integration: str, values: Dict[str, Any]) -> Tuple[bool, str]:
+def update_config(
+    integration: str,
+    values: Dict[str, Any],
+    expected_values: Optional[Dict[str, Any]] = None,
+) -> Tuple[bool, str]:
+    with _CONFIG_LOCK:
+        return _update_config_locked(integration, values, expected_values)
+
+
+def modify_config(
+    integration: str,
+    modify: Callable[[Dict[str, Any]], Dict[str, Any]],
+) -> Tuple[bool, str, Dict[str, Any]]:
+    """Read, modify, persist and verify a config in one owner transaction."""
+    with _CONFIG_LOCK:
+        current = get_config(integration)
+        if current is None:
+            return False, f"{integration} has no runtime config", {}
+        try:
+            values = modify(current)
+        except ValueError as exc:
+            return False, str(exc), current
+        ok, message = _update_config_locked(integration, values)
+        saved = get_config(integration) or {}
+        return ok, message, saved
+
+
+def _update_config_locked(
+    integration: str,
+    values: Dict[str, Any],
+    expected_values: Optional[Dict[str, Any]] = None,
+) -> Tuple[bool, str]:
     """Coerce ``values`` per the handler's ``config_fields`` schema, build
     a fresh ``config_class`` instance, persist it. Unknown keys are dropped.
     Missing keys keep their dataclass defaults (so a partial UI update is
@@ -220,6 +255,13 @@ def update_config(integration: str, values: Dict[str, Any]) -> Tuple[bool, str]:
     if existing is None:
         existing = cls()
     merged = asdict(existing)
+    for key, expected in (expected_values or {}).items():
+        if key in values and key in valid_keys:
+            if merged.get(key) != _coerce(expected, type_by_key.get(key, "text")):
+                return (
+                    False,
+                    "These settings changed elsewhere. Reopen the integration settings and try again.",
+                )
     for k, raw in (values or {}).items():
         if k not in valid_keys:
             continue
@@ -228,7 +270,14 @@ def update_config(integration: str, values: Dict[str, Any]) -> Tuple[bool, str]:
         new_obj = cls(**merged)
     except TypeError as e:
         return False, f"Invalid config values: {e}"
+    validate = getattr(new_obj, "configuration_error", None)
+    error = validate() if callable(validate) else None
+    if error:
+        return False, error
     save_config(fname, new_obj)
+    saved = load_config(fname, cls)
+    if saved is None or asdict(saved) != asdict(new_obj):
+        return False, f"Could not save {integration} config"
     return True, f"{getattr(provider, 'display_name', '') or integration} config saved"
 
 

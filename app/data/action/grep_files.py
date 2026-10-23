@@ -4,62 +4,32 @@ _INPUT_SCHEMA = {
     "pattern": {
         "type": "string",
         "example": "def \\w+\\(",
-        "description": "Regex pattern to search for. Supports full regex syntax (e.g., 'def \\w+\\(' to find function definitions, 'TODO:.*' to find TODOs). For literal text search, just use the plain text (special regex chars will need escaping).",
+        "description": "Regex to search for (ripgrep syntax). Escape regex characters such as ( [ . to match them literally.",
     },
     "path": {
         "type": "string",
         "example": "/workspace/project",
-        "description": "File or directory path to search in. If a directory, searches all files recursively. If a file, searches only that file. Defaults to current working directory if not provided.",
+        "description": "File or folder to search. Defaults to the current working directory.",
     },
     "glob": {
         "type": "string",
-        "example": "*.py",
-        "description": "Glob filter (e.g. '*.py', '*.{js,ts}', 'test_*.py', 'src/**/*.ts'). Brace alternatives are expanded. A pattern with no '/' matches the FILENAME anywhere in the tree; one with a '/' matches the path and is also tried unanchored, so 'src/**/*.ts' finds 'frontend/src/app/x.ts'. Only applies when path is a directory.",
+        "example": "*.{ts,tsx}",
+        "description": "Optional. Only search files matching this glob, e.g. '*.py', '*.{ts,tsx}' or 'src/**/*.ts'.",
     },
-    "file_type": {
-        "type": "string",
-        "example": "py",
-        "description": "Filter by file extension. Accepts one ('py') or a comma-separated list ('ts,tsx'). NOTE: a single extension is exact — 'ts' does NOT include .tsx, so use 'ts,tsx' for a React codebase. Shorthand for glob; if both are given, glob wins.",
-    },
-    "output_mode": {
-        "type": "string",
-        "example": "content",
-        "description": "Controls what is returned. 'files_with_matches' (default): returns only file paths that contain matches. 'content': returns matching lines with line numbers and optional context. 'count': returns the number of matches per file.",
-    },
-    "case_insensitive": {
+    "ignore_case": {
         "type": "boolean",
-        "example": True,
-        "description": "If true, search is case-insensitive. Default is false (case-sensitive).",
-    },
-    "before_context": {
-        "type": "integer",
-        "example": 2,
-        "description": "Number of lines to show BEFORE each match. Only applies when output_mode is 'content'. Default is 0.",
-    },
-    "after_context": {
-        "type": "integer",
-        "example": 2,
-        "description": "Number of lines to show AFTER each match. Only applies when output_mode is 'content'. Default is 0.",
+        "example": False,
+        "description": "Case-insensitive search. Default false.",
     },
     "context": {
         "type": "integer",
-        "example": 3,
-        "description": "Number of context lines to show both before AND after each match (shorthand for setting before_context and after_context to the same value). Only applies when output_mode is 'content'. Overridden by explicit before_context/after_context if provided.",
-    },
-    "multiline": {
-        "type": "boolean",
-        "example": False,
-        "description": "If true, enables multiline mode where '.' matches newlines and patterns can span across lines. Default is false.",
-    },
-    "head_limit": {
-        "type": "integer",
-        "example": 50,
-        "description": "Maximum number of results to return. For 'files_with_matches': max file paths. For 'content': max output lines. For 'count': max file entries. Default is 250. Pass 0 for unlimited results (no truncation). If results are truncated, the applied_limit field in the response tells you it happened — use offset to paginate through the rest. Note: 'content' output is ALSO byte-capped independently of this (each line trimmed to 500 chars, whole payload to 40000 chars) so a file with very long lines cannot flood the context; the message field says so when it happens.",
-    },
-    "offset": {
-        "type": "integer",
         "example": 0,
-        "description": "Number of results to skip before returning. Use with head_limit for pagination. Default is 0.",
+        "description": "Lines to show before and after each match. Default 0.",
+    },
+    "limit": {
+        "type": "integer",
+        "example": 100,
+        "description": "Maximum number of matches to return. Default 100.",
     },
 }
 
@@ -71,48 +41,28 @@ _OUTPUT_SCHEMA = {
     },
     "message": {
         "type": "string",
-        "example": "Found matches in 5 files",
-        "description": "Summary message or error description.",
-    },
-    "mode": {
-        "type": "string",
-        "example": "content",
-        "description": "The output mode that was used.",
-    },
-    "num_files": {
-        "type": "integer",
-        "example": 5,
-        "description": "Number of files that contained matches.",
-    },
-    "filenames": {
-        "type": "array",
-        "example": ["/workspace/project/main.py", "/workspace/project/utils.py"],
-        "description": "List of file paths that contained matches.",
+        "example": "Found 2 matches in 2 files under /workspace/project; paths are relative to it.",
+        "description": "What was searched and found, including why a result may be incomplete.",
     },
     "content": {
         "type": "string",
-        "example": "File: /workspace/main.py\n10:def hello():\n11-    pass\n--\n25:def world():\n26-    return 1\n",
-        "description": "Matching lines with line numbers. Match lines use ':' after the line number (e.g., '10:matched line'), context lines use '-' (e.g., '11-context line'). Non-contiguous groups are separated by '--'. For single-file searches, the filepath is shown once at the top to save tokens. For multi-file searches, each file section is prefixed with 'File: path'. Only populated when output_mode is 'content'.",
-    },
-    "num_lines": {
-        "type": "integer",
-        "example": 15,
-        "description": "Number of content lines returned. Only populated when output_mode is 'content'.",
+        "example": "src/main.py:10: def hello():\nsrc/util.py:4: def world():",
+        "description": "Matching lines as 'path:line: text'. Context lines read 'path-line- text' and non-adjacent groups are separated by '--'.",
     },
     "num_matches": {
         "type": "integer",
-        "example": 42,
-        "description": "Total number of matches across all files. Only populated when output_mode is 'count'.",
+        "example": 2,
+        "description": "Number of matching lines in content.",
     },
-    "applied_limit": {
+    "num_files": {
         "type": "integer",
-        "example": 250,
-        "description": "The head_limit that was applied, or null if unlimited (head_limit=0). If your results were truncated to this limit, use offset to paginate through the rest.",
+        "example": 2,
+        "description": "Number of files those matches come from.",
     },
-    "applied_offset": {
-        "type": "integer",
-        "example": 0,
-        "description": "The offset that was applied.",
+    "truncated": {
+        "type": "boolean",
+        "example": False,
+        "description": "True when more matches exist than content shows.",
     },
 }
 
@@ -120,16 +70,11 @@ _OUTPUT_SCHEMA = {
 @action(
     name="grep_files",
     description=(
-        "Searches files for a regex pattern and returns results. "
-        "Supports searching a single file or an entire directory recursively. "
-        "Three output modes: "
-        "'files_with_matches' (default) returns file paths containing matches — use for discovery. "
-        "'content' returns matching lines with line numbers and optional before/after context — use to read matched code. "
-        "In content mode, match lines use ':' after line number (e.g., '10:matched line'), "
-        "context lines use '-' (e.g., '11-context line'), and non-contiguous groups are separated by '--'. "
-        "'count' returns match counts per file — use for quick frequency checks. "
-        "Supports glob and file_type filtering, case-insensitive search, and multiline patterns. "
-        "Use with read_file: first grep_files to find relevant line numbers, then read_file with offset to read that section."
+        "Search file contents with a ripgrep regex. Returns matching lines as "
+        "'path:line: text', with paths relative to the searched folder. "
+        "Searching a folder skips files ignored by .gitignore, hidden files and "
+        "binary files. Returns at most `limit` matches. Use read_file on a "
+        "matched file when you need more of it."
     ),
     mode="CLI",
     platforms=["linux", "windows", "darwin"],
@@ -138,465 +83,262 @@ _OUTPUT_SCHEMA = {
     output_schema=_OUTPUT_SCHEMA,
     test_payload={
         "pattern": "Mt\\. Fuji|visibility",
-        "path": "/path/to/input.txt",
-        "output_mode": "content",
-        "case_insensitive": True,
-        "head_limit": 50,
+        "path": "/path/to",
+        "ignore_case": True,
+        "limit": 50,
         "simulated_mode": True,
     },
 )
 def grep_files(input_data: dict) -> dict:
-    """Searches files for a regex pattern and returns results."""
+    """Search files with ripgrep and return the matching lines."""
     import os
-    import re
-    import fnmatch
+    import subprocess
+    import threading
 
-    # Byte caps on the returned payload. head_limit bounds the number of LINES,
-    # which is no bound at all when a "line" is a 160KB MIME header blob (raw
-    # Received/DKIM/ARC headers in an externalized get_gmail dump). Without these
-    # a single grep can land a ~77k-token event in the event stream, which blows
-    # the summarization threshold in one shot. Both are applied AFTER pagination
-    # so head_limit/offset still mean what they say.
+    from agent_core.core.impl.action.cancellation import (
+        register_process,
+        unregister_process,
+    )
+    from app import ripgrep_runtime
+
+    # One matched line of a minified bundle can be megabytes, and the whole
+    # result lands in the event stream: both caps keep one search from
+    # flooding the context.
     MAX_LINE_CHARS = 500
     MAX_CONTENT_CHARS = 40000
+    DEFAULT_LIMIT = 100
 
-    # --- Helper functions (must be inside for sandboxed execution) ---
-
-    def make_error(message):
-        return {
-            "status": "error",
-            "message": message,
-            "mode": None,
-            "num_files": 0,
-            "filenames": [],
-            "content": None,
-            "num_lines": None,
-            "num_matches": None,
-            "applied_limit": None,
-            "applied_offset": None,
-        }
-
-    def expand_braces(pat):
-        """Expand {a,b} alternatives into separate patterns.
-
-        fnmatch has no brace support, but THIS TOOL'S OWN SCHEMA advertises
-        "*.{js,ts}" as a valid glob. Every agent that followed the docs got a
-        silent 0 results — indistinguishable from "the string is not there".
-        """
-        out = [pat]
-        while True:
-            grown = []
-            changed = False
-            for item in out:
-                i = item.find("{")
-                j = item.find("}", i + 1) if i >= 0 else -1
-                if i >= 0 and j > i:
-                    head, body, tail = item[:i], item[i + 1 : j], item[j + 1 :]
-                    for alt in body.split(","):
-                        grown.append(head + alt.strip() + tail)
-                    changed = True
-                else:
-                    grown.append(item)
-            out = grown
-            if not changed:
-                return out
-
-    def glob_hit(rel_path, fname, patterns):
-        """Match a file against expanded patterns.
-
-        A pattern with no separator is a NAME pattern ("*.py" anywhere in the
-        tree); one with a separator is a PATH pattern ("src/**/*.ts"). The
-        old code compared every pattern against the BASENAME only, so any
-        path-shaped glob matched nothing, silently.
-        """
-        for pat in patterns:
-            if "/" not in pat and os.sep not in pat:
-                if fnmatch.fnmatch(fname, pat):
-                    return True
-                continue
-            norm = rel_path.replace(os.sep, "/")
-            if fnmatch.fnmatch(norm, pat):
-                return True
-            # "**/" must also match ZERO directories: "src/**/*.ts" has to
-            # find "src/x.ts", not only "src/a/x.ts".
-            flat = pat.replace("**/", "")
-            if "**/" in pat and fnmatch.fnmatch(norm, flat):
-                return True
-            # Unanchored fallback: "src/**/*.ts" should also find
-            # "frontend/src/app/x.ts". Strict root-anchoring is defensible,
-            # but a false negative here costs far more than a false positive
-            # — the caller reads it as "this code does not exist".
-            if fnmatch.fnmatch(norm, "*/" + pat) or fnmatch.fnmatch(norm, "*/" + flat):
-                return True
-        return False
-
-    def collect_files(directory, glob_pat=None, max_files=10000):
-        SKIP_DIRS = {
-            ".git",
-            ".svn",
-            ".hg",
-            "__pycache__",
-            "node_modules",
-            ".venv",
-            "venv",
-            ".env",
-            ".tox",
-            ".mypy_cache",
-            ".pytest_cache",
-            "dist",
-            "build",
-            ".idea",
-            ".vscode",
-        }
-        patterns = expand_braces(glob_pat) if glob_pat else None
-        collected = []
-        stats = {"seen": 0, "skipped_by_glob": 0, "hidden": 0}
-        for root, dirs, files in os.walk(directory):
-            dirs[:] = [d for d in dirs if d not in SKIP_DIRS and not d.startswith(".")]
-            for fname in files:
-                if fname.startswith("."):
-                    stats["hidden"] += 1
-                    continue
-                stats["seen"] += 1
-                if patterns:
-                    rel = os.path.relpath(os.path.join(root, fname), directory)
-                    if not glob_hit(rel, fname, patterns):
-                        stats["skipped_by_glob"] += 1
-                        continue
-                collected.append(os.path.join(root, fname))
-                if len(collected) >= max_files:
-                    return collected, stats
-        return collected, stats
-
-    def format_content_lines(
-        fpath, lines, sorted_indices, display_map, single_file, first_file
+    def make_result(
+        status, message, content="", num_matches=0, num_files=0, truncated=False
     ):
-        result = []
-        if single_file:
-            if first_file:
-                result.append(f"File: {fpath}")
-        else:
-            if not first_file:
-                result.append("--")
-            result.append(f"File: {fpath}")
-
-        prev_ln = None
-        for ln in sorted_indices:
-            if ln >= len(lines):
-                continue
-            if prev_ln is not None and ln > prev_ln + 1:
-                result.append("--")
-            separator = ":" if display_map[ln] else "-"
-            result.append(f"{ln + 1}{separator}{lines[ln]}")
-            prev_ln = ln
-        return result
-
-    # --- Main logic ---
-
-    simulated_mode = input_data.get("simulated_mode", False)
-
-    if simulated_mode:
         return {
-            "status": "success",
-            "message": "Found matches in 2 files",
-            "mode": "content",
-            "num_files": 2,
-            "filenames": ["/path/to/input.txt", "/path/to/other.txt"],
-            "content": "File: /path/to/input.txt\n10:Mt. Fuji is visible today\n11-The mountain was clear\n--\nFile: /path/to/other.txt\n5:visibility is low\n",
-            "num_lines": 5,
-            "num_matches": None,
-            "applied_limit": 50,
-            "applied_offset": 0,
-        }
-
-    # --- Parse and validate inputs ---
-    pattern_str = input_data.get("pattern")
-    if not pattern_str:
-        return make_error("pattern is required.")
-
-    search_path = input_data.get("path") or os.getcwd()
-    output_mode = input_data.get("output_mode", "files_with_matches")
-    if output_mode not in ("files_with_matches", "content", "count"):
-        output_mode = "files_with_matches"
-
-    case_insensitive = bool(input_data.get("case_insensitive", False))
-    multiline_mode = bool(input_data.get("multiline", False))
-    glob_pattern = input_data.get("glob")
-    file_type = input_data.get("file_type")
-
-    # Context lines (only for content mode)
-    try:
-        ctx = int(input_data.get("context", 0))
-    except (TypeError, ValueError):
-        ctx = 0
-    try:
-        before_ctx = int(input_data.get("before_context", ctx))
-    except (TypeError, ValueError):
-        before_ctx = ctx
-    try:
-        after_ctx = int(input_data.get("after_context", ctx))
-    except (TypeError, ValueError):
-        after_ctx = ctx
-    before_ctx = max(0, before_ctx)
-    after_ctx = max(0, after_ctx)
-
-    # Pagination
-    raw_limit = input_data.get("head_limit")
-    try:
-        head_limit = int(raw_limit) if raw_limit is not None else 250
-    except (TypeError, ValueError):
-        head_limit = 250
-    try:
-        offset = int(input_data.get("offset", 0))
-    except (TypeError, ValueError):
-        offset = 0
-    if head_limit < 0:
-        head_limit = 250
-    unlimited = head_limit == 0
-    if offset < 0:
-        offset = 0
-
-    # --- Compile regex ---
-    flags = 0
-    if case_insensitive:
-        flags |= re.IGNORECASE
-    if multiline_mode:
-        flags |= re.DOTALL | re.MULTILINE
-
-    try:
-        regex = re.compile(pattern_str, flags)
-    except re.error as e:
-        return make_error(f"Invalid regex pattern: {e}")
-
-    # --- Collect files to search ---
-    if not os.path.exists(search_path):
-        return make_error(f"Path does not exist: {search_path}")
-
-    active_glob = None
-    collect_stats = None
-    if os.path.isfile(search_path):
-        files_to_search = [search_path]
-    else:
-        if glob_pattern:
-            active_glob = glob_pattern
-        elif file_type:
-            # file_type now accepts a list ("ts,tsx"). A bare "ts" silently
-            # excludes every .tsx file — i.e. most of a React codebase — and
-            # the caller only ever saw "0 matches" for it.
-            exts = [
-                t.strip().lstrip(".") for t in str(file_type).split(",") if t.strip()
-            ]
-            if len(exts) > 1:
-                active_glob = "*.{" + ",".join(exts) + "}"
-            elif exts:
-                active_glob = f"*.{exts[0]}"
-        files_to_search, collect_stats = collect_files(search_path, active_glob)
-
-    # --- Search each file ---
-    matched_filenames = []
-    content_lines = []
-    total_match_count = 0
-    count_entries = []
-    is_single_file = len(files_to_search) == 1
-
-    for fpath in files_to_search:
-        try:
-            with open(fpath, "r", encoding="utf-8", errors="ignore") as f:
-                file_content = f.read()
-        except (OSError, IOError):
-            continue
-
-        if not file_content:
-            continue
-
-        lines = file_content.split("\n")
-
-        if multiline_mode:
-            matches = list(regex.finditer(file_content))
-            if not matches:
-                continue
-            matched_line_nums = set()
-            for m in matches:
-                start_line = file_content[: m.start()].count("\n")
-                end_line = file_content[: m.end()].count("\n")
-                for ln in range(start_line, end_line + 1):
-                    matched_line_nums.add(ln)
-        else:
-            matched_line_nums = set()
-            for i, line in enumerate(lines):
-                if regex.search(line):
-                    matched_line_nums.add(i)
-
-        if not matched_line_nums:
-            continue
-
-        matched_filenames.append(fpath)
-        match_count = len(matched_line_nums)
-        total_match_count += match_count
-
-        if output_mode == "count":
-            count_entries.append(f"{fpath}: {match_count}")
-        elif output_mode == "content":
-            display_map = {}
-            for ln in matched_line_nums:
-                display_map[ln] = True
-                for ctx_ln in range(
-                    max(0, ln - before_ctx), min(len(lines), ln + after_ctx + 1)
-                ):
-                    if ctx_ln not in display_map:
-                        display_map[ctx_ln] = False
-
-            sorted_indices = sorted(display_map.keys())
-            file_lines = format_content_lines(
-                fpath,
-                lines,
-                sorted_indices,
-                display_map,
-                is_single_file,
-                first_file=(len(content_lines) == 0),
-            )
-            content_lines.extend(file_lines)
-
-    # --- Apply pagination and build output ---
-    def paginate(items):
-        after_offset = items[offset:]
-        if unlimited:
-            return after_offset
-        return after_offset[:head_limit]
-
-    def clamp_line(line):
-        """Trim one output line to MAX_LINE_CHARS, keeping the 'NN:' prefix."""
-        if len(line) <= MAX_LINE_CHARS:
-            return line, 0
-        dropped = len(line) - MAX_LINE_CHARS
-        return (
-            f"{line[:MAX_LINE_CHARS]}… [line truncated, {dropped} chars dropped]",
-            dropped,
-        )
-
-    def clamp_content(lines):
-        """Apply the per-line and total byte caps. Returns (lines, note)."""
-        clamped = []
-        truncated_lines = 0
-        used = 0
-        stopped_at = None
-        for i, line in enumerate(lines):
-            text, dropped = clamp_line(line)
-            if dropped:
-                truncated_lines += 1
-            if used + len(text) + 1 > MAX_CONTENT_CHARS:
-                stopped_at = i
-                break
-            clamped.append(text)
-            used += len(text) + 1
-
-        notes = []
-        if truncated_lines:
-            notes.append(
-                f"{truncated_lines} line(s) were trimmed to {MAX_LINE_CHARS} chars"
-            )
-        if stopped_at is not None:
-            notes.append(
-                f"output capped at {MAX_CONTENT_CHARS} chars after {stopped_at} of "
-                f"{len(lines)} line(s) — narrow the pattern or use offset={offset + stopped_at} "
-                "to continue"
-            )
-        return clamped, "; ".join(notes)
-
-    def _with_note(msg):
-        note = search_note()
-        return f"{msg} — {note}" if note else msg
-
-    def search_note():
-        """Explain an empty result instead of just reporting one.
-
-        A 0 from a filter that ate every candidate used to read exactly like
-        a 0 from a genuine absence. Observed twice in production: an agent
-        turned "0 matches" into a confident structural claim ("the handler
-        must live in the frontend", "the code must be bundled elsewhere") and
-        acted on it for half an hour. The file it wanted was four lines long
-        and sat in the directory it had just searched.
-        """
-        if matched_filenames or collect_stats is None:
-            return ""
-        skipped = collect_stats.get("skipped_by_glob", 0)
-        seen = collect_stats.get("seen", 0)
-        hidden = collect_stats.get("hidden", 0)
-        if not files_to_search:
-            which = "glob" if glob_pattern else "file_type"
-            return (
-                f"NOTHING WAS SEARCHED: the {which} filter {active_glob!r} "
-                f"excluded all {seen} file(s) under {search_path}. This is "
-                "NOT evidence the pattern is absent — widen or drop the "
-                "filter and search again."
-            )
-        parts = [f"searched {len(files_to_search)} file(s)"]
-        if skipped:
-            parts.append(
-                f"{skipped} more were excluded by {active_glob!r} and never looked at"
-            )
-        if hidden:
-            parts.append(f"{hidden} dot-file(s) are always skipped")
-        return "no match after " + "; ".join(parts) + "."
-
-    effective_limit = None if unlimited else head_limit
-
-    if output_mode == "files_with_matches":
-        total = len(matched_filenames)
-        paginated = paginate(matched_filenames)
-        return {
-            "status": "success",
-            "message": _with_note(f"Found matches in {total} file(s)"),
-            "mode": "files_with_matches",
-            "num_files": total,
-            "filenames": paginated,
-            "content": None,
-            "num_lines": None,
-            "num_matches": None,
-            "applied_limit": effective_limit,
-            "applied_offset": offset,
-        }
-
-    elif output_mode == "content":
-        paginated, cap_note = clamp_content(paginate(content_lines))
-        content_str = "\n".join(paginated)
-        if paginated:
-            content_str += "\n"
-        message = (
-            f"Found {total_match_count} match(es) in {len(matched_filenames)} file(s)"
-        )
-        if cap_note:
-            message += f" ({cap_note})"
-        message = _with_note(message)
-        return {
-            "status": "success",
+            "status": status,
             "message": message,
-            "mode": "content",
-            "num_files": len(matched_filenames),
-            # Content mode already carries each path inline in `content`; echoing an
-            # unbounded filename list on top of it is pure token cost on a wide search.
-            "filenames": matched_filenames[:100],
-            "content": content_str,
-            "num_lines": len(paginated),
-            "num_matches": None,
-            "applied_limit": effective_limit,
-            "applied_offset": offset,
+            "content": content,
+            "num_matches": num_matches,
+            "num_files": num_files,
+            "truncated": truncated,
         }
 
-    else:  # count
-        paginated = paginate(count_entries)
-        return {
-            "status": "success",
-            "message": _with_note(
-                f"Total: {total_match_count} match(es) in "
-                f"{len(matched_filenames)} file(s)"
-            ),
-            "mode": "count",
-            "num_files": len(matched_filenames),
-            "filenames": matched_filenames,
-            "content": "\n".join(paginated) + "\n" if paginated else "",
-            "num_lines": None,
-            "num_matches": total_match_count,
-            "applied_limit": effective_limit,
-            "applied_offset": offset,
-        }
+    def as_int(value, default):
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default
+
+    if input_data.get("simulated_mode", False):
+        return make_result(
+            "success",
+            "Found 2 matches in 2 files under /path/to; paths are relative to it.",
+            "input.txt:10: Mt. Fuji is visible today\nother.txt:5: visibility is low",
+            num_matches=2,
+            num_files=2,
+        )
+
+    pattern = input_data.get("pattern")
+    if not isinstance(pattern, str) or pattern == "":
+        return make_result("error", "pattern is required.")
+
+    root = os.path.abspath(os.path.expanduser(input_data.get("path") or os.getcwd()))
+    if not os.path.exists(root):
+        return make_result("error", f"Path does not exist: {root}")
+    root_is_dir = os.path.isdir(root)
+
+    glob = input_data.get("glob") or None
+    ignore_case = bool(input_data.get("ignore_case", False))
+    context = max(0, as_int(input_data.get("context"), 0))
+    limit = max(1, as_int(input_data.get("limit"), DEFAULT_LIMIT))
+
+    try:
+        rg = ripgrep_runtime.resolve()
+    except RuntimeError as e:
+        return make_result("error", f"Cannot search: {e}")
+
+    # --no-require-git: a project's .gitignore applies whether or not the
+    # folder sits inside a git checkout, so a search skips the same files in
+    # a dev checkout and in an installed copy.
+    # --no-messages: unreadable files are skipped silently; a bad regex is
+    # still reported on stderr.
+    args = [rg, "--no-config", "--no-messages", "--no-require-git"]
+    # One line per result: path NUL line number, ':' for a match or '-' for
+    # context, then the text. Not --json: it ignores --max-columns and lists
+    # every occurrence on a matched line, so one minified line could load
+    # megabytes into memory.
+    args += [
+        "--color=never",
+        "--no-heading",
+        "--with-filename",
+        "--line-number",
+        "--null",
+        "--no-context-separator",
+    ]
+    # rg trims long lines itself. A UTF-8 character is at most 4 bytes and rg
+    # counts the line ending, so any line it trims is still longer than
+    # MAX_LINE_CHARS and its "[... omitted]" marker falls in the part cut
+    # below.
+    args += [f"--max-columns={4 * MAX_LINE_CHARS + 2}", "--max-columns-preview"]
+    # No file can contribute more than `limit` matches.
+    args.append(f"--max-count={limit}")
+    if not root_is_dir:
+        # A file named directly is searched even when it looks binary;
+        # otherwise rg prints only a "binary file matches" notice for it.
+        args.append("--text")
+    if ignore_case:
+        args.append("--ignore-case")
+    if context:
+        args += ["--context", str(context)]
+    if glob and root_is_dir:
+        args += ["--glob", glob]
+    args += ["--regexp", pattern, "--", root]
+
+    def display(path):
+        if not root_is_dir:
+            return os.path.basename(path)
+        normalized = os.path.normpath(path)
+        try:
+            relative = os.path.relpath(normalized, root)
+        except ValueError:  # another drive on Windows
+            return normalized.replace(os.sep, "/")
+        if relative.startswith(".."):
+            return normalized.replace(os.sep, "/")
+        return relative.replace(os.sep, "/")
+
+    # Content is built while rg's output is read, so memory stays within
+    # MAX_CONTENT_CHARS however many matches a search turns up.
+    lines = []
+    used = 0
+    shown_matches = 0
+    shown_files = set()
+    lines_cut = 0
+    capped = False
+    previous = None
+    limit_line = None
+    stderr_parts = []
+    session_id = input_data.get("_session_id") or ""
+
+    try:
+        proc = subprocess.Popen(
+            args,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+        )
+    except OSError as e:
+        return make_result("error", f"Could not start ripgrep at {rg}: {e}")
+
+    # A user force-stop kills rg; reading stdout then simply ends.
+    register_process(session_id, proc)
+    # stderr is drained on its own thread: a full pipe would block rg while
+    # this thread waits on stdout.
+    drain = threading.Thread(
+        target=lambda: stderr_parts.append(proc.stderr.read()), daemon=True
+    )
+    drain.start()
+    try:
+        for raw in proc.stdout:
+            path_bytes, nul, rest = raw.partition(b"\0")
+            digits = len(rest) - len(rest.lstrip(b"0123456789"))
+            # rg's notices, such as a binary file it stopped searching after a
+            # match, carry no NUL and no line number.
+            if not nul or not digits:
+                continue
+            path = path_bytes.decode("utf-8", "replace")
+            line_no = int(rest[:digits])
+            is_match = rest[digits : digits + 1] == b":"
+            if limit_line is not None:
+                # Past the limit, keep only the trailing context of the last
+                # match, never the lead-in of the next one.
+                if is_match or path != previous[0] or line_no > limit_line + context:
+                    break
+            text = rest[digits + 1 :].decode("utf-8", "replace").rstrip("\r\n")
+            block = []
+            if (
+                context
+                and previous is not None
+                and (previous[0] != path or line_no != previous[1] + 1)
+            ):
+                block.append("--")
+            if len(text) > MAX_LINE_CHARS:
+                text = text[:MAX_LINE_CHARS] + " [line cut]"
+                lines_cut += 1
+            sep = ":" if is_match else "-"
+            block.append(f"{display(path)}{sep}{line_no}{sep} {text}")
+            size = sum(len(b) + 1 for b in block)
+            if used + size > MAX_CONTENT_CHARS:
+                capped = True
+                break
+            lines.extend(block)
+            used += size
+            previous = (path, line_no)
+            if is_match:
+                shown_matches += 1
+                shown_files.add(path)
+                if shown_matches >= limit:
+                    limit_line = line_no
+                    if not context:
+                        break
+    except Exception as e:
+        proc.kill()
+        return make_result("error", f"Search failed: {e}")
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+        returncode = proc.wait()
+        drain.join(timeout=5)
+        unregister_process(session_id, proc)
+
+    limit_hit = limit_line is not None
+    stderr_text = (
+        b"".join(p for p in stderr_parts if p).decode("utf-8", "replace").strip()
+    )
+
+    # rg exits 2 on any error, including one unreadable file in a tree that
+    # otherwise matched; it is only a failure when nothing usable came back.
+    if not lines and not limit_hit and returncode not in (0, 1):
+        return make_result(
+            "error",
+            f"Search failed: {stderr_text or f'ripgrep exited with code {returncode}'}",
+        )
+
+    if not lines:
+        if root_is_dir:
+            message = (
+                f"No matches under {root}. Searching a folder skips files ignored "
+                f"by .gitignore, hidden files and binary files."
+            )
+        else:
+            message = f"No matches in {root}."
+        return make_result("success", message)
+
+    where = f"under {root}; paths are relative to it" if root_is_dir else f"in {root}"
+    notes = [
+        f"Found {shown_matches} match{'' if shown_matches == 1 else 'es'} in "
+        f"{len(shown_files)} file{'' if len(shown_files) == 1 else 's'} {where}."
+    ]
+    if limit_hit:
+        notes.append(
+            f"Stopped at the limit of {limit} matches; more may exist. Raise "
+            f"limit or narrow the pattern, path or glob."
+        )
+    if capped:
+        notes.append(
+            f"Output capped at {MAX_CONTENT_CHARS} characters; narrow the search "
+            f"to see the rest."
+        )
+    if lines_cut:
+        notes.append(
+            f"{lines_cut} long line{'' if lines_cut == 1 else 's'} cut to "
+            f"{MAX_LINE_CHARS} characters; read_file shows them in full."
+        )
+    if returncode == 2 and not limit_hit:
+        notes.append("Some files could not be read.")
+
+    return make_result(
+        "success",
+        " ".join(notes),
+        "\n".join(lines),
+        num_matches=shown_matches,
+        num_files=len(shown_files),
+        truncated=limit_hit or capped,
+    )

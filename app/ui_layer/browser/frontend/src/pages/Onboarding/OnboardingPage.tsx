@@ -15,6 +15,7 @@ import {
 import { Button } from '../../components/ui'
 import { useTranslation, Trans } from 'react-i18next'
 import { useWebSocket } from '../../contexts/WebSocketContext'
+import { useToast } from '../../contexts/ToastContext'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { getSocketClient } from '../../store/socket/socketInstance'
 import {
@@ -466,6 +467,7 @@ function ProviderWheel({ options, value, onChange }: ProviderWheelProps) {
 
 export function OnboardingPage() {
   const { t } = useTranslation(['onboarding', 'common'])
+  const { showToast } = useToast()
   const {
     requestOnboardingStep,
     submitOnboardingStep,
@@ -481,8 +483,9 @@ export function OnboardingPage() {
   // Providers that route through OpenRouter - model slug is configurable.
   const OR_PROXIED = ['moonshot', 'minimax']
   const OR_MODEL_DEFAULTS: Record<string, string> = {
-    moonshot: 'moonshotai/kimi-k2.5',
-    minimax: 'minimax/minimax-01',
+    moonshot: 'moonshotai/kimi-k2.6',
+    // OpenRouter lists MiniMax M3.1 Flash only as a free variant so far.
+    minimax: 'minimax/minimax-m3',
   }
 
   // Subscription OAuth (ChatGPT Plus/Pro, SuperGrok). The connect/status
@@ -651,6 +654,20 @@ export function OnboardingPage() {
   const isSubPending = apiKeyProvider ? !!subscriptionPending[apiKeyProvider] : false
   const subPasteback = apiKeyProvider ? subscriptionPasteback[apiKeyProvider] : undefined
 
+  useEffect(() => {
+    const handleFailure = (data: unknown) => {
+      const d = data as { provider?: string; success: boolean; message?: string; error?: string }
+      if (d.provider === apiKeyProvider && !d.success) {
+        showToast('error', d.message || d.error || t('onboarding:sub.actionFailed'))
+      }
+    }
+    const cleanups = [
+      socket.onMessage('model_subscription_connect', handleFailure),
+      socket.onMessage('model_subscription_disconnect', handleFailure),
+    ]
+    return () => cleanups.forEach(cleanup => cleanup())
+  }, [apiKeyProvider, socket, showToast, t])
+
   // Refresh the live subscription status whenever we land on a sub-capable
   // api_key step, and clear any stale paste-back code entry.
   useEffect(() => {
@@ -668,7 +685,7 @@ export function OnboardingPage() {
     // OpenAI uses a loopback callback (auto-redirect); xAI/Grok's flow ends on
     // a "copy this code" page, so it goes through the paste-back flow. Mirrors
     // the decision in the Settings model panel.
-    const useLoopback = apiKeyProvider === 'openai'
+    const useLoopback = apiKeyProvider === 'openai' || apiKeyProvider === 'anthropic'
     socket.send(
       useLoopback ? 'model_subscription_connect' : 'model_subscription_prepare',
       { provider: apiKeyProvider },
@@ -799,7 +816,7 @@ export function OnboardingPage() {
                 className={styles.textInput}
                 value={orModel}
                 onChange={e => setOrModel(e.target.value)}
-                placeholder={OR_MODEL_DEFAULTS[onboardingStep.provider!] ?? 'e.g. moonshotai/kimi-k2.5'}
+                placeholder={OR_MODEL_DEFAULTS[onboardingStep.provider!] ?? 'e.g. moonshotai/kimi-k2.6'}
               />
             </div>
           )}
@@ -977,6 +994,27 @@ export function OnboardingPage() {
           </Button>
         )}
 
+        {!isSubConnected && subStatus?.configured && (
+          <>
+            <p className={styles.hint}>{t('onboarding:sub.recoveryHint')}</p>
+            <Button
+              variant="secondary"
+              disabled={isSubPending}
+              onClick={() => {
+                dispatch(setSubscriptionPending({ provider: apiKeyProvider, pending: true }))
+                socket.send('model_subscription_disconnect', { provider: apiKeyProvider })
+              }}
+            >
+              {t('common:actions.disconnect')}
+            </Button>
+          </>
+        )}
+        {subStatus?.error && <p role="alert" className={styles.hint}>{subStatus.error}</p>}
+
+        {apiKeyProvider === 'anthropic' && (
+          <p className={styles.hint}>{t('onboarding:sub.claudeProfileNote')}</p>
+        )}
+
         {/* API-key fallback. Collapsed behind a link once connected so the
             connected card stands alone; always shown otherwise. */}
         {isSubConnected && !showKeyInput ? (
@@ -1076,7 +1114,7 @@ export function OnboardingPage() {
               {onboardingError && (
                 <div className={styles.errorMessage}>
                   <AlertCircle size={16} />
-                  {onboardingError}
+                  <span className={styles.errorText}>{onboardingError}</span>
                 </div>
               )}
 

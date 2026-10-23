@@ -169,6 +169,25 @@ class SessionManager(_SessionManager):
                 )
         return session_dir
 
+    def clear_session(self, session_id: str) -> bool:
+        """Start a session over, its workspace files included: NOTE.md goes
+        back to the fresh scratchpad and EVENT.md is emptied, as a new
+        session has them. Other files in the workspace (the user's) stay."""
+        if not super().clear_session(session_id):
+            return False
+        session = self.get(session_id)
+        if session is not None and session.workspace_dir:
+            try:
+                (Path(session.workspace_dir) / "NOTE.md").write_text(
+                    _NOTE_SCRATCHPAD_HEADER, encoding="utf-8"
+                )
+            except OSError as e:
+                logger.warning(
+                    f"[SessionManager] Failed to reset NOTE.md for {session_id}: {e}"
+                )
+        self.event_stream_manager.clear_event_log(session_id)
+        return True
+
     def add_post_update_todos_hook(self, hook: PostUpdateTodosHook) -> None:
         """Register a hook that fires after every update_todos call.
 

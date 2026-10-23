@@ -138,7 +138,7 @@ def test_macos_frozen_shortcut_starts_installed_agent_executable(tmp_path, monke
     monkeypatch.setattr(craftbot, "BASE_DIR", str(base_dir))
     monkeypatch.setattr(craftbot, "_find_desktop", lambda: str(desktop))
     monkeypatch.setattr(craftbot, "_python_exe", lambda: "/bad/python")
-    monkeypatch.setattr(craftbot, "installed_exe_path", lambda: installed_agent)
+    monkeypatch.setattr(craftbot, "_installed_launch", lambda: [installed_agent])
 
     craftbot._create_desktop_shortcut_unix(["--frontend-port", "9000"])
 

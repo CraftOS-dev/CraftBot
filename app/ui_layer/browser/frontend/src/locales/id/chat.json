@@ -31,6 +31,40 @@
     "stopRun": "Hentikan proses",
     "stoppingRun": "Menghentikan proses"
   },
+  "reasoning": {
+    "title": "Penalaran",
+    "picker": "Tingkat penalaran",
+    "header": "Penalaran · {{model}}",
+    "withLevel": "{{choice}} · {{level}}",
+    "dynamic": "Ditentukan model",
+    "defaultTag": "Bawaan",
+    "notConfigurable": "Penalaran tidak dapat diatur untuk {{model}}",
+    "clamped": "{{requested}} tidak tersedia pada model ini, jadi {{effective}} yang digunakan.",
+    "context": {
+      "label": "Konteks",
+      "summarizesAt": "Diringkas pada {{max}}"
+    },
+    "cache": {
+      "label": "Cache",
+      "hit": "{{percent}} dari cache",
+      "notReported": "Tidak dilaporkan",
+      "notYet": "Belum ada cache",
+      "timeLeft": "Sisa waktu",
+      "about": "~{{time}}",
+      "expired": "Kedaluwarsa",
+      "noExpiry": "Tanpa batas waktu tetap"
+    },
+    "choice": {
+      "provider_default": "Bawaan penyedia",
+      "off": "Mati",
+      "minimal": "Minimal",
+      "low": "Rendah",
+      "medium": "Sedang",
+      "high": "Tinggi",
+      "xhigh": "Sangat tinggi",
+      "max": "Maksimum"
+    }
+  },
   "reply": {
     "replyingTo": "Membalas: <1>{{name}}</1>",
     "cancel": "Batalkan balasan"
@@ -63,7 +97,7 @@
     "aria": "Pertanyaan dari agen",
     "asking": "{{sender}} sedang bertanya",
     "queuePosition": "1 dari {{total}}",
-    "dismissHint": "Tutup. Agen akan melanjutkan tanpa jawaban.",
+    "dismissHint": "Tutup dan hentikan tugas. Agen berhenti sampai pesan Anda berikutnya.",
     "dismissAria": "Tutup pertanyaan",
     "recommended": "(disarankan)",
     "freeTextPlaceholder": "Atau ketik jawaban Anda sendiri...",
@@ -78,5 +112,14 @@
     "replyTooltip": "Balas pesan ini",
     "copyTooltip": "Salin pesan",
     "copiedTooltip": "Tersalin!"
+  },
+  "browserPanel": {
+    "show": "Tampilkan peramban obrolan ini",
+    "running": "Peramban obrolan ini sedang menyala",
+    "browsing": "Agen sedang menjelajah",
+    "region": "Panel peramban"
+  },
+  "panel": {
+    "close": "Tutup panel"
   }
 }

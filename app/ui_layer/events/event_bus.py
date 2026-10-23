@@ -9,7 +9,7 @@ from typing import Callable, Dict, List, Optional, Coroutine, Any
 from app.ui_layer.events.event_types import UIEvent, UIEventType
 
 # Type aliases for event handlers
-EventHandler = Callable[[UIEvent], None]
+EventHandler = Callable[[UIEvent], Optional[asyncio.Task]]
 AsyncEventHandler = Callable[[UIEvent], Coroutine[Any, Any, None]]
 
 
@@ -51,6 +51,33 @@ class EventBus:
         self._global_async_handlers: List[AsyncEventHandler] = []
         self._event_history: List[UIEvent] = []
         self._max_history = max_history
+        self._pending: Dict[asyncio.Task, Optional[str]] = {}
+
+    def _schedule(self, handler: AsyncEventHandler, event: UIEvent) -> None:
+        self._track(asyncio.create_task(handler(event)), event)
+
+    def _track(self, task: asyncio.Task, event: UIEvent) -> None:
+        self._pending[task] = event.task_id or event.data.get("session_id") or "main"
+        task.add_done_callback(lambda done: self._pending.pop(done, None))
+
+    def _invoke(self, handler: EventHandler, event: UIEvent) -> None:
+        # Synchronous adapters return their display task so it has the same
+        # ownership as a handler registered with subscribe_async.
+        result = handler(event)
+        if isinstance(result, asyncio.Task):
+            self._track(result, event)
+
+    async def drain(self, task_id: str) -> None:
+        """Settle this session's already-emitted UI work before clearing it."""
+        current = asyncio.current_task()
+        while tasks := [
+            task
+            for task, sid in self._pending.items()
+            if sid == task_id and task is not current
+        ]:
+            await asyncio.gather(
+                *(asyncio.shield(task) for task in tasks), return_exceptions=True
+            )
 
     def subscribe(
         self,
@@ -152,7 +179,7 @@ class EventBus:
         # Call type-specific sync handlers
         for handler in self._handlers.get(event.type, []):
             try:
-                handler(event)
+                self._invoke(handler, event)
             except Exception:
                 # Log but don't crash - handlers shouldn't break the bus
                 pass
@@ -160,14 +187,14 @@ class EventBus:
         # Call global sync handlers
         for handler in self._global_handlers:
             try:
-                handler(event)
+                self._invoke(handler, event)
             except Exception:
                 pass
 
         # Schedule type-specific async handlers
         for handler in self._async_handlers.get(event.type, []):
             try:
-                asyncio.create_task(handler(event))
+                self._schedule(handler, event)
             except RuntimeError:
                 # No event loop running - skip async handlers
                 pass
@@ -175,7 +202,7 @@ class EventBus:
         # Schedule global async handlers
         for handler in self._global_async_handlers:
             try:
-                asyncio.create_task(handler(event))
+                self._schedule(handler, event)
             except RuntimeError:
                 pass
 
@@ -197,13 +224,13 @@ class EventBus:
         # Call sync handlers
         for handler in self._handlers.get(event.type, []):
             try:
-                handler(event)
+                self._invoke(handler, event)
             except Exception:
                 pass
 
         for handler in self._global_handlers:
             try:
-                handler(event)
+                self._invoke(handler, event)
             except Exception:
                 pass
 

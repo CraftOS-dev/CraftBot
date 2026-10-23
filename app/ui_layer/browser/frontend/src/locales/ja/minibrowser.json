@@ -1,0 +1,330 @@
+{
+  "page": {
+    "label": "ミニブラウザ"
+  },
+  "toolbar": {
+    "label": "ブラウザの操作",
+    "back": "戻る",
+    "forward": "進む",
+    "reload": "再読み込み",
+    "stopLoading": "読み込みを中止",
+    "address": "アドレスバー（検索もできます）",
+    "addressPlaceholder": "検索語句またはアドレスを入力",
+    "secure": "保護された通信（HTTPS）",
+    "notSecure": "保護されていない通信（HTTP）",
+    "follow": "作業中のタブを自動表示",
+    "followOnHint": "オン: エージェントが作業しているタブに自動で切り替わります",
+    "followOffHint": "オフ: 選んだタブをそのまま表示します",
+    "adblock": "広告ブロック",
+    "adblockOnHint": "広告ブロックはオンです。クリックでオフにします。",
+    "adblockOffHint": "広告ブロックはオフです。クリックでオンにします。",
+    "adblockUnknown": "広告ブロックの状態を確認しています…",
+    "adblockPending": "広告ブロックを切り替えています…",
+    "passwords": "保存したパスワード",
+    "more": "その他",
+    "copyLink": "リンクをコピー",
+    "linkCopied": "リンクをコピーしました",
+    "copyFailed": "クリップボードにコピーできませんでした",
+    "openExternal": "いつものブラウザで開く",
+    "openExternalHint": "このページを普段お使いのブラウザで開きます。ミニブラウザのログイン状態は引き継がれません。",
+    "closeBrowser": "ブラウザを閉じる",
+    "stopAgent": "エージェントを停止",
+    "stopAgentHint": "このタブを使っているエージェントを停止します",
+    "stopping": "停止しています…",
+    "dismiss": "閉じる"
+  },
+  "tabs": {
+    "label": "ブラウザのタブ",
+    "newTab": "新しいタブ",
+    "untitled": "新しいタブ",
+    "close": "タブを閉じる",
+    "closeNamed": "タブを閉じる: {{title}}",
+    "loading": "読み込み中",
+    "busy": "エージェントがこのタブで作業中です",
+    "crashed": "このタブはクラッシュしました",
+    "userControl": "あなたが操作中のタブです（エージェントは一時停止中）",
+    "ownerTooltip": "使用中: {{owner}}",
+    "owner": {
+      "you": "あなた",
+      "main": "メインチャット",
+      "agent": "エージェント",
+      "session": "チャット",
+      "subagent": "サブエージェント",
+      "subagentOf": "サブエージェント（{{parent}}）"
+    },
+    "closeBusyTitle": "このタブを閉じますか？",
+    "closeBusyMessage": "{{owner}} がこのタブで作業中です。閉じると、このタブでのエージェントの作業が中断されます。"
+  },
+  "live": {
+    "label": "ライブ表示中のウェブページ",
+    "keyboardHint": "クリックやキー入力はウェブページに送られます。Esc キーを 2 回押すとアドレスバーに戻ります。",
+    "loading": "ページを読み込んでいます…",
+    "noTab": "開いているタブはありません。",
+    "agentBrowsing": "{{owner}} が閲覧中",
+    "takeControl": "操作を代わる",
+    "takeControlHint": "このタブでのエージェントの作業を一時停止して、自分で操作します。CAPTCHA を解いたり、ログイン用のコードを入力したりするときに使います。終わったらエージェントに戻してください。",
+    "inControl": "あなたが操作中です。このタブのエージェントは一時停止しています",
+    "handBack": "エージェントに戻す",
+    "handBackHint": "このタブでの作業をエージェントに再開させます",
+    "reconnecting": "再接続しています…",
+    "reconnectingHint": "CraftBot に再接続すると、ライブ表示が再開します。",
+    "crashedTitle": "このタブはクラッシュしました",
+    "crashedBody": "再読み込みして、もう一度お試しください。",
+    "reloadTab": "タブを再読み込み",
+    "showKeyboard": "キーボードを表示",
+    "copyFailed": "選択したテキストをクリップボードにコピーできませんでした",
+    "pasteTruncated": "テキストが長すぎるため、先頭の {{max}} 文字だけを貼り付けました。"
+  },
+  "status": {
+    "connecting": "ミニブラウザに接続しています…",
+    "starting": "ブラウザを起動しています…",
+    "resuming": "前回の続きから再開しています…",
+    "pausedTitle": "ブラウザは一時停止中です",
+    "pausedBody": "ページは前回の続きから開き直します。",
+    "resume": "再開",
+    "installing": "ブラウザをインストールしています…",
+    "installingHint": "Chromium をダウンロードしています。数分かかることがあります。",
+    "installLog": "インストールのログ",
+    "installDone": "ブラウザをインストールしました",
+    "errorTitle": "ブラウザで問題が発生しました",
+    "stoppedTitle": "エージェントと一緒にブラウジング",
+    "stoppedBody": "このチャット専用のブラウザです。エージェントの作業をライブで見守り、いつでも操作を代われます。",
+    "start": "ブラウザを起動",
+    "openSite": "サイトを開く",
+    "tryAsking": "エージェントにこんなふうに頼めます",
+    "examples": {
+      "compare": "ノイズキャンセリングヘッドホンの価格を 3 つの通販サイトで比べて",
+      "news": "ニュースサイトを開いて、今日の主なニュースを要約して",
+      "research": "今週末の東京の天気予報を調べて"
+    },
+    "featureWatchTitle": "作業を見守る",
+    "featureWatchBody": "エージェントはそれぞれ専用のタブで作業します。クリック・入力・スクロールの様子をそのまま追えます。",
+    "featureControlTitle": "いつでも操作を代われる",
+    "featureControlBody": "ページをクリックしたり入力したりすると、そのタブのエージェントは、あなたが操作を戻すまで一時停止します。",
+    "featureLoginsTitle": "ログイン情報を保存",
+    "featureLoginsBody": "パスワードを一度保存すれば、エージェントが代わりにサインインします。エージェントがパスワードを目にすることはありません。",
+    "install": "ブラウザをインストール",
+    "installAgain": "もう一度インストール",
+    "retry": "再試行",
+    "profileInUseHint": "このチャットのブラウザを使っている別の CraftBot を閉じてから、もう一度お試しください。"
+  },
+  "events": {
+    "download": "{{name}} をダウンロードしました",
+    "downloadUnnamed": "ファイルをダウンロードしました",
+    "downloadDangerous": "この種類のファイルは、パソコン上でプログラムを実行できます。入手元を信頼できる場合にだけ開いてください。",
+    "openFile": "開く",
+    "showInFolder": "フォルダーに表示",
+    "popup": "ページが新しいタブを開きました",
+    "dialogGeneric": "ページにダイアログが表示され、自動で応答しました",
+    "blockedGeneric": "ミニブラウザでは開けないページをブロックしました",
+    "crash": "タブがクラッシュしました。次に使うときに再読み込みされます。",
+    "notice": "ミニブラウザからのお知らせ",
+    "problem": "ミニブラウザで問題が発生しました"
+  },
+  "confirm": {
+    "shutdownTitle": "ブラウザを閉じますか？",
+    "shutdownMessage": "エージェントがまだ閲覧中です。ブラウザを閉じるとすべてのタブが閉じますが、作業中のエージェントがもう一度ブラウザを開くことがあります。エージェントを止めるには「停止」を押してください。"
+  },
+  "passwords": {
+    "title": "保存したパスワード",
+    "intro": "エージェントがあなたの代わりにサインインするときに使います。パスワードはこのパソコン上で暗号化され、エージェントに見えることも、この画面に送り返されることもありません。",
+    "protectionDpapi": "Windows アカウントで暗号化されています",
+    "protectionFile": "このパソコンに保存された鍵で暗号化されています",
+    "listLabel": "保存したログイン情報",
+    "count_other": "{{count}} 件",
+    "filter": "ログイン情報を絞り込む",
+    "loading": "保存したログイン情報を読み込んでいます…",
+    "empty": "保存したログイン情報はまだありません。下のフォームで追加してから、エージェントにサインインを頼んでください。",
+    "emptyUnreadable": "保管庫を読み取れるようになるまで、ログイン情報は表示できません。",
+    "noMatches": "条件に一致するログイン情報はありません。",
+    "lastUsed": "最終使用: {{date}}",
+    "neverUsed": "未使用",
+    "edit": "編集",
+    "editNamed": "{{site}} の {{username}} のログイン情報を編集",
+    "delete": "削除",
+    "deleteNamed": "{{site}} の {{username}} のログイン情報を削除",
+    "deleteTitle": "このログイン情報を削除しますか？",
+    "deleteMessage": "{{site}} の {{username}} のログイン情報を削除しますか？削除すると、エージェントはこの情報でサインインできなくなります。",
+    "addTitle": "ログイン情報を追加",
+    "editTitle": "ログイン情報を編集",
+    "site": "ウェブサイト",
+    "sitePlaceholder": "example.com",
+    "siteHint": "このサイト（「www.」の有無は問いません）で、保護された通信（HTTPS）のときにだけ使われます。別のサブドメインのログインページには、別に登録が必要です。",
+    "username": "ユーザー名またはメールアドレス",
+    "password": "パスワード",
+    "passwordKeep": "空欄のままにすると、今のパスワードを維持します",
+    "label": "ラベル（任意）",
+    "labelPlaceholder": "例: 仕事用アカウント",
+    "showPassword": "パスワードを表示",
+    "hidePassword": "パスワードを隠す",
+    "save": "ログイン情報を保存",
+    "update": "変更を保存",
+    "cancelEdit": "キャンセル",
+    "saved": "ログイン情報を保存しました",
+    "updated": "ログイン情報を更新しました",
+    "deleted": "ログイン情報を削除しました",
+    "required": "入力してください",
+    "invalidSite": "example.com のような形式で入力してください",
+    "tooLong": "長すぎます（最大 {{max}} 文字）",
+    "willReplace": "{{site}} の {{username}} のログイン情報はすでに保存されています。保存するとパスワードが置き換わります。",
+    "notConnected": "CraftBot に接続されていません。少し待ってから、もう一度お試しください。",
+    "timeout": "CraftBot から時間内に応答がありませんでした。一覧を確認して、もう一度お試しください。",
+    "error": "問題が発生しました。もう一度お試しください。",
+    "unreadableTitle": "パスワードの保管庫を読み取れません",
+    "unavailableTitle": "保存したログイン情報を今は読み込めません",
+    "unavailableBody": "パスワードの保管庫が使用中か、一時的に利用できません（別のプログラムがファイルを使用している場合など）。保存したログイン情報は失われていません。少し待ってから、もう一度お試しください。",
+    "retry": "再試行",
+    "unreadableBody": "保存したログイン情報は残っていますが、このパソコンでは復号できません（暗号化の鍵が変わった場合など）。何も上書きされていません。保管庫をリセットすると最初からやり直せます。読み取れないファイルはバックアップとして残ります。",
+    "reset": "保管庫をリセット",
+    "resetTitle": "パスワードの保管庫をリセットしますか？",
+    "resetMessage": "新しい空の保管庫を作成します。読み取れない保管庫のファイルはバックアップとして残ります。",
+    "resetDone": "パスワードの保管庫をリセットしました"
+  },
+  "errors": {
+    "MINI_BROWSER_PLAYWRIGHT_MISSING": {
+      "title": "ブラウザエンジンがインストールされていません",
+      "message": "ミニブラウザに必要なブラウザエンジン（Playwright）がまだインストールされていません。"
+    },
+    "MINI_BROWSER_CHROMIUM_MISSING": {
+      "title": "ブラウザがインストールされていません",
+      "message": "ミニブラウザ用の Chromium がまだインストールされていません。ここからインストールできます（ダウンロードは最初の 1 回だけです）。"
+    },
+    "MINI_BROWSER_PROFILE_IN_USE": {
+      "title": "ブラウザのプロファイルが使用中です",
+      "message": "別の CraftBot がこのチャットのブラウザのプロファイルを使用しています。"
+    },
+    "MINI_BROWSER_LAUNCH_FAILED": {
+      "title": "ブラウザを起動できませんでした",
+      "message": "Chromium を起動できませんでした。もう一度お試しください。何度も失敗する場合は、ブラウザを再インストールしてください。"
+    },
+    "MINI_BROWSER_NOT_RUNNING": {
+      "title": "ブラウザが起動していません",
+      "message": "ミニブラウザは起動していません。起動してから続けてください。"
+    },
+    "MINI_BROWSER_CLOSED": {
+      "title": "ブラウザが閉じられました",
+      "message": "処理が終わる前にミニブラウザが閉じられました。"
+    },
+    "MINI_BROWSER_NAVIGATION_FAILED": {
+      "title": "ページを読み込めませんでした",
+      "message": "ページを開けませんでした。アドレスとインターネット接続を確認してください。"
+    },
+    "MINI_BROWSER_BLOCKED_URL": {
+      "title": "このアドレスはブロックされています",
+      "message": "ミニブラウザでは、この種類のアドレスは開けません。"
+    },
+    "MINI_BROWSER_INVALID_INPUT": {
+      "title": "リクエストが無効です",
+      "message": "リクエストの内容が正しくありません。"
+    },
+    "MINI_BROWSER_PAGE_UNRESPONSIVE": {
+      "title": "ページが応答しません",
+      "message": "ページが時間内に応答しませんでした。もう一度試すか、再読み込みするか、別のタブを開いてください。"
+    },
+    "MINI_BROWSER_TAB_NOT_FOUND": {
+      "title": "タブが見つかりません",
+      "message": "そのタブはもう開いていません。"
+    },
+    "MINI_BROWSER_TAB_CLOSED": {
+      "title": "タブが閉じられました",
+      "message": "処理が終わる前にタブが閉じられました。"
+    },
+    "MINI_BROWSER_TOO_MANY_TABS": {
+      "title": "タブが多すぎます",
+      "message": "開いているタブが多すぎます。タブを閉じてから、もう一度お試しください。"
+    },
+    "MINI_BROWSER_TOO_MANY_BROWSERS": {
+      "title": "開いているブラウザが多すぎます",
+      "message": "ほかのチャットのブラウザが起動中で使用されています。どれかを閉じるか、そのエージェントの作業が終わるまでお待ちください。"
+    },
+    "MINI_BROWSER_SESSION_GONE": {
+      "title": "チャットが削除されました",
+      "message": "このチャットは削除されたため、そのブラウザもなくなりました。"
+    },
+    "MINI_BROWSER_TIMEOUT": {
+      "title": "タイムアウトしました",
+      "message": "時間がかかりすぎました。もう一度お試しください。"
+    },
+    "MINI_BROWSER_VAULT_UNREADABLE": {
+      "title": "パスワードの保管庫を読み取れません",
+      "message": "保存したパスワードの保管庫を、このパソコンでは復号できません。何も上書きされていません。「保存したパスワード」からリセットできます。"
+    },
+    "MINI_BROWSER_VAULT_INVALID": {
+      "title": "ログイン情報を確認してください",
+      "message": "入力されたログイン情報の一部が正しくありません。"
+    },
+    "MINI_BROWSER_VAULT_IO": {
+      "title": "保管庫を保存できませんでした",
+      "message": "パスワードの保管庫をディスクに書き込めませんでした。"
+    },
+    "MINI_BROWSER_INSTALL_FAILED": {
+      "title": "インストールに失敗しました",
+      "message": "Chromium のインストールが完了しませんでした。インターネット接続を確認して、もう一度お試しください。"
+    },
+    "MINI_BROWSER_INTERNAL": {
+      "title": "問題が発生しました",
+      "message": "ミニブラウザで予期しない問題が発生しました。"
+    }
+  },
+  "credentials": {
+    "title": "認証情報",
+    "intro": "ログイン、API キー、プライベートなメモをひとまとめに。",
+    "search": "認証情報を検索",
+    "add": "認証情報を追加",
+    "save": "認証情報を保存",
+    "editTitle": "認証情報を編集",
+    "type": "種類",
+    "group": "グループ",
+    "all": "すべての項目",
+    "allGroups": "すべてのグループ",
+    "list": "保存済みの認証情報",
+    "kinds": {
+      "login": "ログイン",
+      "api_key": "API キー",
+      "secure_note": "セキュアメモ"
+    },
+    "groups": {
+      "work": "仕事",
+      "personal": "個人",
+      "other": "その他"
+    },
+    "name": "名前",
+    "optionalName": "名前（任意）",
+    "optionalWebsite": "ウェブサイト（任意）",
+    "apiWebsiteHint": "API ホスト（例: api.example.com）を設定すると、エージェントがキーを見ずに使用できます。リクエストのホストとポートは完全一致が必要で、HTTPS（localhost のみ HTTP 可）を使用します。リダイレクトは拒否されます。",
+    "apiKey": "API キー",
+    "note": "メモ",
+    "keepValue": "空欄のままで保存済みの値を維持",
+    "placeholders": {
+      "apiKeyName": "例: OpenAI の API キー",
+      "noteName": "例: リカバリーコード",
+      "apiWebsite": "api.example.com",
+      "username": "you@example.com",
+      "password": "パスワードを入力",
+      "apiKey": "API キーを貼り付け",
+      "note": "非公開にしておきたい内容を入力"
+    },
+    "loading": "認証情報を読み込み中…",
+    "empty": "ここから保管庫を始めましょう",
+    "emptyHint": "ログイン、API キー、セキュアメモを追加します。",
+    "noMatches": "一致する認証情報がありません",
+    "searchHint": "検索語やフィルターを変更してください。",
+    "clearFilters": "フィルターを解除",
+    "saved": "認証情報を保存しました",
+    "updated": "認証情報を更新しました",
+    "deleted": "認証情報を削除しました",
+    "view": "値を表示",
+    "viewNamed": "{{name}}を表示",
+    "editNamed": "{{name}}を編集",
+    "deleteNamed": "{{name}}を削除",
+    "deleteTitle": "この認証情報を削除しますか？",
+    "deleteMessage": "「{{name}}」を削除しますか？この保管庫から保存済みの認証情報が削除されます。",
+    "reveal": "値を表示",
+    "hide": "値を隠す",
+    "copy": "値をコピー",
+    "copied": "クリップボードにコピーしました",
+    "copyFailed": "コピーできませんでした。値を選択して手動でコピーしてください。",
+    "revealHint": "表示するまで隠されています。30秒後、またはこのウィンドウを離れると再び隠されます。",
+    "revealFailed": "値を読み込めませんでした。接続を確認して再試行してください。"
+  }
+}

@@ -256,19 +256,54 @@ def craftbot_listeners(port: int) -> List[tuple]:
     return found
 
 
-def kill_tree(pid: int, grace: float = 5.0) -> None:
-    """Stop a process and every descendant: SIGTERM, then SIGKILL whatever is
-    left after `grace` seconds (Windows has no graceful signal for a windowless
-    tree, so it is `taskkill /T /F` as before). Callers must have verified
-    ownership first — this does not check."""
-    if os.name == "nt":
-        # taskkill /T walks the tree even when psutil is unavailable.
-        subprocess.run(
+def _kill_windows_tree(pid: int, grace: float) -> None:
+    """Fall back to direct process APIs when taskkill cannot access WMI."""
+    try:
+        result = subprocess.run(
             ["taskkill", "/T", "/F", "/PID", str(pid)],
             capture_output=True,
             timeout=15,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
+        if result.returncode == 0:
+            return
+        detail = result.stderr.decode("utf-8", errors="replace").strip()
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        detail = str(exc)
+    if psutil is None:
+        raise RuntimeError(f"Cannot stop owned pid {pid}: taskkill failed ({detail})")
+    logger.warning(f"taskkill failed for owned pid {pid}; using process APIs: {detail}")
+    try:
+        root = psutil.Process(pid)
+        procs = root.children(recursive=True) + [root]
+    except psutil.NoSuchProcess:
+        return
+    for proc in procs:
+        try:
+            proc.terminate()
+        except psutil.NoSuchProcess:
+            pass
+    _, alive = psutil.wait_procs(procs, timeout=grace)
+    for proc in alive:
+        try:
+            proc.kill()
+        except psutil.NoSuchProcess:
+            pass
+    _, alive = psutil.wait_procs(alive, timeout=grace)
+    if alive:
+        raise RuntimeError(
+            f"Could not stop owned process tree {pid}; still running: "
+            + ", ".join(str(proc.pid) for proc in alive)
+        )
+
+
+def kill_tree(pid: int, grace: float = 5.0) -> None:
+    """Stop a process and every descendant: SIGTERM, then SIGKILL whatever is
+    left after `grace` seconds (Windows has no graceful signal for a windowless
+    tree, so use taskkill with a direct process API fallback). Callers must have verified
+    ownership first — this does not check."""
+    if os.name == "nt":
+        _kill_windows_tree(pid, grace)
         return
     if psutil is None:
         import signal

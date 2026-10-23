@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 from typing import List, Optional
 
 from agent_core.core.hooks.types import UsageEventData
@@ -56,7 +57,7 @@ class UsageReporter:
         """
         self._storage = storage or get_usage_storage()
         self._buffer: List[UsageEvent] = []
-        self._buffer_lock = asyncio.Lock()
+        self._buffer_lock = threading.RLock()
         self._flush_task: Optional[asyncio.Task] = None
         self._started = False
 
@@ -70,11 +71,10 @@ class UsageReporter:
         """Start the background flush task."""
         if self._started:
             return
-        self._started = True
-
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             self._flush_task = loop.create_task(self._background_flush_loop())
+            self._started = True
             logger.info("[UsageReporter] Background flush task started")
         except RuntimeError:
             # No event loop running - will flush on demand
@@ -108,7 +108,7 @@ class UsageReporter:
             cached_tokens=event.cached_tokens,
         )
 
-        async with self._buffer_lock:
+        with self._buffer_lock:
             self._buffer.append(usage_event)
 
             # Log immediately for debugging
@@ -119,9 +119,9 @@ class UsageReporter:
                 f"cached={event.cached_tokens}, total={total_tokens})"
             )
 
-            # Flush if buffer is large enough
-            if len(self._buffer) >= self.BATCH_SIZE:
-                asyncio.create_task(self.flush())
+            should_flush = len(self._buffer) >= self.BATCH_SIZE
+        if should_flush:
+            await self.flush()
 
     async def report_full(
         self,
@@ -152,15 +152,16 @@ class UsageReporter:
             session_id=session_id,
         )
 
-        async with self._buffer_lock:
+        with self._buffer_lock:
             self._buffer.append(usage_event)
 
-            if len(self._buffer) >= self.BATCH_SIZE:
-                asyncio.create_task(self.flush())
+            should_flush = len(self._buffer) >= self.BATCH_SIZE
+        if should_flush:
+            await self.flush()
 
     async def flush(self) -> None:
         """Save buffered events to storage."""
-        async with self._buffer_lock:
+        with self._buffer_lock:
             if not self._buffer:
                 return
 
@@ -172,7 +173,8 @@ class UsageReporter:
 
         try:
             count = self._storage.insert_events_batch(events)
-            self._total_reported += count
+            with self._buffer_lock:
+                self._total_reported += count
             logger.info(
                 f"[UsageReporter] Saved {count} usage events "
                 f"(total reported: {self._total_reported})"
@@ -181,7 +183,7 @@ class UsageReporter:
             logger.error(f"[UsageReporter] Failed to save events: {e}")
             self._total_failed += len(events)
             # Re-add failed events to buffer
-            async with self._buffer_lock:
+            with self._buffer_lock:
                 self._buffer.extend(events)
 
     def get_stats(self) -> dict:
@@ -203,6 +205,11 @@ class UsageReporter:
                 await self._flush_task
             except asyncio.CancelledError:
                 pass
+
+        from agent_core.core.hooks.usage import drain_usage
+
+        await drain_usage()
+        self._started = False
 
         # Flush remaining events
         try:

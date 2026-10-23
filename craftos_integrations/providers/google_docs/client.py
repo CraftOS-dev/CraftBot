@@ -1,19 +1,19 @@
 # -*- coding: utf-8 -*-
 """Google Docs - granular Google integration.
 
-Connect just Docs (without granting Gmail/Calendar/Drive/YouTube scopes)
-by clicking Connect on the Google Docs card. Credential is saved to
+Connect Docs by clicking Connect on the Google Docs card. The connector
+requests Drive access for document content and file management, without
+granting Gmail, Calendar or YouTube access. Credential is saved to
 ``gdocs.json``.
 
 Same per-service shape as ``gmail.py`` / ``google_calendar.py`` /
 ``google_drive.py``. Docs uses two API surfaces:
   - ``docs.googleapis.com/v1`` for document content (read/write structured)
   - ``drive.googleapis.com/v3`` for file-level ops (create/list/copy)
-The Docs scope ``auth/documents`` covers the docs API; we additionally
-request the full ``auth/drive`` scope so list/search can find docs the
-user already owns (the narrower ``drive.file`` scope only sees files the
-integration itself created, which is a frequent source of "I can see the
-doc in Drive but the agent can't" complaints).
+The full ``auth/drive`` scope authorizes both API surfaces, including
+list/search of existing documents across the user's Drive. The narrower
+``drive.file`` scope limits access to files created by or opened/shared
+with the app and cannot support that account-wide discovery workflow.
 """
 
 from __future__ import annotations
@@ -28,8 +28,6 @@ from ... import (
 from ...helpers import Result, request as http_request
 from ...logger import get_logger
 from .._google_common import (
-    DOCS_SCOPES,
-    DRIVE_SCOPES,
     GoogleApiClientMixin,
     GoogleCredential,
 )
@@ -38,15 +36,6 @@ logger = get_logger(__name__)
 
 DOCS_API_BASE = "https://docs.googleapis.com/v1"
 DRIVE_API_BASE = "https://www.googleapis.com/drive/v3"
-
-# Docs needs both the documents scope (read/write doc bodies) AND
-# the full Drive scope so list/search hits docs the user already owns
-# in their Drive - not just those created by this integration.
-# Trade-off: this is a Google "restricted" scope; the OAuth consent
-# screen shows an "unverified app" warning until the app is verified.
-# Matches the scope shape used by google_drive.py.
-DOCS_AND_DRIVE_SCOPES = f"{DOCS_SCOPES} {DRIVE_SCOPES}"
-
 
 GDOCS = IntegrationSpec(
     name="google_docs",

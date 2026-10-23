@@ -11,6 +11,8 @@ import { useToast } from '../../contexts/ToastContext'
 import { SlashCommandAutocomplete, AttachmentPreviewModal, PlaybookModal } from '../ui'
 import type { SlashCommandAutocompleteHandle } from '../ui'
 import { ChatMessageItem } from '../../pages/Chat/ChatMessage'
+import { OutputWorkspace, type PanelLayout } from '../GenerativeUI/OutputWorkspace'
+import { useChatBrowser } from '../MiniBrowser/useChatBrowser'
 import { TypingIndicatorRow } from '../../pages/Chat/TypingIndicator'
 import { ReasoningBlock, ActionBlock, ChunkHeaderRow } from '../activity/ActivityBlocks'
 import { normalizeActionName } from '../activity/actionNames'
@@ -18,6 +20,7 @@ import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import type { RootState } from '../../store'
 import { selectUiState } from '../../store/selectors/ui'
 import { setUiState } from '../../store/slices/uiSlice'
+import { uiArtifactClosed } from '../../store/slices/messagesSlice'
 import { UI_STATE } from '../../store/uiState'
 import { usePersistedSet, usePersistedState } from '../../hooks'
 import { selectPendingPrefill, selectDraftText } from '../../store/selectors/chatInput'
@@ -41,6 +44,7 @@ import {
   selectPendingQuestions,
 } from '../../store/selectors/messages'
 import { QuestionBox } from './QuestionBox'
+import { ReasoningPicker } from './ReasoningPicker'
 import { mergeTimeline, type TimelineEntry } from './timeline'
 import { selectSessionActivity } from '../../store/selectors/activity'
 import { selectSessionBusy, selectSessionRunState } from '../../store/selectors/agent'
@@ -68,6 +72,9 @@ interface ChatProps {
   sessionId: string
   /** Optional placeholder text for the input */
   placeholder?: string
+  /** Where the chat's panel (outputs, browser) opens: on its left, or above
+   *  it ('stacked', for a narrow host such as an Agent App's chat panel). */
+  panelLayout?: PanelLayout
 }
 
 // One RENDERED row. Activity entries are grouped into chunks (consecutive
@@ -156,7 +163,7 @@ const formatDateDivider = (tsMs: number): string => {
   return formatDate(date, { year: 'numeric', month: 'long', day: 'numeric' })
 }
 
-export function Chat({ sessionId, placeholder }: ChatProps) {
+export function Chat({ sessionId, placeholder, panelLayout = 'side' }: ChatProps) {
   const { t } = useTranslation(['chat', 'common'])
   const navigate = useNavigate()
   const {
@@ -172,6 +179,7 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
     enhancedPrompt,
     enhancePrompt,
     clearEnhancedPrompt,
+    closeGenerativeUI,
   } = useWebSocket()
   const connected = useAppSelector(selectConnected)
   const [lastSeenBySession] = usePersistedState(UI_STATE.chat.lastSeenMessageIds)
@@ -181,6 +189,8 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
   // session only exists after the backend answers the first send with
   // session_created (the context then navigates to /session/{id}).
   const isDraft = sessionId === 'new'
+  // The chat's own browser, in its panel (none for a draft: no session yet).
+  const browser = useChatBrowser(sessionId, !isDraft)
 
   const messages = useAppSelector(state => selectSessionMessages(state, sessionId))
   const activity = useAppSelector(state => selectSessionActivity(state, sessionId))
@@ -328,6 +338,12 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
   }, [displayRows])
 
   const dispatch = useAppDispatch()
+  // Closing an output's tab disposes of it: gone from this chat at once, and
+  // from storage, the agent's events and every other window by the backend.
+  const closeOutput = useCallback((artifactId: string) => {
+    dispatch(uiArtifactClosed({ sessionId, artifactId }))
+    closeGenerativeUI(sessionId, artifactId)
+  }, [dispatch, sessionId, closeGenerativeUI])
   // Composer draft: persisted in Redux keyed by sessionId (not local
   // component state), so it survives both switching sessions and
   // navigating away to another app tab and back — Chat.tsx unmounts in
@@ -881,13 +897,13 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
   const handleEnhancePrompt = useCallback(() => {
     if (!input.trim() || enhancing) return
     setEnhancing(true)
-    enhancePrompt(input.trim())
+    enhancePrompt(input.trim(), sessionId)
     enhanceTimeoutRef.current = setTimeout(() => {
     enhanceTimeoutRef.current = null
     setEnhancing(false)
     showToast('error', t('chat:toast.enhanceTimedOut'))
   }, ENHANCE_TIMEOUT_MS)
-  }, [input, enhancing, enhancePrompt, showToast, t])
+  }, [input, enhancing, enhancePrompt, sessionId, showToast, t])
 
   useEffect(() => {
   return () => {
@@ -1254,6 +1270,7 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
   }
 
   return (
+    <OutputWorkspace sessionId={sessionId} messages={messages} browser={browser} layout={panelLayout} onCloseOutput={closeOutput}>
     <div className={styles.chat}>
       <div className={styles.messagesArea}>
         <div className={styles.messagesContainer} ref={parentRef}>
@@ -1519,41 +1536,44 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
           />
 
           <div className={styles.inputControls}>
-            <div className={styles.plusWrap} ref={plusMenuRef}>
-              <button
-                type="button"
-                className={styles.plusBtn}
-                onClick={() => setPlusOpen(o => !o)}
-                title={t('chat:composer.attachAndTools')}
-                aria-label={t('chat:composer.attachAndTools')}
-                aria-expanded={plusOpen}
-                {...tourAnchorProps('chat-plus')}
-              >
-                {enhancing
-                   ? <Loader2 size={18} className={styles.uploadingSpinner} />
-                   : <Plus size={18} />}
-              </button>
-              {plusOpen && (
-                <div className={styles.plusMenu}>
-                  <button
-                    className={styles.plusMenuItem}
-                    onClick={() => { setPlusOpen(false); handleAttachClick() }}
-                  >
-                    <Paperclip size={15} />
-                    <span>{t('chat:composer.attachFiles')}</span>
-                  </button>
-                  <button
-                    className={styles.plusMenuItem}
-                    onClick={() => { setPlusOpen(false); handleEnhancePrompt() }}
-                    disabled={!input.trim() || enhancing}
-                  >
-                    {enhancing
-                      ? <Loader2 size={15} className={styles.uploadingSpinner} />
-                      : <Sparkles size={15} />}
-                    <span>{enhancing ? t('chat:composer.enhancing') : t('chat:composer.aiEnhance')}</span>
-                  </button>
-                </div>
-              )}
+            <div className={styles.controlsLeft}>
+              <div className={styles.plusWrap} ref={plusMenuRef}>
+                <button
+                  type="button"
+                  className={styles.plusBtn}
+                  onClick={() => setPlusOpen(o => !o)}
+                  title={t('chat:composer.attachAndTools')}
+                  aria-label={t('chat:composer.attachAndTools')}
+                  aria-expanded={plusOpen}
+                  {...tourAnchorProps('chat-plus')}
+                >
+                  {enhancing
+                     ? <Loader2 size={18} className={styles.uploadingSpinner} />
+                     : <Plus size={18} />}
+                </button>
+                {plusOpen && (
+                  <div className={styles.plusMenu}>
+                    <button
+                      className={styles.plusMenuItem}
+                      onClick={() => { setPlusOpen(false); handleAttachClick() }}
+                    >
+                      <Paperclip size={15} />
+                      <span>{t('chat:composer.attachFiles')}</span>
+                    </button>
+                    <button
+                      className={styles.plusMenuItem}
+                      onClick={() => { setPlusOpen(false); handleEnhancePrompt() }}
+                      disabled={!input.trim() || enhancing}
+                    >
+                      {enhancing
+                        ? <Loader2 size={15} className={styles.uploadingSpinner} />
+                        : <Sparkles size={15} />}
+                      <span>{enhancing ? t('chat:composer.enhancing') : t('chat:composer.aiEnhance')}</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+              <ReasoningPicker sessionId={sessionId} />
             </div>
 
             <div className={styles.controlsRight}>
@@ -1664,5 +1684,6 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
       />
       <PlaybookModal isOpen={playbookOpen} onClose={() => setPlaybookOpen(false)} />
     </div>
+    </OutputWorkspace>
   )
 }

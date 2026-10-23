@@ -174,11 +174,7 @@ export function CreateAgentAppModal({ isOpen, onClose, onInstalled }: CreateAgen
         }
         setMarketplaceLoading(false)
         if (data.success) {
-          const appsWithThumbnails = (data.apps || []).map((app: any) => ({
-            ...app,
-            preview: app.preview || (app.folder ? `https://raw.githubusercontent.com/CraftOS-dev/living-ui-marketplace/main/${app.folder}/thumbnail.png` : undefined),
-          }))
-          setApps(appsWithThumbnails)
+          setApps(data.apps || [])
           setMarketplaceError(null)
         } else {
           setMarketplaceError(data.error || t('components:createAgentApp.marketplaceFailed'))

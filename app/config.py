@@ -8,9 +8,10 @@ All configuration is read from settings.json - no .env file is used.
 import json
 import os
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 from app import paths
+from app.settings_store import settings_transaction, settings_write_lock, write_settings
 
 
 def get_project_root() -> Path:
@@ -62,10 +63,11 @@ def invalidate_settings_cache() -> None:
 
 
 # Context budget settings. The decision to summarize the event stream is made
-# on the WHOLE request (see ActionRouter / LLMInterface.fits_context):
-#   model.context_window        the model's window, in tokens
-#   context.reserve_tokens      headroom the summary request itself needs
-#   context.keep_recent_tokens  recent events kept verbatim after a fold
+# on the WHOLE request against the serving model's own window, from the model
+# catalog (see ActionRouter / LLMInterface.fits_context):
+#   model.context_window        the window of a model the catalog does not
+#                               list (local servers, custom endpoints)
+#   context.keep_recent_tokens  most recent events kept verbatim after a fold
 # A key that is absent takes the shipped value from _get_default_settings();
 # a key that is present but invalid is a ConfigurationError.
 
@@ -88,14 +90,13 @@ def _get_default_settings() -> Dict[str, Any]:
         "proactive": {"enabled": True},
         "memory": {"enabled": True},
         "context": {
-            "reserve_tokens": 16384,
             "keep_recent_tokens": 20000,
         },
         "model": {
             "llm_provider": "anthropic",
             "vlm_provider": "anthropic",
             "image_gen_provider": "openai",
-            "video_gen_provider": "gemini",
+            "video_gen_provider": "byteplus",
             "llm_model": None,
             "vlm_model": None,
             "context_window": 128000,
@@ -135,9 +136,37 @@ def _get_default_settings() -> Dict[str, Any]:
         "file_index": {
             "prewarm_all_drives": True,
         },
+        # Read through get_mini_browser_settings(), which validates each value.
+        "mini_browser": {
+            "headless": True,
+            "adblock": True,
+            "humanlike": True,
+            "show_cursor": True,
+            "sound": True,  # applies at the browser's next start
+            "max_fps": 12,
+            "jpeg_quality": 70,
+            "search_url": "https://duckduckgo.com/?q={query}",
+            "allow_file_urls": False,
+            "max_agent_tabs": 6,
+            # A session's browser closes this long after its panel was closed
+            # and its agent's run ended (0 = never).
+            "idle_shutdown_minutes": 3,
+            "max_running_browsers": 4,  # session browsers running at once
+            "locale": "",  # "" = the OS locale
+            "channel": "chromium",  # "" = Playwright's bundled headless shell
+        },
+        # Read through get_generative_ui_settings(). Generative UI outputs get
+        # their map tiles through CraftBot (app.map_tiles), which fetches them
+        # from this server: the sandboxed page cannot identify itself.
+        "generative_ui": {
+            "map_tiles_url": "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+            "map_attribution": "© OpenStreetMap contributors",
+            "map_max_zoom": 19,
+        },
     }
 
 
+@settings_transaction
 def get_settings(reload: bool = False) -> Dict[str, Any]:
     """Load and return settings from settings.json.
 
@@ -210,12 +239,13 @@ def _setting(section: str, key: str) -> Any:
 
 
 def get_context_window() -> int:
-    """The configured model's context window in tokens (model.context_window)."""
+    """Context window, in tokens, of a model the model catalog does not list
+    (model.context_window). A catalogued model uses its own window."""
     value = _setting("model", "context_window")
     if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
         raise ConfigurationError(
             "settings.json model.context_window must be a positive integer: the "
-            "context window of the configured model, in tokens."
+            "context window, in tokens, of a model the model catalog does not list."
         )
     return value
 
@@ -229,13 +259,9 @@ def _get_positive_int(section: str, key: str) -> int:
     return value
 
 
-def get_reserve_tokens() -> int:
-    """Headroom kept free for the summary request (context.reserve_tokens)."""
-    return _get_positive_int("context", "reserve_tokens")
-
-
 def get_keep_recent_tokens() -> int:
-    """Recent event-stream tokens kept verbatim after a fold (context.keep_recent_tokens)."""
+    """Most recent event-stream tokens kept verbatim after a fold
+    (context.keep_recent_tokens); a fold keeps less when the budget is tight."""
     return _get_positive_int("context", "keep_recent_tokens")
 
 
@@ -280,14 +306,12 @@ def get_image_gen_model() -> Optional[str]:
 def get_video_gen_provider() -> str:
     """Get configured video generation provider.
 
-    Falls back to the image-gen provider, then to a sensible default
-    ('gemini' since Veo is the strongest free-tier video model).
+    Falls back to 'byteplus', the only built-in provider with a video model
+    since Google Veo and OpenAI Sora were retired upstream.
     """
     settings = get_settings()
     model = settings.get("model", {})
-    return (
-        model.get("video_gen_provider") or model.get("image_gen_provider") or "gemini"
-    )
+    return model.get("video_gen_provider") or "byteplus"
 
 
 def get_video_gen_model() -> Optional[str]:
@@ -495,6 +519,119 @@ def is_prewarm_all_drives_enabled() -> bool:
     return settings.get("file_index", {}).get("prewarm_all_drives", True)
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Mini Browser settings (settings.json "mini_browser"; consumed by app/mini_browser)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Serializes this module's read-modify-write of settings.json between threads
+# (the Mini Browser saves from its own thread).
+_settings_write_lock = settings_write_lock
+
+
+def _clean_mini_browser_value(key: str, value: Any) -> Tuple[bool, Any]:
+    """``(True, cleaned)`` for a usable value of setting ``key``, else ``(False, None)``.
+
+    The rules are ``app.mini_browser.config.clean_setting``, the same ones
+    the Mini Browser applies, so a value means the same however it is read.
+    """
+    from app.mini_browser.config import clean_setting
+
+    return clean_setting(key, value)
+
+
+def get_mini_browser_settings() -> Dict[str, Any]:
+    """The Mini Browser settings: shipped defaults overlaid with settings.json.
+
+    Every value is validated: a value of the wrong type falls back to its
+    default and numbers are clamped to their range, so a hand-edited
+    settings.json can never stop the browser from starting. Never raises.
+    """
+    defaults = _get_default_settings()["mini_browser"]
+    try:
+        stored = get_settings().get("mini_browser")
+    except Exception:
+        stored = None
+    if not isinstance(stored, dict):
+        stored = {}
+    result: Dict[str, Any] = {}
+    for key, default in defaults.items():
+        ok, value = _clean_mini_browser_value(key, stored.get(key, default))
+        result[key] = value if ok else default
+    return result
+
+
+def get_generative_ui_settings() -> Dict[str, Any]:
+    """The Generative UI settings: shipped defaults overlaid with settings.json.
+
+    A value of the wrong shape (a tile URL that is not HTTPS or lacks any of
+    {z}, {x}, {y}; a zoom outside 0-22) takes its default. Never raises.
+    """
+    defaults = _get_default_settings()["generative_ui"]
+    try:
+        stored = get_settings().get("generative_ui")
+    except Exception:
+        stored = None
+    if not isinstance(stored, dict):
+        stored = {}
+    url = stored.get("map_tiles_url")
+    attribution = stored.get("map_attribution")
+    max_zoom = stored.get("map_max_zoom")
+    return {
+        "map_tiles_url": url
+        if isinstance(url, str)
+        and url.startswith("https://")
+        and all(part in url for part in ("{z}", "{x}", "{y}"))
+        else defaults["map_tiles_url"],
+        "map_attribution": attribution
+        if isinstance(attribution, str)
+        else defaults["map_attribution"],
+        "map_max_zoom": max_zoom
+        if isinstance(max_zoom, int)
+        and not isinstance(max_zoom, bool)
+        and 0 <= max_zoom <= 22
+        else defaults["map_max_zoom"],
+    }
+
+
+def set_mini_browser_setting(key: str, value: Any) -> None:
+    """Persist one Mini Browser setting to settings.json (clamped first).
+
+    An unknown key or an unusable value is refused with a warning and nothing
+    is written. settings.json is re-read from disk under a lock so concurrent
+    writers never lose each other's changes, and a settings.json that cannot
+    be parsed is left untouched rather than replaced by defaults. Never
+    raises. Blocking file I/O: from an event loop, call it in a worker thread.
+    """
+    from app.logger import logger
+
+    if not isinstance(key, str) or key not in _get_default_settings()["mini_browser"]:
+        logger.warning(f"[SETTINGS] Unknown Mini Browser setting {key!r} not saved")
+        return
+    ok, cleaned = _clean_mini_browser_value(key, value)
+    if not ok:
+        logger.warning(
+            f"[SETTINGS] Invalid value for mini_browser.{key} not saved "
+            f"({type(value).__name__})"
+        )
+        return
+    with _settings_write_lock:
+        try:
+            if SETTINGS_CONFIG_PATH.exists():
+                with open(SETTINGS_CONFIG_PATH, "r", encoding="utf-8") as f:
+                    settings = json.load(f)
+            else:
+                settings = _get_default_settings()
+            if not isinstance(settings, dict):
+                raise ValueError("settings.json is not a JSON object")
+            section = settings.get("mini_browser")
+            if not isinstance(section, dict):
+                section = settings["mini_browser"] = {}
+            section[key] = cleaned
+            save_settings(settings)
+        except (OSError, ValueError) as e:
+            logger.warning(f"[SETTINGS] Could not save mini_browser.{key}: {e}")
+
+
 def get_marketplace_ref() -> Optional[str]:
     """Branch the Agent App marketplace is read from, or None for the default.
 
@@ -523,6 +660,7 @@ def get_slow_mode_tpm_limit() -> int:
     return settings.get("model", {}).get("slow_mode_tpm_limit", 30000)
 
 
+@settings_transaction
 def save_settings(settings: Dict[str, Any]) -> None:
     """Save settings to settings.json.
 
@@ -530,10 +668,8 @@ def save_settings(settings: Dict[str, Any]) -> None:
         settings: Dictionary with settings to save.
     """
     global _settings_cache
+    write_settings(SETTINGS_CONFIG_PATH, settings)
     _settings_cache = settings
-    SETTINGS_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with open(SETTINGS_CONFIG_PATH, "w", encoding="utf-8") as f:
-        json.dump(settings, f, indent=2, ensure_ascii=False)
 
 
 def get_os_language() -> str:
@@ -563,13 +699,15 @@ def get_ui_language() -> str:
     return general.get("ui_language") or general.get("os_language", "en")
 
 
+@settings_transaction
 def set_ui_language(lang_code: str) -> None:
     """Persist the browser UI language to settings.json ``general.ui_language``."""
-    settings = get_settings()
+    settings = get_settings(reload=True)
     settings.setdefault("general", {})["ui_language"] = lang_code
     save_settings(settings)
 
 
+@settings_transaction
 def detect_and_save_os_language() -> str:
     """Detect OS language and save to settings. Called on first launch only.
 
@@ -585,7 +723,7 @@ def detect_and_save_os_language() -> str:
         lang_code = "en"
 
     # Save to settings.json
-    settings = get_settings()
+    settings = get_settings(reload=True)
     settings.setdefault("general", {})["os_language"] = lang_code
     save_settings(settings)
     return lang_code
@@ -653,4 +791,13 @@ HUBSPOT_SHARED_CLIENT_ID: str = get_credential(
 )
 HUBSPOT_SHARED_CLIENT_SECRET: str = get_credential(
     "hubspot", "client_secret", "HUBSPOT_SHARED_CLIENT_SECRET"
+)
+
+# Supabase (confidential OAuth app + PKCE; empty until the app is registered,
+# in which case the integration offers only personal-access-token login)
+SUPABASE_SHARED_CLIENT_ID: str = get_credential(
+    "supabase", "client_id", "SUPABASE_SHARED_CLIENT_ID"
+)
+SUPABASE_SHARED_CLIENT_SECRET: str = get_credential(
+    "supabase", "client_secret", "SUPABASE_SHARED_CLIENT_SECRET"
 )

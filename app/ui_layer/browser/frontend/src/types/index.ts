@@ -20,6 +20,7 @@ export interface ChatMessageOption {
 }
 
 export interface ChatMessage {
+  uiArtifact?: GenerativeUIArtifact | ClosedGenerativeUIArtifact
   sender: string
   content: string
   style: 'user' | 'agent' | 'system' | 'error' | 'info'
@@ -41,6 +42,29 @@ export interface ChatMessage {
   details?: string  // Expandable payload behind a disclosure (e.g. the raw body of an incoming integration message on the "📩 Incoming …" system stub)
 }
 
+export interface GenerativeUIArtifact {
+  persistence?: 'controls' | 'manual' | 'none'
+  id: string
+  title: string
+  html: string
+  revision: number
+  connect_origins?: string[]
+  image_origins?: string[]
+  /** Preloaded library names (see components/GenerativeUI/assets.ts). */
+  libraries?: string[]
+  /** By name: stored image paths, read as window.craftbot.images. */
+  images?: Record<string, string>
+  closed?: false
+}
+
+/** What remains of an output the user closed: who it was, never its code. */
+export interface ClosedGenerativeUIArtifact {
+  id: string
+  title: string
+  revision: number
+  closed: true
+}
+
 // Recorded as optionSelected when the user dismisses a pinned question
 // instead of answering. Mirrors QUESTION_DISMISSED_VALUE on the backend.
 export const QUESTION_DISMISSED = '__dismissed__'
@@ -49,7 +73,25 @@ export const QUESTION_DISMISSED = '__dismissed__'
 // Session Types
 // ─────────────────────────────────────────────────────────────────────
 
+// 'agent_app' sessions never appear in the sidebar's chat list (that list
+// keeps only type 'chat').
 export type SessionType = 'main' | 'chat' | 'agent_app'
+
+/** How hard the model reasons, picked per chat session in the chat input
+ *  (agent_core/core/models/reasoning.py ReasoningChoice). */
+export type ReasoningChoice =
+  | 'provider_default'
+  | 'off'
+  | 'minimal'
+  | 'low'
+  | 'medium'
+  | 'high'
+  | 'xhigh'
+  | 'max'
+
+export const REASONING_CHOICES: readonly ReasoningChoice[] = [
+  'provider_default', 'off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max',
+]
 
 export interface SessionInfo {
   id: string
@@ -58,6 +100,25 @@ export interface SessionInfo {
   createdAt: string
   lastActiveAt: string
   agentAppProjectId?: string | null
+  /** Always set by the backend; null only on the client-side placeholder for
+   *  the main session before the backend has sent it. */
+  reasoningEffort: ReasoningChoice | null
+  /** The session's last decision request as the provider reported it; null
+   *  until its first request (also after a restart). */
+  lastRequest: LastRequest | null
+}
+
+/** One LLM request's context size and cache use (the reasoning menu readout). */
+export interface LastRequest {
+  /** Input tokens the request carried, cached ones included. */
+  inputTokens: number
+  /** Of those, how many the provider served from its prompt cache. */
+  cachedTokens: number
+  /** Epoch ms when the request started; cache lifetimes count from here. */
+  startedAt: number
+  /** Where it was served and by which model: its cache belongs to them. */
+  surface: string
+  model: string
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -122,6 +183,9 @@ export type WSMessageType =
   | 'session_updated'
   | 'session_deleted'
   | 'session_cleared'
+  | 'session_seen'
+  | 'generative_ui_close'
+  | 'generative_ui_closed'
   | 'session_busy'
   | 'session_stop'
   | 'agent_state'
@@ -130,6 +194,38 @@ export type WSMessageType =
   | 'footage_update'
   | 'footage_clear'
   | 'footage_visibility'
+  // Mini Browser (client → server)
+  | 'mini_browser_subscribe'
+  | 'mini_browser_unsubscribe'
+  | 'mini_browser_activity_query'
+  | 'mini_browser_start'
+  | 'mini_browser_shutdown'
+  | 'mini_browser_install'
+  | 'mini_browser_navigate'
+  | 'mini_browser_history'
+  | 'mini_browser_input'
+  | 'mini_browser_resize'
+  | 'mini_browser_tab'
+  | 'mini_browser_view'
+  | 'mini_browser_control'
+  | 'mini_browser_adblock'
+  | 'mini_browser_copy'
+  | 'mini_browser_vault_add'
+  | 'mini_browser_vault_update'
+  | 'mini_browser_vault_delete'
+  | 'mini_browser_vault_reset'
+  // Mini Browser (server → client; mini_browser_vault_list goes both ways)
+  | 'mini_browser_state'
+  | 'mini_browser_activity'
+  | 'mini_browser_frame'
+  | 'mini_browser_last_frame'
+  | 'mini_browser_pointer'
+  | 'mini_browser_event'
+  | 'mini_browser_install_progress'
+  | 'mini_browser_nav_result'
+  | 'mini_browser_clipboard'
+  | 'mini_browser_vault_list'
+  | 'mini_browser_vault_result'
   | 'state_update'
   | 'dashboard_metrics'
   | 'dashboard_metrics_filter'
@@ -870,3 +966,210 @@ export interface AgentAppDeleteResponse {
   projectId?: string
   error?: string
 }
+
+// ─────────────────────────────────────────────────────────────────────
+// Mini Browser — every chat session has a real Chromium of its own, shown
+// in the chat's browser panel. Wire contract: app/mini_browser/ws.py.
+// Frames and agent pointer moves are high-frequency and never enter Redux
+// (see components/MiniBrowser).
+// ─────────────────────────────────────────────────────────────────────
+
+/** Browser lifecycle, from `mini_browser_state.status`. */
+export type MiniBrowserStatus = 'stopped' | 'starting' | 'ready' | 'installing' | 'error'
+
+/** Who a tab belongs to; 'user' is a tab the user opened themselves. */
+export type MiniBrowserOwnerKind = 'user' | 'main' | 'session' | 'subagent'
+
+/** A user-presentable backend error (`errors.ui_error`). */
+export interface MiniBrowserError {
+  code: string
+  title: string
+  message: string
+}
+
+export interface MiniBrowserTab {
+  id: string
+  /** The session whose browser holds the tab. */
+  sessionId: string
+  url: string
+  title: string
+  loading: boolean
+  /** Owning session id; null for a tab the user opened. */
+  owner: string | null
+  /** Human label for the owner (session title, sub-agent name, …). */
+  ownerLabel: string
+  ownerKind: MiniBrowserOwnerKind
+  /** Parent session of a sub-agent owner, when the backend reports it. */
+  parentOwner: string | null
+  /** The owner's run is in flight, so an agent may act on this tab. */
+  busy: boolean
+  /** The user took control: agents are paused on this tab until handed back. */
+  userControl: boolean
+  canGoBack: boolean
+  canGoForward: boolean
+  crashed: boolean
+  /** The site icon, an inline `data:image/…;base64,…` (null: none known). */
+  favicon: string | null
+}
+
+export interface MiniBrowserViewport {
+  width: number
+  height: number
+}
+
+export interface MiniBrowserSettings {
+  humanlike: boolean
+  showCursor: boolean
+}
+
+/** Payload of `mini_browser_state`: one session's browser. */
+export interface MiniBrowserStatePayload {
+  sessionId: string
+  status: MiniBrowserStatus
+  error: MiniBrowserError | null
+  /** null until the backend has reported it. */
+  adblock: boolean | null
+  viewedTabId: string | null
+  /** The view jumps to whichever tab an agent is working in. */
+  follow: boolean
+  viewport: MiniBrowserViewport | null
+  tabs: MiniBrowserTab[]
+  settings: MiniBrowserSettings
+}
+
+/** One entry of `mini_browser_activity`: a session's browser runs, and
+ *  whether an agent is browsing in it (true once per run: it opens the
+ *  chat's browser panel). */
+export interface MiniBrowserActivity {
+  sessionId: string
+  status: MiniBrowserStatus
+  browsing: boolean
+}
+
+/** Payload of `mini_browser_frame` (latest-wins; never stored in Redux). */
+export interface MiniBrowserFrame {
+  sessionId: string
+  tabId: string
+  /** `data:image/jpeg;base64,…` */
+  image: string
+  /** CSS px of the page viewport the frame shows. */
+  width: number
+  height: number
+  seq: number
+}
+
+/** Where a session's browser left off (`mini_browser_last_frame`): a picture
+ *  of the page it had on screen, shown dimmed while the browser starts or is
+ *  off. */
+export interface MiniBrowserLastFrame {
+  /** `data:image/jpeg;base64,…` */
+  image: string
+  /** CSS px of the page viewport the picture shows. */
+  width: number
+  height: number
+  url: string
+  title: string
+}
+
+export type MiniBrowserPointerKind = 'move' | 'down' | 'up' | 'click'
+
+/** Payload of `mini_browser_pointer`: the agent's mouse, 0..1 of the frame. */
+export interface MiniBrowserPointer {
+  sessionId: string
+  tabId: string
+  x: number
+  y: number
+  kind: MiniBrowserPointerKind
+}
+
+export type MiniBrowserEventLevel = 'info' | 'warning' | 'error'
+
+/** Payload of `mini_browser_event`: dialogs, downloads, blocked pages, crashes… */
+export interface MiniBrowserEvent {
+  kind: string
+  level: MiniBrowserEventLevel
+  message: string
+  /** The session whose browser it concerns (null: not one session's). */
+  sessionId: string | null
+  tabId?: string
+  /** Saved file for downloads. */
+  path?: string
+  /** Downloads: the backend judged the file able to run code when opened. */
+  dangerous?: boolean
+  /** For a failed request: the error code and title (see MiniBrowserError). */
+  code?: string
+  title?: string
+}
+
+/** Payload of `mini_browser_install_progress`. */
+export interface MiniBrowserInstallProgress {
+  line?: string
+  done?: boolean
+  ok?: boolean
+  error?: MiniBrowserError | string
+}
+
+/** Payload of `mini_browser_nav_result` (address bar requests only). */
+export interface MiniBrowserNavResult {
+  sessionId: string
+  ok: boolean
+  error?: MiniBrowserError
+}
+
+export type CredentialKind = 'login' | 'api_key' | 'secure_note'
+export type CredentialGroup = 'work' | 'personal' | 'other'
+
+/** Public metadata only; values are never included in the resource cache. */
+export interface MiniBrowserVaultEntry {
+  id: string
+  site: string
+  username: string
+  label: string
+  kind?: CredentialKind
+  group?: CredentialGroup
+  createdAt: string | number | null
+  updatedAt: string | number | null
+  lastUsedAt: string | number | null
+}
+
+export interface MiniBrowserVaultStatus {
+  ok: boolean
+  /** The vault exists but can't be decrypted; writes are refused until reset. */
+  unreadable: boolean
+  protection: 'dpapi' | 'file'
+}
+
+export type MiniBrowserVaultOp = 'add' | 'update' | 'delete' | 'reset'
+
+/** Payload of `mini_browser_vault_result`. */
+export interface MiniBrowserVaultResult {
+  op: string
+  ok: boolean
+  error?: MiniBrowserError
+}
+
+export type MiniBrowserMouseButton = 'left' | 'middle' | 'right'
+
+export interface MiniBrowserKeyModifiers {
+  shift: boolean
+  ctrl: boolean
+  alt: boolean
+  meta: boolean
+}
+
+/** The `event` of a `mini_browser_input` message. Coordinates are 0..1 of
+ *  the frame the user saw; wheel deltas are CSS px. */
+export type MiniBrowserInputEvent =
+  | {
+      kind: 'mouse'
+      action: 'down' | 'up' | 'move'
+      x: number
+      y: number
+      button?: MiniBrowserMouseButton
+      clickCount?: number
+    }
+  | { kind: 'wheel'; x: number; y: number; dx: number; dy: number }
+  | { kind: 'key'; key: string; modifiers?: MiniBrowserKeyModifiers }
+  | { kind: 'text'; text: string }
+  /** Delete what the copy with this requestId took (the second half of a cut). */
+  | { kind: 'cut'; requestId: string }

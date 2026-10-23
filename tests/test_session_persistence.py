@@ -22,8 +22,6 @@ def make_session(session_id="sess-1", **overrides):
         id=session_id,
         type=SessionType.CHAT,
         title="Plan the trip",
-        action_sets=["core", "web_research"],
-        compiled_actions=["send_message", "web_search"],
         selected_skills=["trip-planner"],
         todos=[
             TodoItem(content="Book flights", status="completed", id="todo-1"),
@@ -55,7 +53,6 @@ class TestSessionDataclass:
         assert restored.to_dict() == session.to_dict()
         assert restored.id == "sess-1"
         assert restored.type == SessionType.CHAT
-        assert restored.action_sets == ["core", "web_research"]
         assert restored.gui_mode is True
         assert restored.input_tokens == 1000
 
@@ -76,6 +73,42 @@ class TestSessionDataclass:
         assert restored.todos == []
         assert restored.archived is False
         assert restored.action_count == 0
+
+
+class TestSessionActionSets:
+    """<actions> is a function of the session type, never stored state."""
+
+    def test_base_sets_follow_the_session_type(self):
+        assert Session(id="m", type=SessionType.MAIN).base_action_sets == []
+        assert Session(id="c", type=SessionType.CHAT).base_action_sets == []
+        assert Session(id="a", type=SessionType.AGENT_APP).base_action_sets == [
+            "file_operations",
+            "code_execution",
+            "agent_app",
+        ]
+
+    def test_action_lists_are_not_persisted(self):
+        data = make_session().to_dict()
+        assert "action_sets" not in data
+        assert "compiled_actions" not in data
+
+    def test_stored_action_lists_are_not_read(self):
+        # A row written before the list was derived (it had accumulated 14
+        # sets in one agent-app session) restores to the type's base sets.
+        restored = Session.from_dict(
+            {
+                "id": "lui_x",
+                "type": SessionType.AGENT_APP,
+                "action_sets": ["gmail", "discord", "posthog"],
+                "compiled_actions": ["send_gmail", "run_posthog_query"],
+            }
+        )
+        assert restored.base_action_sets == [
+            "file_operations",
+            "code_execution",
+            "agent_app",
+        ]
+        assert restored.compiled_actions == []
 
 
 class TestSessionStorage:

@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Weather</title><style>
+* { box-sizing: border-box; } body { margin: 0; padding: 28px; background: #f3f7fb; color: #17334e; font: 15px/1.5 system-ui, sans-serif; }
+small { color: #57748c; text-transform: uppercase; letter-spacing: .1em; } h1 { margin: 6px 0 18px; font-size: 28px; } form, .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+input, button, select { font: inherit; padding: 9px 12px; border: 1px solid #b3c5d6; border-radius: 8px; } input { min-width: 0; flex: 1; } button { background: #214f76; color: white; cursor: pointer; } button:disabled { opacity: .5; }
+.current { padding: 22px 0; } #temperature { display: block; font-size: 52px; font-weight: 600; } #hours { display: flex; overflow-x: auto; gap: 10px; margin: 14px 0; } .hour { min-width: 86px; border: 1px solid #cddae5; padding: 14px; border-radius: 12px; background: #fff; }
+#status, footer { font-size: 12px; color: #57748c; } :focus-visible { outline: 3px solid #cf933b; outline-offset: 3px; } @media(max-width: 420px) { body { padding: 16px; } }
+</style></head><body><small>Live forecast</small><h1>A little look outside</h1>
+<form id="search"><label for="city">City</label><input id="city" value="London" required maxlength="100"><button id="find">Find weather</button></form>
+<p id="status" role="status">Choose a city to load its forecast.</p><div class="current"><h2 id="place">Your forecast</h2><output id="temperature">—</output></div>
+<div class="controls"><label for="unit">Temperature</label><select id="unit"><option value="celsius">°C</option><option value="fahrenheit">°F</option></select><button id="refresh" disabled>Refresh forecast</button></div>
+<div id="hours" aria-label="Hourly forecast"></div><p id="updated"></p><footer>Weather data: Open-Meteo · prototype for non-commercial use.</footer>
+<script>
+const bridge = window.craftbot || {state: {}, saveState() {}};
+const state = {city: 'London', unit: 'celsius', place: null, forecast: null, updated: null, ...bridge.state};
+const $ = id => document.getElementById(id); let active = null;
+$('city').value = state.city; $('unit').value = state.unit;
+const temperature = value => (state.unit === 'fahrenheit' ? value * 9 / 5 + 32 : value).toFixed(1) + (state.unit === 'fahrenheit' ? '°F' : '°C');
+function render() {
+  $('refresh').disabled = !state.place || !!active;
+  if (!state.forecast) return;
+  $('place').textContent = state.place.name;
+  $('temperature').textContent = temperature(state.forecast.current.temperature_2m);
+  $('hours').replaceChildren();
+  const now = state.forecast.current.time;
+  state.forecast.hourly.time.map((time, index) => ({time, value: state.forecast.hourly.temperature_2m[index]})).filter(hour => hour.time >= now).slice(0, 8).forEach(hour => {
+    const card = document.createElement('div'); card.className = 'hour';
+    const time = document.createElement('div'), value = document.createElement('strong');
+    time.textContent = hour.time.slice(11, 16); value.textContent = temperature(hour.value); card.append(time, value); $('hours').append(card);
+  });
+  $('updated').textContent = 'Last fetched: ' + new Date(state.updated).toLocaleString() + ' · Forecast time: ' + now.replace('T', ' ');
+}
+async function json(url, signal) { const response = await fetch(url, {signal, credentials: 'omit'}); if (!response.ok) throw new Error('Weather service returned ' + response.status); return response.json(); }
+async function load(search) {
+  active?.abort(); const request = new AbortController(); active = request;
+  $('status').textContent = 'Loading weather…'; $('find').disabled = true; render();
+  try {
+    let place = state.place;
+    if (search) {
+      const city = $('city').value.trim(); if (!city) throw new Error('Enter a city.');
+      const locations = await json('https://geocoding-api.open-meteo.com/v1/search?count=1&name=' + encodeURIComponent(city), request.signal);
+      if (!locations.results?.length) throw new Error('No matching city found. Try another name.');
+      place = locations.results[0];
+    }
+    if (!place) throw new Error('Choose a city first.');
+    const forecast = await json('https://api.open-meteo.com/v1/forecast?latitude=' + place.latitude + '&longitude=' + place.longitude + '&current=temperature_2m&hourly=temperature_2m&forecast_days=2&timezone=auto', request.signal);
+    if (request !== active) return;
+    state.city = $('city').value; state.place = place; state.forecast = forecast; state.updated = Date.now(); bridge.saveState(state);
+    $('status').textContent = 'Forecast loaded.';
+  } catch (error) { if (request === active) $('status').textContent = 'Unable to load weather: ' + error.message; }
+  finally { if (request === active) { active = null; $('find').disabled = false; render(); } }
+}
+$('search').addEventListener('submit', event => { event.preventDefault(); load(true); });
+$('refresh').addEventListener('click', () => load(false));
+$('unit').addEventListener('change', () => { state.unit = $('unit').value; bridge.saveState(state); render(); });
+render();
+</script></body></html>

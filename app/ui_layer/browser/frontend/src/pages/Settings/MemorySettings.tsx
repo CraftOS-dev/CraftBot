@@ -63,7 +63,11 @@ export function MemorySettings() {
   const saveTimerRef = useRef<number | undefined>(undefined)
   // Custom threshold slider (drag the picker along the track).
   const gateBarRef = useRef<HTMLDivElement>(null)
+  const gateThumbRef = useRef<HTMLDivElement>(null)
   const gateDraggingRef = useRef(false)
+  // Pointer's distance from the marker's center when a drag starts on the
+  // marker itself, so grabbing it off-center doesn't make it jump.
+  const gateGrabOffsetRef = useRef(0)
 
   // Confirm modal
   const { modalProps: confirmModalProps, confirm } = useConfirmModal()
@@ -127,13 +131,21 @@ export function MemorySettings() {
     const el = gateBarRef.current
     if (!el) return
     const rect = el.getBoundingClientRect()
-    const pct = rect.width > 0 ? (clientX - rect.left) / rect.width : 0
+    const x = clientX - gateGrabOffsetRef.current
+    const pct = rect.width > 0 ? (x - rect.left) / rect.width : 0
     setThreshold(Math.round(Math.min(1, Math.max(0, pct)) * thresholdMax))
   }
   const onGatePointerDown = (e: RPointerEvent<HTMLDivElement>) => {
     if (!memoryEnabled) return
     gateDraggingRef.current = true
     e.currentTarget.setPointerCapture(e.pointerId)
+    const thumb = gateThumbRef.current
+    if (thumb && thumb.contains(e.target as Node)) {
+      const r = thumb.getBoundingClientRect()
+      gateGrabOffsetRef.current = e.clientX - (r.left + r.width / 2)
+    } else {
+      gateGrabOffsetRef.current = 0
+    }
     setThresholdFromPointer(e.clientX)
   }
   const onGatePointerMove = (e: RPointerEvent<HTMLDivElement>) => {
@@ -290,9 +302,15 @@ export function MemorySettings() {
                     style={{ width: `${Math.min(100, (unprocessed / thresholdMax) * 100)}%` }}
                   />
                   <div
+                    ref={gateThumbRef}
                     className={styles.gateThumb}
                     style={{ left: `${(threshold / thresholdMax) * 100}%` }}
-                  />
+                  >
+                    <svg className={styles.gateTag} width="14" height="16" viewBox="0 0 14 16" aria-hidden="true">
+                      <path d="M3 0H11A3 3 0 0 1 14 3V10L7 16L0 10V3A3 3 0 0 1 3 0Z" />
+                    </svg>
+                    <div className={styles.gateLine} />
+                  </div>
                 </div>
                 <div className={styles.gateLegend}>
                   <span className={styles.gateLegendItem}>

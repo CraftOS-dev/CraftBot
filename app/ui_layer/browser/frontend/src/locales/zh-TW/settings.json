@@ -94,6 +94,7 @@
     }
   },
   "nav": {
+    "credentials": "認證資料",
     "general": "一般",
     "proactive": "主動",
     "memory": "記憶",

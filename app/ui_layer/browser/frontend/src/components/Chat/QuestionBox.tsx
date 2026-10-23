@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { usePersistedState } from '../../hooks'
 import { UI_STATE } from '../../store/uiState'
@@ -14,7 +14,7 @@ interface QuestionBoxProps {
   queueTotal: number
   /** Answer with a suggestion chip or typed free text. */
   onAnswer: (value: string) => void
-  /** Close the question unanswered (the agent proceeds on its own judgment). */
+  /** Close the question unanswered: interrupts the task (the agent waits for the next message). */
   onDismiss: () => void
 }
 
@@ -35,6 +35,22 @@ export function QuestionBox({ question, queueTotal, onAnswer, onDismiss }: Quest
   // that unmounts the box (mirrors the bubble chips' dispatch lock).
   const [submitted, setSubmitted] = useState(false)
   const allowFreeText = question.allowFreeText !== false
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  // Grow with the answer like the chat composer (CSS max-height caps it,
+  // then it scrolls). Empty falls back to the single-row CSS height.
+  useLayoutEffect(() => {
+    const textarea = textareaRef.current
+    if (!textarea) return
+    if (!text) {
+      textarea.style.height = ''
+      return
+    }
+    textarea.style.height = 'auto'
+    // scrollHeight excludes the border; add it back so a single line
+    // doesn't overflow into a scrollbar.
+    textarea.style.height = `${textarea.scrollHeight + textarea.offsetHeight - textarea.clientHeight}px`
+  }, [text])
 
   const submit = (value: string) => {
     const trimmed = value.trim()
@@ -45,7 +61,12 @@ export function QuestionBox({ question, queueTotal, onAnswer, onDismiss }: Quest
   }
 
   return (
-    <div className={styles.box} role="region" aria-label={t('chat:question.aria')}>
+    <div className={styles.box} role="region" aria-label={t('chat:question.aria')}
+      onClickCapture={event => {
+        // The next keyed box can mount between clicks. Only the first click
+        // in a pointer sequence may act; keyboard clicks have detail === 0.
+        if (event.detail > 1) event.stopPropagation()
+      }}>
       <div className={styles.header}>
         <HelpCircle size={14} className={styles.icon} />
         <span className={styles.title}>{t('chat:question.asking', { sender: question.sender })}</span>
@@ -88,8 +109,9 @@ export function QuestionBox({ question, queueTotal, onAnswer, onDismiss }: Quest
 
       {allowFreeText && (
         <div className={styles.freeTextRow}>
-          <input
-            type="text"
+          <textarea
+            ref={textareaRef}
+            rows={1}
             className={styles.freeTextInput}
             placeholder={t('chat:question.freeTextPlaceholder')}
             value={text}

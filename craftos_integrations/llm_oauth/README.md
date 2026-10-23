@@ -1,17 +1,16 @@
 # LLM subscription OAuth
 
-Connect a consumer ChatGPT Plus/Pro/Team or SuperGrok subscription and have
+Connect a ChatGPT, SuperGrok, or Claude subscription and have
 CraftBot consume that quota instead of a paid API key.
 
 ## What this module is
 
 This is not a normal integration. There is no `BasePlatformClient`, no
 listener machinery, and nothing shows up in the integrations grid. It's an
-auth-only backend that the LLM model factory consults before constructing
-an OpenAI client. If a subscription is connected for a given provider, the
-factory builds the client in subscription mode (different base URL, bearer
-token sourced from OAuth, extra headers); otherwise it falls back to the
-stored API key.
+authentication backend that the LLM model factory consults before constructing
+a client. Connected OpenAI-compatible subscriptions use an OAuth bearer,
+provider headers and a subscription endpoint. Connected Claude subscriptions
+use a Claude Code CLI client. Otherwise the factory uses the stored API key.
 
 ```
 agent_core/core/models/factory.py
@@ -22,11 +21,14 @@ craftos_integrations/llm_oauth/tokens.py
         │
         │  routes to provider backend
         ▼
-chatgpt.py  /  grok.py
+chatgpt.py  /  grok.py  /  claude_code.py
         │
         ├── OAuthFlow (PKCE, loopback browser callback)
         └── credentials_store (.credentials/<provider>_oauth.json)
 ```
+
+Claude Code owns its tokens. `claude_code.py` stores only CraftBot's opt-in
+and the factory constructs a CLI client rather than requesting a bearer.
 
 ## Supported providers
 
@@ -34,7 +36,23 @@ chatgpt.py  /  grok.py
 |---|---|---|
 | **ChatGPT** Plus/Pro/Team | Works end-to-end | Chat Completions calls are translated to Codex Responses API via [`ChatGPTSubscriptionClient`](../../../../agent_core/core/models/chatgpt_subscription_client.py). Multi-turn history accumulation on this path is handled in [`interface.py`](../../../../agent_core/core/impl/llm/interface.py) so `store=false` doesn't break sub-agent continuity or prefix caching. |
 | **Grok** SuperGrok / X Premium+ | Works end-to-end | Subscription tokens hit the same `api.x.ai/v1` host as API-key mode, so no call-shape change is needed. |
-| **Anthropic** Pro/Max | **Intentionally not implemented** | Anthropic explicitly forbade third-party OAuth subscription use in Feb 2026 (ToS update + server-side block). Adding it would break within weeks and violate ToS. Anthropic stays API-key-only. |
+| **Claude** subscription via Claude Code | Implemented; live inference depends on the CLI account's access | Uses the official, unmodified Claude Code CLI for login and inference. CraftBot never reads or stores Claude OAuth tokens. API-key mode remains available. |
+
+### Claude subscription setup
+
+1. Install the official [Claude Code CLI](https://code.claude.com/docs/en/setup) on the machine running CraftBot. CraftBot finds `claude` on its PATH, or in the native installer's `~/.local/bin` when CraftBot was started before the install. Windows npm installations also need `node` on PATH.
+2. In Settings → Model, select **Anthropic** and click **Sign in with Claude**. The same option is available during onboarding. It works like ChatGPT's sign-in: the button shows a spinner while CraftBot runs `claude auth login` for a **separate CraftBot login profile**, the CLI opens one sign-in tab, and approving there redirects to the CLI's local callback. The CLI exchanges the code with its own PKCE verifier and stores the tokens; CraftBot connects as soon as the CLI reports success. If the profile is already signed in, Connect succeeds without a browser. An unapproved sign-in is stopped after 5 minutes, and clicking Connect again replaces it. This needs a browser on the machine running CraftBot. On a remote server, Claude's page shows a code instead, which CraftBot doesn't accept; use an API key there.
+3. Use **Test connection** to verify the selected model.
+4. **Disconnect signs out** with `claude auth logout` in CraftBot's private profile, verifies that it is logged out, and then removes the connection flag. Your standalone Claude Code login is untouched. Reconnecting starts a new browser sign-in. A logout/verification failure retains the connection flag and reports an error.
+
+Claude Code owns credentials and refresh inside `<CraftBot state>/.credentials/claude_code/`. Every login, status, logout and inference subprocess receives this absolute path as `CLAUDE_CONFIG_DIR`, overriding inherited profile settings without changing the parent environment. CraftBot stores only `{"enabled": true, "profile_version": 1}` in `.credentials/anthropic_claude_code.json`; `tokens.get_bearer("anthropic")` never exports a token. Tokens are written and read by the official CLI, never copied from the standalone login or sent to the Anthropic SDK. Old shared-login flags are ignored until the user signs in to the separate profile.
+
+Inference uses documented CLI print mode, with built-in tools, MCP configuration, hooks and session persistence disabled. CraftBot retains its own agent loop. Text and images are supported; multi-turn history is sent as a labelled transcript in a single user message. CLI startup adds latency to each request. API-specific cache markers and temperature are not forwarded; usage and cache counts come from the CLI result. CLI model availability and subscription limits apply, and inference errors never silently fall back to a paid API key.
+
+See the [CLI reference](https://code.claude.com/docs/en/cli-reference) and [Anthropic's authentication guidance](https://code.claude.com/docs/en/legal-and-compliance) for the supported Claude Code route.
+
+Browser test results, screenshots and remaining acceptance steps are in the
+[Claude subscription validation report](../../docs/CLAUDE_CODE_VALIDATION.md).
 
 ## Settings UI surface
 

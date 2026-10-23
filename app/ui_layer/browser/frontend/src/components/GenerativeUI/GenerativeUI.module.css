@@ -1,0 +1,53 @@
+.artifact { display: flex; flex: 1; flex-direction: column; min-height: 0; min-width: 0; }
+/* Reload and options: round icon buttons at the output tab strip's right end. */
+.controls { display: flex; align-items: center; gap: 2px; }
+.controls > button, .menu summary { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: var(--radius-full); background: transparent; color: var(--text-secondary); cursor: pointer; }
+.controls > button:hover, .menu summary:hover { background: var(--bg-selected-hover); color: var(--text-primary); }
+.controls > button:focus-visible, .menu summary:focus-visible, .menuItems button:focus-visible, .resume:focus-visible, .error button:focus-visible { outline: 2px solid var(--text-secondary); outline-offset: 2px; }
+/* The output is the pane: no frame or padding around it. On desktop it
+   fills the pane; a pane narrower than the 440px desktop canvas outputs are
+   built for shows the phone width (see the container query below). */
+.canvas { flex: 1; display: flex; justify-content: center; min-height: 0; min-width: 0; background: var(--bg-secondary); }
+.preview { position: relative; display: flex; flex-direction: column; width: 100%; max-width: 100%; min-height: 0; overflow: hidden; background: var(--bg-primary); }
+.frame { flex: 1; display: block; border: 0; width: 100%; min-height: 0; height: 100%; }
+.menu { position: relative; }
+.menu summary { list-style: none; }
+.menu summary::-webkit-details-marker { display: none; }
+.menuItems { position: absolute; top: calc(100% + 9px); right: 0; z-index: 5; display: grid; gap: 3px; width: 240px; padding: 6px; border: 1px solid var(--border-primary); border-radius: 10px; background: var(--bg-elevated); box-shadow: var(--shadow-md); }
+.menuItems button { display: flex; align-items: center; gap: 8px; width: 100%; padding: 9px 10px; border: 0; border-radius: 5px; background: transparent; color: var(--text-secondary); font-size: 12px; text-align: left; white-space: nowrap; cursor: pointer; }
+.menuItems button:hover { background: var(--bg-hover); color: var(--text-primary); }
+.versions { display: grid; gap: 1px; margin-top: 3px; padding-top: 6px; border-top: 1px solid var(--border-primary); }
+.versionsLabel { padding: 2px 10px 4px; color: var(--text-tertiary); font-size: 11px; }
+.versionCheck { display: grid; place-items: center; width: 15px; flex-shrink: 0; }
+.menuItems button[aria-pressed=true] { color: var(--text-primary); }
+.resetConfirmation { padding: 8px; font-size: 13px; color: var(--text-primary); }
+.resetConfirmation p { margin: 6px 0 14px; line-height: 1.5; font-size: 12px; color: var(--text-secondary); }
+.resetConfirmation > div { display: flex; justify-content: flex-end; gap: 6px; }
+.resetConfirmation .destructive { color: var(--color-error); background: var(--color-error-bg); }
+.loading { position: absolute; inset: 0; z-index: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; background: var(--bg-primary); color: var(--text-secondary); font-size: 13px; pointer-events: none; }
+.loading svg { animation: spin 1s linear infinite; }
+.paused { display: flex; flex: 1; flex-direction: column; align-items: center; justify-content: center; padding: 28px; text-align: center; }
+.statusIcon { display: grid; place-items: center; width: 54px; height: 54px; border-radius: 16px; background: var(--bg-secondary); color: var(--text-secondary); }
+.paused h3 { margin: 18px 0 8px; font-size: 17px; font-weight: 600; color: var(--text-primary); }
+.paused p { margin: 0 0 22px; max-width: 280px; line-height: 1.6; color: var(--text-secondary); font-size: 13px; }
+.resume, .error button { display: flex; align-items: center; justify-content: center; gap: 7px; border: 1px solid var(--border-primary); border-radius: 8px; padding: 9px 14px; background: var(--bg-secondary); color: var(--text-primary); font: inherit; font-size: 13px; cursor: pointer; }
+.resume:hover, .error button:hover { background: var(--bg-hover); }
+.error { display: flex; align-items: flex-start; gap: 10px; padding: 14px; border-bottom: 1px solid var(--border-primary); background: var(--color-warning-bg); color: var(--text-primary); font-size: 12px; }
+.error > svg { flex-shrink: 0; color: var(--color-warning); }
+.error > div { flex: 1; min-width: 0; }
+.error summary { margin-top: 5px; color: var(--text-secondary); cursor: pointer; }
+.error p { margin: 8px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.error button { flex-shrink: 0; padding: 5px 8px; font-size: 12px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.controls > button, .menu summary, .menuItems button, .resume, .error button { transition: background-color 140ms ease, color 140ms ease, box-shadow 140ms ease; }
+.menu[open] .menuItems { animation: menuEnter 160ms cubic-bezier(.22, 1, .36, 1); transform-origin: top right; }
+.frameReady, .paused, .error, .resetConfirmation { animation: previewReveal 200ms ease-out; }
+@keyframes menuEnter { from { opacity: 0; transform: translateY(-5px) scale(.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
+@keyframes previewReveal { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .loading svg, .menu[open] .menuItems, .frameReady, .paused, .error, .resetConfirmation { animation: none; }
+  .controls > button, .menu summary, .menuItems button, .resume, .error button { transition: none; }
+}
+@container output-pane (max-width: 439.98px) {
+  .preview { max-width: 390px; }
+}

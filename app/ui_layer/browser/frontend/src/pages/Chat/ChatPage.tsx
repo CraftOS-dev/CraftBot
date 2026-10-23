@@ -7,8 +7,7 @@ interface ChatPageProps {
   sessionId: string
 }
 
-// Per-session chat page: one linear timeline (messages + inline activity)
-// with the input docked below. The old right-hand task panel is gone.
+// Chat owns the conversation and its separate generated-output workspace.
 export function ChatPage({ sessionId }: ChatPageProps) {
   return (
     <div className={styles.chatPage}>

@@ -5,25 +5,25 @@
         "max_tokens": 1
     },
     "openai": {
-        "model": "gpt-4o-mini"
+        "model": "gpt-6-luna"
     },
     "gemini": {
-        "model": "gemini-2.0-flash"
+        "model": "gemini-3.5-flash-lite"
     },
     "byteplus": {
-        "model": "kimi-k2-250905"
+        "model": "seed-2-0-mini-260428"
     },
     "deepseek": {
-        "model": "deepseek-chat"
+        "model": "deepseek-flash"
     },
     "minimax": {
-        "model": "MiniMax-Text-01"
+        "model": "MiniMax-M3.1-Flash"
     },
     "moonshot": {
-        "model": "kimi-k2.5"
+        "model": "kimi-k2.6"
     },
     "glm": {
-        "model": "glm-5.2"
+        "model": "glm-5.3-flash"
     },
     "fugu": {
         "model": "fugu"

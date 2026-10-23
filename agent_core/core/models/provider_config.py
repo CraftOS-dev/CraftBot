@@ -179,14 +179,24 @@ PROVIDER_CONFIG: Dict[str, ProviderProfile] = {
         settings_key="openai",
         oauth_backend="chatgpt",
         subscription_label="Sign in with ChatGPT",
-        # Codex-accepted models for ChatGPT subscription auth.
+        # The only models ChatGPT-subscription auth runs: the Codex catalogue's
+        # listed models, in its order
+        # (https://github.com/openai/codex/blob/main/codex-rs/models-manager/models.json).
+        # The factory runs any other model as subscription_default_model.
+        # Codex requires a reasoning level on every request, so each of
+        # these has a row in agent_core/core/models/reasoning.py
+        # (tests/llm/test_reasoning_rules.py checks they agree).
         subscription_models=(
-            "gpt-5.4",
+            "gpt-6.1-sol",
+            "gpt-6-astra",
+            "gpt-6-sol",
+            "gpt-6-luna",
+            "gpt-5.6-sol",
+            "gpt-5.6-terra",
+            "gpt-5.6-luna",
             "gpt-5.5",
-            "gpt-5.4-mini",
-            "gpt-5.3-codex-spark",
         ),
-        subscription_default_model="gpt-5.4",
+        subscription_default_model="gpt-6.1-sol",
         supports_prompt_cache_key=True,
         # OpenAI deprecated `max_tokens` in favor of `max_completion_tokens`;
         # every current chat model accepts the new field, and reasoning
@@ -198,13 +208,21 @@ PROVIDER_CONFIG: Dict[str, ProviderProfile] = {
         # model (the server applies its default), so the profile drops it
         # unconditionally — same policy as Kimi/Moonshot.
         fixed_temperature=OMIT_TEMPERATURE,
-        connection_test_model="gpt-4o-mini",
+        # gpt-4o-mini shuts down 2027-01-14; OpenAI names gpt-6-luna as its
+        # replacement (https://developers.openai.com/api/docs/deprecations).
+        connection_test_model="gpt-6-luna",
         default_models={
-            InterfaceType.LLM: "gpt-5.2-2025-12-11",
-            InterfaceType.VLM: "gpt-5.2-2025-12-11",
+            # GPT-6.1 Sol: the tier below GPT-6 Astra, $2/$10 per 1M,
+            # image input (https://developers.openai.com/api/docs/models/gpt-6.1-sol).
+            # Chat Completions serves it without tool calling, which this
+            # transport never sends (it uses JSON mode).
+            InterfaceType.LLM: "gpt-6.1-sol",
+            InterfaceType.VLM: "gpt-6.1-sol",
             InterfaceType.EMBEDDING: "text-embedding-3-small",
             InterfaceType.IMAGE_GEN: "gpt-image-2",
-            InterfaceType.VIDEO_GEN: "sora-2",
+            # Sora 2 and the whole Videos API were retired on 2026-09-24
+            # with no replacement API, so OpenAI has no video model.
+            InterfaceType.VIDEO_GEN: None,
         },
     ),
     "gemini": ProviderProfile(
@@ -213,13 +231,24 @@ PROVIDER_CONFIG: Dict[str, ProviderProfile] = {
         display_name="Google Gemini",
         wire="gemini_native",
         settings_key="google",
-        connection_test_model="gemini-2.0-flash",
+        # gemini-2.0-flash shut down on 2026-06-01.
+        connection_test_model="gemini-3.5-flash-lite",
         default_models={
-            InterfaceType.LLM: "gemini-2.5-pro",
-            InterfaceType.VLM: "gemini-2.5-pro",
-            InterfaceType.EMBEDDING: "text-embedding-004",
+            # Gemini 3.8 Flash: the stable tier below Gemini 4 Argon, $0.75
+            # /$3.75 per 1M, image input. Gemini 2.5 access is limited to
+            # earlier users, so new keys could not run 2.5 Pro
+            # (https://ai.google.dev/gemini-api/docs/models).
+            InterfaceType.LLM: "gemini-3.8-flash",
+            InterfaceType.VLM: "gemini-3.8-flash",
+            # text-embedding-004 shut down on 2026-01-14.
+            InterfaceType.EMBEDDING: "gemini-embedding-2",
             InterfaceType.IMAGE_GEN: "gemini-3-pro-image",
-            InterfaceType.VIDEO_GEN: "veo-3.1-generate-preview",
+            # Every Veo id on the Gemini API (veo-3.1-*-preview) shuts down
+            # on 2026-10-22. Its replacement, gemini-omni-1.1-flash, runs only
+            # on the Interactions API (POST /v1beta/interactions), which the
+            # video client does not speak
+            # (https://ai.google.dev/gemini-api/docs/deprecations).
+            InterfaceType.VIDEO_GEN: None,
         },
     ),
     "anthropic": ProviderProfile(
@@ -228,11 +257,15 @@ PROVIDER_CONFIG: Dict[str, ProviderProfile] = {
         display_name="Anthropic",
         wire="anthropic_messages",
         settings_key="anthropic",
+        oauth_backend="claude_code",
+        subscription_label="Sign in with Claude",
         connection_test_model="claude-haiku-4-5-20251001",
         connection_test_max_tokens=1,
         default_models={
-            InterfaceType.LLM: "claude-sonnet-4-6",
-            InterfaceType.VLM: "claude-sonnet-4-6",
+            # Claude Sonnet 5.5: the price/performance tier below Fable and
+            # Opus, $2/$10 per 1M, image input.
+            InterfaceType.LLM: "claude-sonnet-5-5",
+            InterfaceType.VLM: "claude-sonnet-5-5",
             # Anthropic does not provide native embedding models.
             InterfaceType.EMBEDDING: None,
             InterfaceType.IMAGE_GEN: None,
@@ -247,11 +280,18 @@ PROVIDER_CONFIG: Dict[str, ProviderProfile] = {
         display_name="BytePlus",
         wire="byteplus_responses",
         settings_key="byteplus",
-        connection_test_model="kimi-k2-250905",
+        # kimi-k2-250905 was deactivated on 2026-05-13; Seed 2.0 Mini is the
+        # cheapest current model.
+        connection_test_model="seed-2-0-mini-260428",
         default_models={
-            InterfaceType.LLM: "seed-2-0-pro-260328",
-            InterfaceType.VLM: "seed-2-0-pro-260328",
-            InterfaceType.EMBEDDING: "skylark-embedding-vision-250615",
+            # Seed 2.0 Lite: the tier below the Seed 2.1 Turbo / 2.0 Pro
+            # flagships, $0.25/$2.00 per 1M, image input
+            # (https://docs.byteplus.com/en/docs/ModelArk/1330310).
+            InterfaceType.LLM: "seed-2-0-lite-260428",
+            InterfaceType.VLM: "seed-2-0-lite-260428",
+            # skylark-embedding-vision-250615 is deprecated (deactivation
+            # 2026-11-11).
+            InterfaceType.EMBEDDING: "skylark-embedding-vision-251215",
             InterfaceType.IMAGE_GEN: None,
             # BytePlus international (ap-southeast.bytepluses.com) model IDs
             # use dated build suffixes, no dots, no `doubao-` prefix
@@ -296,21 +336,26 @@ PROVIDER_CONFIG: Dict[str, ProviderProfile] = {
         uses_max_completion_tokens=True,
         # MiniMax has no /v1/models endpoint — the connection tester must do
         # a real (tiny) chat call against this model.
-        connection_test_model="MiniMax-M2.1",
+        connection_test_model="MiniMax-M3.1-Flash",
         openrouter_proxy=True,
         openrouter_namespace="minimax",
         openrouter_slug_map={
             # Slugs follow OpenRouter's lowercase convention; verify against
             # openrouter.ai/models when bumping the MiniMax model family.
+            # As of 2026-10-21 OpenRouter lists M3.1 Flash only as the
+            # ":free" variant, so the paid slug below starts working once
+            # OpenRouter publishes it.
+            "MiniMax-M3.1-Flash": "minimax/minimax-m3.1-flash",
             "MiniMax-M3": "minimax/minimax-m3",
             "MiniMax-M2.1": "minimax/minimax-m2.1",
             "MiniMax-M2": "minimax/minimax-m2",
         },
         default_models={
-            # MiniMax-Text-01 was retired upstream; M-series is current
-            # (M3 flagship, M2.x cheap tier).
-            InterfaceType.LLM: "MiniMax-M2.1",
-            InterfaceType.VLM: None,
+            # M2.x is retired; the lineup is M3 (flagship) and M3.1 Flash,
+            # $0.15/$0.60 per 1M with image input
+            # (https://platform.minimax.io/docs/faq/models).
+            InterfaceType.LLM: "MiniMax-M3.1-Flash",
+            InterfaceType.VLM: "MiniMax-M3.1-Flash",
             InterfaceType.EMBEDDING: None,
             InterfaceType.IMAGE_GEN: None,
             InterfaceType.VIDEO_GEN: None,
@@ -325,10 +370,13 @@ PROVIDER_CONFIG: Dict[str, ProviderProfile] = {
         error_display_name="DeepSeek",
         settings_key="deepseek",
         supports_prompt_cache_key=True,
-        connection_test_model="deepseek-chat",
+        connection_test_model="deepseek-flash",
         default_models={
-            InterfaceType.LLM: "deepseek-chat",
-            InterfaceType.VLM: None,
+            # deepseek-chat / deepseek-reasoner were retired on 2026-07-24.
+            # deepseek-flash (V4.1 Flash) is the tier below V4 Pro, $0.30/$1.20
+            # per 1M at peak, image input (https://api-docs.deepseek.com/quick_start/pricing).
+            InterfaceType.LLM: "deepseek-flash",
+            InterfaceType.VLM: "deepseek-flash",
             InterfaceType.EMBEDDING: None,
             InterfaceType.IMAGE_GEN: None,
             InterfaceType.VIDEO_GEN: None,
@@ -350,21 +398,21 @@ PROVIDER_CONFIG: Dict[str, ProviderProfile] = {
         # Kimi thinking models (k2.5+) reject an explicit temperature — omit
         # it (verified: Kimi API docs + Hermes kimi-coding profile).
         fixed_temperature=OMIT_TEMPERATURE,
-        connection_test_model="kimi-k2.5",
+        connection_test_model="kimi-k2.6",
         openrouter_proxy=True,
         openrouter_namespace="moonshotai",
         openrouter_slug_map={
+            "kimi-k3": "moonshotai/kimi-k3",
+            "kimi-k2.6": "moonshotai/kimi-k2.6",
             "kimi-k2.5": "moonshotai/kimi-k2.5",
-            "moonshot-v1-8k": "moonshotai/moonshot-v1-8k",
-            "moonshot-v1-32k": "moonshotai/moonshot-v1-32k",
-            "moonshot-v1-128k": "moonshotai/moonshot-v1-128k",
-            "moonshot-v1-8k-vision-preview": (
-                "moonshotai/moonshot-v1-8k-vision-preview"
-            ),
         },
         default_models={
-            InterfaceType.LLM: "kimi-k2.5",
-            InterfaceType.VLM: "moonshot-v1-8k-vision-preview",
+            # kimi-k2.5 and the moonshot-v1 series were retired on
+            # 2026-08-31. Kimi K2.6 is the general tier below Kimi K3,
+            # $0.95/$4.00 per 1M, image input (base64 only)
+            # (https://platform.kimi.ai/docs/models).
+            InterfaceType.LLM: "kimi-k2.6",
+            InterfaceType.VLM: "kimi-k2.6",
             InterfaceType.EMBEDDING: None,
             InterfaceType.IMAGE_GEN: None,
             InterfaceType.VIDEO_GEN: None,
@@ -382,11 +430,16 @@ PROVIDER_CONFIG: Dict[str, ProviderProfile] = {
         # this path in May 2026.
         oauth_backend="grok",
         subscription_label="Sign in with Grok",
-        subscription_models=("grok-4-0709", "grok-3"),
+        subscription_models=("grok-4.3", "grok-4.7"),
         supports_prompt_cache_key=True,
+        connection_test_model="grok-4.3",
         default_models={
-            InterfaceType.LLM: "grok-3",
-            InterfaceType.VLM: "grok-4-0709",
+            # grok-3 and grok-4-0709 were retired on 2026-05-15 and now
+            # redirect to grok-4.3 (https://docs.x.ai/developers/migration/may-15-retirement).
+            # Grok 4.3 is the tier below Grok 4.7, $1.25/$2.50 per 1M, image
+            # input.
+            InterfaceType.LLM: "grok-4.3",
+            InterfaceType.VLM: "grok-4.3",
             InterfaceType.EMBEDDING: None,
             InterfaceType.IMAGE_GEN: None,
             InterfaceType.VIDEO_GEN: None,
@@ -401,12 +454,13 @@ PROVIDER_CONFIG: Dict[str, ProviderProfile] = {
         display_name="Z.ai (GLM)",
         settings_key="glm",
         supports_prompt_cache_key=True,
-        connection_test_model="glm-5.2",
+        connection_test_model="glm-5.3-flash",
         default_models={
-            # Z.ai (Zhipu AI) GLM-5.2 -- 1M-context, OpenAI-compatible,
-            # multimodal.
-            InterfaceType.LLM: "glm-5.2",
-            InterfaceType.VLM: "glm-5.2",
+            # GLM-5.3 Flash: the tier below GLM-5.3, 1M context, $0.15/$0.50
+            # per 1M, natively multimodal (GLM-5.2 and 5.3 take text only)
+            # (https://docs.z.ai/guides/vlm/glm-5.3-flash).
+            InterfaceType.LLM: "glm-5.3-flash",
+            InterfaceType.VLM: "glm-5.3-flash",
             InterfaceType.EMBEDDING: None,
             InterfaceType.IMAGE_GEN: None,
             InterfaceType.VIDEO_GEN: None,
@@ -420,7 +474,15 @@ PROVIDER_CONFIG: Dict[str, ProviderProfile] = {
         default_base_url="https://api.sakana.ai/v1",
         display_name="Sakana (Fugu)",
         settings_key="fugu",
-        supports_prompt_cache_key=True,
+        # prompt_cache_key is not in Sakana's Chat Completions field table
+        # (https://console.sakana.ai/models), and Sakana rejects some fields
+        # outright, so don't send it. Caching is automatic server-side; hits
+        # are reported in usage cached_tokens.
+        supports_prompt_cache_key=False,
+        # Sakana documents temperature as "accepted but ignored", but fugu
+        # has been seen answering 400 "Only the default (1) value is
+        # supported" for a non-default value. It has no effect, so omit it.
+        fixed_temperature=OMIT_TEMPERATURE,
         connection_test_model="fugu",
         default_models={
             # Sakana AI Fugu -- OpenAI-compatible orchestration model.
@@ -447,8 +509,8 @@ PROVIDER_CONFIG: Dict[str, ProviderProfile] = {
             # OpenRouter slugs follow `<provider>/<model>` format. Default to
             # a Claude model so KV caching exercises the cache_control path on
             # first use.
-            InterfaceType.LLM: "anthropic/claude-sonnet-4.5",
-            InterfaceType.VLM: "anthropic/claude-sonnet-4.5",
+            InterfaceType.LLM: "anthropic/claude-sonnet-5.5",
+            InterfaceType.VLM: "anthropic/claude-sonnet-5.5",
             InterfaceType.EMBEDDING: None,
             InterfaceType.IMAGE_GEN: None,
             InterfaceType.VIDEO_GEN: None,
@@ -468,17 +530,18 @@ PROVIDER_CONFIG: Dict[str, ProviderProfile] = {
         aws_credential_block=True,
         connection_test_model="us.anthropic.claude-haiku-4-5-20251001-v1:0",
         default_models={
-            # Default to Claude Haiku 4.5 — best price/performance on Bedrock
-            # with cachePoint support (5-min + 1-hour TTL). The `us.` prefix
-            # is the cross-region inference profile, required because Claude
-            # 4.x models reject on-demand invocations against the bare
-            # `anthropic.*` ID. The `us.anthropic.` prefix still matches
-            # `_BEDROCK_CACHE_PREFIXES`, so cachePoint is exercised. Users in
-            # EU / APAC regions should change `us.` to `eu.` / `ap.`.
-            # Haiku 4.5 also accepts image content blocks via Converse, so it
-            # doubles as the VLM default. Embedding stays on Titan.
-            InterfaceType.LLM: "us.anthropic.claude-haiku-4-5-20251001-v1:0",
-            InterfaceType.VLM: "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+            # Default to Claude Sonnet 5.5, the same tier as the Anthropic
+            # default, with cachePoint support. The `us.` prefix is the
+            # cross-region inference profile, required because Sonnet 5.5
+            # has no in-Region (bare `anthropic.*`) invocation. The
+            # `us.anthropic.` prefix still matches `_BEDROCK_CACHE_PREFIXES`,
+            # so cachePoint is exercised. Users in EU / Australia regions
+            # should change `us.` to `eu.` / `au.` (AWS model card:
+            # model-card-anthropic-claude-sonnet-5-5). Sonnet 5.5 also
+            # accepts image content blocks via Converse, so it doubles as
+            # the VLM default. Embedding stays on Titan.
+            InterfaceType.LLM: "us.anthropic.claude-sonnet-5-5",
+            InterfaceType.VLM: "us.anthropic.claude-sonnet-5-5",
             InterfaceType.EMBEDDING: "amazon.titan-embed-text-v2:0",
             InterfaceType.IMAGE_GEN: None,
             InterfaceType.VIDEO_GEN: None,
@@ -522,8 +585,12 @@ PROVIDER_CONFIG: Dict[str, ProviderProfile] = {
         default_base_url="https://api.mistral.ai/v1",
         display_name="Mistral",
         settings_key="mistral",
-        # "-latest" aliases insulate against Mistral's dated concrete ids.
-        connection_test_model="mistral-small-latest",
+        # Pinned ids, not "-latest" aliases: an alias moves across
+        # generations (https://docs.mistral.ai/inference/model-lifecycle),
+        # and mistral-large-latest is expected to move to Large 4, which
+        # reasons by default and returns message.content as a list of
+        # chunks instead of a string.
+        connection_test_model="mistral-small-2603",
         supports_model_discovery=True,
         # Mistral La Plateforme has prompt caching and honors the
         # `prompt_cache_key` field (cached tokens billed at 10%, reported in
@@ -532,10 +599,13 @@ PROVIDER_CONFIG: Dict[str, ProviderProfile] = {
         # prefixes (observed in a live session at slow_mode's TPM ceiling).
         supports_prompt_cache_key=True,
         default_models={
-            InterfaceType.LLM: "mistral-large-latest",
-            # pixtral-large-latest was retired (2026-05-31). mistral-small is
-            # multimodal and current, so it doubles as the VLM default.
-            InterfaceType.VLM: "mistral-small-latest",
+            # Mistral Medium 3.5: the tier below Large 4, $1.50/$7.50 per 1M.
+            # With reasoning_effort omitted (as sent here) Medium 3.5 and
+            # Small 4 do not reason, so content stays a string.
+            InterfaceType.LLM: "mistral-medium-3-5",
+            # pixtral-large-latest was retired (2026-05-31). Mistral Small 4
+            # is multimodal and current, so it doubles as the VLM default.
+            InterfaceType.VLM: "mistral-small-2603",
             InterfaceType.EMBEDDING: "mistral-embed",
             InterfaceType.IMAGE_GEN: None,
             InterfaceType.VIDEO_GEN: None,
@@ -551,15 +621,20 @@ PROVIDER_CONFIG: Dict[str, ProviderProfile] = {
         default_base_url="https://api.together.ai/v1",
         display_name="Together AI",
         settings_key="together",
-        connection_test_model="meta-llama/Llama-3.1-8B-Instruct-Turbo",
+        connection_test_model="deepseek-ai/DeepSeek-V4.1-Flash",
         supports_model_discovery=True,
         # Together's serverless models cap output well below our default;
         # Llama-3.3-70B ~16k. Exceeding it 4xxes.
         max_output_tokens=16384,
         default_models={
-            InterfaceType.LLM: "meta-llama/Llama-3.3-70B-Instruct-Turbo",
-            InterfaceType.VLM: "meta-llama/Llama-4-Scout-17B-16E-Instruct",
-            InterfaceType.EMBEDDING: "BAAI/bge-large-en-v1.5",
+            # The Llama 3.x / 4 Scout serverless models are removed
+            # (https://docs.together.ai/docs/deprecations). DeepSeek V4.1
+            # Flash: $0.30/$1.20 per 1M, image input, strong at multi-step
+            # tool use.
+            InterfaceType.LLM: "deepseek-ai/DeepSeek-V4.1-Flash",
+            InterfaceType.VLM: "deepseek-ai/DeepSeek-V4.1-Flash",
+            # Together no longer serves any serverless embedding model.
+            InterfaceType.EMBEDDING: None,
             InterfaceType.IMAGE_GEN: None,
             InterfaceType.VIDEO_GEN: None,
         },
@@ -572,17 +647,18 @@ PROVIDER_CONFIG: Dict[str, ProviderProfile] = {
         default_base_url="https://api.fireworks.ai/inference/v1",
         display_name="Fireworks",
         settings_key="fireworks",
-        connection_test_model="accounts/fireworks/models/llama-v3p1-8b-instruct",
+        connection_test_model="accounts/fireworks/models/deepseek-v4p1-flash",
         supports_model_discovery=True,
         default_models={
-            # `p`-for-dot version naming: v3p3 = 3.3, qwen2p5-vl = Qwen2.5-VL.
-            # llama-v3p3-70b's serverless availability is ambiguous; glm-5p2 is
-            # a Hermes-verified served Fireworks model (their aux default).
-            InterfaceType.LLM: "accounts/fireworks/models/glm-5p2",
-            InterfaceType.VLM: "accounts/fireworks/models/qwen2p5-vl-32b-instruct",
-            InterfaceType.EMBEDDING: (
-                "accounts/fireworks/models/nomic-embed-text-v1.5"
-            ),
+            # `p`-for-dot version naming: v4p1 = 4.1. glm-5p2 lost serverless
+            # on 2026-09-25, and qwen2p5-vl-32b / llama-v3p1-8b are not
+            # serverless. DeepSeek V4.1 Flash is serverless, $0.30/$1.20 per
+            # 1M, image input (fireworks.ai/models/deepseek-ai/deepseek-v4p1-flash).
+            InterfaceType.LLM: "accounts/fireworks/models/deepseek-v4p1-flash",
+            InterfaceType.VLM: "accounts/fireworks/models/deepseek-v4p1-flash",
+            # Legacy embedding models are addressed by their Hugging Face id
+            # (https://docs.fireworks.ai/guides/querying-embeddings-models).
+            InterfaceType.EMBEDDING: "nomic-ai/nomic-embed-text-v1.5",
             InterfaceType.IMAGE_GEN: None,
             InterfaceType.VIDEO_GEN: None,
         },
@@ -636,8 +712,12 @@ PROVIDER_CONFIG: Dict[str, ProviderProfile] = {
         # Qwen output caps are well under our default; 8k is a safe ceiling.
         max_output_tokens=8192,
         default_models={
-            InterfaceType.LLM: "qwen-max",
-            InterfaceType.VLM: "qwen-vl-max",
+            # Qwen3.7 Plus: the Plus tier below Qwen3.8 Max, $0.40/$1.60 per
+            # 1M up to 256K input, image input. qwen-max is legacy and
+            # qwen-vl-max was retired on 2026-10-10
+            # (https://www.alibabacloud.com/help/en/model-studio/models).
+            InterfaceType.LLM: "qwen3.7-plus",
+            InterfaceType.VLM: "qwen3.7-plus",
             InterfaceType.EMBEDDING: "text-embedding-v4",
             InterfaceType.IMAGE_GEN: None,
             InterfaceType.VIDEO_GEN: None,
@@ -652,12 +732,16 @@ PROVIDER_CONFIG: Dict[str, ProviderProfile] = {
         display_name="Hugging Face",
         settings_key="huggingface",
         # Hub ids, optionally suffixed with a provider (":groq") or policy
-        # (":fastest" default, ":cheapest").
-        connection_test_model="meta-llama/Llama-3.1-8B-Instruct",
+        # (":fastest" default, ":cheapest"). Gated repos (Llama) fail for
+        # users who have not accepted the license, so test an ungated one.
+        connection_test_model="deepseek-ai/DeepSeek-V4.1-Flash",
         supports_model_discovery=True,
         default_models={
-            InterfaceType.LLM: "deepseek-ai/DeepSeek-V3-0324",
-            InterfaceType.VLM: "Qwen/Qwen2.5-VL-7B-Instruct",
+            # DeepSeek V4.1 Flash: routable through several providers,
+            # $0.20-0.30/$0.60-1.20 per 1M, image input. Qwen2.5-VL-7B is no
+            # longer listed by the router.
+            InterfaceType.LLM: "deepseek-ai/DeepSeek-V4.1-Flash",
+            InterfaceType.VLM: "deepseek-ai/DeepSeek-V4.1-Flash",
             # The router's OpenAI-compatible /v1 surface is chat-only; no
             # /v1/embeddings, so no embedding default here.
             InterfaceType.EMBEDDING: None,
@@ -673,14 +757,18 @@ PROVIDER_CONFIG: Dict[str, ProviderProfile] = {
         default_base_url="https://integrate.api.nvidia.com/v1",
         display_name="NVIDIA NIM",
         settings_key="nvidia",
-        connection_test_model="meta/llama-3.1-8b-instruct",
+        connection_test_model="deepseek-ai/deepseek-v4.1-flash",
         supports_model_discovery=True,
         # NIM caps output low; Hermes ships 16384 as its battle-tested value.
         max_output_tokens=16384,
         default_models={
-            InterfaceType.LLM: "meta/llama-3.3-70b-instruct",
-            InterfaceType.VLM: "meta/llama-3.2-90b-vision-instruct",
-            InterfaceType.EMBEDDING: "nvidia/nv-embedqa-e5-v5",
+            # meta/llama-3.3-70b-instruct, meta/llama-3.1-8b-instruct and
+            # nvidia/nv-embedqa-e5-v5 reached end of life in August 2026 (the
+            # API answers 410). NIM retires hosted models quickly; re-check
+            # GET /v1/models when bumping these.
+            InterfaceType.LLM: "deepseek-ai/deepseek-v4.1-flash",
+            InterfaceType.VLM: "deepseek-ai/deepseek-v4.1-flash",
+            InterfaceType.EMBEDDING: "nvidia/nemotron-3.5-embed-1b",
             InterfaceType.IMAGE_GEN: None,
             InterfaceType.VIDEO_GEN: None,
         },
@@ -690,9 +778,12 @@ PROVIDER_CONFIG: Dict[str, ProviderProfile] = {
         session_accumulation=True,
         api_key_env="PERPLEXITY_API_KEY",
         base_url_env="PERPLEXITY_BASE_URL",
-        # Legacy Sonar chat-completions surface. NOTE: Perplexity retires the
-        # Sonar tiers on 2026-09-27; the successor is the Agent API
-        # (https://api.perplexity.ai/docs/agent-api). Migrate before then.
+        # Legacy Sonar chat-completions surface. Perplexity ended it on
+        # 2026-09-27: POST /chat/completions now answers 403
+        # "chat_completions_not_available" for every model, so this
+        # provider fails until it moves to the Agent API (POST /v1/agent,
+        # Responses-style input/output; model "perplexity/sonar" or a
+        # preset; https://docs.perplexity.ai/docs/agent-api/).
         default_base_url="https://api.perplexity.ai",
         display_name="Perplexity",
         settings_key="perplexity",

@@ -50,6 +50,14 @@ from agent_core import action
     },
 )
 async def send_telegram_bot_message(input_data: dict) -> dict:
+    from app.data.action.integrations.telegram._auto_reply import (
+        reply_permission_error,
+        finish_reply,
+    )
+
+    denied = reply_permission_error(input_data)
+    if denied:
+        return denied
     from app.data.action.integrations._helpers import (
         pick_result,
         record_outgoing_message,
@@ -68,7 +76,7 @@ async def send_telegram_bot_message(input_data: dict) -> dict:
     )
     if res.get("status") == "success":
         record_outgoing_message("Telegram", input_data["chat_id"], input_data["text"])
-    return pick_result(res, ["message_id"])
+    return finish_reply(pick_result(res, ["message_id"]))
 
 
 @action(
@@ -115,6 +123,14 @@ async def send_telegram_bot_message(input_data: dict) -> dict:
     },
 )
 async def send_telegram_text_message(input_data: dict) -> dict:
+    from app.data.action.integrations.telegram._auto_reply import (
+        reply_permission_error,
+        finish_reply,
+    )
+
+    denied = reply_permission_error(input_data)
+    if denied:
+        return denied
     from app.data.action.integrations._helpers import pick_result, run_client
 
     res = await run_client(
@@ -128,7 +144,7 @@ async def send_telegram_text_message(input_data: dict) -> dict:
         disable_notification=input_data.get("disable_notification"),
         reply_markup=input_data.get("reply_markup"),
     )
-    return pick_result(res, ["message_id"])
+    return finish_reply(pick_result(res, ["message_id"]))
 
 
 @action(

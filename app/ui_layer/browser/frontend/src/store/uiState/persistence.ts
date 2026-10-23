@@ -1,7 +1,8 @@
 import type { Middleware } from '@reduxjs/toolkit'
 import { uiStateChanged, uiStateSynced, type UiSliceState } from '../slices/uiSlice'
 import type { UiStateLifetime } from './defineUiState'
-import { migrateLegacyUiStorage } from './legacyMigration'
+import { migrateLegacyUiStorage, migrateUiStateFamily } from './legacyMigration'
+import { UI_STATE } from './catalog'
 import { UiStorage } from './UiStorage'
 
 export type UiStorages = Readonly<Record<UiStateLifetime, UiStorage>>
@@ -36,6 +37,10 @@ export class UiStatePersister {
     }
   }
 
+  discard(key: string): void {
+    this.pending.delete(key)
+  }
+
   flush(): void {
     if (this.timer !== null) {
       clearTimeout(this.timer)
@@ -56,6 +61,7 @@ export class UiStatePersister {
  */
 export function loadPersistedUiState(storages: UiStorages = uiStorages): UiSliceState {
   migrateLegacyUiStorage(storages.preference)
+  migrateUiStateFamily(storages.session, storages.preference, UI_STATE.chat.artifactState)
   return {
     values: { ...storages.preference.readAll(), ...storages.session.readAll() },
   }
@@ -77,7 +83,13 @@ export function createUiPersistenceMiddleware(storages: UiStorages = uiStorages)
     window.addEventListener('storage', (event) => {
       const key = storages.preference.keyOf(event)
       if (key !== null) {
-        store.dispatch(uiStateSynced({ key, value: storages.preference.parse(event.newValue) }))
+        // Events may be delivered after this tab has already saved a newer
+        // value. Read current storage and avoid restarting an unchanged preview.
+        const value = storages.preference.read(key)
+        const current = (store.getState() as { ui: UiSliceState }).ui.values[key]
+        if (JSON.stringify(current) === JSON.stringify(value)) return
+        persister.discard(key)
+        store.dispatch(uiStateSynced({ key, value }))
       }
     })
 
@@ -86,6 +98,9 @@ export function createUiPersistenceMiddleware(storages: UiStorages = uiStorages)
       if (uiStateChanged.match(action)) {
         const { key, lifetime, value } = action.payload
         persister.enqueue(key, lifetime, value)
+        // Read markers are discrete acknowledgements, not continuous UI
+        // changes. Do not leave them waiting in the coalescing timer.
+        if (action.payload.writeThrough || key === 'chat.lastSeenMessageIds') persister.flush()
       }
       return result
     }

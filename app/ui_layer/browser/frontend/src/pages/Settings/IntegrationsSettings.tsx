@@ -31,6 +31,7 @@ import {
   YouTube,
   MicrosoftOutlook,
   PostHog,
+  Supabase,
 } from '@ridemountainpig/svgl-react'
 import { useTranslation } from 'react-i18next'
 import { Button, Badge, ConfirmModal } from '../../components/ui'
@@ -42,6 +43,7 @@ import { RESOURCES, useResource } from '../../store/resources'
 import { formatNumber, localeCompare } from '../../i18n/format'
 import styles from './SettingsPage.module.css'
 import { useSettingsWebSocket } from './useSettingsWebSocket'
+import { FigmaCanvasSettings } from './FigmaCanvasSettings'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import {
   setDisconnected,
@@ -98,6 +100,7 @@ const SVGL_BY_ID: Record<string, SvglIcon> = {
   google_youtube: YouTube,
   outlook: MicrosoftOutlook,
   posthog: PostHog,
+  supabase: Supabase,
 }
 
 // Integration icon component. Lookup order:
@@ -457,6 +460,7 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
   // overlay click, disconnect flows) goes through here so staged edits are
   // always discarded.
   const closeManageModal = useCallback(() => {
+    managingIntegrationRef.current = null
     setShowManageModal(false)
     setManagingIntegration(null)
     setManagedAccounts(null)
@@ -488,6 +492,8 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
   const [configBaseline, setConfigBaseline] = useState<Record<string, any>>({})
   const [configLoading, setConfigLoading] = useState(false)
   const [configSaving, setConfigSaving] = useState(false)
+  const configLoadRequestRef = React.useRef<string | null>(null)
+  const configSaveRequestRef = React.useRef<string | null>(null)
 
   // Manage modal has two pages: the main page (accounts LIST + integration
   // settings) and one account's DETAIL. Reset to 'list' on every open/close.
@@ -597,6 +603,9 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
             // Response to OUR explicit request (Manage click / post-connect
             // follow-up) — the only path that may OPEN the modal.
             manageRequestedRef.current = false
+            // Publish the active integration before requesting config: a fast
+            // response can arrive before the effect mirrors React state.
+            managingIntegrationRef.current = d.integration
             setManagingIntegration(d.integration)
             setShowManageModal(true)
             // Always open on the accounts list (never a stale detail page).
@@ -610,7 +619,9 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
               setConfigLoading(true)
               setConfigValues({})
               setConfigBaseline({})
-              send('integration_get_config', { id: d.integration.id })
+              const requestId = crypto.randomUUID()
+              configLoadRequestRef.current = requestId
+              send('integration_get_config', { id: d.integration.id, requestId })
             }
           } else if (managingIntegrationRef.current?.id === d.integration.id) {
             // Unsolicited info for the integration already on screen —
@@ -686,11 +697,14 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
       onMessage('integration_config', (data: unknown) => {
         const d = data as {
           id: string; success: boolean
+          requestId?: string
           schema?: ConfigField[]; values?: Record<string, any>
           error?: string
         }
         // Another integration's config must not replace the open form.
         if (d.id !== managingIntegrationRef.current?.id) return
+        if (!d.requestId || d.requestId !== configLoadRequestRef.current) return
+        configLoadRequestRef.current = null
         setConfigLoading(false)
         if (d.success) {
           const loaded = d.values || {}
@@ -703,9 +717,12 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
       onMessage('integration_config_updated', (data: unknown) => {
         const d = data as {
           id: string; success: boolean
+          requestId?: string
           message?: string; values?: Record<string, any>; error?: string
         }
         if (d.id !== managingIntegrationRef.current?.id) return
+        if (!d.requestId || d.requestId !== configSaveRequestRef.current) return
+        configSaveRequestRef.current = null
         setConfigSaving(false)
         if (d.success) {
           showToast('success', d.message || t('settings:integrations.toast.settingsSaved'))
@@ -1538,7 +1555,21 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
           if (accountsDirty) handleSaveAccountChanges()
           if (settingsDirty) {
             setConfigSaving(true)
-            send('integration_update_config', { id: integration.id, values: configValues })
+            // Preserve fields changed by chat actions or another tab while
+            // this form was open; reject concurrent edits to the same field.
+            const values = Object.fromEntries(
+              Object.entries(configValues).filter(
+                ([key, value]) => JSON.stringify(value) !== JSON.stringify(configBaseline[key])
+              )
+            )
+            const expectedValues = Object.fromEntries(
+              Object.keys(values).map(key => [key, configBaseline[key]])
+            )
+            const requestId = crypto.randomUUID()
+            configSaveRequestRef.current = requestId
+            send('integration_update_config', {
+              id: integration.id, values, expected_values: expectedValues, requestId,
+            })
           }
         }
         const discardAll = () => {
@@ -1592,6 +1623,11 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
                           : isProblem(account) || account.sessionState === 'reconnecting'
                             ? stateLabel(account)
                             : ''
+                      // Nickname first (staged edit wins); the identity can be an
+                      // opaque id (e.g. a token fingerprint), so it stays in the tooltip.
+                      const nickname = staged && account.identity in staged.aliases
+                        ? staged.aliases[account.identity]
+                        : account.alias
                       return (
                         <button
                           key={account.identity}
@@ -1603,7 +1639,7 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
                         >
                           <span className={`${styles.mLive} ${dotClass(account)}`} />
                           <span className={styles.mRowId} title={account.identity}>
-                            {account.identity}
+                            {nickname || account.identity}
                           </span>
                           <span className={styles.mRowSpacer} />
                           {meta && <span className={styles.mRowMeta}>{meta}</span>}
@@ -1629,6 +1665,8 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
 
                     {accountsError && <div className={styles.formError}>{accountsError}</div>}
                   </div>
+
+                  {integration.id === 'figma' && <FigmaCanvasSettings accounts={accounts.filter(a => !staged?.disconnect.includes(a.identity))} />}
 
                   {hasConfig && (
                     <div className={styles.mSettings}>
@@ -1707,7 +1745,7 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
                         </p>
                       </div>
 
-                      <label
+                      {integration.supports_listening !== false && <label
                         className={styles.toggleGroup}
                         htmlFor={`listen-${selectedAccount.identity}`}
                       >
@@ -1724,7 +1762,7 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
                           checked={listenValue}
                           onChange={e => stageListen(integration.id, selectedAccount, e.target.checked)}
                         />
-                      </label>
+                      </label>}
 
                       {selectedMarked && (
                         <p className={styles.mRemovalNote}>

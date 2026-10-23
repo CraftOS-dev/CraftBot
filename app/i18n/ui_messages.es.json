@@ -74,5 +74,6 @@
   "onboarding_field_user_name_label": "Tu nombre",
   "onboarding_field_user_name_placeholder": "Tu nombre",
   "onboarding_validate_expected_dict": "Se esperaba un diccionario de valores del formulario",
-  "onboarding_validate_user_name_too_long": "El nombre debe tener 20 caracteres o menos"
+  "onboarding_validate_user_name_too_long": "El nombre debe tener 20 caracteres o menos",
+  "question_dismissed": "Pregunta descartada. Tarea interrumpida por el usuario."
 }

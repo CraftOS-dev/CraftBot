@@ -108,7 +108,9 @@ def record_outgoing_message(platform_name: str, recipient: str, text: str) -> No
 
         sm = iai.InternalActionInterface.state_manager
         if sm:
-            label = f"[Sent via {platform_name} to {recipient}]: {text}"
+            # Bracket-prefix + colon is a Markdown link definition when
+            # the body is one token (e.g. "4"), producing an empty bubble.
+            label = f"Sent via {platform_name} to {recipient}:\n\n{text}"
             sm.record_agent_message(label, platform=platform_name)
     except Exception:
         pass

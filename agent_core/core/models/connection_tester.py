@@ -74,6 +74,21 @@ def _test_provider_connection_inner(
         if provider == "openai":
             return _test_openai(api_key, timeout, model)
         elif provider == "anthropic":
+            from craftos_integrations.llm_oauth import claude_code
+
+            if claude_code.has_credential():
+                from agent_core.core.models.claude_code_client import ClaudeCodeClient
+
+                ClaudeCodeClient(timeout=timeout).messages.create(
+                    model=model or cfg.connection_test_model,
+                    max_tokens=32,
+                    messages=[{"role": "user", "content": "Reply with OK."}],
+                )
+                return {
+                    "success": True,
+                    "provider": provider,
+                    "message": "Claude Code subscription connection successful.",
+                }
             return _test_anthropic(api_key, timeout, model)
         elif provider == "gemini":
             return _test_gemini(api_key, timeout, model)
@@ -713,7 +728,7 @@ def _test_grok(
             "provider": "grok",
             "error": "Missing API key",
         }
-    test_model = _resolve_test_model("grok", model, fallback="grok-3")
+    test_model = _resolve_test_model("grok", model, fallback="grok-4.3")
     try:
         with httpx.Client(timeout=timeout) as client:
             response = client.post(

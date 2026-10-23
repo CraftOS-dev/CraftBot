@@ -9,6 +9,7 @@ from typing import Any, Dict, Optional, Tuple
 from app.logger import logger
 from app.models.provider_config import PROVIDER_CONFIG
 from app.config import SETTINGS_CONFIG_PATH
+from app.settings_store import settings_transaction, write_settings
 
 
 # Provider to settings.json api_keys key mapping — DERIVED from the provider
@@ -23,6 +24,7 @@ from agent_core.core.models.registry import (
 PROVIDER_TO_SETTINGS_KEY = _derive_settings_keys()
 
 
+@settings_transaction
 def _load_settings() -> Dict[str, Any]:
     """Load settings from settings.json."""
     if not SETTINGS_CONFIG_PATH.exists():
@@ -37,15 +39,14 @@ def _load_settings() -> Dict[str, Any]:
 def _save_settings(settings: Dict[str, Any]) -> bool:
     """Save settings to settings.json."""
     try:
-        SETTINGS_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-        with open(SETTINGS_CONFIG_PATH, "w", encoding="utf-8") as f:
-            json.dump(settings, f, indent=2)
+        write_settings(SETTINGS_CONFIG_PATH, settings)
         return True
     except Exception as e:
         logger.error(f"[SETTINGS] Failed to save settings.json: {e}")
         return False
 
 
+@settings_transaction
 def save_settings_to_json(provider: str, api_key: str) -> bool:
     """Save provider and API key to settings.json.
 
@@ -103,6 +104,7 @@ def save_settings_to_json(provider: str, api_key: str) -> bool:
 save_settings_to_env = save_settings_to_json
 
 
+@settings_transaction
 def save_remote_endpoint(url: str) -> bool:
     """Save the Ollama (remote) base URL to settings.json.
 
@@ -139,6 +141,7 @@ def save_remote_endpoint(url: str) -> bool:
         return False
 
 
+@settings_transaction
 def save_custom_provider(name: str, spec: Dict[str, Any]) -> Tuple[bool, str]:
     """Create or update a user-defined provider (Phase 3, FR-5).
 
@@ -190,6 +193,7 @@ def save_custom_provider(name: str, spec: Dict[str, Any]) -> Tuple[bool, str]:
         return False, f"Failed to save custom provider: {e}"
 
 
+@settings_transaction
 def delete_custom_provider(name: str) -> Tuple[bool, str]:
     """Remove a custom provider and its stored API key."""
     try:
@@ -231,13 +235,12 @@ def get_api_key_for_provider(provider: str) -> str:
 
 
 # ─────────────────────────────────────────────────────────────────────
-# Subscription OAuth (ChatGPT Plus/Pro/Team, SuperGrok). UI sits in the
-# model-settings panel next to the API-key field. Anthropic is intentionally
-# excluded — Pro/Max OAuth in third-party tools was forbidden by Anthropic
-# in Feb 2026, so we keep that path API-key-only.
+# Subscription OAuth. Claude subscriptions use the official Claude Code CLI
+# for both login and inference; CraftBot stores only a local connection flag.
 # ─────────────────────────────────────────────────────────────────────
 
 
+@settings_transaction
 def _persist_auth_mode(provider: str, mode: str) -> None:
     """Write the UI-hint ``auth_mode`` for ``provider`` to settings.json.
 
@@ -257,7 +260,7 @@ def _persist_auth_mode(provider: str, mode: str) -> None:
 
 
 async def connect_subscription_async(provider: str) -> Tuple[bool, str]:
-    """Launch the subscription OAuth flow for ``provider`` (openai / grok).
+    """Launch the subscription OAuth flow (or Claude Code's own login).
 
     Opens the browser, waits for the loopback callback, persists the
     credential under ``.credentials/<provider>_oauth.json``. Async because
@@ -288,14 +291,16 @@ async def connect_subscription_async(provider: str) -> Tuple[bool, str]:
 def disconnect_subscription(provider: str) -> Tuple[bool, str]:
     """Remove the subscription credential and flip auth_mode back to api_key.
 
-    Synchronous — disconnect is just a file delete, no OAuth dance required.
+    Claude Code also signs out its CraftBot-specific CLI profile. Async
+    callers should offload this function because the CLI may take time.
     """
     try:
         from craftos_integrations.llm_oauth import tokens as _oauth_tokens
     except Exception as e:
         return False, f"Subscription OAuth backend unavailable: {e}"
     success, message = _oauth_tokens.disconnect(provider)
-    _persist_auth_mode(provider, "api_key")
+    if success:
+        _persist_auth_mode(provider, "api_key")
     return success, message
 
 

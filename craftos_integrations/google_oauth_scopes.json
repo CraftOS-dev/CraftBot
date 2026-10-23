@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "identity_scopes": ["https://www.googleapis.com/auth/userinfo.email"],
+  "services": {
+    "gmail": ["https://www.googleapis.com/auth/gmail.modify"],
+    "google_calendar": ["https://www.googleapis.com/auth/calendar"],
+    "google_drive": ["https://www.googleapis.com/auth/drive"],
+    "google_docs": ["https://www.googleapis.com/auth/drive"],
+    "google_youtube": ["https://www.googleapis.com/auth/youtube.force-ssl"]
+  },
+  "console_scopes": [
+    "https://www.googleapis.com/auth/userinfo.email",
+    "https://www.googleapis.com/auth/gmail.modify",
+    "https://www.googleapis.com/auth/calendar",
+    "https://www.googleapis.com/auth/drive",
+    "https://www.googleapis.com/auth/youtube.force-ssl"
+  ],
+  "notes": [
+    "Target scope configuration for the review build; not a claim about the deployed app or current Console.",
+    "Each service requests its own scopes plus identity_scopes. Docs and Drive use separate account connections with the same Drive scope.",
+    "Existing approved production scopes must be migrated according to Google's instructions; do not remove them solely to match this target manifest."
+  ]
+}

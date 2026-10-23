@@ -1,0 +1,144 @@
+"""Shared data types for the Mini Browser.
+
+Everything in here lives on the Mini Browser host loop (see ``host.py``);
+nothing is safe to mutate from other threads.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import time
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional, Set, Tuple
+
+# Who owns a tab. ``None`` owner == a tab the user opened themselves. Every
+# session has a browser of its own, so a tab's owner is that session's agent
+# or one of its sub-agents.
+OWNER_KIND_USER = "user"
+OWNER_KIND_MAIN = "main"  # the main session (also scheduled/proactive runs)
+OWNER_KIND_SESSION = "session"  # a chat / Agent App session
+OWNER_KIND_SUBAGENT = "subagent"
+
+# Agent-facing notice kinds collected on a tab and attached to the owner's
+# next action result (``events``) and mirrored to the UI as toasts.
+EVENT_DIALOG = "dialog"
+EVENT_DOWNLOAD = "download"
+EVENT_POPUP = "popup"
+EVENT_BLOCKED = "blocked"
+EVENT_CRASH = "crash"
+EVENT_NOTICE = "notice"
+EVENT_ERROR = "error"
+
+# Why a tab went away (``Tab.closed_reason``).
+CLOSED_TAB = "tab"  # the tab itself was closed (user, page, owner released)
+CLOSED_BROWSER = "browser"  # the whole browser closed (user, idle, crash)
+
+
+@dataclass(eq=False)
+class Tab:
+    """One browser tab and the bookkeeping the Mini Browser keeps for it."""
+
+    id: str
+    page: Any
+    owner: Optional[str] = None
+    owner_label: str = ""
+    owner_kind: str = OWNER_KIND_USER
+    parent_owner: Optional[str] = None  # parent session of a sub-agent owner
+
+    # Serialises multi-step AGENT operations on this tab. Raw user input does
+    # not take it (it must stay responsive).
+    lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+
+    created_at: float = field(default_factory=time.monotonic)
+    last_agent_use: float = 0.0
+    last_user_input: float = 0.0
+
+    # True while the user has taken control: agent ops on this tab are refused
+    # with MINI_BROWSER_USER_IN_CONTROL until the user hands it back.
+    user_control: bool = False
+
+    loading: bool = False
+    crashed: bool = False
+    url: str = "about:blank"
+    title: str = ""
+    can_go_back: bool = False
+    can_go_forward: bool = False
+
+    # Element ids handed to the agent are "<snapshot_gen>-<n>" in the DOM
+    # (data-mb-id) and plain ``n`` for the agent; bumping the generation on
+    # every observation makes stale ids fail loudly instead of mis-clicking.
+    snapshot_gen: int = 0
+
+    # Last known pointer position in CSS px (for human-like mouse paths).
+    mouse_x: float = -1.0
+    mouse_y: float = -1.0
+
+    # Pending agent-facing notices (dialogs, downloads, popups, blocks).
+    events: List[Dict[str, Any]] = field(default_factory=list)
+
+    # Per-page CDP session (network blocking, screencast, stop-loading).
+    cdp: Any = None
+
+    # The site icon as a data: URL (None: none known), and the page address
+    # it was looked up for.
+    favicon: Optional[str] = None
+    favicon_page: str = ""
+
+    # In-flight agent operation tasks (so Stop can cancel them).
+    ops: Set[asyncio.Task] = field(default_factory=set)
+
+    # Secrets typed into this tab by vault autofill — used ONLY to scrub
+    # outgoing text. Never serialise this field anywhere.
+    filled_secrets: List[str] = field(default_factory=list, repr=False)
+
+    # Texts an agent typed here recently: hash of (page, field, text) ->
+    # (times, first time, field token). Stops a delete-and-retype loop
+    # (ops.TYPE_REPEAT_LIMIT).
+    typed_history: Dict[str, Tuple[int, float, str]] = field(
+        default_factory=dict, repr=False
+    )
+
+    # The tab whose page opened this one (popups), so closing a popup returns
+    # its owner (and the view) to where it came from.
+    opener_id: Optional[str] = None
+
+    # Set once the tab is gone: ``closed_reason`` is CLOSED_TAB (the tab
+    # itself was closed) or CLOSED_BROWSER (the whole browser went away).
+    # ``closed_event`` wakes anything waiting on the tab (agent operations
+    # end at once with MINI_BROWSER_TAB_CLOSED / MINI_BROWSER_CLOSED).
+    closed: bool = False
+    closed_reason: Optional[str] = None
+    closed_event: asyncio.Event = field(default_factory=asyncio.Event, repr=False)
+
+    # Chromium identifiers: the page's CDP target and the browser window it
+    # lives in. Agents get a window each, so their tabs are never background
+    # tabs of one another (a background tab's input is throttled to ~1 s).
+    target_id: Optional[str] = None
+    window_id: Optional[int] = None
+
+    # Circuit breaker for continuous live-view input (mouse moves, wheel):
+    # set when the page stopped answering, cleared by a successful probe,
+    # a navigation, a reload or crash recovery.
+    unresponsive: bool = False
+
+    # When an agent claimed this tab while it still showed the user's page,
+    # and which navigation that page was (the core's per-tab navigation
+    # counter). While that same page asks "leave site?" shortly after, it is
+    # not left silently.
+    left_user_at: float = 0.0
+    left_user_nav: int = -1
+
+    def touch_agent(self) -> None:
+        self.last_agent_use = time.monotonic()
+
+    def touch_user(self) -> None:
+        self.last_user_input = time.monotonic()
+
+    def mark_closed(self, reason: str) -> None:
+        """The tab is gone: wake everything waiting on it. Idempotent."""
+        if self.closed:
+            return
+        self.closed = True
+        self.closed_reason = reason
+        self.user_control = False
+        self.closed_event.set()

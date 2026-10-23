@@ -10,13 +10,11 @@ What it provides
 
   - ``GoogleCredential`` — single dataclass shape for every Google service's
     credential file. All services use the same shape because they all hold
-    the same kind of token; they just differ in *which* file the token is
-    saved to.
+    the same kind of token; per-service connections keep them separate.
 
   - ``GMAIL_SCOPES``, ``CALENDAR_SCOPES``, ``DRIVE_SCOPES``, ``DOCS_SCOPES``,
     ``YOUTUBE_SCOPES``, ``USERINFO_SCOPES`` — per-service scope strings.
-    ``ALL_GOOGLE_SCOPES`` is the union (used by the "connect everything"
-    workspace integration).
+    Each connector requests only its own service scope and account email.
 
   - ``make_google_oauth(scopes)`` — factory returning a per-service
     ``OAuthFlow`` instance. Each handler holds its own; differs from the
@@ -71,32 +69,15 @@ GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v2/userinfo"
 
 # Always requested alongside the service scope so we can populate
 # ``GoogleCredential.email`` from the userinfo endpoint.
-USERINFO_SCOPES = (
-    "https://www.googleapis.com/auth/userinfo.email "
-    "https://www.googleapis.com/auth/userinfo.profile"
-)
+USERINFO_SCOPES = "https://www.googleapis.com/auth/userinfo.email"
 
 GMAIL_SCOPES = "https://www.googleapis.com/auth/gmail.modify"
 CALENDAR_SCOPES = "https://www.googleapis.com/auth/calendar"
 DRIVE_SCOPES = "https://www.googleapis.com/auth/drive"
-DOCS_SCOPES = "https://www.googleapis.com/auth/documents"
-YOUTUBE_SCOPES = (
-    "https://www.googleapis.com/auth/youtube.readonly "
-    "https://www.googleapis.com/auth/youtube.force-ssl"
-)
-CONTACTS_SCOPES = "https://www.googleapis.com/auth/contacts.readonly"
-
-# Union — used by the "connect everything" Workspace integration.
-ALL_GOOGLE_SCOPES = " ".join(
-    [
-        GMAIL_SCOPES,
-        CALENDAR_SCOPES,
-        DRIVE_SCOPES,
-        CONTACTS_SCOPES,
-        USERINFO_SCOPES,
-        YOUTUBE_SCOPES,
-    ]
-)
+# Docs content methods accept Drive authorization. Its file discovery,
+# copying, deletion and export features also use the Drive API.
+DOCS_SCOPES = DRIVE_SCOPES
+YOUTUBE_SCOPES = "https://www.googleapis.com/auth/youtube.force-ssl"
 
 
 # ════════════════════════════════════════════════════════════════════════
@@ -108,9 +89,9 @@ ALL_GOOGLE_SCOPES = " ".join(
 class GoogleCredential:
     """Shape of every Google service's credential file.
 
-    Each service writes the same shape but to a different file
-    (``gmail.json``, ``gcal.json``, …). When the workspace meta-integration
-    connects, it cascades the same credential into all per-service files.
+    Legacy single-account clients write this shape to separate files
+    (``gmail.json``, ``gcal.json``, …). Multi-account providers bind and
+    persist the same fields through their account store.
     """
 
     access_token: str = ""
@@ -288,8 +269,6 @@ __all__ = [
     "DRIVE_SCOPES",
     "DOCS_SCOPES",
     "YOUTUBE_SCOPES",
-    "CONTACTS_SCOPES",
-    "ALL_GOOGLE_SCOPES",
     "make_google_oauth",
     "run_google_login",
     "run_google_logout",

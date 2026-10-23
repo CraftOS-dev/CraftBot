@@ -2,51 +2,16 @@
 """
 Tests for the prompt profiler (issue #322, P2).
 
-Covers the cost-aware pricing single-source and the profiler's aggregation over
+Covers the token-volume profiler's aggregation over
 the captured llm_calls table.
 """
 
 import importlib
 import os
-import tempfile
 
 from app.usage.llm_call_storage import LLMCallStorage, LLMCallRow
-from app.usage.pricing import get_model_pricing, estimate_cost
 
 profiler = importlib.import_module("scripts.prompt_profile")
-
-
-# ── pricing ──────────────────────────────────────────────────────────────────
-
-
-def test_pricing_longest_match_avoids_shadowing():
-    # "gpt-4o" must NOT shadow "gpt-4o-mini"
-    assert get_model_pricing("gpt-4o-mini")["input"] == 0.15
-    assert get_model_pricing("gpt-4o-2024-08")["input"] == 2.50
-    assert get_model_pricing("gemini-2.5-pro")["cached"] == 0.125
-    assert get_model_pricing("claude-opus-4-8")["input"] == 15.00
-    assert get_model_pricing("totally-unknown")["input"] == 1.00  # default
-
-
-def test_estimate_cost_accounts_for_cache():
-    c = estimate_cost(
-        "gemini-2.5-pro", input_tokens=10_000, output_tokens=500, cached_tokens=8_000
-    )
-    # uncached 2000 @1.25 + cached 8000 @0.125 = 0.0035; output 500 @10 = 0.005
-    assert round(c["input_cost"], 6) == 0.0035
-    assert round(c["output_cost"], 6) == 0.005
-    assert round(c["total_cost"], 6) == 0.0085
-    # saved = 8000 * (1.25 - 0.125) / 1e6
-    assert round(c["saved"], 6) == 0.009
-
-
-def test_estimate_cost_clamps_cached_to_input():
-    # cached can't exceed input; must not produce negative uncached cost
-    c = estimate_cost(
-        "gemini-2.5-pro", input_tokens=100, output_tokens=0, cached_tokens=999
-    )
-    assert c["input_cost"] >= 0
-    assert round(c["input_cost"], 8) == round(100 * 0.125 / 1e6, 8)
 
 
 # ── percentile ───────────────────────────────────────────────────────────────
@@ -63,8 +28,8 @@ def test_percentile():
 # ── aggregation ──────────────────────────────────────────────────────────────
 
 
-def _seed():
-    db = os.path.join(tempfile.mkdtemp(), "llm_calls.db")
+def _seed(tmp_path):
+    db = os.path.join(tmp_path, "llm_calls.db")
     s = LLMCallStorage(db_path=db)
     seed = [
         ("SELECT_ACTION_IN_TASK", 2500, 1800, 40, 1200),
@@ -90,8 +55,8 @@ def _seed():
     return db
 
 
-def test_aggregate_groups_and_metrics():
-    db = _seed()
+def test_aggregate_groups_and_metrics(tmp_path):
+    db = _seed(tmp_path)
     rows = profiler.load_rows(db, since=None)
     agg = profiler.aggregate(rows)
 
@@ -103,9 +68,11 @@ def test_aggregate_groups_and_metrics():
     assert task["avg_input_tokens"] == 1900  # (1800+2000)/2
     # cache hit ratio = (1200+1500)/(1800+2000) = 2700/3800
     assert round(task["cache_hit_ratio"], 4) == round(2700 / 3800, 4)
-    assert task["saved_usd"] > 0
+    assert task["total_input_tokens"] == 3800
+    assert task["total_output_tokens"] == 95
+    assert task["errors"] == 0
 
-    # sorted by cost desc → summarization (4000 in/400 out) is the priciest
+    # Ranked by total input volume: summarization has 4000 input tokens.
     assert agg[0]["prompt_name"] == "EVENT_STREAM_SUMMARIZATION"
 
 

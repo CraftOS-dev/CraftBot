@@ -66,7 +66,7 @@ class CommandExecutor:
             True if a command was executed (even if it failed),
             False if the message is not a command
         """
-        if not message.startswith("/"):
+        if not self.handles(message):
             return False
 
         parts = message.split()
@@ -139,6 +139,22 @@ class CommandExecutor:
             )
 
         return True
+
+    @staticmethod
+    def handles(message: str) -> bool:
+        """
+        Check if try_execute consumes a message instead of the agent.
+
+        Any '/'-prefixed input is consumed, known command or not (an
+        unknown one gets an error), so it never reaches the agent.
+
+        Args:
+            message: The user's input message
+
+        Returns:
+            True if the message starts with '/'
+        """
+        return message.startswith("/")
 
     def is_command(self, message: str) -> bool:
         """

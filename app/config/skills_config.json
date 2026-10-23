@@ -4,6 +4,7 @@
     "docx",
     "file-format",
     "pdf",
+    "mini-browser",
     "playwright-mcp",
     "pptx",
     "xlsx",

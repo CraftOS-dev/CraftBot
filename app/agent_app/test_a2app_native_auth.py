@@ -19,6 +19,7 @@ Style follows test_data_safety.py: a module-level assert script, no pytest.
 
 import json
 import os
+import platform
 import shutil
 import socket
 import subprocess
@@ -71,9 +72,13 @@ def _pinned_pb_binary() -> Path:
         root = Path(cache)
     elif os.name == "nt":
         root = Path(os.environ["LOCALAPPDATA"]) / "craftos-agent-app" / "pb"
+    elif sys.platform == "darwin":
+        root = Path.home() / "Library/Caches/craftos-agent-app/pb"
     else:
         root = Path.home() / ".cache" / "craftos-agent-app" / "pb"
-    return root / version / ("pocketbase.exe" if os.name == "nt" else "pocketbase")
+    arch = "arm64" if platform.machine().lower() in ("arm64", "aarch64") else "amd64"
+    exe = "pocketbase.exe" if os.name == "nt" else "pocketbase"
+    return root / version / f"{sys.platform}-{arch}" / exe
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):

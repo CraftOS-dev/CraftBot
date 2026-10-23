@@ -61,16 +61,22 @@ Process 50 lines at a time to avoid memory issues.
 - Silent background task. NEVER use send_message or interact with user.
 - Immediately discard these event types:
   - `[reasoning]`, `[action_start]`, `[gui_action]`, `[screen_description]`
-  - `[agent message]` - agent responses are NEVER saved
   - Greetings, small talk, acknowledgments ("hi", "thanks", "ok")
   - Screen descriptions ("The current screen displays...")
   - Truncated text ending in `...`
-- `[user message]` lines are NEVER discarded by type. They are the PRIMARY
-  source of memories: apply the distillation rules to the CONTENT of every
-  `[user message]` line. A user message that contains a preference, fact,
-  contact, decision, or dated event MUST produce a distilled memory even
-  when it is phrased inside an ordinary request (e.g. "I'm allergic to
-  peanuts, find me a lunch spot" → save the allergy, discard the request).
+- `[user message]` and `[agent message]` lines (including their
+  `from platform: X` / `to platform: X` forms) are NEVER discarded by type:
+  apply the distillation rules to the CONTENT of every one.
+  - `[user message]` lines are the PRIMARY source. A user message that
+    contains a preference, fact, contact, decision, or dated event MUST
+    produce a distilled memory even when it is phrased inside an ordinary
+    request (e.g. "I'm allergic to peanuts, find me a lunch spot" → save the
+    allergy, discard the request).
+  - `[agent message]` lines are a source too. Save what an agent message
+    establishes that passes the Future Utility Test: a meeting it booked for
+    a date, a contact's details it found, an option the user accepted in
+    reply. Read it together with the user messages around it (a user's
+    "yes" means whatever the agent proposed).
 
 ### Format (Strict)
 
@@ -140,8 +146,8 @@ Never truncate mid-sentence; never end an item with `...`.
 - Run lifecycle: `trigger`, `action_start`, `action_end`, `end_turn`
 - Raw transcripts: never copy a `[user message]` or `[agent message]` line
   into MEMORY.md verbatim. This bans COPYING the conversation, not saving
-  from it — `[user message]` content is exactly what you distill memories
-  FROM (see DISTILL, Don't Copy). `[agent message]` lines are discarded.
+  from it: `[user message]` and `[agent message]` content is exactly what
+  you distill memories FROM (see DISTILL, Don't Copy).
 - Transient actions: what user asked agent to do, what agent did
 - Status updates: "completed X", "working on Y", "finished Z"
 - One-time context: information only relevant to the current task
@@ -179,7 +185,7 @@ Only save the memory if it contains lasting value:
 
 **Batch 1 (50 lines):**
 - Line 1: DISCARD (greeting)
-- Line 2: DISCARD (agent message)
+- Line 2: DISCARD (agent status update, "working on it")
 - Line 3: SAVE → `[2026-02-09 06:33:10] [fact] John is an AI researcher`
 - Line 4: SAVE → `[2026-02-09 06:33:10] [event] John has a meeting with Sarah from Company ABC on 15/2/2026, with unknown location`
 - Lines 5-50: DISCARD (routine)

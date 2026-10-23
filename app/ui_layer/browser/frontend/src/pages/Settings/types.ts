@@ -8,6 +8,7 @@ import {
   Package,
   Globe,
   Box,
+  KeyRound,
 } from 'lucide-react'
 
 export type SettingsCategory =
@@ -18,6 +19,7 @@ export type SettingsCategory =
   | 'mcps'
   | 'skills'
   | 'integrations'
+  | 'credentials'
   | 'agent_app'
 
 export interface SettingsCategoryItem {
@@ -110,6 +112,10 @@ export const categories: SettingsCategoryItem[] = [
   {
     id: 'integrations',
     icon: React.createElement(Globe, { size: 18 }),
+  },
+  {
+    id: 'credentials',
+    icon: React.createElement(KeyRound, { size: 18 }),
   },
   {
     id: 'agent_app',

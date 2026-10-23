@@ -2,8 +2,10 @@
 """
 Action Set Management Actions
 
-These actions allow the agent to dynamically manage its session's action sets.
-All three actions belong to the 'core' set and are always available.
+A session's <actions> list is fixed by its type. These actions read the rest
+of the action registry: add_action_sets delivers the schemas of extra sets
+into the session's event stream, list_action_sets lists every set. Both
+belong to the 'core' set and are always available.
 """
 
 from agent_core import action
@@ -12,42 +14,52 @@ from agent_core import action
 @action(
     name="add_action_sets",
     description=(
-        "Load additional action sets from the capability catalog to expand the "
-        "actions available in this session. Use this when you need capabilities "
-        "not currently loaded (e.g. document_processing, image, an integration). "
-        "The catalog in your system prompt lists every available set."
+        "Get the schemas of action sets from the capability catalog that are "
+        "not in <actions> (e.g. document_processing, image, mini_browser for "
+        "using websites, an integration). The schemas, plus workflow guidance "
+        "for any integration among them, arrive in your event stream as an "
+        "action_schemas event; then call those actions by name like any action "
+        "in <actions>. Your <actions> list itself does not change. Unknown "
+        "names are reported back, not loaded."
     ),
     default=False,
     mode="ALL",
     action_sets=["core"],  # Always available
-    parallelizable=False,
     input_schema={
         "action_sets": {
             "type": "array",
             "items": {"type": "string"},
-            "example": ["file_operations", "shell"],
+            "example": ["mini_browser"],
             "description": (
-                "List of action set names to add. "
-                "Use 'list_action_sets' to see available options."
+                "List of action set names, exactly as in the capability "
+                "catalog. Use 'list_action_sets' to see available options."
             ),
         },
     },
     output_schema={
         "success": {
             "type": "boolean",
-            "description": "Whether the operation succeeded.",
+            "description": "False only when none of the requested sets exist.",
         },
-        "current_sets": {
+        "loaded_sets": {
             "type": "array",
-            "description": "Updated list of active action sets for this task.",
+            "description": "The requested sets that exist.",
         },
-        "added_actions": {
+        "actions": {
             "type": "array",
-            "description": "List of new action names now available.",
+            "description": (
+                "Actions whose schemas were added to the event stream. Actions "
+                "already in <actions> or in an earlier action_schemas event are "
+                "not repeated."
+            ),
         },
-        "total_actions": {
-            "type": "integer",
-            "description": "Total number of actions now available.",
+        "unknown_sets": {
+            "type": "array",
+            "description": "Requested names that are not action sets (nothing was loaded for them).",
+        },
+        "hint": {
+            "type": "string",
+            "description": "How to fix unknown set names (closest matches, skills to load with use_skill).",
         },
     },
     test_payload={
@@ -56,7 +68,7 @@ from agent_core import action
     },
 )
 def add_action_sets(input_data: dict) -> dict:
-    """Add action sets and recompile the action list for the current task."""
+    """Deliver the schemas of action sets into the session's event stream."""
     action_sets = input_data.get("action_sets", [])
     simulated_mode = input_data.get("simulated_mode", False)
 
@@ -73,100 +85,14 @@ def add_action_sets(input_data: dict) -> dict:
     if simulated_mode:
         return {
             "success": True,
-            "current_sets": ["core"] + action_sets,
-            "added_actions": ["simulated_action_1", "simulated_action_2"],
-            "total_actions": 10,
+            "loaded_sets": action_sets,
+            "actions": ["simulated_action_1", "simulated_action_2"],
         }
 
     import app.internal_action_interface as iai
 
     try:
-        result = iai.InternalActionInterface.add_action_sets(
-            action_sets, session_id=input_data.get("_session_id")
-        )
-        return result
-    except Exception as e:
-        return {"success": False, "error": str(e)}
-
-
-@action(
-    name="remove_action_sets",
-    description=(
-        "Unload action sets from this session to reduce available actions. "
-        "Use this to clean up sets that are no longer needed. "
-        "The 'core' set cannot be removed."
-    ),
-    default=False,
-    mode="ALL",
-    action_sets=["core"],  # Always available
-    parallelizable=False,
-    input_schema={
-        "action_sets": {
-            "type": "array",
-            "items": {"type": "string"},
-            "example": ["file_operations"],
-            "description": "List of action set names to remove. Cannot remove 'core' set.",
-        },
-    },
-    output_schema={
-        "success": {
-            "type": "boolean",
-            "description": "Whether the operation succeeded.",
-        },
-        "current_sets": {
-            "type": "array",
-            "description": "Updated list of active action sets for this task.",
-        },
-        "removed_actions": {
-            "type": "array",
-            "description": "List of action names that were removed.",
-        },
-        "total_actions": {
-            "type": "integer",
-            "description": "Total number of actions still available.",
-        },
-    },
-    test_payload={
-        "action_sets": ["file_operations"],
-        "simulated_mode": True,
-    },
-)
-def remove_action_sets(input_data: dict) -> dict:
-    """Remove action sets and recompile the action list for the current task."""
-    action_sets = input_data.get("action_sets", [])
-    simulated_mode = input_data.get("simulated_mode", False)
-
-    if not action_sets:
-        return {
-            "success": False,
-            "error": "No action sets specified to remove.",
-        }
-
-    # Ensure action_sets is a list
-    if not isinstance(action_sets, list):
-        action_sets = [action_sets]
-
-    # Filter out 'core' from removal request
-    action_sets = [s for s in action_sets if s != "core"]
-
-    if not action_sets:
-        return {
-            "success": False,
-            "error": "Cannot remove 'core' set. No other sets specified.",
-        }
-
-    if simulated_mode:
-        return {
-            "success": True,
-            "current_sets": ["core"],
-            "removed_actions": ["simulated_removed_action"],
-            "total_actions": 5,
-        }
-
-    import app.internal_action_interface as iai
-
-    try:
-        result = iai.InternalActionInterface.remove_action_sets(
+        result = iai.InternalActionInterface.load_action_sets(
             action_sets, session_id=input_data.get("_session_id")
         )
         return result
@@ -178,7 +104,7 @@ def remove_action_sets(input_data: dict) -> dict:
     name="list_action_sets",
     description=(
         "List all available action sets and their descriptions. "
-        "Also shows which sets are currently loaded in this session."
+        "Also shows which sets this session's <actions> list holds."
     ),
     default=False,
     mode="ALL",
@@ -191,7 +117,10 @@ def remove_action_sets(input_data: dict) -> dict:
         },
         "current_sets": {
             "type": "array",
-            "description": "List of action sets currently active for this task.",
+            "description": (
+                "Action sets in this session's <actions> list. Fixed by the "
+                "session type; add_action_sets does not change it."
+            ),
         },
     },
     test_payload={
@@ -199,7 +128,7 @@ def remove_action_sets(input_data: dict) -> dict:
     },
 )
 def list_action_sets(input_data: dict) -> dict:
-    """List all available action sets and current task's active sets."""
+    """List all available action sets and the session's <actions> sets."""
     simulated_mode = input_data.get("simulated_mode", False)
 
     if simulated_mode:
@@ -207,10 +136,9 @@ def list_action_sets(input_data: dict) -> dict:
             "available_sets": {
                 "core": "Essential actions (always included)",
                 "file_operations": "File and folder manipulation",
-                "web_research": "Web search and browsing",
                 "document_processing": "PDF and document handling",
-                "clipboard": "Clipboard operations",
-                "shell": "Command line execution",
+                "image": "Image viewing, analysis, and OCR",
+                "mini_browser": "Mini Browser: operate websites in a live Chromium",
             },
             "current_sets": ["core", "file_operations"],
         }

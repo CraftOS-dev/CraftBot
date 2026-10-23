@@ -1,0 +1,57 @@
+/* The panel sits on the chat's left (stacked: above it), the seam between
+   them. Closed, the panel and seam tracks are zero and the chat fills the
+   workspace; opening and closing animate these tracks. */
+.workspace { display: grid; grid-template-areas: "pane seam chat"; grid-template-columns: 0px 0px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); height: 100%; width: 100%; min-width: 0; min-height: 0; overflow: hidden; }
+.open { grid-template-columns: minmax(0, 1fr) 1px minmax(0, var(--conversation-width)); }
+.stacked { grid-template-areas: "pane" "seam" "chat"; grid-template-columns: minmax(0, 1fr); grid-template-rows: 0px 0px minmax(0, 1fr); }
+.stacked.open { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, var(--panel-share)) 1px minmax(0, var(--chat-share)); }
+.conversation { grid-area: chat; position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
+.chat { flex: 1; min-height: 0; }
+.pane { grid-area: pane; container: output-pane / inline-size; display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; background: var(--bg-primary); }
+
+/* The panel's buttons: round icons floating at the chat's top left. */
+.switcher { position: absolute; top: 10px; left: 12px; z-index: 3; display: flex; gap: 6px; }
+/* Same look as the chat's scroll-to-latest button (Chat.module.css), without its shadow. */
+.switcher button { position: relative; display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 1px solid var(--border-primary); border-radius: 50%; background: var(--bg-secondary); color: var(--text-secondary); cursor: pointer; transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease; }
+.switcher button:hover { background: var(--bg-tertiary); color: var(--text-primary); }
+.switcher button[aria-expanded=true] { border-color: var(--text-primary); background: var(--text-primary); color: var(--bg-primary); }
+/* The chat's browser runs; it pulses while an agent is browsing in it. */
+.browserDot { position: absolute; top: 1px; right: 1px; width: 8px; height: 8px; border-radius: 50%; background: var(--text-tertiary); box-shadow: 0 0 0 2px var(--bg-primary); }
+.browserDotBusy { background: var(--color-success); animation: browserDotPulse 1.6s ease-in-out infinite; }
+@keyframes browserDotPulse { 50% { opacity: .35; } }
+
+/* The seam, as on an Agent App: a hairline divider with a pill grip on it.
+   Drag to resize, click to close. A transparent ::after widens the grab
+   zone; the pill is purely visual. */
+.seam { grid-area: seam; position: relative; z-index: 2; background: var(--border-primary); cursor: col-resize; touch-action: none; outline: none; }
+.seam::after { content: ''; position: absolute; top: 0; bottom: 0; left: -4px; width: 9px; }
+.grip { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 5px; height: 58px; border-radius: var(--radius-full); background: var(--text-muted); pointer-events: none; transition: background var(--transition-fast), height var(--transition-fast), width var(--transition-fast); }
+.seam:hover .grip, .seam:focus-visible .grip, .resizing .grip { background: var(--text-secondary); width: 7px; }
+.seam:focus-visible .grip { outline: 2px solid var(--text-secondary); outline-offset: 2px; }
+.stacked .seam { cursor: row-resize; }
+.stacked .seam::after { top: -4px; bottom: auto; left: 0; right: 0; width: auto; height: 9px; }
+.stacked .grip { width: 42px; height: 4px; }
+.stacked .seam:hover .grip, .stacked .seam:focus-visible .grip, .stacked.resizing .grip { width: 60px; height: 5px; }
+.resizing { cursor: col-resize; user-select: none; }
+.stacked.resizing { cursor: row-resize; }
+.resizing iframe { pointer-events: none; }
+.closing .seam { visibility: hidden; }
+
+.reference { display: flex; align-items: center; gap: 12px; width: 100%; min-width: 0; padding: 14px; border: 1px solid var(--border-primary); border-radius: 12px; color: var(--text-primary); background: var(--bg-secondary); text-align: left; cursor: pointer; transition: border-color .15s, background .15s; }
+.reference:hover { border-color: var(--border-hover); background: var(--bg-hover); }
+.reference > svg { flex-shrink: 0; color: var(--text-tertiary); }
+/* A closed output: listed, nothing to open. */
+.referenceClosed { cursor: default; opacity: .7; }
+.referenceClosed:hover { border-color: var(--border-primary); background: var(--bg-secondary); }
+.referenceIcon { display: grid; place-items: center; flex-shrink: 0; width: 38px; height: 42px; border: 1px solid var(--border-primary); border-radius: 8px; background: var(--bg-primary); color: var(--text-secondary); }
+.referenceText { display: flex; flex: 1; flex-direction: column; gap: 5px; min-width: 0; }
+.referenceText strong { font-size: 13px; font-weight: 500; line-height: 1.4; overflow-wrap: anywhere; }
+.referenceText > span { color: var(--text-secondary); font-size: 11px; }
+.workspace button:focus-visible, .workspace select:focus-visible { outline: 2px solid var(--text-secondary); outline-offset: 2px; }
+.reference > svg { transition: transform 180ms cubic-bezier(.22, 1, .36, 1); }
+.reference:hover > svg { transform: translate(2px, -2px); }
+@media (prefers-reduced-motion: reduce) {
+  .workspace button, .workspace select, .grip, .reference > svg { transition: none; }
+  .browserDotBusy { animation: none; }
+  .reference:hover > svg { transform: none; }
+}

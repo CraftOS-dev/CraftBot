@@ -5,6 +5,7 @@
  *
  *   const bridge = require(`${__hooks}/_craftbot_bridge.js`);
  *   const text = bridge.callLLM('Summarize: ...', 'You are terse.');
+ *   const obj = JSON.parse(bridge.callLLM(prompt, system, { json: true }) || 'null');
  *   const res = bridge.callAction('send_gmail', { to, subject, body });
  *   const raw = bridge.callIntegration('slack', 'POST', '/chat.postMessage', { ... });
  *
@@ -14,7 +15,12 @@
  * real paths/payloads there). All no-op gracefully outside CraftBot.
  */
 
-function callLLM(prompt, systemMessage) {
+/**
+ * options.json: the provider's JSON mode constrains the reply to one JSON
+ * object (the prompt must still describe the object's shape). Use it whenever
+ * the hook JSON.parse()s the reply, never for prose.
+ */
+function callLLM(prompt, systemMessage, options) {
   try {
     const bridge = $os.getenv('CRAFTBOT_BRIDGE_URL');
     const token = $os.getenv('CRAFTBOT_BRIDGE_TOKEN');
@@ -22,7 +28,11 @@ function callLLM(prompt, systemMessage) {
     const res = $http.send({
       url: bridge + '/api/bridge/llm',
       method: 'POST',
-      body: JSON.stringify({ prompt: prompt, system_message: systemMessage || '' }),
+      body: JSON.stringify({
+        prompt: prompt,
+        system_message: systemMessage || '',
+        json_mode: !!(options && options.json),
+      }),
       headers: {
         'content-type': 'application/json',
         authorization: 'Bearer ' + token,

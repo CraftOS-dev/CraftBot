@@ -323,9 +323,9 @@ class OnboardingFlowController:
     def _subscription_connected(provider: str) -> bool:
         """True when an OAuth subscription credential is stored for ``provider``."""
         try:
-            from app.ui_layer.settings.provider_settings import get_subscription_status
+            from craftos_integrations.llm_oauth.tokens import has_credential
 
-            return bool(get_subscription_status(provider).get("connected"))
+            return has_credential(provider)
         except Exception:
             return False
 
@@ -361,7 +361,11 @@ class OnboardingFlowController:
             save_settings_to_json("openrouter", api_key)
             from app.ui_layer.settings.model_settings import update_model_settings
 
-            update_model_settings(llm_model=or_model, vlm_model=or_model)
+            update_model_settings(
+                llm_model=or_model,
+                vlm_model=or_model,
+                include_subscription_status=False,
+            )
             return "openrouter"
 
         if provider and api_key:
@@ -422,7 +426,9 @@ class OnboardingFlowController:
             if MODEL_REGISTRY.get(provider, {}).get(InterfaceType.IMAGE_GEN):
                 from app.ui_layer.settings.model_settings import update_model_settings
 
-                update_model_settings(image_gen_provider=provider)
+                update_model_settings(
+                    image_gen_provider=provider, include_subscription_status=False
+                )
                 if agent:
                     agent.reinitialize_image_gen(provider)
                 logger.info(

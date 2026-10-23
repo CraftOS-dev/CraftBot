@@ -352,11 +352,7 @@ def _marketplace_catalogue() -> List[Dict[str, Any]]:
             raw = None
     if raw is None:
         try:
-            import urllib.request
-
-            url = marketplace_source.catalogue_url()
-            with urllib.request.urlopen(url, timeout=4) as response:
-                raw = json.loads(response.read().decode("utf-8"))
+            raw = marketplace_source.fetch_catalogue(timeout=4)
         except Exception as e:
             logger.debug(f"[WIZARD] marketplace catalogue unavailable: {e}")
             raw = None

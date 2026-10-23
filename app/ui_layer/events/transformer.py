@@ -116,6 +116,7 @@ class EventTransformer:
                 "session_id": session_id,
                 "continue_work": bool(event.continue_work),
                 "question": event.question,
+                "ui_artifact": event.ui_artifact,
             },
             timestamp=ts,
             task_id=session_id,
@@ -287,6 +288,8 @@ def _install_dispatch() -> None:
         # bus by react()'s _announce_trigger, so the stream copy stays hidden
         # (also keeps the restart-restore replay from double-posting it).
         EventType.TRIGGER: EventTransformer._build_hidden,
+        # Action schemas are prompt material for the model, not chat content.
+        EventType.ACTION_SCHEMAS: EventTransformer._build_hidden,
     }
 
 

@@ -58,6 +58,23 @@ const LEGACY_RULES: LegacyRule[] = [
   exactKey('lastSeenMessageIdBySession', UI_STATE.chat.lastSeenMessageIds, json),
 ]
 
+/** Promote a family's former lifetime without replacing newer shared state.
+ * Keep the source when storage is unavailable or full, so retry cannot lose it.
+ * Families retaining their defaults also preserve resets against stale tabs. */
+export function migrateUiStateFamily<T>(
+  source: UiStorage,
+  target: UiStorage,
+  family: (id: string) => UiStateDescriptor<T>,
+): void {
+  const prefix = family('').key
+  for (const [key, value] of Object.entries(source.readAll())) {
+    if (!key.startsWith(prefix)) continue
+    const descriptor = family(key.slice(prefix.length))
+    if (!descriptor.isValid(target.read(key)) && descriptor.isValid(value)) target.write(key, value)
+    if (descriptor.isValid(target.read(key)) || !descriptor.isValid(value)) source.remove(key)
+  }
+}
+
 export function migrateLegacyUiStorage(
   target: UiStorage,
   resolveLegacyArea: () => Storage = () => window.localStorage,

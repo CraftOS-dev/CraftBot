@@ -66,12 +66,20 @@ from agent_core import action
         },
         "action_sets": {
             "type": "array",
-            "description": "Action sets to enable for the task. If empty, will be auto-selected by LLM.",
-            "example": ["file_operations", "web_research"],
+            "description": (
+                "Optional. Action sets (names from the Capability Catalog) to load "
+                "when the task runs, e.g. ['mini_browser'] for a task that must "
+                "operate a website (log in, fill forms, check an account page). "
+                "Core is always loaded; the run can still load more sets itself."
+            ),
+            "example": ["mini_browser"],
         },
         "skills": {
             "type": "array",
-            "description": "Skills to load for the task.",
+            "description": (
+                "Optional. Skills to load for the task (a user skill also loads "
+                "the action sets its SKILL.md declares)."
+            ),
             "example": ["day-planner"],
         },
         "payload": {

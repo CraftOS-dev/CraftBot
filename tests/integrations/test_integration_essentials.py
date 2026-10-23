@@ -1,5 +1,5 @@
-"""Just-in-time essentials matching (word boundaries, bare tokens,
-specific-key suppression, provider GUIDANCE.md sourcing)."""
+"""Integration guidance delivered with an integration's action schemas
+(provider GUIDANCE.md sourcing, connected-accounts note, provider ids)."""
 
 from __future__ import annotations
 
@@ -23,50 +23,58 @@ def essentials():
     return module
 
 
-def _ids(essentials, message):
-    return re.findall(
-        r"^### (\S+)", essentials.get_essentials_for_message(message), re.M
+def _ids(block):
+    return re.findall(r"^### (\S+)", block, re.M)
+
+
+def test_provider_ids_are_the_provider_directories(essentials):
+    ids = essentials.integration_ids()
+    assert {"gmail", "google_calendar", "discord"} <= ids
+    assert not any(i.startswith(("_", ".")) for i in ids)
+    assert "__pycache__" not in ids
+
+
+@pytest.mark.parametrize(
+    "set_names,expected",
+    [
+        (["github", "github_workflows", "github_releases"], {"github"}),
+        (["stripe_disputes", "jira_attachments"], {"stripe", "jira"}),
+        (["google_calendar_admin"], {"google_calendar"}),
+        (["githubish", "custom_github", "document_processing"], set()),
+        ([], set()),
+    ],
+)
+def test_provider_ids_for_action_sets(essentials, set_names, expected):
+    assert essentials.integration_ids_for_action_sets(iter(set_names)) == expected
+
+
+def test_subgroups_use_the_longest_provider_id(essentials, monkeypatch):
+    monkeypatch.setattr(
+        essentials, "integration_ids", lambda: {"google", "google_calendar"}
     )
-
-
-def test_bare_calendar_matches_calendar_integrations(essentials):
-    # The original bug this file exists to fix: only "google calendar"
-    # matched; "what's on my school calendar" injected nothing.
-    ids = _ids(essentials, "what's on my school calendar")
-    assert "google_calendar" in ids
-    assert "lark_calendar" in ids  # ambiguous bare word → both candidates
-
-
-def test_bare_docs_drive_youtube_match(essentials):
-    assert _ids(essentials, "open that docs file") == ["google_docs"]
-    assert set(_ids(essentials, "upload it to drive")) == {
-        "google_drive",
-        "lark_drive",
-    }
-    assert _ids(essentials, "check youtube comments") == ["google_youtube"]
-
-
-def test_word_boundaries_prevent_false_positives(essentials):
-    assert _ids(essentials, "the doctor said to check docker drivers") == []
-    assert _ids(essentials, "the online documentation") == []
-
-
-def test_specific_key_suppresses_generic_family_token(essentials):
-    assert _ids(essentials, "open my google docs") == ["google_docs"]
-    assert _ids(essentials, "lark calendar event") == ["lark_calendar"]
+    assert essentials.integration_ids_for_action_sets(
+        ["google_calendar", "google_calendar_admin", "google_other"]
+    ) == {"google_calendar", "google"}
 
 
 def test_v2_guidance_is_sourced_with_multi_account_rules(essentials):
-    block = essentials.get_essentials_for_message("send a gmail to alice")
-    assert "### gmail" in block
-    # The provider GUIDANCE.md multi-account rules reach the router.
+    block = essentials.get_essentials_for_integrations(["gmail"])
+    assert _ids(block) == ["gmail"]
+    # The provider GUIDANCE.md multi-account rules reach the model.
     assert "account" in block
     assert "primary" in block.lower()
 
 
-def test_no_mention_no_block(essentials):
-    assert essentials.get_essentials_for_message("what's the weather?") == ""
-    assert essentials.get_essentials_for_message("") == ""
+def test_one_heading_per_integration_in_stable_order(essentials):
+    block = essentials.get_essentials_for_integrations(
+        ["google_calendar", "gmail", "gmail"]
+    )
+    assert _ids(block) == ["gmail", "google_calendar"]
+
+
+def test_no_guidance_no_block(essentials):
+    assert essentials.get_essentials_for_integrations([]) == ""
+    assert essentials.get_essentials_for_integrations(["not_an_integration"]) == ""
 
 
 def test_connected_accounts_injected_into_essentials(essentials, tmp_path, monkeypatch):
@@ -85,7 +93,7 @@ def test_connected_accounts_injected_into_essentials(essentials, tmp_path, monke
     )
     system.set_alias("gmail", "b@y.com", "job search")
     try:
-        block = essentials.get_essentials_for_message("check my gmail")
+        block = essentials.get_essentials_for_integrations(["gmail"])
         assert "Connected accounts:" in block
         assert "a@x.com" in block and "[primary]" in block
         assert 'b@y.com (alias: "job search")' in block
@@ -101,12 +109,7 @@ def test_essentials_without_accounts_have_no_note(essentials, tmp_path, monkeypa
     monkeypatch.setattr(ConfigStore, "project_root", tmp_path)
     bootstrap.reset_system()
     try:
-        block = essentials.get_essentials_for_message("check my gmail")
+        block = essentials.get_essentials_for_integrations(["gmail"])
         assert "Connected accounts:" not in block
     finally:
         bootstrap.reset_system()
-
-
-def test_email_synonym_matches_mail_integrations(essentials):
-    ids = _ids(essentials, "any updates for my job email?")
-    assert "gmail" in ids or "outlook" in ids

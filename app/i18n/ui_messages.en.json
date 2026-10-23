@@ -74,5 +74,6 @@
   "onboarding_field_user_name_label": "Your Name",
   "onboarding_field_user_name_placeholder": "Your name",
   "onboarding_validate_expected_dict": "Expected a dictionary of form values",
-  "onboarding_validate_user_name_too_long": "Name must be 20 characters or fewer"
+  "onboarding_validate_user_name_too_long": "Name must be 20 characters or fewer",
+  "question_dismissed": "Question dismissed. Task interrupted by user."
 }

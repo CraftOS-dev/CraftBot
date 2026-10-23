@@ -21,11 +21,17 @@ export interface UiStateDescriptor<T> {
   readonly key: string
   readonly defaultValue: T
   readonly lifetime: UiStateLifetime
+  /** Retain a reset value so a legacy storage area cannot resurrect it. */
+  readonly persistDefault?: boolean
+  /** Save discrete shared changes before another tab can read them. */
+  readonly writeThrough?: boolean
   /** Accepts a value read back from storage; rejected values fall back to the default. */
   readonly isValid: (value: unknown) => boolean
 }
 
 export interface UiStateOptions {
+  persistDefault?: boolean
+  writeThrough?: boolean
   /** Defaults to "same shape as the default value" (see `matchesShapeOf`). */
   isValid?: (value: unknown) => boolean
 }
@@ -40,6 +46,8 @@ export function defineUiState<T>(
     key,
     defaultValue,
     lifetime,
+    persistDefault: options.persistDefault,
+    writeThrough: options.writeThrough,
     isValid: options.isValid ?? matchesShapeOf(defaultValue),
   })
 }
@@ -94,8 +102,8 @@ export function resolveUiState<T>(descriptor: UiStateDescriptor<T>, stored: unkn
 }
 
 /**
- * Whether a value equals the descriptor's default. Default values are not
- * stored at all, which keeps storage lean and makes "reset" a removal.
+ * Whether a value equals the descriptor's default. Unless persistDefault is
+ * set, defaults are not stored, keeping storage lean and "reset" a removal.
  */
 export function isDefaultUiValue<T>(descriptor: UiStateDescriptor<T>, value: T): boolean {
   const defaults: unknown = descriptor.defaultValue

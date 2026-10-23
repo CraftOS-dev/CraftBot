@@ -47,6 +47,7 @@ export interface Integration {
   has_config?: boolean
   config_fields?: ConfigField[] | null
   connect_help?: string[] | null
+  supports_listening?: boolean
 }
 
 interface IntegrationsSettingsState {

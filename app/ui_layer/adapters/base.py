@@ -260,9 +260,9 @@ class InterfaceAdapter(ABC):
     # Default event handlers - subclasses can override for custom behavior
     # ─────────────────────────────────────────────────────────────────────
 
-    def _handle_user_message(self, event: UIEvent) -> None:
+    def _handle_user_message(self, event: UIEvent) -> Optional[asyncio.Task]:
         """Handle user message event."""
-        asyncio.create_task(
+        return asyncio.create_task(
             self._display_chat_message(
                 "You",
                 event.data.get("message", ""),
@@ -272,7 +272,7 @@ class InterfaceAdapter(ABC):
             )
         )
 
-    def _handle_agent_message(self, event: UIEvent) -> None:
+    def _handle_agent_message(self, event: UIEvent) -> Optional[asyncio.Task]:
         """Handle agent message event."""
         from app.onboarding import onboarding_manager
 
@@ -302,7 +302,7 @@ class InterfaceAdapter(ABC):
                 ChatMessageOption(label=str(o), value=str(o))
                 for o in question["options"]
             ]
-        asyncio.create_task(
+        return asyncio.create_task(
             self._display_chat_message(
                 agent_name,
                 event.data.get("message", ""),
@@ -312,12 +312,13 @@ class InterfaceAdapter(ABC):
                 continue_work=bool(event.data.get("continue_work", False)),
                 is_question=is_question,
                 allow_free_text=allow_free_text,
+                ui_artifact=event.data.get("ui_artifact"),
             )
         )
 
-    def _handle_system_message(self, event: UIEvent) -> None:
+    def _handle_system_message(self, event: UIEvent) -> Optional[asyncio.Task]:
         """Handle system message event."""
-        asyncio.create_task(
+        return asyncio.create_task(
             self._display_chat_message(
                 "System",
                 event.data.get("message", ""),
@@ -327,9 +328,9 @@ class InterfaceAdapter(ABC):
             )
         )
 
-    def _handle_error_message(self, event: UIEvent) -> None:
+    def _handle_error_message(self, event: UIEvent) -> Optional[asyncio.Task]:
         """Handle error message event."""
-        asyncio.create_task(
+        return asyncio.create_task(
             self._display_chat_message(
                 "Error",
                 event.data.get("message", ""),
@@ -338,9 +339,9 @@ class InterfaceAdapter(ABC):
             )
         )
 
-    def _handle_info_message(self, event: UIEvent) -> None:
+    def _handle_info_message(self, event: UIEvent) -> Optional[asyncio.Task]:
         """Handle info message event."""
-        asyncio.create_task(
+        return asyncio.create_task(
             self._display_chat_message(
                 "Info",
                 event.data.get("message", ""),
@@ -349,11 +350,11 @@ class InterfaceAdapter(ABC):
             )
         )
 
-    def _handle_action_start(self, event: UIEvent) -> None:
+    def _handle_action_start(self, event: UIEvent) -> Optional[asyncio.Task]:
         """Handle action start event."""
         if self.action_panel:
             session_id = event.data.get("session_id") or "main"
-            asyncio.create_task(
+            return asyncio.create_task(
                 self.action_panel.add_item(
                     ActionItem(
                         id=event.data.get("action_id", ""),
@@ -366,7 +367,7 @@ class InterfaceAdapter(ABC):
                 )
             )
 
-    def _handle_action_end(self, event: UIEvent) -> None:
+    def _handle_action_end(self, event: UIEvent) -> Optional[asyncio.Task]:
         """Handle action end event."""
         if self.action_panel:
             status = "error" if event.data.get("error") else "completed"
@@ -377,7 +378,7 @@ class InterfaceAdapter(ABC):
             # Get output and error data
             output = event.data.get("output")
             error_message = event.data.get("error_message")
-            asyncio.create_task(
+            return asyncio.create_task(
                 self.action_panel.update_item_by_name(
                     action_name=action_name,
                     session_id=session_id,
@@ -393,10 +394,10 @@ class InterfaceAdapter(ABC):
         it into the session's inline activity feed."""
         pass
 
-    def _handle_state_change(self, event: UIEvent) -> None:
+    def _handle_state_change(self, event: UIEvent) -> Optional[asyncio.Task]:
         """Handle agent state change event."""
         if self.status_bar:
-            asyncio.create_task(
+            return asyncio.create_task(
                 self.status_bar.set_status(event.data.get("status_message", ""))
             )
 
@@ -411,25 +412,25 @@ class InterfaceAdapter(ABC):
         if self.footage_component:
             self.footage_component.set_visible(event.data.get("gui_mode", False))
 
-    def _handle_footage_update(self, event: UIEvent) -> None:
+    def _handle_footage_update(self, event: UIEvent) -> Optional[asyncio.Task]:
         """Handle footage update event."""
         if self.footage_component:
-            asyncio.create_task(
+            return asyncio.create_task(
                 self.footage_component.update(event.data.get("image_bytes", b""))
             )
 
-    def _handle_footage_clear(self, event: UIEvent) -> None:
+    def _handle_footage_clear(self, event: UIEvent) -> Optional[asyncio.Task]:
         """Handle footage clear event."""
         if self.footage_component:
-            asyncio.create_task(self.footage_component.clear())
+            return asyncio.create_task(self.footage_component.clear())
 
     def _handle_show_menu(self, event: UIEvent) -> None:
         """Handle show menu event. Override in Browser adapter."""
         pass
 
-    def _handle_shutdown(self, event: UIEvent) -> None:
+    def _handle_shutdown(self, event: UIEvent) -> Optional[asyncio.Task]:
         """Handle shutdown event. Override in adapters for specific cleanup."""
-        asyncio.create_task(self.stop())
+        return asyncio.create_task(self.stop())
 
     # ─────────────────────────────────────────────────────────────────────
     # Helper methods
@@ -447,6 +448,7 @@ class InterfaceAdapter(ABC):
         is_question: bool = False,
         allow_free_text: bool = True,
         details: Optional[str] = None,
+        ui_artifact: Optional[dict] = None,
     ) -> None:
         """
         Display a chat message.
@@ -485,6 +487,7 @@ class InterfaceAdapter(ABC):
                 # bubble must not add the "Please select a response" banner.
                 requires_choice=not is_question,
                 details=details,
+                ui_artifact=ui_artifact,
             )
         )
 

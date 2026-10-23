@@ -394,10 +394,8 @@
 
 /* Main-row ⓘ hint. The label gives up its flex growth so the icon hugs the
    "Main" text; margin-right:auto on the hint keeps the status dot flush
-   right. The tooltip anchors to .sessionRow (nearest positioned ancestor)
-   and spans the row width (the sidebar clips horizontal overflow, so it
-   must not poke past the row's edges). display:none when hidden so the
-   absolutely-positioned box never inflates the sidebar's scroll height. */
+   right. Hovering it shows .mainInfoTooltip, portalled to <body> by
+   SidebarPopover so the sidebar's edges and bottom toolbar can't clip it. */
 .sessionRowMain .label {
   flex: 0 1 auto;
 }
@@ -416,12 +414,11 @@
 }
 
 .mainInfoTooltip {
-  display: none;
-  position: absolute;
-  top: calc(100% + 2px);
-  left: var(--space-1);
-  right: var(--space-1);
+  position: fixed;
   z-index: var(--z-tooltip);
+  width: 280px;
+  /* Informational only; never steals the hover from the ⓘ icon. */
+  pointer-events: none;
   padding: var(--space-2) var(--space-3);
   background: var(--bg-secondary);
   border: 1px solid var(--border-primary);
@@ -433,11 +430,6 @@
   color: var(--text-secondary);
   text-align: left;
   white-space: normal;
-  cursor: default;
-}
-
-.mainInfo:hover .mainInfoTooltip {
-  display: block;
 }
 
 .mainInfoTooltip strong {
@@ -482,12 +474,11 @@
   background: var(--bg-selected);
 }
 
-/* Context menu dropdown */
+/* Context menu dropdown. Portalled to <body> and placed by SidebarPopover
+   (fixed, below its "…" button), so it can extend past the sidebar's edge. */
 .sessionMenu {
-  position: absolute;
-  top: calc(100% - 2px);
-  right: var(--space-1);
-  z-index: 30;
+  position: fixed;
+  z-index: var(--z-dropdown);
   min-width: 210px;
   padding: var(--space-1);
   background: var(--bg-secondary);
@@ -497,13 +488,6 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
-}
-
-/* Applied by positionSessionMenu() when the dropdown would overflow the
-   bottom of the sidebar scroll area: anchor above the row instead. */
-.sessionMenuUp {
-  top: auto;
-  bottom: calc(100% - 2px);
 }
 
 .sessionMenuItem {
@@ -528,6 +512,22 @@
 
 .sessionMenuItemDanger:hover {
   color: var(--color-error);
+}
+
+/* Row being dragged to a new spot (useSortableList): lifted and tilted above
+   its neighbours, which slide aside to open the drop slot. The tilt uses the
+   standalone `rotate` property, so it eases in on its own while the inline
+   `transform` keeps the row glued to the pointer. */
+.rowDragging {
+  background: var(--bg-secondary);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.3);
+  rotate: 2deg;
+  transition: rotate 120ms ease, box-shadow 120ms ease;
+}
+
+.rowDragging,
+.rowDragging * {
+  cursor: grabbing;
 }
 
 /* Inline rename input */

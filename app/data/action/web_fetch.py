@@ -10,7 +10,8 @@ from agent_core import action
         "'title' returns only the page title (cheap, no content extraction). "
         "When content exceeds max_content_length, the full content is saved to a temp file "
         "and content_file path is returned — use grep_files to search it or read_file with offset/limit to paginate. "
-        "HTTP is auto-upgraded to HTTPS (except localhost). Follows up to 10 redirects automatically."
+        "HTTP is auto-upgraded to HTTPS (except localhost). Follows up to 10 redirects automatically. "
+        "Pages that need a login, JavaScript or interaction: use the Mini Browser (mini_browser action set) instead."
     ),
     mode="CLI",
     action_sets=["core"],
@@ -377,7 +378,11 @@ def web_fetch(input_data: dict) -> dict:
                 0,
                 status_code,
                 status_text,
-                message="No content could be extracted. Site may require JavaScript rendering — use browser tools (Playwright) instead.",
+                message=(
+                    "No content could be extracted. The site may need JavaScript "
+                    "or a login: open it in the Mini Browser instead (load the "
+                    "mini_browser action set, then mini_browser_navigate)."
+                ),
             )
 
         total_content_length = len(content_md)
@@ -433,6 +438,11 @@ def web_fetch(input_data: dict) -> dict:
             ).message
         elif "HTTPError" in error_type:
             msg = f"HTTP error: {str(e)}"
+            if sc in (401, 403):
+                msg += (
+                    " The page may need a login or block automated fetches: "
+                    "open it in the Mini Browser instead (mini_browser action set)."
+                )
         else:
             msg = f"Fetch failed: {str(e)}"
 

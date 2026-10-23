@@ -60,27 +60,11 @@ UNPROCESSED_HEADER = (
 )
 
 
-# Event types that should not be logged to EVENT_UNPROCESSED.md
-# These are routine events that the memory processor always discards anyway
-# Filtering them at write time saves processing and keeps the file smaller
-SKIP_UNPROCESSED_EVENT_TYPES = {
-    # Action lifecycle events
-    "action_start",
-    "action_end",
-    # GUI action events
-    "gui_action",
-    "GUI action start",
-    "GUI action end",
-    # Reasoning and observation
-    "agent reasoning",
-    "screen_description",
-    "todos",
-    "error",
-    # System events
-    "waiting_for_user",
-    # Memory retrieval pointers — re-derivable on demand, not a distillable fact
-    "relevant_memories",
-}
+# The only event types logged to EVENT_UNPROCESSED.md: the conversation
+# itself, i.e. user and agent messages on every platform. Every other event
+# (actions, errors, system notes, requirements, triggers, ...) goes to
+# EVENT.md only, so the memory processor reads dialogue and nothing else.
+UNPROCESSED_EVENT_TYPES = frozenset({EventType.USER_MESSAGE, EventType.AGENT_MESSAGE})
 
 
 class EventStreamManager:
@@ -268,22 +252,48 @@ class EventStreamManager:
         # Check explicit flag (set during memory-processing runs)
         return self._skip_unprocessed_logging
 
-    def _should_skip_event_type(self, kind: str) -> bool:
+    def _should_skip_event_type(self, event_type: Optional[EventType]) -> bool:
         """
         Check if this event type should be skipped for EVENT_UNPROCESSED.md.
 
-        Routine events like action_start, action_end, reasoning, etc. are always
-        discarded by the memory processor, so we filter them at write time.
+        Only user and agent messages are written (UNPROCESSED_EVENT_TYPES);
+        every other type is skipped.
 
         Args:
-            kind: Event category to check
+            event_type: The event's typed category (None for untyped events)
 
         Returns:
             True if this event type should not be written to EVENT_UNPROCESSED.md
         """
-        return kind in SKIP_UNPROCESSED_EVENT_TYPES
+        return event_type not in UNPROCESSED_EVENT_TYPES
 
-    def _log_to_files(self, kind: str, message: str, temp_dir: Optional[Path]) -> None:
+    def clear_event_log(self, session_id: str) -> None:
+        """Empty a session's EVENT.md (the session is starting over).
+
+        The agent greps EVENT.md to recover detail its context no longer
+        holds, so a cleared conversation must not stay there. Its
+        EVENT_UNPROCESSED.md is kept: those events still go to long-term
+        memory at the next memory run.
+        """
+        stream = self._streams.get(session_id)
+        if stream is None or stream.temp_dir is None:
+            return
+        with self._file_lock:
+            event_file = Path(stream.temp_dir) / "EVENT.md"
+            try:
+                if event_file.exists():
+                    event_file.write_text("", encoding="utf-8")
+            except OSError as e:
+                logger.warning(f"[EventStreamManager] Failed to clear EVENT.md: {e}")
+
+    def _log_to_files(
+        self,
+        kind: str,
+        message: str,
+        event_type: Optional[EventType],
+        temp_dir: Optional[Path],
+        to_memory: bool = True,
+    ) -> None:
         """
         Append an event to the writing session's EVENT.md and (optionally)
         EVENT_UNPROCESSED.md.
@@ -297,9 +307,13 @@ class EventStreamManager:
         Args:
             kind: Event category (e.g., "action", "trigger")
             message: Event message content
+            event_type: Typed category; decides whether the event also goes
+                to EVENT_UNPROCESSED.md
             temp_dir: The writing session's workspace dir. ``None`` during very
                 early boot (main stream before its workspace is wired) — the
                 event stays in memory and no file is written.
+            to_memory: False skips EVENT_UNPROCESSED.md for this event
+                regardless of its type (see log()).
         """
         if temp_dir is None:
             return
@@ -321,9 +335,12 @@ class EventStreamManager:
 
             # Write to EVENT_UNPROCESSED.md unless:
             # 1. Skip is active (memory-processing run)
-            # 2. Event type is in the skip list (routine events)
-            if not self._should_skip_unprocessed() and not self._should_skip_event_type(
-                kind
+            # 2. Event is not a user or agent message
+            # 3. The producer opted the event out (to_memory=False)
+            if (
+                to_memory
+                and not self._should_skip_unprocessed()
+                and not self._should_skip_event_type(event_type)
             ):
                 try:
                     unprocessed_file = temp_dir / "EVENT_UNPROCESSED.md"
@@ -359,7 +376,10 @@ class EventStreamManager:
         platform: Optional[str] = None,
         continue_work: Optional[bool] = None,
         question: Optional[dict] = None,
+        ui_artifact: Optional[dict] = None,
+        schema_actions: Optional[List[str]] = None,
         task_id: str | None = None,
+        to_memory: bool = True,
     ) -> int:
         """
         Log directly to a session's event stream.
@@ -374,6 +394,10 @@ class EventStreamManager:
                      falls back to the current turn's stream. (The parameter
                      keeps its historical name because every producer in the
                      codebase passes it as a keyword.)
+            to_memory: False keeps the event out of EVENT_UNPROCESSED.md even
+                when its type is a user or agent message (EVENT.md still gets
+                it). For status lines typed AGENT_MESSAGE only so the chat
+                renders them as agent bubbles.
 
         Returns:
             Index of the logged event within the target stream's tail.
@@ -410,12 +434,14 @@ class EventStreamManager:
             platform=platform,
             continue_work=continue_work,
             question=question,
+            ui_artifact=ui_artifact,
+            schema_actions=schema_actions,
         )
 
         # Also log to the writing session's markdown files for persistence.
         # `stream` is the resolved per-session stream, so stream.temp_dir points
         # at that session's workspace dir (its own EVENT.md / EVENT_UNPROCESSED.md).
-        self._log_to_files(kind, message, stream.temp_dir)
+        self._log_to_files(kind, message, event_type, stream.temp_dir, to_memory)
 
         return idx
 

@@ -480,7 +480,6 @@ class ContextEngine:
                     f"AND write it to keep working notes that must survive "
                     f"event-stream summarization."
                 )
-            lines.append(f"Loaded Action Sets: {['core'] + list(session.action_sets)}")
             if session.selected_skills:
                 lines.append(f"Loaded Skills: {list(session.selected_skills)}")
 

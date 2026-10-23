@@ -26,6 +26,7 @@ _SESSION_TYPES = frozenset(
         "session_delete",
         "session_rename",
         "session_clear",
+        "session_seen",
         "chat_history",
         "chat_attachment_upload",
         "option_click",
@@ -47,6 +48,18 @@ _TYPE_LANES = {
     "command_list": "skills",
     "create_skill_from_session": "skills",
     "reset": "reset",
+    # Mini Browser: page loads never hold up the live view's input, live
+    # input (kept in order in its own lane, and coalesced by
+    # app/mini_browser/ws.py) never holds up the controls, closing the
+    # browser and taking or handing back control never wait behind either,
+    # and a Chromium install (minutes) never holds up anything.
+    "mini_browser_navigate": "mini_browser_nav",
+    "mini_browser_history": "mini_browser_nav",
+    "mini_browser_tab": "mini_browser_nav",
+    "mini_browser_input": "mini_browser_input",
+    "mini_browser_control": "mini_browser_control",
+    "mini_browser_shutdown": "mini_browser_shutdown",
+    "mini_browser_install": "mini_browser_install",
 }
 
 # Message-type prefix → lane; first match wins.
@@ -73,6 +86,9 @@ _PREFIX_LANES = (
     ("dashboard_", "dashboard"),
     ("subscribe_dashboard_", "dashboard"),
     ("unsubscribe_dashboard_", "dashboard"),
+    # The password vault before the general Mini Browser prefix.
+    ("mini_browser_vault_", "mini_browser_vault"),
+    ("mini_browser_", "mini_browser"),
 )
 
 GENERAL_LANE = "general"

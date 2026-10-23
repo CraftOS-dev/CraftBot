@@ -151,6 +151,11 @@ export function arrField(obj: Record<string, unknown> | null, key: string): unkn
   return parseArray(obj?.[key])
 }
 
+export function numField(obj: Record<string, unknown> | null, key: string): number | undefined {
+  const v = obj?.[key]
+  return typeof v === 'number' ? v : undefined
+}
+
 export function dictField(obj: Record<string, unknown> | null, key: string): Record<string, unknown> | null {
   const v = obj?.[key]
   if (v && typeof v === 'object' && !Array.isArray(v)) {

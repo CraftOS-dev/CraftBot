@@ -473,7 +473,7 @@ export function OpenRouterModelPicker({
             type="text"
             value={value}
             onChange={(e) => onChange(e.target.value)}
-            placeholder="anthropic/claude-sonnet-4.5"
+            placeholder="anthropic/claude-sonnet-5.5"
           />
         </div>
       </div>

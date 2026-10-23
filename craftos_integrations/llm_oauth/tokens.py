@@ -10,11 +10,15 @@ One public function the factory cares about — ``get_bearer(provider)``:
     else:
         # fall back to stored API key
 
-The provider arg is the LLM-factory provider name (``openai``, ``grok``),
+The provider arg is the LLM-factory provider name (``openai``, ``grok``, ``anthropic``),
 NOT the OAuth credential slug — the mapping lives here. Returning ``None``
 means "no subscription connected; caller should fall back". A raised
 ``RuntimeError`` means "connected but the refresh blew up" — caller should
 surface the message so the user can reconnect.
+
+Claude subscriptions use the official Claude Code CLI instead of exporting a
+bearer. Their connect/status/disconnect operations share this facade, while
+the model factory constructs a CLI client from their local connection flag.
 
 Refresh contract: every call checks the on-disk credential, refreshes if it
 expires in <5 min, persists the new tokens, returns a still-fresh access
@@ -41,9 +45,12 @@ def _lock_for(provider: str) -> threading.Lock:
 
 
 # The factory's provider name → the OAuth backend module that handles it.
-# Anthropic is intentionally absent: Pro/Max OAuth is forbidden by ToS
-# since Feb 2026. Adding it here would silently re-enable a banned path.
+# Anthropic delegates sign-in and inference to the official Claude Code CLI.
 def _backend_for(provider: str):
+    if provider == "anthropic":
+        from . import claude_code
+
+        return claude_code
     if provider == "openai":
         from . import chatgpt
 
@@ -77,6 +84,9 @@ def get_bearer(provider: str) -> Optional[Tuple[str, Optional[str], Dict[str, st
     backend = _backend_for(provider)
     if backend is None:
         return None
+    # Claude Code owns its OAuth credentials; there is no bearer to export.
+    if not hasattr(backend, "load_and_refresh"):
+        return None
     if not backend.has_credential():
         return None
     with _lock_for(provider):
@@ -94,7 +104,7 @@ def get_bearer(provider: str) -> Optional[Tuple[str, Optional[str], Dict[str, st
 
 
 def has_credential(provider: str) -> bool:
-    """True if there's an OAuth credential on disk for this provider."""
+    """True if there's an OAuth credential or CLI opt-in for this provider."""
     backend = _backend_for(provider)
     return backend is not None and backend.has_credential()
 
@@ -104,6 +114,8 @@ def status(provider: str) -> Dict[str, object]:
     backend = _backend_for(provider)
     if backend is None:
         return {"supported": False, "connected": False}
+    if hasattr(backend, "status"):
+        return backend.status()
     if not backend.has_credential():
         return {"supported": True, "connected": False}
     cred = backend.load()
@@ -128,8 +140,8 @@ async def connect(provider: str) -> Tuple[bool, str]:
 
 
 def disconnect(provider: str) -> Tuple[bool, str]:
-    """Remove stored OAuth credentials. No server-side revocation —
-    refresh tokens expire on their own."""
+    """Disconnect a subscription. Claude Code logs out its dedicated profile;
+    other backends remove their stored credential without remote revocation."""
     backend = _backend_for(provider)
     if backend is None:
         return False, f"Subscription auth not supported for '{provider}'"

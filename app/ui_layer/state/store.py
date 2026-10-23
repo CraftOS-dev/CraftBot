@@ -1,32 +1,24 @@
-"""Reactive state store with reducer pattern."""
+"""State store with reducer pattern."""
 
 from __future__ import annotations
 
-from copy import deepcopy
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable, Dict
 
 from app.ui_layer.state.ui_state import UIState, AgentStateType, ActionItemState
 
 
-# Type alias for state change listeners
-StateListener = Callable[[UIState, UIState], None]
-
-
 class UIStateStore:
     """
-    Reactive state store with reducer pattern.
+    State store with reducer pattern.
 
     State changes are made through dispatching actions, which are processed
-    by reducers. Listeners are notified of state changes for reactive updates.
+    by reducers. Reducers update the one state object in place: the state
+    holds every seen event key and activity item, so copying it per dispatch
+    made each update cost O(history) and the startup replay of restored
+    events O(history²).
 
     Example:
         store = UIStateStore()
-
-        # Subscribe to state changes
-        def on_change(old_state, new_state):
-            print(f"Agent state: {new_state.agent_state}")
-
-        unsubscribe = store.subscribe(on_change)
 
         # Dispatch state change
         store.dispatch("SET_AGENT_STATE", "working")
@@ -38,7 +30,6 @@ class UIStateStore:
     def __init__(self) -> None:
         """Initialize the state store with default state."""
         self._state = UIState()
-        self._listeners: List[StateListener] = []
         self._reducers: Dict[str, Callable[[UIState, Any], UIState]] = {}
         self._register_default_reducers()
 
@@ -46,24 +37,6 @@ class UIStateStore:
     def state(self) -> UIState:
         """Get the current state (read-only reference)."""
         return self._state
-
-    def subscribe(self, listener: StateListener) -> Callable[[], None]:
-        """
-        Subscribe to state changes.
-
-        Args:
-            listener: Callback function(old_state, new_state) called on changes
-
-        Returns:
-            Unsubscribe function that removes the listener
-        """
-        self._listeners.append(listener)
-
-        def unsubscribe() -> None:
-            if listener in self._listeners:
-                self._listeners.remove(listener)
-
-        return unsubscribe
 
     def dispatch(self, action_type: str, payload: Any = None) -> None:
         """
@@ -77,18 +50,7 @@ class UIStateStore:
         if not reducer:
             return
 
-        old_state = self._state
-        # Create a deep copy to ensure immutability
-        new_state = reducer(deepcopy(self._state), payload)
-        self._state = new_state
-
-        # Notify listeners
-        for listener in self._listeners:
-            try:
-                listener(old_state, new_state)
-            except Exception:
-                # Don't let listener errors break the store
-                pass
+        self._state = reducer(self._state, payload)
 
     def register_reducer(
         self,

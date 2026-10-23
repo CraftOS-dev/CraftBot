@@ -1,6 +1,6 @@
 # YouTube — Integration Reference
 
-Search YouTube, manage the user's subscriptions and playlists, post comments, and rate videos. Part of the Google Workspace bundle.
+Search YouTube, manage the user's subscriptions, read playlists, post comments, and rate videos. Uses `youtube.force-ssl` for all implemented read and write methods; playlist creation/editing and video upload are not implemented by this connector.
 
 ## Essentials
 

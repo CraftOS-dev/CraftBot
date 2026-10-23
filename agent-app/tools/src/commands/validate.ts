@@ -18,6 +18,7 @@ import { join } from 'node:path';
 import { fileMatchesCanon, recordFileHash } from '../lib/hashes.ts';
 import { log } from '../lib/log.ts';
 import { ensurePbBinary } from './pb.ts';
+import { osAdapter } from '../lib/os-adapter.ts';
 
 interface GateError {
   step: string;
@@ -827,11 +828,10 @@ export async function run(args: string[]): Promise<number> {
   const frontendDir = join(projectDir, 'frontend');
   const errors: GateError[] = [];
 
-  // Windows: npm is npm.cmd, which Node refuses to spawn without a shell.
-  const isWin = process.platform === 'win32';
   const npmRun = (script: string, extra: string[] = []): void => {
-    execFileSync(isWin ? 'npm.cmd' : 'npm', ['run', script, ...extra], {
-      cwd: frontendDir, stdio: 'pipe', encoding: 'utf8', shell: isWin,
+    const [node, npm] = osAdapter.npmCommand();
+    execFileSync(node, [npm, 'run', script, ...extra], {
+      cwd: frontendDir, stdio: 'pipe', encoding: 'utf8', windowsHide: true,
     });
   };
 

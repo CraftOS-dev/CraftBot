@@ -1,0 +1,216 @@
+/* Tabs drawn like Chrome's: a frame-colored strip. The selected tab has the
+   color of what sits below the strip and flows into it (rounded top corners,
+   concave feet at the bottom); the other tabs sit flat on the frame with
+   thin separators between them. Fixed height, so what is below never
+   changes size. */
+.strip {
+  /* The frame is a shade darker than the selected tab, in both themes. */
+  --tab-frame: color-mix(in srgb, var(--bg-secondary) 72%, #000);
+  --tab-active: var(--bg-secondary);
+  --tab-hover: color-mix(in srgb, var(--tab-frame), var(--tab-active) 55%);
+  --tab-radius: 8px;
+
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  flex-shrink: 0;
+  height: 36px;
+  min-width: 0;
+  padding: 6px var(--space-2) 0 0;
+  background: var(--tab-frame);
+}
+
+:global([data-theme='light']) .strip {
+  --tab-frame: color-mix(in srgb, var(--bg-secondary) 91%, #000);
+}
+
+.tabs {
+  display: flex;
+  align-items: flex-end;
+  min-width: 0;
+  height: 100%;
+  /* Room for the first tab's left foot. */
+  padding-left: var(--tab-radius);
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+
+.tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.tab {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 0 1 240px;
+  min-width: 96px;
+  height: 100%;
+  color: var(--text-secondary);
+  border-radius: var(--tab-radius) var(--tab-radius) 0 0;
+}
+
+/* Hover: a rounded patch inside the tab, as in Chrome. */
+.tab:not(.tabSelected)::after {
+  content: '';
+  position: absolute;
+  inset: 0 2px 4px;
+  border-radius: var(--tab-radius);
+  background: var(--tab-hover);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--transition-fast);
+}
+
+.tab:not(.tabSelected):hover::after {
+  opacity: 1;
+}
+
+/* Separators between tabs: none next to the selected or a hovered tab. */
+.tab:not(.tabSelected)::before {
+  content: '';
+  position: absolute;
+  top: 7px;
+  bottom: 11px;
+  left: 0;
+  width: 1px;
+  background: var(--border-primary);
+  pointer-events: none;
+}
+
+.tab:not(.tabSelected):first-child::before,
+.tabSelected + .tab::before,
+.tab:not(.tabSelected):hover::before,
+.tab:hover + .tab:not(.tabSelected)::before {
+  opacity: 0;
+}
+
+.tab:hover {
+  color: var(--text-primary);
+}
+
+.tabSelected {
+  z-index: 1;
+  color: var(--text-primary);
+  background: var(--tab-active);
+}
+
+/* The selected tab's feet: concave curves that join it to what is below. */
+.tabSelected::before,
+.tabSelected::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  width: var(--tab-radius);
+  height: var(--tab-radius);
+  pointer-events: none;
+}
+
+.tabSelected::before {
+  left: calc(-1 * var(--tab-radius));
+  background: radial-gradient(
+    circle at 0 0,
+    transparent calc(var(--tab-radius) - 0.5px),
+    var(--tab-active) var(--tab-radius)
+  );
+}
+
+.tabSelected::after {
+  right: calc(-1 * var(--tab-radius));
+  background: radial-gradient(
+    circle at 100% 0,
+    transparent calc(var(--tab-radius) - 0.5px),
+    var(--tab-active) var(--tab-radius)
+  );
+}
+
+.tabButton {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 100%;
+  padding: 0 4px 4px 12px;
+  color: inherit;
+  font-size: var(--text-xs);
+  text-align: left;
+  border-radius: var(--tab-radius) var(--tab-radius) 0 0;
+  cursor: pointer;
+}
+
+.tabButton:focus-visible {
+  outline: 2px solid var(--border-hover);
+  outline-offset: -3px;
+}
+
+.tabIcon {
+  display: flex;
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+
+/* The title fades out at the end instead of an ellipsis. */
+.tabTitle {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 20px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 20px), transparent);
+}
+
+.close {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  margin: 0 8px 4px 2px;
+  color: var(--text-secondary);
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.close:hover {
+  color: var(--text-primary);
+  background: var(--bg-selected-hover);
+}
+
+/* Right after the last tab (Chrome's "+"), and the strip's own buttons at
+   its right end: round, centered on the tabs' content. */
+.after,
+.actions {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 2px;
+  align-self: center;
+  margin-bottom: 4px;
+}
+
+.after {
+  margin-left: 2px;
+}
+
+.actions {
+  margin-left: auto;
+}
+
+.after > button {
+  border-radius: var(--radius-full);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tab:not(.tabSelected)::after,
+  .close {
+    transition: none;
+  }
+}

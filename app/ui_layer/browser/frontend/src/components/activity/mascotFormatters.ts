@@ -5,7 +5,7 @@
 // you add a new action name to SUPPORTED_ACTION_NAMES, TypeScript will
 // force you to add the matching formatter to FORMATTER_REGISTRY here.
 
-import { basename, strField, arrField, dictField } from './parse'
+import { basename, strField, arrField, dictField, numField } from './parse'
 import { extractTodos, isSupportedActionName, normalizeActionName, type SupportedActionName } from './actionNames'
 import i18n from '../../i18n/config'
 import { formatNumber } from '../../i18n/format'
@@ -382,7 +382,7 @@ const grep_files: MascotActionFormatter = {
       const verb = s === 'error' ? i18n.t('activity:action.grepFiles.failed') : i18n.t('activity:action.grepFiles.cancelled')
       return { status: s, label: verb, body: p || undefined, bodyMono: true }
     }
-    const count = (arrField(o, 'filenames') ?? []).length
+    const count = numField(o, 'num_files') ?? 0
     return { status: s, label: tCount('activity:action.grepFiles.foundIn', count), body: p || undefined, bodyMono: true }
   },
 }

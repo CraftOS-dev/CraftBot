@@ -58,35 +58,6 @@ from ..oauth_flow import OAuthFlow
 logger = get_logger(__name__)
 
 
-# ════════════════════════════════════════════════════════════════════════
-# Accepted-model list for ChatGPT-subscription auth
-# ════════════════════════════════════════════════════════════════════════
-
-CODEX_ACCEPTED_MODELS = frozenset(
-    {
-        "gpt-5.5",
-        "gpt-5.4",
-        "gpt-5.4-mini",
-        "gpt-5.3-codex-spark",
-    }
-)
-
-CODEX_DEFAULT_MODEL = "gpt-5.4"
-
-
-def effective_model_for_subscription(model: str) -> Tuple[str, bool]:
-    """Return ``(effective, was_substituted)`` for a Codex-subscription call.
-
-    If ``model`` is one of the accepted names it passes through
-    unchanged. Otherwise it's replaced with ``CODEX_DEFAULT_MODEL`` and
-    the second return value is ``True`` so the caller can log the
-    substitution once.
-    """
-    if model in CODEX_ACCEPTED_MODELS:
-        return model, False
-    return CODEX_DEFAULT_MODEL, True
-
-
 AUTH_URL = "https://auth.openai.com/oauth/authorize"
 TOKEN_URL = "https://auth.openai.com/oauth/token"
 

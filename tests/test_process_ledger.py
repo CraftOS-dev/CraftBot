@@ -13,11 +13,13 @@ import socket
 import subprocess
 import sys
 import time
+from unittest.mock import Mock
 
 import psutil
 import pytest
 
 from app.process_ledger import ProcessLedger, ROLE_TUNNEL, listening_pids
+from app import process_ledger
 
 # A child that listens on the port given as argv[1] and sleeps.
 _LISTENER = (
@@ -64,6 +66,51 @@ def _gone(proc: subprocess.Popen) -> bool:
         return True
     except subprocess.TimeoutExpired:
         return False
+
+
+@pytest.mark.parametrize("failure", ["exit", "missing", "timeout"])
+def test_windows_taskkill_failure_uses_process_api(monkeypatch, procs, failure):
+    ours, foreign = _spawn_sleeper(), _spawn_sleeper()
+    procs += [ours, foreign]
+    run = Mock(return_value=subprocess.CompletedProcess([], 1, b"", b"access denied"))
+    if failure == "missing":
+        run.side_effect = FileNotFoundError("taskkill")
+    elif failure == "timeout":
+        run.side_effect = subprocess.TimeoutExpired("taskkill", 15)
+    monkeypatch.setattr(process_ledger.subprocess, "run", run)
+
+    process_ledger._kill_windows_tree(ours.pid, grace=1)
+
+    assert _gone(ours)
+    assert foreign.poll() is None
+
+
+def test_windows_failed_stop_without_psutil_is_reported(monkeypatch):
+    monkeypatch.setattr(process_ledger, "psutil", None)
+    monkeypatch.setattr(
+        process_ledger.subprocess,
+        "run",
+        Mock(return_value=subprocess.CompletedProcess([], 1, b"", b"access denied")),
+    )
+    with pytest.raises(RuntimeError, match="Cannot stop owned pid"):
+        process_ledger._kill_windows_tree(123, grace=0)
+
+
+def test_windows_failed_process_api_stop_is_reported(monkeypatch):
+    proc = Mock(pid=123)
+    proc.children.return_value = []
+    api = Mock()
+    api.NoSuchProcess = psutil.NoSuchProcess
+    api.Process.return_value = proc
+    api.wait_procs.return_value = ([], [proc])
+    monkeypatch.setattr(process_ledger, "psutil", api)
+    monkeypatch.setattr(
+        process_ledger.subprocess,
+        "run",
+        Mock(return_value=subprocess.CompletedProcess([], 1, b"", b"access denied")),
+    )
+    with pytest.raises(RuntimeError, match="still running: 123"):
+        process_ledger._kill_windows_tree(123, grace=0)
 
 
 def test_listening_pids_matches_exact_port_only(procs):

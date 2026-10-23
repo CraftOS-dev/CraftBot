@@ -74,5 +74,6 @@
   "onboarding_field_user_name_label": "你的名字",
   "onboarding_field_user_name_placeholder": "你的名字",
   "onboarding_validate_expected_dict": "预期为一个表单值字典",
-  "onboarding_validate_user_name_too_long": "名字不得超过 20 个字符"
+  "onboarding_validate_user_name_too_long": "名字不得超过 20 个字符",
+  "question_dismissed": "已关闭问题。用户中断了任务。"
 }

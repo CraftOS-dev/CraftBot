@@ -45,6 +45,10 @@ app/config/settings.json
 app/config/mcp_config.json
 app/config/skills_config.json
 app/config/scheduler_config.json
+# Mini Browser's Chromium profile: cookies and signed-in sessions, plus its
+# lock file (its password vault is in .credentials, above).
+**/mini_browser_profile
+**/mini_browser_profile.lock
 
 # Per-install agent state
 app/data/.usage

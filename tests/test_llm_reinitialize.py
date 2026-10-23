@@ -62,6 +62,28 @@ def test_reinitialize_noop_preserves_everything(llm_interface):
     assert llm_interface._session_system_prompts["task-1:reasoning"] == "system prompt"
 
 
+def test_reinitialize_rebuilds_when_a_subscription_connects(llm_interface):
+    """Signing in to a subscription leaves the settings unchanged, but the
+    factory now builds a different client, so the reinitialize must run."""
+    subscription_ctx = {**_make_ctx(), "auth_mode": "subscription"}
+    with (
+        patch.object(ModelFactory, "create", return_value=subscription_ctx) as create,
+        patch("app.config.get_llm_model", return_value="claude-a"),
+        patch(
+            "agent_core.core.impl.llm.interface._subscription_connected",
+            return_value=not llm_interface._init_subscription,
+        ),
+    ):
+        ok = llm_interface.reinitialize(
+            provider="anthropic", api_key="key-a", base_url=""
+        )
+
+    assert ok is True
+    create.assert_called_once()
+    assert llm_interface._auth_mode == "subscription"
+    assert llm_interface._session_histories["task-1:reasoning"]
+
+
 def test_reinitialize_model_only_preserves_histories(llm_interface):
     """Same provider, different model: histories survive, model updates."""
     with (

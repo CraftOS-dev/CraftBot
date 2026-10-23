@@ -292,12 +292,13 @@ Action sets group related actions together. During task execution, only actions 
 
 | Set Name | Description |
 |----------|-------------|
-| `"core"` | Essential actions (always included) - messaging, task management |
+| `"core"` | Essential actions (always included) - messaging, todos, files, shell, web search/fetch, memory, scheduling |
 | `"file_operations"` | File and folder manipulation |
-| `"web_research"` | Internet search and browsing |
 | `"document_processing"` | PDF and document handling |
-| `"clipboard"` | Clipboard operations |
-| `"shell"` | Command line and Python execution |
+| `"image"` / `"video"` | Image and video analysis |
+| `"mini_browser"` | Mini Browser: operate websites in a live Chromium tab with the user's logins |
+| `"agent_app"` | Agent App projects |
+| `"web_research"`, `"clipboard"`, `"shell"` | No built-in action uses them any more (those actions are in `"core"`); they hold only custom actions that declare them |
 
 ### Assigning Action Sets
 

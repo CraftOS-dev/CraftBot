@@ -87,6 +87,19 @@ class SessionStorage:
                 ON event_records(stream_id, position)
             """)
 
+            # A session's LLM state per call type (LLMInterface.export_session):
+            # restored at boot so a restart continues the session on the
+            # provider's cached prefix instead of starting a new one.
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS llm_sessions (
+                    session_id TEXT NOT NULL,
+                    call_type TEXT NOT NULL,
+                    state_json TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY (session_id, call_type)
+                )
+            """)
+
             # Old task-system tables are gone for good.
             cursor.execute("DROP TABLE IF EXISTS active_tasks")
             cursor.execute("DROP TABLE IF EXISTS conversation_history")
@@ -131,6 +144,7 @@ class SessionStorage:
             conn.execute("DELETE FROM sessions WHERE session_id = ?", (session_id,))
             conn.execute("DELETE FROM event_records WHERE stream_id = ?", (session_id,))
             conn.execute("DELETE FROM event_streams WHERE stream_id = ?", (session_id,))
+            conn.execute("DELETE FROM llm_sessions WHERE session_id = ?", (session_id,))
             conn.commit()
 
     def get_session(self, session_id: str) -> Optional[Dict[str, Any]]:
@@ -257,6 +271,56 @@ class SessionStorage:
 
         return head_summary, records
 
+    # ─────────────────────── LLM Session Persistence ────────────────────────
+
+    def persist_llm_session(
+        self, session_id: str, state: Dict[str, Dict[str, Any]]
+    ) -> None:
+        """Replace a session's saved LLM state with ``state`` (call type ->
+        LLMInterface.export_session entry). An empty state removes it."""
+        now = datetime.now(timezone.utc).isoformat()
+        rows = []
+        for call_type, entry in state.items():
+            try:
+                rows.append((session_id, call_type, json.dumps(entry), now))
+            except (TypeError, ValueError) as e:
+                # A history that is not plain JSON cannot be restored as sent;
+                # the session then starts a new prefix after a restart.
+                logger.warning(
+                    f"[SessionStorage] LLM state for {session_id}:{call_type} "
+                    f"is not serializable, not saved: {e}"
+                )
+        with sqlite3.connect(self._db_path) as conn:
+            conn.execute("DELETE FROM llm_sessions WHERE session_id = ?", (session_id,))
+            conn.executemany(
+                """
+                INSERT INTO llm_sessions (session_id, call_type, state_json, updated_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                rows,
+            )
+            conn.commit()
+
+    def get_llm_session(self, session_id: str) -> Dict[str, Dict[str, Any]]:
+        """A session's saved LLM state (call type -> entry)."""
+        with sqlite3.connect(self._db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT call_type, state_json FROM llm_sessions WHERE session_id = ?",
+                (session_id,),
+            )
+            rows = cursor.fetchall()
+        state: Dict[str, Dict[str, Any]] = {}
+        for call_type, state_json in rows:
+            try:
+                state[call_type] = json.loads(state_json)
+            except (ValueError, TypeError):
+                logger.warning(
+                    f"[SessionStorage] Skipping corrupt LLM state for "
+                    f"{session_id}:{call_type}"
+                )
+        return state
+
     # ─────────────────────── Utilities ───────────────────────────────────────
 
     def clear_all(self) -> None:
@@ -265,6 +329,7 @@ class SessionStorage:
             conn.execute("DELETE FROM sessions")
             conn.execute("DELETE FROM event_records")
             conn.execute("DELETE FROM event_streams")
+            conn.execute("DELETE FROM llm_sessions")
             conn.commit()
         logger.info("[SessionStorage] Cleared all session data")
 

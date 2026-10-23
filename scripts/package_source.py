@@ -37,6 +37,7 @@ from pathlib import Path
 from typing import List
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO_ROOT))
 
 # Gitignored build outputs that ARE required at runtime. Kept short and
 # explicit: every entry here is a hole in the "git decides" guarantee.
@@ -58,9 +59,13 @@ EXCLUDE_PREFIXES = (
 
 EXCLUDE_SUFFIXES = (".md",)
 
-# Kept despite the rules above — README is the one doc worth shipping, and
-# the i18n README variants are not.
-KEEP_EXACT = {"README.md", "LICENSE"}
+# These Markdown files are runtime inputs, not just repository documentation:
+# create.ts substitutes the blueprint, and the creator skill reads the guide.
+AGENT_APP_RUNTIME_DOCS = {
+    "agent-app/blueprint/AGENT_APP.md",
+    "agent-app/docs/agent-guide.md",
+}
+KEEP_EXACT = {"README.md", "LICENSE"} | AGENT_APP_RUNTIME_DOCS
 
 
 def tracked_files() -> List[str]:
@@ -126,22 +131,36 @@ def build(output: Path) -> int:
     size_mb = output.stat().st_size / (1024 * 1024)
     print(f"wrote {output} — {written} files, {size_mb:.1f} MB")
 
+    from app import ripgrep_runtime
+
     # A payload without these is installable and then broken at runtime, in
     # ways that surface far from the cause. Fail the build instead.
-    required = [
-        "run.py",
-        "main.py",
-        "requirements.txt",
-        "app/paths.py",
-        "app/provision/__init__.py",
-        "app/ui_layer/browser/frontend/dist/index.html",
-        "craftos_integrations/providers/whatsapp_web/bridge.js",
-        # craftbot.py imports these at module scope; without them every
-        # command fails before parsing its arguments.
-        "installer/helpers.py",
-        "installer/metadata.py",
-        "installer/payload.py",
-    ]
+    required = (
+        ripgrep_runtime.bundled_files()
+        + sorted(AGENT_APP_RUNTIME_DOCS)
+        + [
+            "run.py",
+            "main.py",
+            "requirements.txt",
+            "app/paths.py",
+            "app/provision/__init__.py",
+            "app/runtime-manifest.json",
+            "app/runtime_manifest.py",
+            "agent-app/package.json",
+            "agent-app/package-lock.json",
+            "agent-app/tools/package.json",
+            "agent-app/tools/src/cli.ts",
+            "agent-app/spec/pocketbase.version",
+            "agent-app/spec/pocketbase-checksums.json",
+            "app/ui_layer/browser/frontend/dist/index.html",
+            "craftos_integrations/providers/whatsapp_web/bridge.js",
+            # craftbot.py imports these at module scope; without them every
+            # command fails before parsing its arguments.
+            "installer/helpers.py",
+            "installer/metadata.py",
+            "installer/payload.py",
+        ]
+    )
     with zipfile.ZipFile(output) as zf:
         names = set(zf.namelist())
     absent = [r for r in required if r not in names]

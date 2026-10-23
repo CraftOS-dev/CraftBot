@@ -24,6 +24,14 @@ was enough to make a shared app unusable, and the first hid the other three:
      on same-origin writes too, so through a tunnel the app LOADED (a GET
      carries no Origin) and then 403'd every save. (§3, §4)
 
+And one observed live 2026-10-02..06:
+
+  5. The public URL was scraped from cloudflared's output with a pattern for
+     *.trycloudflare.com. When DNS sent the quick-tunnel request to a host
+     that refused it, cloudflared logged a failure naming
+     https://api.trycloudflare.com/tunnel and exited; the pattern matched
+     that, and the owner was handed a link to Cloudflare's API host. (§6)
+
 Run:  python -m app.agent_app.test_tunnel
 
 Style follows app/agent_app/test_data_safety.py: a module-level assert
@@ -35,6 +43,8 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 # Windows consoles default to cp1252; the checks print arrows and dashes.
 try:
@@ -46,18 +56,59 @@ from app.agent_app.a2app_proxy import ExternalA2AppProxy
 from app.agent_app.manager import AgentAppManager, AgentAppProject
 from app.agent_app.sharing import ShareError, ShareGrant, TunnelChannel
 
-# A stand-in for cloudflared: the real banner shape, then far more chatter
-# than any pipe buffer holds. This is the exact shape that used to wedge.
+# A stand-in for cloudflared: its metrics server (/ready, /quicktunnel), then
+# far more chatter than any pipe buffer holds. This is the exact output shape
+# that used to wedge. With --never-ready it has a hostname but no connection
+# to Cloudflare, so /ready answers 503, as the real one does.
 FAKE_CLOUDFLARED = r"""
-import sys
-sys.stderr.write("INF Requesting new quick Tunnel on trycloudflare.com...\n")
-sys.stderr.write("+" + "-" * 60 + "+\n")
-sys.stderr.write("|  https://fake-tunnel-for-tests.trycloudflare.com  |\n")
-sys.stderr.write("+" + "-" * 60 + "+\n")
-sys.stderr.flush()
+import http.server, json, sys, threading
+host, port = sys.argv[sys.argv.index("--metrics") + 1].rsplit(":", 1)
+connected = "--never-ready" not in sys.argv
+asked = threading.Event()
+
+class Metrics(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == "/ready":
+            status = 200 if connected else 503
+            body = {"status": status, "readyConnections": int(connected)}
+        elif self.path == "/quicktunnel":
+            status, body = 200, {"hostname": "fake-tunnel-for-tests.trycloudflare.com"}
+        else:
+            self.send_error(404)
+            return
+        data = json.dumps(body).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+        if self.path == "/quicktunnel":
+            asked.set()  # only once answered: the main thread exits on it
+
+    def log_message(self, *args):
+        pass
+
+server = http.server.HTTPServer((host, int(port)), Metrics)
+threading.Thread(target=server.serve_forever, daemon=True).start()
 for i in range(4000):
     sys.stderr.write("INF served request %d %s\n" % (i, "x" * 60))
 sys.stderr.write("DONE\n")
+sys.stderr.flush()
+asked.wait(20)
+"""
+
+# Verbatim from cloudflared.log on 2026-10-02: the failure that came back as
+# a link. It stays up a moment, as the real one does, so the line is on disk
+# while the process still looks alive.
+FAILED_REQUEST = r"""
+import sys, time
+sys.stderr.write("INF Requesting new quick Tunnel on trycloudflare.com...\n")
+sys.stderr.write('failed to request quick Tunnel: Post "https://api.trycloudflare.com/tunnel": '
+                 'dial tcp 18.204.152.241:443: connectex: No connection could be made because '
+                 'the target machine actively refused it.\n')
+sys.stderr.flush()
+time.sleep(1.5)
+sys.exit(1)
 """
 
 URL = "https://fake-tunnel-for-tests.trycloudflare.com"
@@ -75,14 +126,17 @@ def _fixture(tmp: Path) -> "tuple[TunnelChannel, AgentAppProject, Path]":
 async def _check_sink(tmp: Path) -> None:
     channel, project, fake = _fixture(tmp)
 
-    handle, log_path, offset = channel._open_log(project, 3101)
-    assert handle is not None, "no sink means no URL and no log"
+    handle, log_path = channel._open_log(project, 3101)
+    assert handle is not None, "no sink means no log"
     assert log_path == tmp / "logs" / "cloudflared.log", log_path
 
+    metrics = f"127.0.0.1:{channel._free_loopback_port()}"
     proc = subprocess.Popen(
-        [sys.executable, str(fake)], stdout=handle, stderr=subprocess.STDOUT
+        [sys.executable, str(fake), "--metrics", metrics],
+        stdout=handle,
+        stderr=subprocess.STDOUT,
     )
-    url = await channel._parse_url(proc, log_path, offset, timeout=20)
+    url = await channel._await_ready(proc, metrics, log_path, timeout=20)
     assert url == URL, url
 
     # THE regression: the child must run to completion, not block on output.
@@ -105,19 +159,22 @@ print_sink = "§1 cloudflared output is captured, never buffered: OK"
 async def _check_failure_paths(tmp: Path) -> None:
     channel, project, _ = _fixture(tmp)
 
-    # A cloudflared that dies without announcing must fail fast, not sit out
-    # the whole timeout — the launch path is awaiting this.
+    # A cloudflared that dies before its tunnel is ready must fail fast, not
+    # sit out the whole timeout: the launch path is awaiting this.
     dead = subprocess.Popen([sys.executable, "-c", "raise SystemExit(3)"])
     dead.wait()
-    url = await channel._parse_url(dead, tmp / "absent.log", 0, timeout=30)
+    url = await channel._await_ready(
+        dead, "127.0.0.1:1", tmp / "absent.log", timeout=30
+    )
     assert url is None, url
 
     # The log is append-mode across restarts, but capped.
     log_path = channel.log_path(project)
     log_path.write_text("y" * 2_500_000, encoding="utf-8")
-    handle, _, offset = channel._open_log(project, 3101)
+    handle, _ = channel._open_log(project, 3101)
     channel._close_log(handle)
-    assert offset < 1000, "an oversized log must be rotated, not grown (%d)" % offset
+    size = log_path.stat().st_size
+    assert size < 1000, "an oversized log must be rotated, not grown (%d)" % size
 
 
 print_failures = "§2 dead process fails fast, log stays bounded: OK"
@@ -234,6 +291,96 @@ async def _check_tunnel_needs_token(tmp: Path) -> None:
 print_needs_token = "§4b tunnel refuses to share an app with no agent token: OK"
 
 
+async def _check_never_a_dead_link(tmp: Path) -> None:
+    """A tunnel that never came up must be an error to the owner, never a
+    link: whatever cloudflared prints, and however long it stays alive."""
+    channel, project, fake = _fixture(tmp)
+    handle, log_path = channel._open_log(project, 3101)
+    metrics = f"127.0.0.1:{channel._free_loopback_port()}"
+
+    proc = subprocess.Popen(
+        [sys.executable, "-c", FAILED_REQUEST], stdout=handle, stderr=subprocess.STDOUT
+    )
+    url = await channel._await_ready(proc, metrics, log_path, timeout=20)
+    channel._close_log(handle)
+    assert url is None, f"a failed quick-tunnel request was handed out as {url}"
+    assert "api.trycloudflare.com" in log_path.read_text(encoding="utf-8")
+
+    # Up and named, but not connected to Cloudflare: not a link either.
+    proc = subprocess.Popen(
+        [sys.executable, str(fake), "--metrics", metrics, "--never-ready"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        url = await channel._await_ready(proc, metrics, log_path, timeout=3)
+    finally:
+        proc.kill()
+        proc.wait()
+    assert url is None, f"an unconnected tunnel was handed out as {url}"
+
+
+print_dead_link = "§6 a tunnel that never came up is an error, never a link: OK"
+
+
+async def _check_delayed_readiness(tmp: Path) -> None:
+    """Edge retries can take over 30 seconds, even across a clock change."""
+    from aiohttp import web
+
+    # Advance only the sharing deadline's clock: real HTTP requests still
+    # exercise both endpoints without making this regression take 35 seconds.
+    for jump_wall_clock in (False, True):
+        elapsed = [0.0]
+        wall_offset = [0.0]
+        statuses = []
+        hostname_requests = []
+
+        async def ready(request):
+            elapsed[0] = min(elapsed[0] + 10, 35)
+            if jump_wall_clock:
+                wall_offset[0] = 86400
+            status = 200 if elapsed[0] >= 35 else 503
+            statuses.append(status)
+            return web.json_response({"status": status}, status=status)
+
+        async def quicktunnel(request):
+            hostname_requests.append(request.path)
+            return web.json_response(
+                {"hostname": "fake-tunnel-for-tests.trycloudflare.com"}
+            )
+
+        app = web.Application()
+        app.router.add_get("/ready", ready)
+        app.router.add_get("/quicktunnel", quicktunnel)
+        runner = web.AppRunner(app)
+        await runner.setup()
+        try:
+            site = web.TCPSite(runner, "127.0.0.1", 0)
+            await site.start()
+            port = site._server.sockets[0].getsockname()[1]
+            clock = SimpleNamespace(
+                monotonic=lambda: elapsed[0],
+                time=lambda: elapsed[0] + wall_offset[0],
+            )
+            proc = SimpleNamespace(poll=lambda: None)
+            with patch("app.agent_app.sharing.time", clock):
+                url = await TunnelChannel._await_ready(
+                    proc, f"127.0.0.1:{port}", tmp / "delayed.log"
+                )
+            assert url == URL, (
+                f"delayed tunnel failed (clock jump={jump_wall_clock}): {url}"
+            )
+            assert statuses == [503, 503, 503, 200], statuses
+            assert hostname_requests == ["/quicktunnel"], hostname_requests
+        finally:
+            await runner.cleanup()
+
+
+print_delayed = (
+    "§7 readiness after 35s survives edge retries and wall-clock changes: OK"
+)
+
+
 with tempfile.TemporaryDirectory() as _tmp:
     asyncio.run(_check_sink(Path(_tmp)))
     print(print_sink)
@@ -257,5 +404,13 @@ with tempfile.TemporaryDirectory() as _tmp:
 with tempfile.TemporaryDirectory() as _tmp:
     _check_serving_port(Path(_tmp))
     print(print_port)
+
+with tempfile.TemporaryDirectory() as _tmp:
+    asyncio.run(_check_never_a_dead_link(Path(_tmp)))
+    print(print_dead_link)
+
+with tempfile.TemporaryDirectory() as _tmp:
+    asyncio.run(_check_delayed_readiness(Path(_tmp)))
+    print(print_delayed)
 
 print("tunnel: all checks OK")

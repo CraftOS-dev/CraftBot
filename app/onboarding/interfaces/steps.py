@@ -234,9 +234,11 @@ class ApiKeyStep:
         if not self.supports_subscription_oauth():
             return False
         try:
-            from app.ui_layer.settings.provider_settings import get_subscription_status
+            from craftos_integrations.llm_oauth.tokens import has_credential
 
-            return bool(get_subscription_status(self.provider).get("connected"))
+            # Validation only needs the saved opt-in, as does the factory.
+            # Live account checks run separately off the browser event loop.
+            return has_credential(self.provider)
         except Exception:
             return False
 

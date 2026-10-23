@@ -1,9 +1,10 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import path from 'path'
+import { generativeUILibraries } from './generativeUILibraries'
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), generativeUILibraries()],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),

@@ -31,6 +31,40 @@
     "stopRun": "実行を停止",
     "stoppingRun": "実行を停止中"
   },
+  "reasoning": {
+    "title": "推論",
+    "picker": "推論の強度",
+    "header": "推論 · {{model}}",
+    "withLevel": "{{choice}} · {{level}}",
+    "dynamic": "モデルが決定",
+    "defaultTag": "既定",
+    "notConfigurable": "{{model}} では推論を調整できません",
+    "clamped": "{{requested}} はこのモデルでは使えないため、{{effective}} を使用します。",
+    "context": {
+      "label": "コンテキスト",
+      "summarizesAt": "{{max}} で要約"
+    },
+    "cache": {
+      "label": "キャッシュ",
+      "hit": "{{percent}} キャッシュ済み",
+      "notReported": "報告なし",
+      "notYet": "まだキャッシュなし",
+      "timeLeft": "残り時間",
+      "about": "~{{time}}",
+      "expired": "期限切れ",
+      "noExpiry": "有効期限なし"
+    },
+    "choice": {
+      "provider_default": "プロバイダーの既定",
+      "off": "オフ",
+      "minimal": "最小",
+      "low": "低",
+      "medium": "中",
+      "high": "高",
+      "xhigh": "超高",
+      "max": "最大"
+    }
+  },
   "reply": {
     "replyingTo": "返信先: <1>{{name}}</1>",
     "cancel": "返信をキャンセル"
@@ -63,7 +97,7 @@
     "aria": "エージェントからの質問",
     "asking": "{{sender}} が質問しています",
     "queuePosition": "{{total}} 件中 1 件目",
-    "dismissHint": "閉じる。エージェントは回答なしで続行します。",
+    "dismissHint": "閉じてタスクを中断します。次のメッセージまでエージェントは停止します。",
     "dismissAria": "質問を閉じる",
     "recommended": "(推奨)",
     "freeTextPlaceholder": "または自分の回答を入力...",
@@ -78,5 +112,14 @@
     "replyTooltip": "このメッセージに返信",
     "copyTooltip": "メッセージをコピー",
     "copiedTooltip": "コピーしました！"
+  },
+  "browserPanel": {
+    "show": "このチャットのブラウザを表示",
+    "running": "このチャットのブラウザは起動中です",
+    "browsing": "エージェントが閲覧中です",
+    "region": "ブラウザパネル"
+  },
+  "panel": {
+    "close": "パネルを閉じる"
   }
 }

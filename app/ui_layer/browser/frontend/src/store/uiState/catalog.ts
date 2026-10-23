@@ -1,4 +1,5 @@
-import type { MetricsTimePeriod } from '../../types'
+import type { MetricsTimePeriod, ReasoningChoice } from '../../types'
+import { REASONING_CHOICES } from '../../types'
 import type { DashboardLayoutsStorage } from '../../pages/Dashboard/layout/types'
 import type { SettingsCategory } from '../../pages/Settings/types'
 import { defineUiState, defineUiStateFamily, oneOf } from './defineUiState'
@@ -22,6 +23,10 @@ import { defineUiState, defineUiStateFamily, oneOf } from './defineUiState'
  */
 
 export type ThemePreference = 'dark' | 'light' | 'system'
+
+/** What a chat's panel shows: 'auto' = its newest Generative UI
+ *  output when it has one, else nothing; 'closed' = conversation only. */
+export type ChatPanelMode = 'auto' | 'output' | 'browser' | 'closed'
 
 export interface ChatReplyTarget {
   displayName: string
@@ -51,6 +56,8 @@ export const UI_STATE = {
   nav: {
     chatsExpanded: defineUiState('nav.chatsExpanded', true, 'preference'),
     agentAppExpanded: defineUiState('nav.agentAppExpanded', true, 'preference'),
+    /** Agent App ids in drag-and-drop order; apps created since go last. */
+    agentAppOrder: defineUiState<string[]>('nav.agentAppOrder', [], 'preference'),
   },
 
   tour: {
@@ -61,6 +68,12 @@ export const UI_STATE = {
   chat: {
     /** Speech-recognition language code; '' follows the browser language. */
     micLanguage: defineUiState('chat.micLanguage', '', 'preference'),
+    /** The draft chat's reasoning choice, carried into the session its first
+     *  message creates; null (untouched: the model's default level) again once
+     *  that session exists. */
+    draftReasoningEffort: defineUiState<ReasoningChoice | null>('chat.draftReasoningEffort', null, 'session', {
+      isValid: oneOf([null, ...REASONING_CHOICES]),
+    }),
     /** Sent inputs for ↑/↓ recall, oldest first, shared by all sessions. */
     inputHistory: defineUiState<string[]>('chat.inputHistory', [], 'session'),
     /** By session id: ids of the expanded "Action steps" chunks. */
@@ -75,6 +88,26 @@ export const UI_STATE = {
     }),
     /** By message id: "Show message" details disclosure. */
     messageDetailsExpanded: defineUiStateFamily('chat.messageDetailsExpanded', false, 'session'),
+    /** By [session id, artifact id]: progress survives tabs/restarts in this browser profile. */
+    artifactState: defineUiStateFamily<Record<string, unknown>>('chat.artifactState', {}, 'preference', {
+      persistDefault: true,
+      writeThrough: true,
+    }),
+    /** By session id: what the panel shows (outputs or the chat's
+     *  browser, one at a time). */
+    panelMode: defineUiStateFamily<ChatPanelMode>('chat.panelMode', 'auto', 'session', {
+      isValid: oneOf(['auto', 'output', 'browser', 'closed']),
+    }),
+    /** By session id: the output revision on show ('' = the newest). */
+    outputSelection: defineUiStateFamily('chat.outputSelection', '', 'session'),
+    /** The chat's width in px beside its panel. */
+    conversationWidth: defineUiState('chat.conversationWidth', 640, 'preference', {
+      isValid: value => typeof value === 'number' && value > 0,
+    }),
+    /** The panel's share of the height when stacked above the chat. */
+    stackedPanelShare: defineUiState('chat.stackedPanelShare', 0.5, 'preference', {
+      isValid: value => typeof value === 'number' && value > 0 && value < 1,
+    }),
     /** By question message id: the typed free-text answer. */
     questionAnswerDraft: defineUiStateFamily('chat.questionAnswerDraft', '', 'session'),
     /** Newest message id seen per session (unread dots); synced across tabs. */

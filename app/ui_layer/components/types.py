@@ -123,6 +123,7 @@ class ChatMessage:
     # e.g. the raw body of an incoming integration message on the
     # "📩 Incoming …" system stub (PR #419).
     details: Optional[str] = None
+    ui_artifact: Optional[dict] = None
 
     def __post_init__(self) -> None:
         """Generate message_id if not provided; normalize session id."""
@@ -181,6 +182,8 @@ class ChatMessage:
             data["allowFreeText"] = self.allow_free_text
         if self.details:
             data["details"] = self.details
+        if self.ui_artifact:
+            data["uiArtifact"] = self.ui_artifact
         return data
 
 

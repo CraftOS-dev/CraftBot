@@ -19,6 +19,27 @@ from typing import Any, Dict, List
 
 from ...contracts import Operation
 from .._shared import client_op
+from .client import clean_snippet
+
+
+# Body-format inputs shared by every op that composes a message
+# (send / reply / create + update draft).
+_HTML_INPUT = {
+    "type": "boolean",
+    "description": "Treat body as HTML instead of plain text (default false).",
+    "example": False,
+}
+_INLINE_IMAGES_INPUT = {
+    "type": "array",
+    "description": (
+        "Optional local image file paths shown INSIDE the email body (not as "
+        'attachments). Place each in an HTML body with <img src="cid:<file '
+        'name>">, e.g. <img src="cid:chart.png">; an <img src> holding a '
+        "local path is embedded too. Images not placed in the body are shown "
+        "below it, so a plain-text body works as well."
+    ),
+    "example": [],
+}
 
 
 def _get_gmail_thread_op() -> Operation:
@@ -80,7 +101,7 @@ def _get_gmail_thread_op() -> Operation:
                             "internalDate": msg.get("internalDate"),
                             "labelIds": labels,
                             "unread": "UNREAD" in labels,
-                            "snippet": msg.get("snippet", ""),
+                            "snippet": clean_snippet(msg.get("snippet", "")),
                         }
                     )
                 res = {
@@ -141,7 +162,7 @@ def _get_gmail_draft_op() -> Operation:
                         "message_id": msg.get("id"),
                         "to": headers.get("To", ""),
                         "subject": headers.get("Subject", ""),
-                        "snippet": msg.get("snippet", ""),
+                        "snippet": clean_snippet(msg.get("snippet", "")),
                     },
                 }
         return res
@@ -179,9 +200,11 @@ def build_operations() -> List[Operation]:
                 },
                 "body": {
                     "type": "string",
-                    "description": "Email body text.",
+                    "description": "Email body (plain text, or HTML with html=true).",
                     "example": "Hi, here are the notes...",
                 },
+                "html": _HTML_INPUT,
+                "inline_images": _INLINE_IMAGES_INPUT,
                 "attachments": {
                     "type": "array",
                     "description": "Optional list of file paths to attach.",
@@ -194,6 +217,8 @@ def build_operations() -> List[Operation]:
                 "subject": d["subject"],
                 "body": d["body"],
                 "attachments": d.get("attachments"),
+                "html": bool(d.get("html", False)),
+                "inline_images": d.get("inline_images"),
             },
         ),
         client_op(
@@ -315,7 +340,7 @@ def build_operations() -> List[Operation]:
                 },
                 "body": {
                     "type": "string",
-                    "description": "Reply body text.",
+                    "description": "Reply body (plain text, or HTML with html=true).",
                     "example": "Thanks — confirmed for Tuesday.",
                 },
                 "reply_all": {
@@ -323,6 +348,8 @@ def build_operations() -> List[Operation]:
                     "description": "Reply to all recipients.",
                     "example": False,
                 },
+                "html": _HTML_INPUT,
+                "inline_images": _INLINE_IMAGES_INPUT,
             },
         ),
         client_op(
@@ -427,24 +454,6 @@ def build_operations() -> List[Operation]:
             },
         ),
         client_op(
-            "delete_gmail",
-            "delete_message",
-            description="Permanently delete a Gmail message (NOT reversible — prefer trash_gmail).",
-            destructive=True,
-            parallelizable=False,
-            tags=("gmail_mail",),
-            unwrap_envelope=True,
-            success_message="Message permanently deleted.",
-            fail_message="Failed to delete message.",
-            input_schema={
-                "message_id": {
-                    "type": "string",
-                    "description": "Gmail message id.",
-                    "example": "18c2f...",
-                },
-            },
-        ),
-        client_op(
             "batch_modify_gmail",
             "batch_modify_messages",
             description="Bulk add/remove labels across multiple messages in one call.",
@@ -466,23 +475,6 @@ def build_operations() -> List[Operation]:
                 "remove_label_ids": {
                     "type": "array",
                     "description": "Label IDs to remove.",
-                    "example": [],
-                },
-            },
-        ),
-        client_op(
-            "batch_delete_gmail",
-            "batch_delete_messages",
-            description="Permanently delete multiple messages. Irreversible.",
-            destructive=True,  # permanent delete
-            parallelizable=False,
-            tags=("gmail_mail",),
-            unwrap_envelope=True,
-            fail_message="Failed to batch delete.",
-            input_schema={
-                "message_ids": {
-                    "type": "array",
-                    "description": "List of message IDs.",
                     "example": [],
                 },
             },
@@ -577,23 +569,6 @@ def build_operations() -> List[Operation]:
                 },
             },
         ),
-        client_op(
-            "delete_gmail_thread",
-            "delete_thread",
-            description="Permanently delete a Gmail thread (all messages). Irreversible.",
-            destructive=True,  # permanent delete
-            parallelizable=False,
-            tags=("gmail_threads",),
-            unwrap_envelope=True,
-            fail_message="Failed to delete thread.",
-            input_schema={
-                "thread_id": {
-                    "type": "string",
-                    "description": "Thread ID.",
-                    "example": "",
-                },
-            },
-        ),
         # ── Drafts ───────────────────────────────────────────────────────
         client_op(
             "list_gmail_drafts",
@@ -640,9 +615,11 @@ def build_operations() -> List[Operation]:
                 },
                 "body": {
                     "type": "string",
-                    "description": "Draft body text.",
+                    "description": "Draft body (plain text, or HTML with html=true).",
                     "example": "Draft text...",
                 },
+                "html": _HTML_INPUT,
+                "inline_images": _INLINE_IMAGES_INPUT,
             },
         ),
         client_op(
@@ -661,7 +638,13 @@ def build_operations() -> List[Operation]:
                 },
                 "to": {"type": "string", "description": "Recipient.", "example": ""},
                 "subject": {"type": "string", "description": "Subject.", "example": ""},
-                "body": {"type": "string", "description": "Body text.", "example": ""},
+                "body": {
+                    "type": "string",
+                    "description": "Body (plain text, or HTML with html=true).",
+                    "example": "",
+                },
+                "html": _HTML_INPUT,
+                "inline_images": _INLINE_IMAGES_INPUT,
                 "cc": {"type": "string", "description": "Optional CC.", "example": ""},
                 "bcc": {
                     "type": "string",
@@ -682,6 +665,8 @@ def build_operations() -> List[Operation]:
                 "cc": d.get("cc") or None,
                 "bcc": d.get("bcc") or None,
                 "attachments": d.get("attachments"),
+                "html": bool(d.get("html", False)),
+                "inline_images": d.get("inline_images"),
             },
         ),
         client_op(

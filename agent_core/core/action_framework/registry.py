@@ -220,8 +220,13 @@ class ActionRegistry:
         return json_actions_list
 
     def find_action_by_name(self, action_name: str) -> Optional[Dict[str, Any]]:
-        """Find an action by name and return its JSON representation."""
-        if action_name not in self._registry:
+        """Find an action by name and return its JSON representation.
+
+        An action with no implementation for this OS does not exist here.
+        Action sets already leave it out of the prompt; this keeps a name the
+        model produces anyway from resolving to another OS's code.
+        """
+        if self.get_action_implementation(action_name) is None:
             return None
 
         platform_impls = self._registry[action_name]

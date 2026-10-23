@@ -87,7 +87,10 @@ def list_skills(input_data: dict) -> dict:
         },
         "added_action_sets": {
             "type": "array",
-            "description": "Action sets that were added as recommended by the skill.",
+            "description": (
+                "The skill's recommended action sets; their action schemas were "
+                "added to the event stream."
+            ),
         },
     },
     test_payload={

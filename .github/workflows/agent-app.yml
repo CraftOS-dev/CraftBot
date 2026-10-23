@@ -43,7 +43,15 @@ jobs:
           key: pb-${{ runner.os }}-${{ hashFiles('agent-app/spec/pocketbase.version') }}
 
       - name: Install workspace
-        run: npm install
+        run: npm ci
+
+      - name: PocketBase bootstrap regressions
+        run: node --test tools/src/commands/pb.test.ts
+
+      - name: Cold PocketBase download
+        env:
+          AGENT_APP_PB_CACHE: ${{ runner.temp }}/craftbot-pb-cold
+        run: node tools/src/cli.ts pb fetch
 
       - name: Typecheck (kit + tools)
         run: npm run typecheck

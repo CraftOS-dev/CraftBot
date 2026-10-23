@@ -74,5 +74,6 @@
   "onboarding_field_user_name_label": "Nama Anda",
   "onboarding_field_user_name_placeholder": "Nama Anda",
   "onboarding_validate_expected_dict": "Diharapkan berupa kamus nilai formulir",
-  "onboarding_validate_user_name_too_long": "Nama harus 20 karakter atau kurang"
+  "onboarding_validate_user_name_too_long": "Nama harus 20 karakter atau kurang",
+  "question_dismissed": "Pertanyaan ditutup. Tugas dihentikan oleh pengguna."
 }

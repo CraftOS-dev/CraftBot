@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useStore } from 'react-redux'
 import type {
   ChatMessage, SessionInfo, WSMessage, MetricsTimePeriod,
-  AgentAppCreateRequest,
+  AgentAppCreateRequest, ReasoningChoice,
 } from '../types'
 import { QUESTION_DISMISSED } from '../types'
 import i18n from '../i18n/config'
@@ -21,7 +21,7 @@ import {
   transferSession as messagesTransferSession,
 } from '../store/slices/messagesSlice'
 import { transferDraft as chatInputTransferDraft } from '../store/slices/chatInputSlice'
-import { selectLastMessageIdBySession } from '../store/selectors/messages'
+import { selectLastMessageIdBySession, selectPendingQuestions } from '../store/selectors/messages'
 import { setLoading as onboardingSetLoading } from '../store/slices/onboardingSlice'
 import {
   markChecking as localLlmMarkChecking,
@@ -36,6 +36,8 @@ import {
   markStopping as agentAppMarkStopping,
 } from '../store/slices/agentAppSlice'
 import { setStatus, setSessionRunState } from '../store/slices/agentSlice'
+import { upsertSession } from '../store/slices/sessionsSlice'
+import { selectSessionById } from '../store/selectors/sessions'
 import { setUiState } from '../store/slices/uiSlice'
 import { selectUiState } from '../store/selectors/ui'
 import { UI_STATE } from '../store/uiState'
@@ -114,6 +116,11 @@ interface WebSocketContextType extends WebSocketState {
   deleteSession: (sessionId: string) => void
   renameSession: (sessionId: string, title: string) => void
   clearSession: (sessionId: string) => void
+  /** Close a Generative UI output for good (its code and saved progress). */
+  closeGenerativeUI: (sessionId: string, artifactId: string) => void
+  // Reasoning picker: a session's choice (the draft view keeps it locally
+  // until its first message creates the session)
+  setSessionReasoning: (sessionId: string, choice: ReasoningChoice) => void
   requestChatHistory: (sessionId: string, beforeTimestamp?: number, limit?: number) => void
   // Per-session unread tracking (read with UI_STATE.chat.lastSeenMessageIds)
   markSessionSeen: (sessionId: string) => void
@@ -127,8 +134,8 @@ interface WebSocketContextType extends WebSocketState {
   submitOnboardingStep: (value: string | string[] | Record<string, unknown>) => void
   skipOnboardingStep: () => void
   goBackOnboardingStep: () => void
-  // Enhance prompt
-  enhancePrompt: (content: string) => void
+  // Enhance prompt (reasons like the chat it is typed in)
+  enhancePrompt: (content: string, sessionId: string) => void
   clearEnhancedPrompt: () => void
   // Local LLM (Ollama) methods
   checkLocalLLM: () => void
@@ -240,6 +247,9 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
             sessionId: session.id,
             state: startsRun === false ? 'idle' : 'running',
           }))
+          // The session now holds the draft's reasoning choice; the next
+          // draft starts untouched (the model's default level) again.
+          dispatch(setUiState(UI_STATE.chat.draftReasoningEffort, null))
           navigateRef.current(`/session/${session.id}`, { replace: true })
         }
         break
@@ -281,6 +291,19 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     for (const envelope of expired) rollbackExpiredSend(envelope, dispatch)
   }), [dispatch, showToast])
 
+  // A draft chat's reasoning choice rides along with whatever turns the
+  // draft into a session (first message, session command) or calls the LLM
+  // for it (prompt enhance); a real session's choice is read server-side.
+  // An untouched draft sends none: the model's default level applies.
+  const draftReasoning = useCallback(
+    (sessionId: string): { reasoningEffort?: ReasoningChoice } => {
+      if (sessionId !== 'new') return {}
+      const choice = selectUiState(store.getState(), UI_STATE.chat.draftReasoningEffort)
+      return choice === null ? {} : { reasoningEffort: choice }
+    },
+    [store],
+  )
+
   const sendMessage = useCallback((
     content: string,
     attachments: PendingAttachment[] | undefined,
@@ -320,6 +343,19 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         pending: true,
       }
       dispatch(messagesAddOptimistic(optimistic))
+
+      // The chat input works like the question box's answer field: this
+      // message answers the pinned question the box is showing, so un-pin
+      // it now and let the next queued one move up. The server records the
+      // same answer and broadcasts question_answered to every client.
+      const shown = selectPendingQuestions(store.getState(), sessionId)[0]
+      if (shown) {
+        dispatch(messagesMarkOptionSelected({
+          sessionId,
+          messageId: shown.messageId,
+          value: content.trim() || (attachments || []).map(att => att.name).join(', '),
+        }))
+      }
     }
 
     sendOrQueue(JSON.stringify({
@@ -332,8 +368,9 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
       ),
       replyContext: replyContext || null,
       clientId,
+      ...draftReasoning(sessionId),
     }))
-  }, [sendOrQueue, dispatch])
+  }, [sendOrQueue, dispatch, draftReasoning, store])
 
   const sendCommand = useCallback((command: string, sessionId: string) => {
     const clientId = newClientId()
@@ -348,8 +385,10 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
       pendingDraftClientIdsRef.current.add(clientId)
     }
 
-    sendOrQueue(JSON.stringify({ type: 'command', command, sessionId, clientId }))
-  }, [sendOrQueue])
+    sendOrQueue(JSON.stringify({
+      type: 'command', command, sessionId, clientId, ...draftReasoning(sessionId),
+    }))
+  }, [sendOrQueue, draftReasoning])
 
   // Force-stop a session's in-flight run (chat input's stop button).
   // Optimistically enters 'stopping' so the button spins instantly; the
@@ -374,6 +413,22 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     sendOrQueue(JSON.stringify({ type: 'session_clear', sessionId }))
   }, [sendOrQueue])
 
+  const closeGenerativeUI = useCallback((sessionId: string, artifactId: string) => {
+    sendOrQueue(JSON.stringify({ type: 'generative_ui_close', sessionId, artifactId }))
+  }, [sendOrQueue])
+
+  const setSessionReasoning = useCallback((sessionId: string, choice: ReasoningChoice) => {
+    if (sessionId === 'new') {
+      dispatch(setUiState(UI_STATE.chat.draftReasoningEffort, choice))
+      return
+    }
+    // Optimistic: the picker reflects the choice at once; the server's
+    // session_updated broadcast is authoritative.
+    const session = selectSessionById(store.getState(), sessionId)
+    if (session) dispatch(upsertSession({ ...session, reasoningEffort: choice }))
+    sendOrQueue(JSON.stringify({ type: 'session_reasoning_set', sessionId, reasoningEffort: choice }))
+  }, [sendOrQueue, dispatch, store])
+
   const requestChatHistory = useCallback((
     sessionId: string,
     beforeTimestamp?: number,
@@ -396,8 +451,8 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     }))
   }, [dispatch])
 
-  // Mark a session's newest message as seen (unread-dot bookkeeping). Stored
-  // as persisted UI state, so it survives reloads and syncs across tabs.
+  // Update the dot immediately, then commit the marker on the backend so
+  // a browser crash cannot undo it before Chrome flushes localStorage.
   const markSessionSeen = useCallback((sessionId: string) => {
     const current = store.getState()
     const lastId = selectLastMessageIdBySession(current)[sessionId]
@@ -405,11 +460,14 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     const seen = selectUiState(current, UI_STATE.chat.lastSeenMessageIds)
     if (seen[sessionId] === lastId) return
     dispatch(setUiState(UI_STATE.chat.lastSeenMessageIds, { ...seen, [sessionId]: lastId }))
+    client.sendString(JSON.stringify({ type: 'session_seen', sessionId, messageId: lastId }))
   }, [dispatch, store])
 
-  const enhancePrompt = useCallback((content: string) => {
-    sendOrQueue(JSON.stringify({ type: 'enhance_prompt', content }))
-  }, [sendOrQueue])
+  const enhancePrompt = useCallback((content: string, sessionId: string) => {
+    sendOrQueue(JSON.stringify({
+      type: 'enhance_prompt', content, sessionId, ...draftReasoning(sessionId),
+    }))
+  }, [sendOrQueue, draftReasoning])
 
   const clearEnhancedPrompt = useCallback(() => {
     setState(prev => ({ ...prev, enhancedPrompt: null }))
@@ -426,7 +484,8 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
   // Answer (or dismiss) a pinned agent question. Optimistically records the
   // selection — which un-pins the box instantly — then round-trips through
   // the backend, which paints the answer as a user bubble and hands it to
-  // the agent as a regular user-message trigger.
+  // the agent as a regular user-message trigger. A dismissal interrupts the
+  // task instead: the backend posts a system message and wakes no one.
   const sendQuestionAnswer = useCallback((
     messageId: string,
     value: string,
@@ -616,6 +675,8 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     deleteSession,
     renameSession,
     clearSession,
+    closeGenerativeUI,
+    setSessionReasoning,
     requestChatHistory,
     markSessionSeen,
     openFile,
@@ -647,8 +708,8 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     setActiveAgentApp,
     updateAgentAppTheme,
   }), [
-    state, sendMessage, sendCommand, stopSession, deleteSession, renameSession, clearSession,
-    requestChatHistory, markSessionSeen, openFile, openFolder, requestFilteredMetrics,
+    state, sendMessage, sendCommand, stopSession, deleteSession, renameSession, clearSession, closeGenerativeUI,
+    setSessionReasoning, requestChatHistory, markSessionSeen, openFile, openFolder, requestFilteredMetrics,
     subscribeDashboardMetrics, unsubscribeDashboardMetrics, requestOnboardingStep,
     submitOnboardingStep, skipOnboardingStep, goBackOnboardingStep, checkLocalLLM,
     testLocalLLMConnection, installLocalLLM, startLocalLLM, requestSuggestedModels, pullOllamaModel,

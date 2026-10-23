@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Union
 
@@ -88,6 +88,51 @@ class TelegramBotConfig:
     # supergroups, and channels). Closest analog to "self-only" for a bot,
     # which has no self-chat concept of its own.
     self_messages_only: bool = False
+    # Reply permission only: these contacts never become bot owners. Like
+    # the incoming-chat filter, this preference applies to all bot accounts.
+    auto_reply_contact_ids: List[str] = field(default_factory=list)
+    # Explicit owner control, separate from conversational reply permission.
+    # Keep the name used by existing locally configured owner mappings.
+    self_user_ids: List[str] = field(default_factory=list)
+
+    def configuration_error(self) -> Optional[str]:
+        for label, contacts in (
+            ("Auto-reply contacts", self.auto_reply_contact_ids),
+            ("Owner contacts", self.self_user_ids),
+        ):
+            if not isinstance(contacts, list) or any(
+                not isinstance(cid, str)
+                or not cid.isascii()
+                or not cid.isdecimal()
+                or len(cid) > 20
+                or cid.startswith("0")
+                for cid in contacts
+            ):
+                return f"{label} must be positive numeric Telegram user IDs, not names or @usernames."
+        return None
+
+    def authenticates_owner(
+        self, contact_id: str, channel_id: str, chat_type: str
+    ) -> bool:
+        return isinstance(self.self_user_ids, list) and TelegramBotConfig(
+            auto_reply_contact_ids=self.self_user_ids
+        ).allows_auto_reply(contact_id, channel_id, chat_type)
+
+    def allows_auto_reply(
+        self, contact_id: str, channel_id: str, chat_type: str
+    ) -> bool:
+        """Authorize only a selected contact's private chat, by stable ID."""
+        return (
+            chat_type == "private"
+            and isinstance(contact_id, str)
+            and contact_id.isascii()
+            and contact_id.isdecimal()
+            and len(contact_id) <= 20
+            and int(contact_id) > 0
+            and channel_id == contact_id
+            and isinstance(self.auto_reply_contact_ids, list)
+            and contact_id in self.auto_reply_contact_ids
+        )
 
 
 TELEGRAM_BOT = IntegrationSpec(
@@ -312,7 +357,10 @@ class TelegramBotClient(BasePlatformClient):
         return out
 
     async def _process_update(self, update: Dict[str, Any]) -> None:
-        self._poll_offset = update.get("update_id", 0) + 1
+        update_id = update.get("update_id", 0)
+        if update_id < self._poll_offset:
+            return  # A repeated/stale update must not queue a second reply.
+        self._poll_offset = update_id + 1
         message = update.get("message")
         if not message:
             return
@@ -345,6 +393,14 @@ class TelegramBotClient(BasePlatformClient):
             pass
 
         if self._message_callback:
+            owner_authenticated = (
+                cfg.authenticates_owner(
+                    str(from_user.get("id", "")),
+                    str(chat.get("id", "")),
+                    chat.get("type", ""),
+                )
+                and from_user.get("is_bot") is not True
+            )
             await self._message_callback(
                 PlatformMessage(
                     platform=self.spec.platform_id,
@@ -355,7 +411,7 @@ class TelegramBotClient(BasePlatformClient):
                     channel_name=chat.get("title", chat.get("first_name", "")),
                     message_id=str(message.get("message_id", "")),
                     timestamp=ts,
-                    raw=update,
+                    raw={**update, "is_self_message": owner_authenticated},
                     attachments=attachments,
                 )
             )

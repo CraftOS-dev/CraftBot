@@ -67,6 +67,8 @@ agent_bundle/
 **/.craftbot/
 app/data/.file_index/
 .playwright-mcp
+**/test-results/
+**/playwright-report/
 # Sidecar Node runtime (install.py downloads it when the system Node is too old for Agent App)
 runtime/
 
@@ -85,3 +87,8 @@ npm-cache/
 playwright-browsers/
 
 hf-cache/
+
+# Mini Browser's persistent Chromium profiles, one per chat (cookies,
+# signed-in sessions), and their cross-process lock files. Its password
+# vault lives in .credentials/ (ignored above). Never commit.
+**/mini_browser_profile*

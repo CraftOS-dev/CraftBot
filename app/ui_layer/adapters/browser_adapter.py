@@ -24,6 +24,7 @@ from agent_core.core.impl.memory.tuning import (
     SCHEDULE_HOUR_DEFAULT,
     SCHEDULE_MINUTE_DEFAULT,
 )
+from agent_core.core.models.reasoning import ReasoningChoice
 from agent_core.utils.logger import logger
 from app.config import AGENT_WORKSPACE_ROOT, APP_DATA_PATH
 from app.i18n import tui
@@ -124,6 +125,7 @@ from app.ui_layer.components.types import (
     QUESTION_DISMISSED_VALUE,
 )
 from app.ui_layer.events import UIEvent, UIEventType
+from app.ui_layer.commands.executor import CommandExecutor
 from app.ui_layer.onboarding import OnboardingFlowController
 from app.ui_layer.metrics import MetricsCollector
 from app.ui_layer.diagnostics import LoopStallMonitor
@@ -161,6 +163,14 @@ if TYPE_CHECKING:
 # while handling it echo the id, so the tab that asked can match its reply
 # and other tabs can ignore it (plan §A4.5).
 _REQUEST_ID: ContextVar[Optional[str]] = ContextVar("ui_request_id", default=None)
+
+# The image types a Generative UI output can show (app.generative_ui.image_kind).
+_UI_IMAGE_TYPES = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+}
 
 
 def _with_request_id(message: Dict[str, Any]) -> Dict[str, Any]:
@@ -341,6 +351,7 @@ class BrowserChatComponent(ChatComponentProtocol):
             allow_free_text=stored.allow_free_text,
             requires_choice=not stored.is_question,
             details=stored.details,
+            ui_artifact=stored.ui_artifact,
         )
 
     async def append_message(self, message: ChatMessage) -> None:
@@ -385,6 +396,7 @@ class BrowserChatComponent(ChatComponentProtocol):
                     is_question=message.is_question,
                     allow_free_text=message.allow_free_text,
                     details=message.details,
+                    ui_artifact=message.ui_artifact,
                 )
                 await self.run_storage(self._storage.insert_message, stored)
             except Exception:
@@ -417,6 +429,26 @@ class BrowserChatComponent(ChatComponentProtocol):
                 "type": "chat_clear",
                 "data": {"sessionId": session_id},
             }
+        )
+
+    async def close_ui_artifact(self, session_id: str, artifact_id: str) -> int:
+        """The user closed a Generative UI output: loaded and stored messages
+        keep only a closed marker for it. Returns how many stored messages
+        carried it."""
+        from app.generative_ui import closed_artifact
+
+        for message in self._messages:
+            artifact = message.ui_artifact
+            if (
+                message.session_id == session_id
+                and artifact
+                and artifact.get("id") == artifact_id
+            ):
+                message.ui_artifact = closed_artifact(artifact)
+        if not self._storage:
+            return 0
+        return await self.run_storage(
+            self._storage.close_ui_artifact, session_id, artifact_id
         )
 
     def drop_session_messages(self, session_id: str) -> None:
@@ -892,6 +924,16 @@ class BrowserAdapter(InterfaceAdapter):
         # Latest build todo list per Agent App, replayed to reconnecting tabs.
         self._agent_app_todos: Dict[str, list] = {}
         self._metrics_subscribers: Set = set()
+        # Chat browser panels (every session's Mini Browser): their viewers,
+        # live views and requests. Constructing it starts nothing (no browser
+        # thread, no Chromium).
+        try:
+            from app.mini_browser.ws import MiniBrowserWS
+
+            self._mini_browser_ws: Optional[Any] = MiniBrowserWS(self)
+        except Exception as e:
+            self._mini_browser_ws = None
+            logger.warning(f"[BROWSER ADAPTER] Mini Browser unavailable: {e}")
         self._runner: Optional["web.AppRunner"] = None
         self._started_at: float = 0.0
         self._ws_prepare_failures: int = 0
@@ -984,6 +1026,13 @@ class BrowserAdapter(InterfaceAdapter):
         """Get the metrics collector for dashboard data."""
         return self._metrics_collector
 
+    @property
+    def ui_hosts(self) -> frozenset:
+        """Lowercase ``host:port`` pairs this UI is served from (the /ws Host
+        allowlist). The Mini Browser refuses to open them: a page there could
+        fetch the session token and drive the agent."""
+        return frozenset(self._ws_auth.allowed_hosts)
+
     async def submit_message(
         self,
         message: str,
@@ -993,23 +1042,42 @@ class BrowserAdapter(InterfaceAdapter):
         """
         Submit a message from the user.
 
+        A message that reaches the agent (not a slash command) is also the
+        user's reply to the pinned question the box is showing, exactly as
+        if typed into the box's answer field.
+
         Args:
             message: The user's input message
             session_id: The session the message was typed in (main if omitted)
             client_id: Optional client-generated UUID for reconciling optimistic UI
         """
+        agent_text = None
+        if not CommandExecutor.handles(message):
+            agent_text = await self._answer_shown_question(
+                session_id or "main", message, message
+            )
         await self._controller.submit_message(
             message,
             self._adapter_id,
             session_id=session_id,
             client_id=client_id,
+            agent_text=agent_text,
         )
 
-    async def _handle_enhance_prompt(self, content: str, ws) -> None:
-        """Enhance a user's prompt using the LLM for clarity and precision."""
+    async def _handle_enhance_prompt(self, data: Dict[str, Any], ws) -> None:
+        """Enhance a user's prompt using the LLM for clarity and precision.
+
+        The call reasons like the chat the prompt is typed in: its session,
+        or a draft chat's picker value.
+        """
+        session_id = data.get("sessionId") or "main"
         try:
             enhanced: str = await self._controller.handle_prompt_enhance(
-                user_message=content
+                user_message=data["content"],
+                session_id=None if session_id == "new" else session_id,
+                reasoning_choice=(
+                    self._draft_reasoning(data) if session_id == "new" else None
+                ),
             )
             await self._send_to(
                 ws, {"type": "prompt_enhanced", "content": enhanced.strip()}
@@ -1018,13 +1086,13 @@ class BrowserAdapter(InterfaceAdapter):
         except Exception as e:
             logger.warning(f"[BROWSER ADAPTER] enhance_prompt failed: {e}")
 
-    def _handle_reasoning(self, event: UIEvent) -> None:
+    def _handle_reasoning(self, event: UIEvent) -> Optional[asyncio.Task]:
         """Handle reasoning event — add it to the session's activity feed."""
         session_id = event.data.get("session_id") or "main"
         reasoning_id = event.data.get("reasoning_id", "")
         content = event.data.get("content", "")
 
-        asyncio.create_task(
+        return asyncio.create_task(
             self._action_panel.add_item(
                 ActionItem(
                     id=reasoning_id,
@@ -1037,7 +1105,7 @@ class BrowserAdapter(InterfaceAdapter):
             )
         )
 
-    def _handle_run_state_change(self, event: UIEvent) -> None:
+    def _handle_run_state_change(self, event: UIEvent) -> Optional[asyncio.Task]:
         """Broadcast a session's run state (typing indicator + stop button).
 
         ``state`` is "running" | "stopping" | "idle"; ``busy`` is the
@@ -1046,7 +1114,7 @@ class BrowserAdapter(InterfaceAdapter):
         session_id = event.data.get("session_id") or "main"
         busy = bool(event.data.get("busy", False))
         state = event.data.get("state") or ("running" if busy else "idle")
-        asyncio.create_task(
+        return asyncio.create_task(
             self._broadcast(
                 {
                     "type": "session_busy",
@@ -1092,6 +1160,16 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         self._app.router.add_get("/api/theme.css", self._theme_css_handler)
         self._app.router.add_get(
             "/api/workspace/{path:.*}", self._workspace_file_handler
+        )
+        self._app.router.add_get(
+            "/api/generative-ui/tiles", self._generative_ui_map_handler
+        )
+        self._app.router.add_get(
+            r"/api/generative-ui/tiles/{z:\d+}/{x:\d+}/{y:\d+}",
+            self._generative_ui_tile_handler,
+        )
+        self._app.router.add_get(
+            "/api/generative-ui/{path:.*}", self._generative_ui_image_handler
         )
         self._app.router.add_get(
             "/api/agent-profile-picture", self._agent_profile_picture_handler
@@ -1157,6 +1235,8 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         self._started_at = time.monotonic()
         self._loop_monitor.start()
         get_resource_notifier().bind(asyncio.get_running_loop(), self._broadcast)
+        if self._mini_browser_ws is not None:
+            self._mini_browser_ws.on_start()
         # Changes the agent and background jobs make outside UI handlers.
         try:
             self._change_detection = ChangeDetection(self._controller.event_bus)
@@ -1200,6 +1280,11 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         # Close integration bridge HTTP client
         if hasattr(self, "_integration_bridge"):
             await self._integration_bridge.cleanup()
+
+        # Close the Mini Browser while the loop still runs (Chromium holds a
+        # lock on its profile until it exits).
+        if getattr(self, "_mini_browser_ws", None) is not None:
+            await self._mini_browser_ws.shutdown()
 
         # Cancel metrics broadcasting task
         if self._metrics_task:
@@ -1386,6 +1471,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         finally:
             self._ws_clients.discard(ws)
             self._metrics_subscribers.discard(ws)
+            mini_browser = getattr(self, "_mini_browser_ws", None)
+            if mini_browser is not None:
+                mini_browser.forget(ws)
             closing = self._channels.pop(ws, None)
             if closing is not None:
                 await closing.close()
@@ -1451,7 +1539,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             # session_created is broadcast (with the sender's clientId) before
             # the message so the draft view can navigate to the real session.
             if session_id == "new":
-                session = self._controller.agent.create_chat_session()
+                session = self._controller.agent.create_chat_session(
+                    reasoning_effort=self._draft_reasoning(data)
+                )
                 session_id = session.id
                 await self._broadcast(
                     {
@@ -1509,7 +1599,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     name = command.strip().split()[0].lower() if command.strip() else ""
                     cmd = self._controller.command_registry.get(name) if name else None
                     if cmd is not None and cmd.requires_session:
-                        session = self._controller.agent.create_chat_session()
+                        session = self._controller.agent.create_chat_session(
+                            reasoning_effort=self._draft_reasoning(data)
+                        )
                         session_id = session.id
                         await self._broadcast(
                             {
@@ -1530,7 +1622,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         elif msg_type == "enhance_prompt":
             content = data.get("content", "")
             if content and ws:
-                await self._handle_enhance_prompt(content, ws)
+                await self._handle_enhance_prompt(data, ws)
 
         elif msg_type == "chat_history":
             session_id = data.get("sessionId") or "main"
@@ -1548,8 +1640,20 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         elif msg_type == "session_clear":
             await self._handle_session_clear(data)
 
+        elif msg_type == "session_seen":
+            await self._handle_session_seen(data)
+
+        elif msg_type == "generative_ui_close":
+            await self._handle_generative_ui_close(data)
+
         elif msg_type == "session_list":
             await self._handle_session_list(ws)
+
+        elif msg_type == "session_reasoning_set":
+            await self._handle_session_reasoning_set(data)
+
+        elif msg_type == "reasoning_options_get":
+            await self._handle_reasoning_options_get(ws)
 
         # File operations
         elif msg_type == "file_list":
@@ -1614,6 +1718,13 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         elif msg_type == "open_folder":
             file_path = data.get("path", "")
             await self._handle_open_folder(file_path)
+
+        # Chat browser panels: live view, browser controls and the password
+        # vault (app/mini_browser/ws.py answers every failure itself).
+        elif isinstance(msg_type, str) and msg_type.startswith("mini_browser_"):
+            mini_browser = getattr(self, "_mini_browser_ws", None)
+            if mini_browser is not None:
+                await mini_browser.handle(ws, msg_type, data)
 
         elif msg_type == "option_click":
             value = data.get("value", "")
@@ -1973,12 +2084,22 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         # Generic per-integration config (replaces the old bespoke jira/github settings handlers)
         elif msg_type == "integration_get_config":
             integration_id = data.get("id")
-            await self._handle_integration_get_config(integration_id)
+            await self._handle_integration_get_config(
+                integration_id, data.get("requestId")
+            )
 
         elif msg_type == "integration_update_config":
             integration_id = data.get("id")
             values = data.get("values") or {}
-            await self._handle_integration_update_config(integration_id, values)
+            await self._handle_integration_update_config(
+                integration_id,
+                values,
+                data.get("expected_values"),
+                data.get("requestId"),
+            )
+
+        elif msg_type == "figma_canvas_control":
+            await self._handle_figma_canvas_control(data)
 
         # Agent App settings handlers
         elif msg_type == "agent_app_settings_get":
@@ -2846,7 +2967,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             try:
                 from app.ui_layer.settings.model_settings import get_model_settings
 
-                settings_data = get_model_settings()
+                settings_data = await asyncio.to_thread(get_model_settings)
                 base_url = settings_data.get("base_urls", {}).get("remote")
             except Exception:
                 pass
@@ -4210,11 +4331,14 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             recorded = QUESTION_DISMISSED_VALUE if dismissed else value
             pending_questions: list = []
             if self._chat and message_id:
-                for m in self._chat._messages:
-                    if m.message_id == message_id:
-                        question_text = m.content
-                        m.option_selected = recorded
-                        break
+                question_text = next(
+                    (
+                        m.content
+                        for m in self._chat._messages
+                        if m.message_id == message_id
+                    ),
+                    "",
+                )
                 storage = self._chat._storage
                 if storage:
 
@@ -4222,25 +4346,17 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         storage.update_option_selected(message_id, recorded)
                         # After marking this one, whatever question messages
                         # remain unanswered are still pinned in the user's UI.
-                        return storage.get_pending_questions(session_id)
+                        return [
+                            content
+                            for _, content in storage.get_pending_questions(session_id)
+                        ]
 
                     try:
                         pending_questions = await self._chat.run_storage(_record_answer)
                     except Exception:
                         pass
 
-            # Un-pin on every connected client (the answering client already
-            # marked the selection optimistically).
-            await self._broadcast(
-                {
-                    "type": "question_answered",
-                    "data": {
-                        "sessionId": session_id,
-                        "messageId": message_id,
-                        "value": recorded,
-                    },
-                }
-            )
+            await self._close_question(session_id, message_id, recorded)
 
             await self._controller.submit_question_answer(
                 value,
@@ -4256,13 +4372,78 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 exc_info=True,
             )
 
+    async def _answer_shown_question(
+        self, session_id: str, reply: str, agent_message: str
+    ) -> Optional[str]:
+        """Record a chat-input message as the answer to the pinned question.
+
+        The chat input works like the question box's answer field: the
+        message answers the question the box is showing (the session's
+        oldest unanswered one) and un-pins it, so the next queued question
+        moves up. Returns the agent-facing copy of `agent_message` marked as
+        that answer, or None when no question is pinned.
+        """
+        storage = self._chat._storage if self._chat else None
+        if storage is None or not reply.strip():
+            return None
+
+        def _claim() -> Optional[tuple]:
+            # Read and record in one storage-worker call, so back-to-back
+            # sends answer successive questions instead of the same one.
+            pending = storage.get_pending_questions(session_id)
+            if not pending:
+                return None
+            message_id, question = pending[0]
+            storage.update_option_selected(message_id, reply)
+            return message_id, question, [content for _, content in pending[1:]]
+
+        try:
+            claimed = await self._chat.run_storage(_claim)
+        except Exception:
+            logger.warning(
+                "[QUESTION_RESPONSE] Failed to record chat-input answer",
+                exc_info=True,
+            )
+            return None
+        if claimed is None:
+            return None
+        message_id, question, remaining = claimed
+        await self._close_question(session_id, message_id, reply)
+        return self._controller.question_answer_text(question, agent_message, remaining)
+
+    async def _close_question(
+        self, session_id: str, message_id: str, recorded: str
+    ) -> None:
+        """Un-pin a resolved question in the live buffer and on every
+        connected client (the answering client already marked the selection
+        optimistically)."""
+        if self._chat and message_id:
+            for m in self._chat._messages:
+                if m.message_id == message_id:
+                    m.option_selected = recorded
+                    break
+        await self._broadcast(
+            {
+                "type": "question_answered",
+                "data": {
+                    "sessionId": session_id,
+                    "messageId": message_id,
+                    "value": recorded,
+                },
+            }
+        )
+
     # ─────────────────────────────────────────────────────────────────────
     # Session Handlers (sidebar surface)
     # ─────────────────────────────────────────────────────────────────────
 
-    @staticmethod
-    def _session_info(session) -> Dict[str, Any]:
+    def _session_info(self, session) -> Dict[str, Any]:
         """SessionInfo wire shape for a Session."""
+        from agent_core.core.impl.llm import LLMCallType
+
+        usage = self._controller.agent.llm.last_request(
+            session.id, LLMCallType.ACTION_SELECTION
+        )
         return {
             "id": session.id,
             "type": session.type,
@@ -4270,7 +4451,28 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             "createdAt": session.created_at,
             "lastActiveAt": session.last_active_at,
             "agentAppProjectId": session.agent_app_project_id,
+            "reasoningEffort": session.reasoning_effort,
+            # The last decision request, for the reasoning menu's context and
+            # cache readout; null until the session's first request.
+            "lastRequest": (
+                {
+                    "inputTokens": usage.input_tokens,
+                    "cachedTokens": usage.cached_tokens,
+                    "startedAt": round(usage.started_at * 1000),
+                    "surface": usage.surface,
+                    "model": usage.model,
+                }
+                if usage is not None
+                else None
+            ),
         }
+
+    @staticmethod
+    def _draft_reasoning(data: Dict[str, Any]) -> Optional[ReasoningChoice]:
+        """A draft chat's picker value from a message; None when untouched
+        (the model's default level then applies)."""
+        value = data.get("reasoningEffort")
+        return ReasoningChoice(value) if value is not None else None
 
     async def _handle_session_delete(self, data: Dict[str, Any]) -> None:
         """Delete a session and its chat history. The main session is permanent."""
@@ -4310,6 +4512,62 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         except Exception as e:
             logger.error(f"[SESSION] Rename failed for {session_id}: {e}")
 
+    async def _handle_session_reasoning_set(self, data: Dict[str, Any]) -> None:
+        """Set a session's reasoning choice (the chat input's picker)."""
+        session_id = (data.get("sessionId") or "").strip()
+        if not session_id:
+            return
+        try:
+            choice = ReasoningChoice(data.get("reasoningEffort"))
+        except ValueError:
+            logger.warning(
+                f"[SESSION] Unknown reasoning choice {data.get('reasoningEffort')!r} "
+                f"for {session_id}"
+            )
+            return
+        if self._controller.agent.set_session_reasoning_effort(session_id, choice):
+            await self.broadcast_session_updated(session_id)
+
+    async def _handle_reasoning_options_get(self, ws) -> None:
+        """Send what the reasoning picker offers for the model in use.
+
+        Read from the live LLM interface, so it reflects the model actually
+        called (after any subscription substitution), not only the settings.
+        """
+        llm = self._controller.agent.llm
+        options = llm.reasoning_options()
+        lifetime = llm.prompt_cache_lifetime()
+        data: Dict[str, Any] = {
+            "success": True,
+            "model": llm.model,
+            "surface": llm.surface(),
+            "configurable": options is not None,
+            # The input budget (where the event stream is summarized) at each
+            # choice: a reasoning level's output cap comes out of the window.
+            "inputBudgets": {
+                choice.value: llm.input_budget_for(choice) for choice in ReasoningChoice
+            },
+            "cacheLifetime": (
+                {"kind": lifetime.kind.value, "seconds": lifetime.seconds}
+                if lifetime is not None
+                else None
+            ),
+            "reportsCachedTokens": llm.reports_cached_tokens(),
+        }
+        if options is not None:
+            data.update(
+                {
+                    "choices": [choice.value for choice in options.choices],
+                    "defaultLevel": options.default_level,
+                    "providerDefault": options.provider_default,
+                    "resolution": {
+                        requested.value: effective.value
+                        for requested, effective in options.resolution.items()
+                    },
+                }
+            )
+        await self._send_to(ws, {"type": "reasoning_options_get", "data": data})
+
     async def _handle_session_clear(self, data: Dict[str, Any]) -> None:
         """Clear a session's conversation (chat + activity rows and
         agent-side state)."""
@@ -4317,6 +4575,11 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         try:
             from app.usage import get_action_storage, get_chat_storage
 
+            # Agent side first: it stops a run in flight, whose last rows
+            # must go with the conversation rather than land after the clear.
+            if not await self._controller.agent.clear_session(session_id):
+                return
+            await self._controller.event_bus.drain(session_id)
             try:
                 # Ordered storage worker: runs after any insert still queued
                 # for this session, so no message resurfaces after the clear.
@@ -4329,10 +4592,57 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 get_action_storage().clear_items(session_id)
             except Exception:
                 pass
-            await self._controller.agent.clear_session(session_id)
             await self.broadcast_session_cleared(session_id)
         except Exception as e:
             logger.error(f"[SESSION] Clear failed for {session_id}: {e}")
+
+    async def _handle_generative_ui_close(self, data: Dict[str, Any]) -> None:
+        """The user closed a Generative UI output: its code goes from the
+        chat storage and the session's events (a closed marker stays, so a
+        later revision still numbers on), and every client drops it."""
+        session_id = data.get("sessionId")
+        artifact_id = data.get("artifactId")
+        if not (
+            isinstance(session_id, str)
+            and session_id
+            and isinstance(artifact_id, str)
+            and artifact_id
+        ):
+            return
+        try:
+            await self._chat.close_ui_artifact(session_id, artifact_id)
+            await asyncio.to_thread(
+                self._controller.agent.close_ui_artifact, session_id, artifact_id
+            )
+        except Exception as e:
+            logger.error(f"[GENERATIVE_UI] Close of {artifact_id} failed: {e}")
+            return
+        await self._broadcast(
+            {
+                "type": "generative_ui_closed",
+                "data": {"sessionId": session_id, "artifactId": artifact_id},
+            }
+        )
+
+    async def _handle_session_seen(self, data: Dict[str, Any]) -> None:
+        """Acknowledge read status only after its SQLite transaction commits."""
+        session_id = data.get("sessionId")
+        message_id = data.get("messageId")
+        if not isinstance(session_id, str) or not isinstance(message_id, str):
+            return
+        storage = self._chat._storage
+        if storage is None:
+            return
+        seen = await self._chat.run_storage(
+            storage.mark_session_seen, session_id, message_id
+        )
+        if seen is not None:
+            await self._broadcast(
+                {
+                    "type": "session_seen",
+                    "data": {"sessionId": session_id, "messageId": seen},
+                }
+            )
 
     async def _handle_session_list(self, ws=None) -> None:
         """Send the current session list."""
@@ -4370,7 +4680,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
         Called by the /clear command (which has already cleared storage and
         agent-side state) and by the session_clear handler. The activity
-        feed is part of the conversation, so its items go with it.
+        feed is part of the conversation, so its items go with it. The
+        session started over, so its info (a chat's title, the reasoning
+        menu's context readout) is sent again too.
         """
         self._chat.drop_session_messages(session_id)
         self._action_panel.drop_session_items(session_id)
@@ -4380,6 +4692,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 "data": {"sessionId": session_id},
             }
         )
+        await self.broadcast_session_updated(session_id)
 
     # ─────────────────────────────────────────────────────────────────────
     # Settings Operation Handlers
@@ -5904,7 +6217,8 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
     async def _handle_model_settings_get(self) -> None:
         """Get current model settings."""
         try:
-            result = get_model_settings()
+            # Includes subscription status, which runs the Claude CLI.
+            result = await asyncio.to_thread(get_model_settings)
             await self._broadcast(
                 {
                     "type": "model_settings_get",
@@ -5921,6 +6235,19 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     },
                 }
             )
+
+    def _model_change_lock(self) -> asyncio.Lock:
+        """Order persistence, activation and rollbacks across all browser clients."""
+        if not hasattr(self, "_model_settings_lock"):
+            self._model_settings_lock = asyncio.Lock()
+        return self._model_settings_lock
+
+    def _subscription_request(self, provider: str) -> object:
+        if not hasattr(self, "_subscription_requests"):
+            self._subscription_requests = {}
+        request = object()
+        self._subscription_requests[provider] = request
+        return request
 
     async def _handle_model_settings_update(self, data: Dict[str, Any]) -> None:
         """Update model settings.
@@ -6013,127 +6340,155 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     )
                     return
 
-            # Capture the current image-gen provider/model BEFORE saving, so a
-            # failed reinitialize below can roll the persisted values back and
-            # keep settings.json consistent with the still-live interface.
-            prev_image_gen_provider = None
-            prev_image_gen_model = None
-            if image_gen_provider:
-                from app.config import (
-                    get_image_gen_provider as _get_ig_provider,
-                    get_image_gen_model as _get_ig_model,
+            async with self._model_change_lock():
+                # Capture the current image-gen provider/model BEFORE saving, so a
+                # failed reinitialize below can roll the persisted values back and
+                # keep settings.json consistent with the still-live interface.
+                prev_image_gen_provider = None
+                prev_image_gen_model = None
+                if image_gen_provider:
+                    from app.config import (
+                        get_image_gen_provider as _get_ig_provider,
+                        get_image_gen_model as _get_ig_model,
+                    )
+
+                    prev_image_gen_provider = _get_ig_provider()
+                    prev_image_gen_model = _get_ig_model()
+
+                prev_video_gen_provider = None
+                prev_video_gen_model = None
+                if video_gen_provider:
+                    from app.config import (
+                        get_video_gen_provider as _get_vg_provider,
+                        get_video_gen_model as _get_vg_model,
+                    )
+
+                    prev_video_gen_provider = _get_vg_provider()
+                    prev_video_gen_model = _get_vg_model()
+
+                # Step 3: Now save settings (validation and connection test passed)
+                result = await asyncio.to_thread(
+                    update_model_settings,
+                    include_subscription_status=False,
+                    llm_provider=new_provider,
+                    vlm_provider=vlm_provider,
+                    image_gen_provider=image_gen_provider,
+                    video_gen_provider=video_gen_provider,
+                    llm_model=data.get("llmModel"),
+                    vlm_model=data.get("vlmModel"),
+                    image_gen_model=data.get("imageGenModel"),
+                    video_gen_model=data.get("videoGenModel"),
+                    api_key=api_key,
+                    provider_for_key=provider_for_key,
+                    base_url=base_url,
+                    provider_for_url=data.get("providerForUrl"),
+                    aws_credentials=data.get("awsCredentials"),
                 )
 
-                prev_image_gen_provider = _get_ig_provider()
-                prev_image_gen_model = _get_ig_model()
+                # Reinitialize LLM/VLM with new provider settings
+                if result.get("success") and new_provider:
+                    try:
+                        agent = self._controller.agent
+                        agent.reinitialize_llm(new_provider)
+                        logger.info(
+                            f"[BROWSER] LLM reinitialized with provider: {new_provider}"
+                        )
+                    except Exception as e:
+                        logger.warning(f"[BROWSER] Failed to reinitialize LLM: {e}")
+                        result["warning"] = (
+                            f"Settings saved but LLM reinitialization failed: {e}"
+                        )
 
-            prev_video_gen_provider = None
-            prev_video_gen_model = None
-            if video_gen_provider:
-                from app.config import (
-                    get_video_gen_provider as _get_vg_provider,
-                    get_video_gen_model as _get_vg_model,
+                # Reinitialize image gen interface when its provider changes.
+                # Settings are already persisted above, and reinitialize_image_gen
+                # only swaps the live interface on success — so if it fails (e.g.
+                # the new provider has no API key) we must roll the saved image-gen
+                # provider/model back to match the still-live interface. Otherwise
+                # settings.json would advertise a provider the running interface
+                # can't serve.
+                if result.get("success") and image_gen_provider:
+                    reinit_ok = False
+                    try:
+                        agent = self._controller.agent
+                        reinit_ok = agent.reinitialize_image_gen(image_gen_provider)
+                    except Exception as e:
+                        logger.warning(
+                            f"[BROWSER] Failed to reinitialize image gen: {e}"
+                        )
+
+                    if reinit_ok:
+                        logger.info(
+                            f"[BROWSER] Image gen reinitialized with provider: {image_gen_provider}"
+                        )
+                    else:
+                        # Roll persisted image-gen settings back to the previous
+                        # (still-live) values to avoid a settings/interface mismatch.
+                        await asyncio.to_thread(
+                            update_model_settings,
+                            include_subscription_status=False,
+                            image_gen_provider=prev_image_gen_provider,
+                            image_gen_model=prev_image_gen_model,
+                        )
+                        msg = (
+                            f"Image generation provider '{image_gen_provider}' could not be "
+                            f"initialized — check its API key. Kept '{prev_image_gen_provider}'."
+                        )
+                        logger.warning(f"[BROWSER] {msg}")
+                        result["warning"] = result.get("warning") or msg
+
+                # Reinitialize video gen interface when its provider changes.
+                # Mirrors the image gen pattern: roll back on reinit failure.
+                if result.get("success") and video_gen_provider:
+                    reinit_vid_ok = False
+                    try:
+                        agent = self._controller.agent
+                        reinit_vid_ok = agent.reinitialize_video_gen(video_gen_provider)
+                    except Exception as e:
+                        logger.warning(
+                            f"[BROWSER] Failed to reinitialize video gen: {e}"
+                        )
+
+                    if reinit_vid_ok:
+                        logger.info(
+                            f"[BROWSER] Video gen reinitialized with provider: {video_gen_provider}"
+                        )
+                    else:
+                        await asyncio.to_thread(
+                            update_model_settings,
+                            include_subscription_status=False,
+                            video_gen_provider=prev_video_gen_provider,
+                            video_gen_model=prev_video_gen_model,
+                        )
+                        msg = (
+                            f"Video generation provider '{video_gen_provider}' could not be "
+                            f"initialized — check its API key. Kept '{prev_video_gen_provider}'."
+                        )
+                        logger.warning(f"[BROWSER] {msg}")
+                        result["warning"] = result.get("warning") or msg
+
+            # Status may invoke a slow CLI. Persistence and live activation are
+            # already complete, so another Save can safely proceed meanwhile.
+            if result.get("success"):
+                current = await asyncio.to_thread(get_model_settings)
+                result["subscription_oauth"] = current.get("subscription_oauth", {})
+
+            async with self._model_change_lock():
+                if result.get("success"):
+                    # Another client may have saved while status was pending.
+                    # Broadcast current saved values so a late response cannot
+                    # move either client's selector back to an older provider.
+                    current = await asyncio.to_thread(
+                        get_model_settings, include_subscription_status=False
+                    )
+                    current.pop("subscription_oauth", None)
+                    if current.get("success"):
+                        result.update(current)
+                await self._broadcast(
+                    {
+                        "type": "model_settings_update",
+                        "data": result,
+                    }
                 )
-
-                prev_video_gen_provider = _get_vg_provider()
-                prev_video_gen_model = _get_vg_model()
-
-            # Step 3: Now save settings (validation and connection test passed)
-            result = update_model_settings(
-                llm_provider=new_provider,
-                vlm_provider=vlm_provider,
-                image_gen_provider=image_gen_provider,
-                video_gen_provider=video_gen_provider,
-                llm_model=data.get("llmModel"),
-                vlm_model=data.get("vlmModel"),
-                image_gen_model=data.get("imageGenModel"),
-                video_gen_model=data.get("videoGenModel"),
-                api_key=api_key,
-                provider_for_key=provider_for_key,
-                base_url=base_url,
-                provider_for_url=data.get("providerForUrl"),
-                aws_credentials=data.get("awsCredentials"),
-            )
-
-            # Reinitialize LLM/VLM with new provider settings
-            if result.get("success") and new_provider:
-                try:
-                    agent = self._controller.agent
-                    agent.reinitialize_llm(new_provider)
-                    logger.info(
-                        f"[BROWSER] LLM reinitialized with provider: {new_provider}"
-                    )
-                except Exception as e:
-                    logger.warning(f"[BROWSER] Failed to reinitialize LLM: {e}")
-                    result["warning"] = (
-                        f"Settings saved but LLM reinitialization failed: {e}"
-                    )
-
-            # Reinitialize image gen interface when its provider changes.
-            # Settings are already persisted above, and reinitialize_image_gen
-            # only swaps the live interface on success — so if it fails (e.g.
-            # the new provider has no API key) we must roll the saved image-gen
-            # provider/model back to match the still-live interface. Otherwise
-            # settings.json would advertise a provider the running interface
-            # can't serve.
-            if result.get("success") and image_gen_provider:
-                reinit_ok = False
-                try:
-                    agent = self._controller.agent
-                    reinit_ok = agent.reinitialize_image_gen(image_gen_provider)
-                except Exception as e:
-                    logger.warning(f"[BROWSER] Failed to reinitialize image gen: {e}")
-
-                if reinit_ok:
-                    logger.info(
-                        f"[BROWSER] Image gen reinitialized with provider: {image_gen_provider}"
-                    )
-                else:
-                    # Roll persisted image-gen settings back to the previous
-                    # (still-live) values to avoid a settings/interface mismatch.
-                    update_model_settings(
-                        image_gen_provider=prev_image_gen_provider,
-                        image_gen_model=prev_image_gen_model,
-                    )
-                    msg = (
-                        f"Image generation provider '{image_gen_provider}' could not be "
-                        f"initialized — check its API key. Kept '{prev_image_gen_provider}'."
-                    )
-                    logger.warning(f"[BROWSER] {msg}")
-                    result["warning"] = result.get("warning") or msg
-
-            # Reinitialize video gen interface when its provider changes.
-            # Mirrors the image gen pattern: roll back on reinit failure.
-            if result.get("success") and video_gen_provider:
-                reinit_vid_ok = False
-                try:
-                    agent = self._controller.agent
-                    reinit_vid_ok = agent.reinitialize_video_gen(video_gen_provider)
-                except Exception as e:
-                    logger.warning(f"[BROWSER] Failed to reinitialize video gen: {e}")
-
-                if reinit_vid_ok:
-                    logger.info(
-                        f"[BROWSER] Video gen reinitialized with provider: {video_gen_provider}"
-                    )
-                else:
-                    update_model_settings(
-                        video_gen_provider=prev_video_gen_provider,
-                        video_gen_model=prev_video_gen_model,
-                    )
-                    msg = (
-                        f"Video generation provider '{video_gen_provider}' could not be "
-                        f"initialized — check its API key. Kept '{prev_video_gen_provider}'."
-                    )
-                    logger.warning(f"[BROWSER] {msg}")
-                    result["warning"] = result.get("warning") or msg
-
-            await self._broadcast(
-                {
-                    "type": "model_settings_update",
-                    "data": result,
-                }
-            )
         except Exception as e:
             await self._broadcast(
                 {
@@ -6213,7 +6568,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         """Fetch available models from Ollama and broadcast to frontend."""
         try:
             if not base_url:
-                settings_data = get_model_settings()
+                settings_data = await asyncio.to_thread(get_model_settings)
                 base_url = settings_data.get("base_urls", {}).get("remote")
             result = await asyncio.to_thread(get_ollama_models, base_url=base_url)
             await self._broadcast({"type": "ollama_models_get", "data": result})
@@ -6366,10 +6721,14 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         provider is echoed back in ``active_provider`` so the frontend
         dropdown updates immediately.
         """
+        request = self._subscription_request(provider)
         try:
             success, message = await connect_subscription_async(provider)
-            active_provider = self._activate_provider_via_settings(success, provider)
-            status_payload = get_subscription_status(provider)
+            active_provider = await self._activate_provider_via_settings(
+                success, provider, request=request
+            )
+            # Claude's status runs its CLI, so keep it off the event loop.
+            status_payload = await asyncio.to_thread(get_subscription_status, provider)
             await self._broadcast(
                 {
                     "type": "model_subscription_connect",
@@ -6395,8 +6754,8 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
             )
 
-    def _activate_provider_via_settings(
-        self, connect_success: bool, provider: str
+    async def _activate_provider_via_settings(
+        self, connect_success: bool, provider: str, *, request: object = None
     ) -> Optional[str]:
         """Reuse the manual-Save path to make ``provider`` the active LLM.
 
@@ -6411,10 +6770,22 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         if not connect_success:
             return None
         try:
-            update_model_settings(llm_provider=provider)
-            self._controller.agent.reinitialize_llm(provider)
-            logger.info(f"[BROWSER] LLM reinitialized with provider: {provider}")
-            return provider
+            async with self._model_change_lock():
+                if (
+                    request is not None
+                    and self._subscription_requests.get(provider) is not request
+                ):
+                    return None
+                result = await asyncio.to_thread(
+                    update_model_settings,
+                    llm_provider=provider,
+                    include_subscription_status=False,
+                )
+                if not result.get("success"):
+                    return None
+                self._controller.agent.reinitialize_llm(provider)
+                logger.info(f"[BROWSER] LLM reinitialized with provider: {provider}")
+                return provider
         except Exception as e:
             logger.warning(
                 f"[BROWSER] Failed to activate provider {provider} after "
@@ -6432,30 +6803,34 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         the factory rebuilds the client — falling back to the stored API key
         now that the subscription credential is gone.
         """
+        self._subscription_request(provider)
         try:
-            success, message = disconnect_subscription(provider)
-            warning = None
-            if success:
-                try:
-                    from app.ui_layer.settings.provider_settings import (
-                        get_current_provider,
-                    )
-
-                    if get_current_provider() == provider:
-                        self._controller.agent.reinitialize_llm(provider)
-                        logger.info(
-                            f"[BROWSER] LLM reinitialized with provider {provider} "
-                            "after subscription disconnect (API-key mode)"
+            async with self._model_change_lock():
+                success, message = await asyncio.to_thread(
+                    disconnect_subscription, provider
+                )
+                warning = None
+                if success:
+                    try:
+                        from app.ui_layer.settings.provider_settings import (
+                            get_current_provider,
                         )
-                except Exception as e:
-                    logger.warning(
-                        f"[BROWSER] LLM reinit after {provider} subscription "
-                        f"disconnect failed: {e}"
-                    )
-                    warning = (
-                        "Subscription disconnected, but the model could not be "
-                        f"reinitialized: {e}"
-                    )
+
+                        if get_current_provider() == provider:
+                            self._controller.agent.reinitialize_llm(provider)
+                            logger.info(
+                                f"[BROWSER] LLM reinitialized with provider {provider} "
+                                "after subscription disconnect (API-key mode)"
+                            )
+                    except Exception as e:
+                        logger.warning(
+                            f"[BROWSER] LLM reinit after {provider} subscription "
+                            f"disconnect failed: {e}"
+                        )
+                        warning = (
+                            "Subscription disconnected, but the model could not be "
+                            f"reinitialized: {e}"
+                        )
             await self._broadcast(
                 {
                     "type": "model_subscription_disconnect",
@@ -6464,7 +6839,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         "provider": provider,
                         "message": message,
                         "warning": warning,
-                        "status": get_subscription_status(provider),
+                        "status": await asyncio.to_thread(
+                            get_subscription_status, provider
+                        ),
                     },
                 }
             )
@@ -6484,7 +6861,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
     async def _handle_model_subscription_status(self, provider: str) -> None:
         """Return current connection status for a given provider."""
         try:
-            status_payload = get_subscription_status(provider)
+            status_payload = await asyncio.to_thread(get_subscription_status, provider)
             await self._broadcast(
                 {
                     "type": "model_subscription_status",
@@ -6547,11 +6924,14 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         ``_handle_model_subscription_connect`` does — see
         ``_activate_provider_via_settings``.
         """
+        request = self._subscription_request(provider)
         try:
             success, message = await asyncio.to_thread(
                 complete_subscription, provider, code, attempt_id
             )
-            active_provider = self._activate_provider_via_settings(success, provider)
+            active_provider = await self._activate_provider_via_settings(
+                success, provider, request=request
+            )
             await self._broadcast(
                 {
                     "type": "model_subscription_complete",
@@ -6559,7 +6939,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         "success": success,
                         "provider": provider,
                         "message": message,
-                        "status": get_subscription_status(provider),
+                        "status": await asyncio.to_thread(
+                            get_subscription_status, provider
+                        ),
                         "active_provider": active_provider,
                     },
                 }
@@ -7892,7 +8274,16 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
     # ``config_fields`` on its handler. These two handlers work for
     # every integration with no per-id branching.
 
-    async def _handle_integration_get_config(self, integration_id: str) -> None:
+    async def _handle_figma_canvas_control(self, data: dict) -> None:
+        """Settings can pair/stop a canvas; design writes remain agent actions."""
+        from app.ui_layer.settings.figma_canvas import control_canvas
+
+        result = await control_canvas(self._system_for("figma"), data)
+        await self._broadcast({"type": "figma_canvas_result", "data": result})
+
+    async def _handle_integration_get_config(
+        self, integration_id: str, request_id: Optional[str] = None
+    ) -> None:
         """Send the integration's config schema + current values to the frontend."""
         try:
             from craftos_integrations import get_config, get_config_schema, get_metadata
@@ -7904,6 +8295,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         "type": "integration_config",
                         "data": {
                             "id": integration_id,
+                            "requestId": request_id,
                             "success": False,
                             "error": tui("integration_unknown_generic"),
                         },
@@ -7915,6 +8307,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     "type": "integration_config",
                     "data": {
                         "id": integration_id,
+                        "requestId": request_id,
                         "success": True,
                         "schema": get_config_schema(integration_id) or [],
                         "values": get_config(integration_id) or {},
@@ -7927,6 +8320,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     "type": "integration_config",
                     "data": {
                         "id": integration_id,
+                        "requestId": request_id,
                         "success": False,
                         "error": str(e),
                     },
@@ -7934,18 +8328,25 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             )
 
     async def _handle_integration_update_config(
-        self, integration_id: str, values: dict
+        self,
+        integration_id: str,
+        values: dict,
+        expected_values: Optional[dict] = None,
+        request_id: Optional[str] = None,
     ) -> None:
         """Persist new config values; return the post-write state so the UI can refresh."""
         try:
             from craftos_integrations import get_config, update_config
 
-            ok, message = update_config(integration_id, values or {})
+            ok, message = update_config(
+                integration_id, values or {}, expected_values=expected_values
+            )
             await self._broadcast(
                 {
                     "type": "integration_config_updated",
                     "data": {
                         "id": integration_id,
+                        "requestId": request_id,
                         "success": ok,
                         "message": message,
                         "values": get_config(integration_id) if ok else None,
@@ -7958,6 +8359,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     "type": "integration_config_updated",
                     "data": {
                         "id": integration_id,
+                        "requestId": request_id,
                         "success": False,
                         "error": str(e),
                     },
@@ -8152,31 +8554,18 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
     # =====================
 
     @staticmethod
-    def _fetch_catalogue(url: str) -> dict:
+    def _fetch_catalogue() -> dict:
         """Blocking fetch + parse of the marketplace catalogue.
 
         Split out so the caller can run it off the event loop — see
         _handle_marketplace_list.
         """
-        import json as _json
-        import re as _re
-        import ssl
-        import urllib.request
+        from app.agent_app import marketplace_source
 
-        import certifi
-
-        ssl_ctx = ssl.create_default_context(cafile=certifi.where())
-        req = urllib.request.Request(url, headers={"User-Agent": "CraftBot"})
-        raw = urllib.request.urlopen(req, timeout=15, context=ssl_ctx).read().decode()
-        # Strip trailing commas before ] or } (tolerant of hand-edited JSON)
-        return _json.loads(_re.sub(r",\s*([}\]])", r"\1", raw))
+        return marketplace_source.fetch_catalogue(timeout=15)
 
     async def _handle_marketplace_list(self) -> None:
         """Fetch marketplace catalogue from GitHub."""
-        from app.agent_app import marketplace_source
-
-        CATALOGUE_URL = marketplace_source.catalogue_url()
-
         try:
             # MUST run off the event loop. urlopen is blocking, and this used
             # to be called inline in an async handler: a slow fetch froze the
@@ -8186,20 +8575,12 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             # blackhole hangs indefinitely and the UI spinner never resolves.
             # Every other network call in this module already uses to_thread.
             catalogue = await asyncio.wait_for(
-                asyncio.to_thread(self._fetch_catalogue, CATALOGUE_URL),
+                asyncio.to_thread(self._fetch_catalogue),
                 timeout=30,
             )
-            # Resolve thumbnails here rather than in the frontend, which would
-            # otherwise build them against a hard-coded branch and 404 for any
-            # app that only exists on the ref being tested.
+            # The shared fetcher resolves thumbnails against the repository
+            # and branch that actually supplied the catalogue.
             apps = catalogue.get("apps", [])
-            for app in apps:
-                if (
-                    isinstance(app, dict)
-                    and not app.get("preview")
-                    and app.get("folder")
-                ):
-                    app["preview"] = marketplace_source.thumbnail_url(app["folder"])
             await self._broadcast(
                 {
                     "type": "agent_app_marketplace_list",
@@ -8468,6 +8849,29 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             channel.send_json(_with_request_id(message))
             return
         await self._broadcast(message)
+
+    # ── Outbound channels for the chat browser panels (app/mini_browser/ws.py,
+    # MiniBrowserAdapter): direct per-socket delivery, never a broadcast. ──
+
+    def send_only_to(self, ws, message: Dict[str, Any]) -> bool:
+        """Send to one connection only. Unlike ``_send_to`` there is no
+        broadcast fallback: when that connection is gone the message is
+        dropped, so replies meant for one tab (saved logins) never reach
+        another. Returns whether it was queued."""
+        channel = self.client_channel(ws)
+        if channel is None:
+            return False
+        channel.send_json(_with_request_id(message))
+        return True
+
+    def client_channel(self, ws) -> Optional[ClientChannel]:
+        """The open outbound channel of ``ws``, or None when it is gone."""
+        channel = self._channels.get(ws) if ws is not None else None
+        return None if channel is None or channel.closed else channel
+
+    def client_channels(self) -> List[ClientChannel]:
+        """The open outbound channel of every connected socket."""
+        return [channel for channel in self._channels.values() if not channel.closed]
 
     async def _handle_whatsapp_start_qr(self, ws=None, force: bool = False) -> None:
         """Start a WhatsApp link flow and return the QR to the requesting
@@ -9282,6 +9686,13 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             if not agent_context.strip():
                 return
 
+            # Also the reply to the pinned question, as in submit_message.
+            reply = content.strip() or ", ".join(a.name for a in processed_attachments)
+            agent_context = (
+                await self._answer_shown_question(session_id, reply, agent_context)
+                or agent_context
+            )
+
             # Update state and route to agent directly
             # (Skip submit_message to avoid duplicate chat message)
             self._controller._state_store.dispatch(
@@ -9772,6 +10183,11 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             # older history through chat_history. ChatMessage.to_dict() always
             # carries sessionId.
             "messages": [m.to_dict() for m in self._chat.get_recent_messages()],
+            "lastSeenMessageIds": (
+                self._chat._storage.get_last_seen_message_ids()
+                if self._chat._storage is not None
+                else {}
+            ),
             # Recent activity items (per-session inline feed); each carries sessionId.
             "actions": [
                 BrowserActionPanelComponent._item_payload(a)
@@ -10049,6 +10465,75 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             raise web.HTTPNotFound()
         except Exception as e:
             raise web.HTTPInternalServerError(reason=str(e))
+
+    async def _generative_ui_map_handler(
+        self, request: "web.Request"
+    ) -> "web.Response":
+        """What a Generative UI output's map shows beside its tiles."""
+        from aiohttp import web
+
+        from app.config import get_generative_ui_settings
+
+        settings = get_generative_ui_settings()
+        return web.json_response(
+            {
+                "attribution": settings["map_attribution"],
+                "maxZoom": settings["map_max_zoom"],
+            }
+        )
+
+    async def _generative_ui_tile_handler(
+        self, request: "web.Request"
+    ) -> "web.Response":
+        """A map tile for a Generative UI output, fetched by CraftBot
+        (app.map_tiles): the sandboxed page cannot identify itself to the
+        tile server."""
+        from aiohttp import web
+
+        from app import map_tiles
+        from app.config import get_generative_ui_settings
+
+        z, x, y = (int(request.match_info[key]) for key in ("z", "x", "y"))
+        if not map_tiles.valid_tile(
+            z, x, y, get_generative_ui_settings()["map_max_zoom"]
+        ):
+            raise web.HTTPNotFound()
+        try:
+            data, content_type = await map_tiles.get_tile(z, x, y)
+        except map_tiles.TileUnavailable as exc:
+            logger.warning(f"[GENERATIVE_UI] Map tile {z}/{x}/{y} unavailable: {exc}")
+            raise web.HTTPBadGateway()
+        return web.Response(
+            body=data,
+            content_type=content_type,
+            headers={
+                "Cache-Control": "private, max-age=86400",
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
+
+    async def _generative_ui_image_handler(
+        self, request: "web.Request"
+    ) -> "web.Response":
+        """Serve a Generative UI output's image (ChatStorage.store_ui_images).
+        The output panel reads it and hands it to the sandbox; the file name
+        is its content hash, so it never changes."""
+        from aiohttp import web
+
+        from app.usage.chat_storage import get_chat_storage
+
+        path = request.match_info.get("path", "")
+        file = get_chat_storage().ui_image_file(path)
+        if file is None:
+            raise web.HTTPNotFound()
+        return web.FileResponse(
+            file,
+            headers={
+                "Content-Type": _UI_IMAGE_TYPES[file.suffix],
+                "Cache-Control": "private, max-age=31536000, immutable",
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
 
     def _get_index_html(self) -> str:
         """Get the index HTML for the browser interface."""

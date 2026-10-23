@@ -17,6 +17,9 @@
 
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
+#[cfg(all(windows, target_env = "msvc", not(target_feature = "crt-static")))]
+compile_error!("The Windows installer needs a static C runtime. Build from the repository or launcher directory so .cargo/config.toml is loaded.");
+
 mod craftbot;
 mod download;
 mod install;

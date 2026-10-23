@@ -14,6 +14,7 @@ Features:
 """
 
 import asyncio
+import contextvars
 import importlib
 import json
 import os
@@ -634,14 +635,20 @@ async def _atomic_action_internal_async(
             finally:
                 current_input_data.reset(ctx_token)
         else:
-            # Sync function - run in thread pool to avoid blocking. The
-            # worker thread doesn't inherit this context, so the wrapper
-            # sets current_input_data inside the thread.
+            # Sync function - run in thread pool to avoid blocking. A pool
+            # thread does not inherit the caller's context, so the action
+            # runs inside a copy of it (as asyncio.to_thread does): the bound
+            # session, log context, and other context-scoped state follow the
+            # action into the thread, and the wrapper sets current_input_data
+            # there.
             logger.debug(
                 f"[SYNC] Action '{action_name}' is sync, running in thread pool"
             )
             thread_future = THREAD_POOL.submit(
-                run_with_input_context, function_to_call, input_data
+                contextvars.copy_context().run,
+                run_with_input_context,
+                function_to_call,
+                input_data,
             )
             try:
                 execution_result = await asyncio.wrap_future(thread_future)

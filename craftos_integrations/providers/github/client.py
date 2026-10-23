@@ -31,7 +31,7 @@ from ... import (
     register_client,
     save_credential,
 )
-from ...helpers import Result, arequest
+from ...helpers import Result, arequest, clip
 from ...logger import get_logger
 
 logger = get_logger(__name__)
@@ -39,6 +39,10 @@ logger = get_logger(__name__)
 GITHUB_API = "https://api.github.com"
 POLL_INTERVAL = 15
 RETRY_DELAY = 30
+
+# Inbound notification comments are previewed at this length (token cost);
+# a longer comment is flagged as PlatformMessage.truncated.
+_COMMENT_PREVIEW_CHARS = 300
 
 
 @dataclass
@@ -336,8 +340,10 @@ class GitHubClient(BasePlatformClient):
             f"[{repo_full}] {subject_type}: {subject_title}",
             f"Reason: {reason}",
         ]
+        truncated = False
         if comment_body:
-            text_parts.append(f"Comment by @{comment_author}: {comment_body[:300]}")
+            preview, truncated = clip(comment_body, _COMMENT_PREVIEW_CHARS)
+            text_parts.append(f"Comment by @{comment_author}: {preview}")
 
         await self._message_callback(
             PlatformMessage(
@@ -350,6 +356,7 @@ class GitHubClient(BasePlatformClient):
                 message_id=notif.get("id", ""),
                 timestamp=datetime.now(timezone.utc),
                 raw=notif,
+                truncated=truncated,
             )
         )
 

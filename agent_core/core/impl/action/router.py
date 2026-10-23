@@ -24,6 +24,7 @@ from agent_core.core.prompts import SELECT_ACTION_PROMPT
 from agent_core.core.impl.llm.interface import LLMContextOverflowError
 from agent_core import get_event_stream_manager
 from agent_core.utils.logger import logger
+from agent_core.utils.token import count_tokens
 
 
 def _is_visible_in_mode(action, GUI_mode: bool) -> bool:
@@ -57,6 +58,7 @@ class ActionRouter:
         action_library: ActionLibraryProtocol,
         llm_interface: LLMInterfaceProtocol,
         context_engine: ContextEngineProtocol,
+        prompt_filter: Optional[Callable[[str], str]] = None,
     ):
         """
         Initialize the router responsible for selecting or creating actions.
@@ -65,10 +67,25 @@ class ActionRouter:
             action_library: Repository for storing and retrieving action definitions.
             llm_interface: LLM client used to reason about which action to run.
             context_engine: Provider of system prompts and context formatting.
+            prompt_filter: Optional host hook applied to every rendered
+                action-selection prompt, e.g. to drop a capability rule while
+                that capability is unavailable. A failing filter is skipped.
         """
         self.action_library = action_library
         self.llm_interface = llm_interface
         self.context_engine = context_engine
+        self.prompt_filter = prompt_filter
+
+    def _filter_prompt(self, prompt: str) -> str:
+        """``prompt`` through the host's prompt_filter (unchanged on failure)."""
+        if self.prompt_filter is None:
+            return prompt
+        try:
+            filtered = self.prompt_filter(prompt)
+        except Exception as e:
+            logger.debug(f"[ACTION] prompt filter failed: {e}")
+            return prompt
+        return filtered if isinstance(filtered, str) else prompt
 
     @profile("action_router_select_action", OperationCategory.ACTION_ROUTING)
     async def select_action_in_session(
@@ -91,7 +108,7 @@ class ActionRouter:
         Raises:
             ValueError: If LLM returns invalid format 3 times consecutively.
         """
-        # Get compiled action list from the session's loaded action sets
+        # The session's <actions> list (fixed by its type)
         compiled_actions = self._get_session_compiled_actions(session_id=session_id)
 
         # Use static compiled list - NO RAG SEARCH
@@ -105,48 +122,29 @@ class ActionRouter:
         # Build the instruction prompt for the LLM
         session_state = self.context_engine.get_session_state(session_id=session_id)
 
-        # Pull just-in-time guidance for any integrations the user named.
-        # Match against both the current turn's query and the session state so
-        # the platform name from the original user request still triggers a
-        # match even after the per-turn query is generic ("Perform the next
-        # best action...").
-        try:
-            from app.data.action.integrations._integration_essentials import (
-                get_essentials_for_message,
-            )
-
-            integration_essentials = get_essentials_for_message(
-                f"{query}\n{session_state}"
-            )
-            logger.info(
-                f"[ACTION] integration essentials: "
-                f"{len(integration_essentials)} chars injected"
-            )
-        except Exception as e:
-            logger.debug(f"[ACTION] integration essentials lookup failed: {e}")
-            integration_essentials = ""
-
         decision_prompt_name = "SELECT_ACTION"
-        static_prompt = SELECT_ACTION_PROMPT.format(
-            session_state=session_state,
-            event_stream="",  # Empty for static prompt
-            query=query,
-            action_candidates=self._format_candidates(action_candidates),
-            integration_essentials=integration_essentials,
+        static_prompt = self._filter_prompt(
+            SELECT_ACTION_PROMPT.format(
+                session_state=session_state,
+                event_stream="",  # Empty for static prompt
+                query=query,
+                action_candidates=self._format_candidates(action_candidates),
+            )
         )
         candidates_text = self._format_candidates(action_candidates)
 
         def render_prompt() -> str:
             # Rendered from the CURRENT stream, so a fold made while deciding
             # (see _prompt_for_decision) is reflected in what is sent.
-            return SELECT_ACTION_PROMPT.format(
-                session_state=session_state,
-                event_stream=self.context_engine.get_event_stream(
-                    session_id=session_id
-                ),
-                query=query,
-                action_candidates=candidates_text,
-                integration_essentials=integration_essentials,
+            return self._filter_prompt(
+                SELECT_ACTION_PROMPT.format(
+                    session_state=session_state,
+                    event_stream=self.context_engine.get_event_stream(
+                        session_id=session_id
+                    ),
+                    query=query,
+                    action_candidates=candidates_text,
+                )
             )
 
         full_prompt = render_prompt()
@@ -215,6 +213,36 @@ class ActionRouter:
     # Internal helpers
     # ------------------------------------------------------------------
 
+    def _fold(self, stream, system_prompt: str, static_prompt: Optional[str]) -> None:
+        """Fold ``stream``, keeping as much recent history as the budget allows.
+
+        A fold keeps context.keep_recent_tokens of recent events, but never
+        more than half of the room the model's input budget leaves after
+        what a fold does not shrink: the system prompt, the prompt around
+        the event stream (``static_prompt``) and the running summary. So
+        every fold frees at least half of that room for new events, whatever
+        the model's window.
+        """
+        from app.config import get_keep_recent_tokens
+
+        room = (
+            self.llm_interface.input_budget()
+            - count_tokens(system_prompt)
+            - count_tokens(static_prompt or "")
+            - count_tokens(stream.head_summary or "")
+        )
+        stream.summarize_by_LLM(
+            keep_tokens=min(get_keep_recent_tokens(), max(room, 0) // 2)
+        )
+
+    def _checkpoint(self, stream, task_id: str, call_type: str) -> None:
+        """Tell the LLM interface how far the session history now covers the
+        stream (it saves the history as of this point, so a restart can
+        continue the session on the provider's cached prefix)."""
+        self.llm_interface.checkpoint_session(
+            task_id, call_type, stream.sync_marker(call_type) if stream else None
+        )
+
     async def _prompt_for_decision(
         self,
         prompt: str,
@@ -240,9 +268,11 @@ class ActionRouter:
         max_retries = 3
         last_error: Optional[Exception] = None
         current_prompt = prompt
-        # One fold per decision: a request that still does not fit after the
-        # stream has been folded to keep_recent_tokens is a configuration
-        # problem, not something another fold can solve.
+        # One fold per decision: a fold keeps at most its keep target of what
+        # the model has read (new events count against it), so a request that
+        # still does not fit is carrying new events too large to send in full.
+        # Those are collapsed to pointers once; if it still does not fit, that
+        # is a configuration problem, not something another fold can solve.
         folded = False
 
         # Get current task_id for session cache (if running in a task)
@@ -316,7 +346,7 @@ class ActionRouter:
                                     f"[SESSION CACHE] Next request exceeds the context "
                                     f"budget; folding the event stream for {call_type}"
                                 )
-                                stream.summarize_by_LLM()
+                                self._fold(stream, system_prompt, static_prompt)
                                 folded = True
                                 current_prompt = render_prompt()
                                 self.context_engine.reset_event_stream_sync(
@@ -339,6 +369,7 @@ class ActionRouter:
                                 self.context_engine.mark_event_stream_synced(
                                     call_type, session_id=effective_session_id
                                 )
+                                self._checkpoint(stream, current_task_id, call_type)
                             else:
                                 # No new events - this could mean summarization happened
                                 logger.info(
@@ -374,11 +405,27 @@ class ActionRouter:
                             self.context_engine.mark_event_stream_synced(
                                 call_type, session_id=effective_session_id
                             )
+                            self._checkpoint(stream, current_task_id, call_type)
                     else:
                         # No session registered (simple task) - use prefix cache / regular response
                         raw_response = await self.llm_interface.generate_response_async(
-                            system_prompt, current_prompt, prompt_name=prompt_name
+                            system_prompt,
+                            current_prompt,
+                            prompt_name=prompt_name,
+                            usage_key=f"{current_task_id}:{call_type}",
                         )
+                        # The prompt carried the whole stream; a later fold may
+                        # collapse any of it now.
+                        event_stream_manager = get_event_stream_manager()
+                        stream = (
+                            event_stream_manager.get_stream_by_id(
+                                session_id or current_task_id
+                            )
+                            if event_stream_manager
+                            else None
+                        )
+                        if stream is not None:
+                            stream.mark_delivered()
                 else:
                     # Not in task context - use regular response
                     raw_response = await self.llm_interface.generate_response_async(
@@ -419,19 +466,23 @@ class ActionRouter:
             except LLMContextOverflowError:
                 # The request could not fit (pre-flight, or the provider said so).
                 # Fold once and retry with a prompt rendered from the folded stream.
-                if folded or render_prompt is None or not (current_task_id and is_task):
+                if render_prompt is None or not (current_task_id and is_task):
                     raise
                 stream = get_event_stream_manager().get_stream_by_id(
                     session_id or current_task_id
                 )
                 if stream is None:
                     raise
-                logger.warning(
-                    f"[SESSION CACHE] Request exceeded the context budget; folding the "
-                    f"event stream and retrying once for {call_type}"
-                )
-                stream.summarize_by_LLM()
-                folded = True
+                if not folded:
+                    logger.warning(
+                        f"[SESSION CACHE] Request exceeded the context budget; folding "
+                        f"the event stream and retrying once for {call_type}"
+                    )
+                    self._fold(stream, system_prompt, static_prompt)
+                    folded = True
+                elif not stream.collapse_undelivered_oversize():
+                    # Folded, and the new events have nothing left to shrink.
+                    raise
                 current_prompt = render_prompt()
                 self.llm_interface.reset_session_history(current_task_id, call_type)
                 self.context_engine.reset_event_stream_sync(
@@ -798,6 +849,17 @@ class ActionRouter:
 
         # Cap at 10 actions
         actions = actions[:10]
+
+        # A standalone end_turn is non-parallelizable and otherwise wins
+        # over the reply, discarding it. Telegram auto-replies end the run
+        # on successful delivery themselves. Never let a redundant stop
+        # suppress the send (including when the LLM puts end_turn first).
+        if any(
+            a.get("action_name")
+            in ("send_telegram_bot_message", "send_telegram_text_message")
+            for a in actions
+        ):
+            actions = [a for a in actions if a.get("action_name") != "end_turn"]
 
         dropped_actions = []
 

@@ -78,7 +78,7 @@ def view_image(input_data: dict) -> dict:
                 "Providers with VLM support: openai, anthropic, gemini, byteplus.\n\n"
                 "To switch provider, edit 'app/config/settings.json' and update:\n"
                 '  "vlm_provider": "<provider>"  (e.g. "anthropic")\n'
-                '  "vlm_model": "<model>"  (e.g. "claude-sonnet-4-6" for anthropic)\n\n'
+                '  "vlm_model": "<model>"  (e.g. "claude-sonnet-5-5" for anthropic)\n\n'
                 "Make sure the corresponding API key is configured under 'api_keys' in the same file. "
                 "If no API key is set, ask the user to provide one. "
                 "The system will automatically detect the config change and reload."

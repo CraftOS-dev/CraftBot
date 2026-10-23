@@ -80,8 +80,8 @@ pub fn python_runtime_dir() -> PathBuf {
 }
 
 /// The sidecar interpreter, matching `PythonStage._sidecar_exe()`.
-pub fn python_exe() -> PathBuf {
-    let root = python_runtime_dir().join("python");
+pub fn python_exe_in(runtime_dir: &Path) -> PathBuf {
+    let root = runtime_dir.join("python");
     if cfg!(windows) {
         root.join("python.exe")
     } else {

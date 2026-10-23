@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from agent_core.core.errors import ClassifiedError
 
+from agent_core.core.hooks.usage import dispatch_usage, to_thread_with_usage
 import asyncio
 import base64
 import io
@@ -197,9 +198,7 @@ class ImageGenInterface:
     ) -> None:
         """Report image-generation usage if the hook is set (mirrors VLM).
 
-        Best-effort: scheduling onto the running loop can fail when invoked
-        from a worker thread without one, in which case the usage is dropped
-        with a warning rather than breaking generation.
+        Delivery uses the request's owning loop and is drained at shutdown.
         """
         if not self._report_usage:
             return
@@ -212,10 +211,7 @@ class ImageGenInterface:
                 output_tokens=output_tokens,
                 cached_tokens=cached_tokens,
             )
-            if self._main_loop is not None:
-                self._main_loop.call_soon_threadsafe(
-                    lambda: asyncio.create_task(self._report_usage(event))
-                )
+            dispatch_usage(self._report_usage, event)
         except Exception as e:
             logger.warning(f"[IMAGE_GEN] Failed to report usage: {e}")
 
@@ -307,8 +303,7 @@ class ImageGenInterface:
 
     async def generate_image_async(self, **kwargs) -> List[str]:
         """Async wrapper — runs generate_image in a thread pool."""
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, lambda: self.generate_image(**kwargs))
+        return await to_thread_with_usage(self.generate_image, **kwargs)
 
     # ──────────────────────── OpenAI provider ────────────────────────────────
 

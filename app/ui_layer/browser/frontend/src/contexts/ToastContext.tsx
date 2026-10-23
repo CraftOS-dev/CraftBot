@@ -5,10 +5,25 @@ import styles from './ToastContext.module.css'
 
 type ToastType = 'success' | 'error' | 'warning' | 'info'
 
+/** A button on a toast (e.g. "Open" on a finished download). Clicking it
+ *  runs the action and dismisses the toast. */
+export interface ToastAction {
+  label: string
+  onClick: () => void
+}
+
+const DEFAULT_TOAST_MS = 3000
+// A second line of specifics takes longer to read.
+const DETAIL_TOAST_MS = 6000
+// Toasts with buttons stay long enough to reach for them.
+const ACTION_TOAST_MS = 10000
+
 interface Toast {
   id: string
   type: ToastType
   message: string
+  /** Optional second, smaller line with specifics. */
+  detail?: string
   category?: string
   /** Stable caller-supplied identity. A second showToast with the same key
    *  REPLACES the toast in place instead of stacking a new one — that is what
@@ -17,11 +32,16 @@ interface Toast {
   /** Sticky toasts never auto-dismiss. For work that outlives 3 seconds the
    *  toast has to survive until the outcome is known. */
   sticky?: boolean
+  actions?: ToastAction[]
 }
 
 export interface ToastOptions {
   key?: string
   sticky?: boolean
+  actions?: ToastAction[]
+  /** A second, smaller line under the message (e.g. the specifics of an
+   *  event whose headline is translated). */
+  detail?: string
 }
 
 interface ToastContextValue {
@@ -63,18 +83,20 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   ) => {
     const key = options?.key
     const sticky = !!options?.sticky
+    const actions = options?.actions?.length ? options.actions : undefined
+    const detail = options?.detail?.trim() || undefined
     const existingId = key ? keyToId.current.get(key) : undefined
     if (existingId) {
       setToasts(prev =>
         prev.some(t => t.id === existingId)
-          ? prev.map(t => (t.id === existingId ? { ...t, type, message, category, sticky } : t))
-          : [...prev, { id: existingId, type, message, category, key, sticky }],
+          ? prev.map(t => (t.id === existingId ? { ...t, type, message, detail, category, sticky, actions } : t))
+          : [...prev, { id: existingId, type, message, detail, category, key, sticky, actions }],
       )
       return
     }
     const id = `toast-${++idCounter.current}`
     if (key) keyToId.current.set(key, id)
-    setToasts(prev => [...prev, { id, type, message, category, key, sticky }])
+    setToasts(prev => [...prev, { id, type, message, detail, category, key, sticky, actions }])
   }, [])
 
   // Auto-dismiss lives here rather than inside showToast so that a toast
@@ -104,7 +126,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
           timers.current.delete(t.id)
           if (t.key) keyToId.current.delete(t.key)
           setToasts(prev => prev.filter(x => x.id !== t.id))
-        }, 3000),
+        }, t.actions ? ACTION_TOAST_MS : t.detail ? DETAIL_TOAST_MS : DEFAULT_TOAST_MS),
       )
     })
   }, [toasts])
@@ -151,7 +173,34 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
             onClick={() => dismissToast(toast.id)}
           >
             <span className={styles.icon}>{getIcon(toast.type, toast.category)}</span>
-            <span className={styles.message}>{toast.message}</span>
+            {toast.actions || toast.detail ? (
+              <span className={styles.body}>
+                <span className={styles.text}>
+                  <span className={styles.message}>{toast.message}</span>
+                  {toast.detail && <span className={styles.detail}>{toast.detail}</span>}
+                </span>
+                {toast.actions && (
+                  <span className={styles.actions}>
+                    {toast.actions.map(action => (
+                      <button
+                        key={action.label}
+                        type="button"
+                        className={styles.action}
+                        onClick={e => {
+                          e.stopPropagation()
+                          dismissToast(toast.id)
+                          action.onClick()
+                        }}
+                      >
+                        {action.label}
+                      </button>
+                    ))}
+                  </span>
+                )}
+              </span>
+            ) : (
+              <span className={styles.message}>{toast.message}</span>
+            )}
           </div>
         ))}
       </div>

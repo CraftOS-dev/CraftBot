@@ -41,6 +41,9 @@ from app import python_runtime
 # Single resolved Node runtime — see app/node_runtime.py. install.py
 # downloads the sidecar when nothing suitable exists; run.py never installs.
 from app import node_runtime
+from app.console import configure_console
+
+configure_console()
 
 multiprocessing.freeze_support()
 
@@ -66,12 +69,15 @@ def _bootstrap_state():
     agents, assets and skills trees, so on first run they are copied across.
 
     Only ever copies what is ABSENT — a user's edited settings.json or their
-    customised skills must survive every upgrade.
+    customised skills must survive every upgrade. An upgrade also brings in
+    the action files and skills that are NEW in the release, and enables the
+    newly shipped default skills (app/state_sync.py: never overwrites a file,
+    never restores one the user deleted).
 
-    A dev checkout is skipped: there, code and state are the same tree, which
-    is what makes a checkout convenient to work in.
+    When code and state share a tree no copy is needed. An explicit separate
+    CRAFTBOT_HOME is seeded in a dev checkout too.
     """
-    if _paths.is_dev_checkout():
+    if _paths.CODE_ROOT.resolve() == _paths.STATE_ROOT.resolve():
         return
 
     import shutil as _shutil
@@ -111,6 +117,15 @@ def _bootstrap_state():
         if os.path.isfile(src) and not os.path.isfile(dst):
             print(f"  Bootstrapping {rel_file}...")
             _shutil.copy2(src, dst)
+
+    # The trees above are copied once, so an upgrade would otherwise never
+    # deliver a new action file or skill (or enable a new default skill).
+    try:
+        from app.state_sync import sync_shipped_files
+
+        sync_shipped_files(_paths.CODE_ROOT, _paths.STATE_ROOT)
+    except Exception as exc:  # never block startup over it
+        print(f"  Warning: could not sync newly shipped files: {exc}")
 
 
 _bootstrap_state()
@@ -1066,10 +1081,15 @@ def launch_agent_background(
     # skips re-resolution and both processes agree on the same binary. Not
     # in conda mode: there the env's own node (>= 24 via environment.yml,
     # first on PATH under conda run) is the intended runtime.
-    if not use_conda and "CRAFTBOT_NODE" not in agent_env:
-        _rt = node_runtime.resolve()
-        if _rt:
-            agent_env["CRAFTBOT_NODE"] = _rt.node
+    if not use_conda:
+        # MCP servers invoke bare npx/node too. Passing only CRAFTBOT_NODE
+        # helps our wrappers but leaves those subprocesses unable to start
+        # on a machine without a system Node installation.
+        agent_env.update(node_runtime.path_env())
+        if "CRAFTBOT_NODE" not in agent_env:
+            _rt = node_runtime.resolve()
+            if _rt:
+                agent_env["CRAFTBOT_NODE"] = _rt.node
 
     # When running as a PyInstaller frozen binary, run main() in a thread
     # instead of spawning a subprocess (sys.executable is the binary itself)

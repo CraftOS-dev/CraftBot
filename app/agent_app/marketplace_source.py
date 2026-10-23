@@ -16,11 +16,24 @@ Read per call, so tests can patch the environment without re-importing.
 from __future__ import annotations
 
 import os
+import json
+import logging
+import re
+import ssl
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Optional
 
-REPO = "CraftOS-dev/living-ui-marketplace"
+REPO = "CraftOS-dev/agent-app-collection"
+LEGACY_REPO = "CraftOS-dev/living-ui-marketplace"
+REPOS = (REPO, LEGACY_REPO)
+REPO_URL = f"https://github.com/{REPO}/"
 DEFAULT_REF = "main"
+logger = logging.getLogger(__name__)
+
+# v1.4.4 supports both names; the repository is renamed in v1.4.7.
+# Keep the new name first even while only the legacy repository exists.
 
 
 def ref() -> str:
@@ -74,16 +87,20 @@ def local_catalogue() -> Optional[Path]:
     branch's app list than the one apps install from, which is exactly the
     mismatch this module exists to prevent.
     """
-    root = Path(__file__).resolve().parents[2].parent / REPO.split("/")[-1]
-    if _checkout_branch(root) != ref():
-        return None
-    catalogue = root / "catalogue.json"
-    return catalogue if catalogue.exists() else None
+    parent = Path(__file__).resolve().parents[2].parent
+    branch = ref()
+    for repository in REPOS:
+        root = parent / repository.split("/")[-1]
+        if _checkout_branch(root) == branch:
+            catalogue = root / "catalogue.json"
+            if catalogue.exists():
+                return catalogue
+    return None
 
 
-def catalogue_url() -> str:
+def catalogue_url(repository: str = REPO) -> str:
     """Raw URL of the catalogue listing installable apps."""
-    return f"https://raw.githubusercontent.com/{REPO}/{ref()}/catalogue.json"
+    return f"https://raw.githubusercontent.com/{repository}/{ref()}/catalogue.json"
 
 
 def zip_url(owner: str, repo: str) -> str:
@@ -94,6 +111,65 @@ def zip_url(owner: str, repo: str) -> str:
     return f"https://github.com/{owner}/{repo}/archive/refs/heads/{ref()}.zip"
 
 
-def thumbnail_url(folder: str) -> str:
+def thumbnail_url(folder: str, repository: str = REPO) -> str:
     """Card thumbnail for a marketplace app, on the ref being used."""
-    return f"https://raw.githubusercontent.com/{REPO}/{ref()}/{folder}/thumbnail.png"
+    return (
+        f"https://raw.githubusercontent.com/{repository}/{ref()}/{folder}/thumbnail.png"
+    )
+
+
+def _read_url(url: str, timeout: float) -> bytes:
+    """Blocking download; async callers must run this off the event loop."""
+    import certifi
+
+    context = ssl.create_default_context(cafile=certifi.where())
+    request = urllib.request.Request(url, headers={"User-Agent": "CraftBot"})
+    with urllib.request.urlopen(request, timeout=timeout, context=context) as response:
+        return response.read()
+
+
+def fetch_catalogue(timeout: float = 20) -> dict:
+    """Try the new catalogue, then the legacy name, with matching thumbnails."""
+    for index, repository in enumerate(REPOS):
+        try:
+            raw = _read_url(catalogue_url(repository), timeout).decode("utf-8")
+            # Tolerate trailing commas in hand-edited JSON.
+            catalogue = json.loads(re.sub(r",\s*([}\]])", r"\1", raw))
+            if not isinstance(catalogue, dict) or not isinstance(
+                catalogue.get("apps", []), list
+            ):
+                raise ValueError("Invalid marketplace catalogue")
+        except (urllib.error.URLError, OSError, ValueError) as error:
+            if index == len(REPOS) - 1:
+                raise
+            logger.debug(
+                "Marketplace %s unavailable: %s; trying fallback", repository, error
+            )
+            continue
+        for app in catalogue.get("apps", []):
+            if isinstance(app, dict) and not app.get("preview") and app.get("folder"):
+                app["preview"] = thumbnail_url(app["folder"], repository)
+        return catalogue
+
+
+def download_archive(owner: str, repo: str, timeout: float = 60) -> bytes:
+    """Download either marketplace alias in new-first order, or a custom repo.
+
+    Only the two official marketplace names are aliases. A caller supplying
+    another repository must never silently install from the marketplace.
+    """
+    repository = f"{owner}/{repo}"
+    candidates = (
+        REPOS if repository.lower() in {r.lower() for r in REPOS} else (repository,)
+    )
+    for index, candidate in enumerate(candidates):
+        candidate_owner, candidate_repo = candidate.split("/", 1)
+        url = zip_url(candidate_owner, candidate_repo)
+        try:
+            return _read_url(url, timeout)
+        except (urllib.error.URLError, OSError) as error:
+            if index == len(candidates) - 1:
+                raise
+            logger.debug(
+                "Marketplace %s unavailable: %s; trying fallback", candidate, error
+            )

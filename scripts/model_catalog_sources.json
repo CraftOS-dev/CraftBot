@@ -1,0 +1,81 @@
+{
+  "about": "Hand-maintained input of scripts/gen_model_catalog.py, which writes agent_core/core/models/model_catalog.json. Everything here changes when providers change, so it is data: edit it and rerun the generator. sources: where each model's limits come from. surfaces: facts about a surface (a CraftBot provider key, or its subscription surface). Its cache_lifetime applies to every model of it that the source prices cache reads for; reports_cached_tokens says whether its responses report cached input (default true). models: facts per model, merged over what the sources give; same_as first copies another model's row.",
+  "sources": [
+    {
+      "format": "models.dev",
+      "url": "https://models.dev/api.json",
+      "note": "CraftBot provider key -> models.dev provider id; both must serve the same model ids at the same endpoint. Not mapped: byteplus (models.dev lists only the China Volcengine naming) and local servers (they run whatever window the user loaded).",
+      "providers": {
+        "anthropic": "anthropic",
+        "bedrock": "amazon-bedrock",
+        "cerebras": "cerebras",
+        "deepseek": "deepseek",
+        "fireworks": "fireworks-ai",
+        "fugu": "sakana",
+        "gemini": "google",
+        "glm": "zai",
+        "grok": "xai",
+        "groq": "groq",
+        "huggingface": "huggingface",
+        "minimax": "minimax",
+        "mistral": "mistral",
+        "moonshot": "moonshotai",
+        "nvidia": "nvidia",
+        "openai": "openai",
+        "openrouter": "openrouter",
+        "perplexity": "perplexity",
+        "qwen": "alibaba",
+        "together": "togetherai"
+      }
+    },
+    {
+      "format": "codex",
+      "url": "https://raw.githubusercontent.com/openai/codex/main/codex-rs/models-manager/models.json",
+      "note": "The ChatGPT-subscription backend's model catalogue: the window Codex runs each model at.",
+      "surface": "openai_subscription"
+    }
+  ],
+  "surfaces": {
+    "openai": {
+      "cache_lifetime": {"kind": "typical", "seconds": 300},
+      "note": "Before GPT-5.6 a cached prefix typically lasts 5 to 10 minutes idle (in_memory) or about 30 minutes (24h retention), depending on the organization: the shorter figure. From GPT-5.6 on it lasts at least 30 minutes after its last write or reuse; those models are listed under models."
+    },
+    "anthropic": {
+      "cache_lifetime": {"kind": "exact", "seconds": 3600},
+      "note": "CraftBot asks for ttl=1h on session calls (transports/anthropic_messages.py); every hit or write restarts it, counted from the request's start."
+    },
+    "bedrock": {
+      "cache_lifetime": {"kind": "exact", "seconds": 300},
+      "note": "cachePoint is sent without a ttl: five minutes, restarted by every cache hit."
+    },
+    "fireworks": {"reports_cached_tokens": false, "note": "Reports cached input in a response header only."},
+    "huggingface": {"reports_cached_tokens": false},
+    "nvidia": {"reports_cached_tokens": false},
+    "remote": {"reports_cached_tokens": false, "note": "Ollama's API reports no cached count."},
+    "lmstudio": {"reports_cached_tokens": false},
+    "vllm": {"reports_cached_tokens": false, "note": "Only with --enable-prompt-tokens-details, which is off by default."},
+    "llamacpp": {"reports_cached_tokens": false}
+  },
+  "models": {
+    "openai/gpt-5-2025-08-07": {"same_as": "openai/gpt-5"},
+    "openai/gpt-5-mini-2025-08-07": {"same_as": "openai/gpt-5-mini"},
+    "openai/gpt-5-nano-2025-08-07": {"same_as": "openai/gpt-5-nano"},
+    "openai/gpt-5.1-2025-11-13": {"same_as": "openai/gpt-5.1"},
+    "openai/gpt-5.2-2025-12-11": {"same_as": "openai/gpt-5.2"},
+    "openai/gpt-5.4-2026-03-05": {"same_as": "openai/gpt-5.4"},
+    "openai/gpt-5.4-mini-2026-03-17": {"same_as": "openai/gpt-5.4-mini"},
+    "openai/gpt-5.4-nano-2026-03-17": {"same_as": "openai/gpt-5.4-nano"},
+    "openai/gpt-5.5-2026-04-23": {"same_as": "openai/gpt-5.5"},
+    "openai/o3-2025-04-16": {"same_as": "openai/o3"},
+    "openai/o3-mini-2025-01-31": {"same_as": "openai/o3-mini"},
+    "openai/o4-mini-2025-04-16": {"same_as": "openai/o4-mini"},
+    "openai/gpt-5.6": {"cache_lifetime": {"kind": "exact", "seconds": 1800}},
+    "openai/gpt-5.6-sol": {"cache_lifetime": {"kind": "exact", "seconds": 1800}},
+    "openai/gpt-5.6-terra": {"cache_lifetime": {"kind": "exact", "seconds": 1800}},
+    "openai/gpt-5.6-luna": {"cache_lifetime": {"kind": "exact", "seconds": 1800}},
+    "openai/gpt-6-sol": {"cache_lifetime": {"kind": "exact", "seconds": 1800}},
+    "openai/gpt-6-luna": {"cache_lifetime": {"kind": "exact", "seconds": 1800}},
+    "openai/gpt-6-astra": {"cache_lifetime": {"kind": "exact", "seconds": 1800}},
+    "openai/gpt-6.1-sol": {"cache_lifetime": {"kind": "exact", "seconds": 1800}}
+  }
+}

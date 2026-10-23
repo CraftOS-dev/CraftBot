@@ -31,6 +31,40 @@
     "stopRun": "Detener ejecución",
     "stoppingRun": "Deteniendo la ejecución"
   },
+  "reasoning": {
+    "title": "Razonamiento",
+    "picker": "Nivel de razonamiento",
+    "header": "Razonamiento · {{model}}",
+    "withLevel": "{{choice}} · {{level}}",
+    "dynamic": "Lo decide el modelo",
+    "defaultTag": "Predeterminado",
+    "notConfigurable": "El razonamiento no es ajustable en {{model}}",
+    "clamped": "{{requested}} no está disponible en este modelo, así que se usa {{effective}}.",
+    "context": {
+      "label": "Contexto",
+      "summarizesAt": "Se resume al llegar a {{max}}"
+    },
+    "cache": {
+      "label": "Caché",
+      "hit": "{{percent}} en caché",
+      "notReported": "No informado",
+      "notYet": "Aún sin caché",
+      "timeLeft": "Tiempo restante",
+      "about": "~{{time}}",
+      "expired": "Caducada",
+      "noExpiry": "Sin caducidad fija"
+    },
+    "choice": {
+      "provider_default": "Predeterminado del proveedor",
+      "off": "Desactivado",
+      "minimal": "Mínimo",
+      "low": "Bajo",
+      "medium": "Medio",
+      "high": "Alto",
+      "xhigh": "Muy alto",
+      "max": "Máximo"
+    }
+  },
   "reply": {
     "replyingTo": "Respondiendo a: <1>{{name}}</1>",
     "cancel": "Cancelar respuesta"
@@ -63,7 +97,7 @@
     "aria": "Pregunta del agente",
     "asking": "{{sender}} está preguntando",
     "queuePosition": "1 de {{total}}",
-    "dismissHint": "Descartar. El agente continuará sin respuesta.",
+    "dismissHint": "Descartar e interrumpir la tarea. El agente se detiene hasta tu próximo mensaje.",
     "dismissAria": "Descartar pregunta",
     "recommended": "(recomendado)",
     "freeTextPlaceholder": "O escribe tu propia respuesta...",
@@ -78,5 +112,14 @@
     "replyTooltip": "Responder a este mensaje",
     "copyTooltip": "Copiar mensaje",
     "copiedTooltip": "¡Copiado!"
+  },
+  "browserPanel": {
+    "show": "Mostrar el navegador de este chat",
+    "running": "El navegador de este chat está encendido",
+    "browsing": "El agente está navegando",
+    "region": "Panel del navegador"
+  },
+  "panel": {
+    "close": "Cerrar panel"
   }
 }

@@ -1,0 +1,249 @@
+/* Browser toolbar. A size container, so it can fold secondary buttons into
+   the "…" menu when the panel gets narrow (chat open, small window, phone). */
+.container {
+  position: relative;
+  z-index: 2;
+  flex-shrink: 0;
+  container-type: inline-size;
+  container-name: mb-toolbar;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-primary);
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 44px;
+  padding: 0 var(--space-2);
+  min-width: 0;
+}
+
+.navButtons,
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+/* ── Address bar ───────────────────────────────────────────────────────── */
+
+.addressForm {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 32px;
+  padding: 0 var(--space-3);
+  background: var(--bg-tertiary);
+  border: 1px solid transparent;
+  border-radius: var(--radius-full);
+  transition: border-color var(--transition-fast), background var(--transition-fast);
+}
+
+.addressForm:hover {
+  border-color: var(--border-primary);
+}
+
+.addressForm:focus-within {
+  background: var(--bg-primary);
+  border-color: var(--border-hover);
+}
+
+.securityIcon {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+
+.insecureIcon {
+  color: var(--color-warning);
+}
+
+.address {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  text-overflow: ellipsis;
+}
+
+.address:focus {
+  border: none;
+}
+
+/* ── Toggles and menu ─────────────────────────────────────────────────── */
+
+.pending {
+  opacity: 0.6;
+}
+
+.menuAnchor {
+  position: relative;
+  display: flex;
+}
+
+.menu {
+  position: absolute;
+  top: calc(100% + var(--space-1));
+  right: 0;
+  z-index: var(--z-dropdown);
+  display: flex;
+  flex-direction: column;
+  min-width: 220px;
+  padding: var(--space-1);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-secondary);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+}
+
+.menuItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: 6px var(--space-2);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  text-align: left;
+  white-space: nowrap;
+  transition: background var(--transition-fast);
+}
+
+.menuItem:hover:not(:disabled),
+.menuItem:focus-visible {
+  background: var(--bg-hover);
+  outline: none;
+}
+
+.menuItem:disabled {
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+
+.menuItemDanger:not(:disabled) {
+  color: var(--color-error);
+}
+
+.menuIcon {
+  display: flex;
+  color: var(--text-secondary);
+}
+
+.menuItemDanger:not(:disabled) .menuIcon {
+  color: inherit;
+}
+
+.menuLabel {
+  flex: 1;
+}
+
+.menuCheck {
+  display: flex;
+  width: 14px;
+  color: var(--text-primary);
+}
+
+/* Items standing in for buttons the narrow toolbar hides. */
+.menu .narrowOnly,
+.menu .narrowestOnly {
+  display: none;
+}
+
+.stopButton {
+  flex-shrink: 0;
+  margin-left: var(--space-1);
+}
+
+/* ── Navigation error (floats over the page, below the address bar) ──── */
+
+.navError {
+  position: absolute;
+  top: calc(100% + var(--space-2));
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  width: min(560px, calc(100% - var(--space-4)));
+  padding: var(--space-2) var(--space-1) var(--space-2) var(--space-3);
+  color: var(--text-primary);
+  background: var(--bg-elevated);
+  border: 1px solid var(--color-error);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  font-size: var(--text-sm);
+}
+
+.navErrorIcon {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--color-error);
+}
+
+.navErrorText {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-wrap: anywhere;
+}
+
+.navErrorText strong {
+  font-weight: var(--font-semibold);
+}
+
+.navErrorDetail {
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+/* ── Narrow toolbars ───────────────────────────────────────────────────── */
+
+@container mb-toolbar (max-width: 640px) {
+  .stopLabel {
+    display: none;
+  }
+}
+
+/* Two-class selectors: they must beat the buttons' own display rules
+   whatever order the stylesheets load in. */
+@container mb-toolbar (max-width: 520px) {
+  .actions .wideOnly {
+    display: none;
+  }
+
+  .menu .narrowOnly {
+    display: flex;
+  }
+
+  .toolbar {
+    gap: var(--space-1);
+  }
+}
+
+@container mb-toolbar (max-width: 380px) {
+  .navButtons .forwardButton {
+    display: none;
+  }
+
+  .menu .narrowestOnly {
+    display: flex;
+  }
+
+  .addressForm {
+    padding: 0 var(--space-2);
+  }
+}

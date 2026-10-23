@@ -94,6 +94,7 @@
     }
   },
   "nav": {
+    "credentials": "凭据",
     "general": "常规",
     "proactive": "主动",
     "memory": "记忆",

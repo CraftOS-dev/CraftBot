@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from agent_core.core.errors import ClassifiedError
 
+from agent_core.core.hooks.usage import dispatch_usage, to_thread_with_usage
 import asyncio
 import base64
 import json
@@ -244,10 +245,7 @@ class VideoGenInterface:
                 output_tokens=output_tokens,
                 cached_tokens=cached_tokens,
             )
-            if self._main_loop is not None:
-                self._main_loop.call_soon_threadsafe(
-                    lambda: asyncio.create_task(self._report_usage(event))
-                )
+            dispatch_usage(self._report_usage, event)
         except Exception as e:
             logger.warning(f"[VIDEO_GEN] Failed to report usage: {e}")
 
@@ -396,8 +394,7 @@ class VideoGenInterface:
 
     async def generate_video_async(self, **kwargs) -> List[str]:
         """Async wrapper — runs generate_video in a thread pool."""
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, lambda: self.generate_video(**kwargs))
+        return await to_thread_with_usage(self.generate_video, **kwargs)
 
     # ──────────────────────── OpenAI / Sora 2 ────────────────────────────────
 

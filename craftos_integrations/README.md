@@ -1,6 +1,6 @@
 # craftos_integrations
 
-A plug-and-play package of 24 external integrations (Discord, Slack, Telegram Bot + User, GitHub, Jira, Stripe, HubSpot, Notion, LinkedIn, Outlook, PostHog, Twitter, WhatsApp Web/Business, LINE, Lark + Lark Calendar/Drive, plus per-service Google: Gmail / Calendar / Drive / Docs / YouTube) that any Python host can drop in.
+A plug-and-play package of 25 external integrations (Discord, Slack, Telegram Bot + User, GitHub, Jira, Stripe, HubSpot, Notion, LinkedIn, Outlook, PostHog, Supabase, Twitter, WhatsApp Web/Business, LINE, Lark + Lark Calendar/Drive, plus per-service Google: Gmail / Calendar / Drive / Docs / YouTube) that any Python host can drop in.
 
 The package owns:
 
@@ -169,8 +169,19 @@ has `listen` enabled, and reconciles whenever accounts change.
     "messageId": "<platform message id>",
     "is_self_message": False,
     "raw": {...},  # full original platform event
+    "attachments": [
+        ...
+    ],  # normalized non-text payloads ({kind, id, name, mime, size, url, extra})
+    "truncated": False,  # True when the listener capped messageBody
 }
 ```
+
+`messageBody` is plain, decoded text built from the real message body —
+listeners unescape HTML entities and render platform markup before
+emitting, and never forward an API preview field (Gmail `snippet`,
+Outlook `bodyPreview`) as the body. A listener that caps the length uses
+`helpers.clip` and sets `truncated`; the host then marks the cut and tells
+the agent the message is truncated and how to read the rest by message id.
 
 ---
 
@@ -195,6 +206,7 @@ Every OAuth-capable integration reads its credentials via `ConfigStore.get_oauth
 | linkedin          | oauth       | `LINKEDIN_CLIENT_ID`, `LINKEDIN_CLIENT_SECRET`                           |
 | notion            | both        | `NOTION_SHARED_CLIENT_ID`, `NOTION_SHARED_CLIENT_SECRET` (only for `invite`) |
 | slack             | both        | `SLACK_SHARED_CLIENT_ID`, `SLACK_SHARED_CLIENT_SECRET` (only for `invite`) |
+| supabase          | token → both | `SUPABASE_SHARED_CLIENT_ID`, `SUPABASE_SHARED_CLIENT_SECRET` (OAuth path; `auth_type` reports `both` only once both are set — personal access token otherwise) |
 
 The discord voice helper additionally reads `extras["openai_api_key"]` (or `OPENAI_API_KEY` env) for STT/TTS.
 
@@ -371,6 +383,12 @@ integration_registry()  # snapshot dict {id: metadata}
 
 ## Adding a new integration
 
+Figma is a native full-port example alongside PostHog: scoped PAT connection,
+optional configured OAuth, account-bound REST clients, 43 declared operations
+(including native design creation/editing through the published Talk to Figma plugin),
+and generated agent actions. See [Figma integration notes](providers/figma/INTEGRATION.md)
+for setup, supported workflows, API limitations, and the live smoke checklist.
+
 **A new integration is one folder.** `craftos_integrations/providers/<name>/` holds everything, gets auto-wired, and needs no central registry edits and no frontend changes (UI metadata flows from `get_metadata()`):
 
 | File | Holds |
@@ -381,7 +399,7 @@ integration_registry()  # snapshot dict {id: metadata}
 | `INTEGRATION.md` | gotchas: identifier shapes, auth failure modes, rate limits |
 | `GUIDANCE.md` | how the agent should *use* the integration |
 
-Add the provider to `default_providers()`; the autoloader imports `client.py` at startup. This is the **full port** shape — gmail, google_*, hubspot, linkedin, notion, outlook, slack, posthog. Build every new integration this way.
+Add the provider to `default_providers()`; the autoloader imports `client.py` at startup. This is the **full port** shape — gmail, google_*, hubspot, linkedin, notion, outlook, slack, posthog, supabase. Build every new integration this way.
 
 #### The older two-folder shape (auth-layer bridge)
 
@@ -399,7 +417,7 @@ For a production-level integration, produce in this order:
 | 2 | Implement `verify_token` (token auth) or `oauth_spec` (OAuth), plus `identity_of` | `provider.py` |
 | 3 | Optional: `config_class` + `config_fields` for post-connect knobs | `provider.py` |
 | 4 | Build the client — one method per endpoint, using `helpers.arequest`, returning `Result` | client in `__init__.py` |
-| 5 | Optional: `start_listening` / `stop_listening` (webhook / polling / WebSocket) | client |
+| 5 | Optional: `start_listening` / `stop_listening` (webhook / polling / WebSocket). Emit **plain, decoded** text from the real body (unescape entities, render platform markup like `<@U…>`; no API preview fields); cap long bodies with `helpers.clip` and pass its flag as `PlatformMessage.truncated` | client |
 | 6 | Write `INTEGRATION.md` — identifier shape, silent-drop config flags, auth gotchas | integration root |
 | 7 | Mirror each client method as a `client_op` with sub-set + umbrella tags | `operations.py` |
 | 8 | Verify — `scripts/verify_integration.py <name>`, then a live smoke test | see "Verification" |

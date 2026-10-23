@@ -49,8 +49,9 @@ def test_live_gmail_send_to_me():
 
     The user's own email is threaded into the prompt explicitly (via
     ``gmail.owner_email()``) so the test doesn't depend on the agent
-    inferring "me" from the integration_essentials block — Gemini
-    sometimes asks for clarification even when the essentials forbid it.
+    inferring "me" from the integration guidance delivered with the Gmail
+    schemas — Gemini sometimes asks for clarification even when the
+    guidance forbids it.
 
     Manual verification: a 'gmail e2e test ping' message arrives in your
     inbox.

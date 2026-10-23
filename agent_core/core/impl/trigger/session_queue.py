@@ -111,7 +111,9 @@ class SessionTriggerQueue:
                 else:
                     await self._cv.wait()
 
-    async def pop_due_batch(self, exclude_sources=None) -> List[Trigger]:
+    async def pop_due_batch(
+        self, exclude_sources=None, predicate=None
+    ) -> List[Trigger]:
         """Pop currently-due triggers for aggregation into one turn.
 
         Non-blocking companion to get(): after the consumer claims one
@@ -137,7 +139,10 @@ class SessionTriggerQueue:
             held: List[tuple] = []
             while self._heap and self._heap[0][0] <= now:
                 entry = heapq.heappop(self._heap)
-                (held if entry[2].source in excluded else batch).append(entry)
+                hold = entry[2].source in excluded or (
+                    predicate is not None and not predicate(entry[2])
+                )
+                (held if hold else batch).append(entry)
             for entry in held:
                 heapq.heappush(self._heap, entry)
             return [entry[2] for entry in batch]

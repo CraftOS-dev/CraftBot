@@ -94,6 +94,7 @@
     }
   },
   "nav": {
+    "credentials": "認証情報",
     "general": "一般",
     "proactive": "プロアクティブ",
     "memory": "メモリー",

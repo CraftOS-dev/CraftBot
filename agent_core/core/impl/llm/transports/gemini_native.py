@@ -10,8 +10,10 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 from agent_core.decorators import profile, OperationCategory
+from agent_core.core.impl.llm import reasoning_wire
 from agent_core.core.impl.llm.cache import get_cache_config, get_cache_metrics
 from agent_core.core.impl.llm.errors import classify_llm_error
+from agent_core.core.models.reasoning import ReasoningDecision
 from agent_core.utils.logger import logger
 
 
@@ -23,6 +25,8 @@ def generate(
     call_type: Optional[str] = None,
     contents_override: Optional[List[Dict[str, Any]]] = None,
     json_mode: bool = True,
+    *,
+    reasoning: Optional[ReasoningDecision],
 ) -> Dict[str, Any]:
     """Generate response using Gemini with explicit or implicit caching.
 
@@ -44,6 +48,9 @@ def generate(
             history so Gemini's implicit caching catches the growing
             stable prefix automatically (caching covers more tokens with
             every turn without us needing to manage a named cache object).
+        reasoning: This request's reasoning decision, resolved once by the
+            interface (None: the model has no rule, so Gemini's own default
+            thinking is left untouched).
 
     Returns:
         Dict with tokens_used, content, cached_tokens.
@@ -52,11 +59,19 @@ def generate(
 
     # Per-call reasoning cap, set by callers that pass thinking_budget (e.g. the
     # entity-judge pipeline). Rides the shared per-call context so no transport
-    # signature changes; None for every ordinary call, in which case Gemini's
-    # default thinking behaviour is unchanged.
+    # signature changes. An explicit per-call budget replaces the request's
+    # reasoning decision.
     from agent_core.core.impl.llm.interface import _llm_call_ctx
 
-    thinking_budget = (_llm_call_ctx.get() or {}).get("thinking_budget")
+    caller_budget = (_llm_call_ctx.get() or {}).get("thinking_budget")
+    applied = reasoning_wire.for_gemini(
+        reasoning if caller_budget is None else None, iface.max_tokens
+    )
+    thinking: Dict[str, Any] = (
+        applied.fields if caller_budget is None else {"thinking_budget": caller_budget}
+    )
+    temperature = iface.temperature if applied.send_temperature else None
+    max_output_tokens = applied.output_cap
 
     token_count_input = token_count_output = 0
     cached_tokens = 0
@@ -84,9 +99,10 @@ def generate(
                 iface.model,
                 contents=contents_override,
                 system_prompt=system_prompt,
-                temperature=iface.temperature,
-                max_output_tokens=iface.max_tokens,
+                temperature=temperature,
+                max_output_tokens=max_output_tokens,
                 json_mode=json_mode,
+                **thinking,
             )
         else:
             # Use explicit caching when:
@@ -115,8 +131,9 @@ def generate(
                     system_prompt=system_prompt,
                     user_prompt=user_prompt,
                     call_type=call_type,
-                    temperature=iface.temperature,
-                    max_tokens=iface.max_tokens,
+                    temperature=temperature,
+                    max_tokens=max_output_tokens,
+                    **thinking,
                 )
             else:
                 # Fall back to implicit caching (or no caching for short prompts)
@@ -124,10 +141,10 @@ def generate(
                     iface.model,
                     prompt=user_prompt,
                     system_prompt=system_prompt,
-                    temperature=iface.temperature,
-                    max_output_tokens=iface.max_tokens,
+                    temperature=temperature,
+                    max_output_tokens=max_output_tokens,
                     json_mode=json_mode,
-                    thinking_budget=thinking_budget,
+                    **thinking,
                 )
 
         # Extract response data

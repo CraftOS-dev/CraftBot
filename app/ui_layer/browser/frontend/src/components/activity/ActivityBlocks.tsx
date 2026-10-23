@@ -171,6 +171,14 @@ const PREVIEW_KEYS: Record<string, string[]> = {
   understand_video: ['video_path'],
   // messaging
   send_message_with_attachment: ['message'],
+  // Mini Browser
+  mini_browser_navigate: ['url'],
+  mini_browser_type: ['text'],
+  mini_browser_press_key: ['keys'],
+  mini_browser_select_option: ['value'],
+  mini_browser_wait: ['text'],
+  mini_browser_scroll: ['direction'],
+  mini_browser_login: ['username'],
 }
 
 // First non-empty line, capped so the row's ellipsis has a sane input.

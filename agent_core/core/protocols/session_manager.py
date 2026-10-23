@@ -33,7 +33,6 @@ class SessionManagerProtocol(Protocol):
         session_type: str = "chat",
         title: str = "",
         session_id: Optional[str] = None,
-        action_sets: Optional[List[str]] = None,
         selected_skills: Optional[List[str]] = None,
         agent_app_project_id: Optional[str] = None,
         gui_mode: bool = False,
@@ -57,16 +56,4 @@ class SessionManagerProtocol(Protocol):
 
     def get_todos(self, session_id: str) -> List[Dict[str, Any]]:
         """Get a session's current todos."""
-        ...
-
-    def add_action_sets(
-        self, session_id: str, sets_to_add: List[str]
-    ) -> Dict[str, Any]:
-        """Add action sets to a session."""
-        ...
-
-    def remove_action_sets(
-        self, session_id: str, sets_to_remove: List[str]
-    ) -> Dict[str, Any]:
-        """Remove action sets from a session."""
         ...

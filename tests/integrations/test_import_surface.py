@@ -24,7 +24,9 @@ from craftos_integrations import configure
 
 
 def _module_names():
-    configure(project_root=".")
+    from app.paths import STATE_ROOT
+
+    configure(project_root=str(STATE_ROOT))
     return sorted(
         m.name
         for m in pkgutil.walk_packages(
@@ -46,7 +48,6 @@ def test_llm_oauth_entry_points():
     assert callable(tokens.get_bearer)
     assert callable(tokens.status)
     assert callable(chatgpt.load)
-    assert chatgpt.CODEX_ACCEPTED_MODELS
     assert callable(grok.load)
 
     # Not connected on a clean checkout, but the call must work.

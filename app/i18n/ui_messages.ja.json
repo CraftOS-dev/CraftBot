@@ -74,5 +74,6 @@
   "onboarding_field_user_name_label": "あなたの名前",
   "onboarding_field_user_name_placeholder": "あなたの名前",
   "onboarding_validate_expected_dict": "フォーム値の辞書が必要です",
-  "onboarding_validate_user_name_too_long": "名前は 20 文字以内にしてください"
+  "onboarding_validate_user_name_too_long": "名前は 20 文字以内にしてください",
+  "question_dismissed": "質問を閉じました。ユーザーがタスクを中断しました。"
 }

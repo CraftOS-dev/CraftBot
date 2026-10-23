@@ -263,7 +263,7 @@ def provider_metadata(provider: "Provider") -> Dict[str, Any]:
     get = lambda name: getattr(provider, name, None) or _METADATA_DEFAULTS[name]  # noqa: E731
     config_class = getattr(provider, "config_class", None)
     config_fields = getattr(provider, "config_fields", None) or []
-    return {
+    metadata = {
         "id": provider.id,
         "name": get("display_name") or provider.id,
         "description": get("description"),
@@ -275,3 +275,7 @@ def provider_metadata(provider: "Provider") -> Dict[str, Any]:
         "connect_help": getattr(provider, "connect_help", None),
         "subcommands": get("subcommands"),
     }
+    # Older providers retain their existing metadata and UI behavior.
+    if hasattr(provider, "supports_listening"):
+        metadata["supports_listening"] = bool(provider.supports_listening)
+    return metadata

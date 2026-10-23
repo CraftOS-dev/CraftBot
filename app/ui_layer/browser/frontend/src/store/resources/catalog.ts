@@ -151,6 +151,30 @@ export const RESOURCES = {
     resource: 'model_settings',
     request: (send) => send({ type: 'slow_mode_get' }),
   },
+  /** Chat input reasoning picker: what the model in use offers. A model or
+   *  sign-in change is a model_settings change, so it refetches with it. */
+  reasoningOptions: {
+    key: 'reasoningOptions',
+    resource: 'model_settings',
+    request: (send) => send({ type: 'reasoning_options_get' }),
+  },
+
+  // ── Mini Browser ──
+  /** Saved logins (never passwords) for the Passwords dialog. The reply goes
+   *  to the requesting tab only, so every open dialog asks for itself. */
+  miniBrowserVault: {
+    key: 'miniBrowserVault',
+    resource: 'mini_browser_vault',
+    request: (send) => send({ type: 'mini_browser_vault_list' }),
+  },
+  /** Which chats' browsers run and which have an agent browsing (their
+   *  browser panel's button, and the panel opening by itself). Asked once
+   *  per connection; the backend pushes every change after that. */
+  miniBrowserActivity: {
+    key: 'miniBrowserActivity',
+    resource: 'static',
+    request: (send) => send({ type: 'mini_browser_activity_query' }),
+  },
 
   // ── Static catalogs: refreshed after a reconnect ──
   playbooks: {

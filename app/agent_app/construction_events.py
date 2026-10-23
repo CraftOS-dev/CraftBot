@@ -47,6 +47,7 @@ _WATCHED_ACTIONS = (
             "agent_app_notify_ready",
             "agent_app_ops_verify",
             "run_shell",
+            "run_powershell",
             "spawn_subagent",
         }
     )
@@ -543,6 +544,8 @@ def _classify_activity(
         )
     elif name == "run_shell":
         kind, area, label = "run", "other", f"Ran {_clip(inputs.get('command'), 40)}"
+    elif name == "run_powershell":
+        kind, area, label = "run", "other", f"Ran {_clip(inputs.get('script'), 40)}"
     elif name == "spawn_subagent":
         agent_type = str(inputs.get("agent_type", ""))
         if agent_type == "walk_verify":

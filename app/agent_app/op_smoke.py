@@ -241,6 +241,10 @@ def _invoke(
     request = urllib.request.Request(url, data=data, headers=headers, method=method)
     try:
         with urllib.request.urlopen(request, timeout=_REQUEST_TIMEOUT_S) as response:
+            # Complete bounded response handling before closing the connection.
+            # A transport failure after a write has an uncertain outcome: report
+            # it once; never resubmit a potentially mutating operation.
+            response.read(64 * 1024)
             return OpSmokeResult(name=name, ok=True, status=response.status, detail="")
     except urllib.error.HTTPError as e:
         try:

@@ -27,6 +27,9 @@ Two mechanisms, one kill call:
 trees included, and is safe to call at any time (missing/exited processes
 are ignored). It is blocking (taskkill / killpg) — call it from a worker
 thread, not the event loop.
+
+``was_killed(proc)`` lets an action that holds a registered handle tell a
+stop apart from its own command failing: both end in a non-zero exit code.
 """
 
 from __future__ import annotations
@@ -36,6 +39,7 @@ import os
 import subprocess
 import tempfile
 import threading
+import weakref
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -44,6 +48,9 @@ from agent_core.utils.logger import logger
 _lock = threading.Lock()
 # session_id -> {pid: Popen}. Popen handles registered by in-process actions.
 _procs: Dict[str, Dict[int, subprocess.Popen]] = {}
+# Handles a stop killed. Weak: an entry lasts only as long as its action
+# still holds the handle, so nothing here needs clearing.
+_killed: "weakref.WeakSet[subprocess.Popen]" = weakref.WeakSet()
 
 
 def _marker_dir(session_id: str) -> Path:
@@ -71,6 +78,12 @@ def unregister_process(session_id: str, proc: subprocess.Popen) -> None:
             session.pop(proc.pid, None)
             if not session:
                 _procs.pop(session_id, None)
+
+
+def was_killed(proc: subprocess.Popen) -> bool:
+    """Whether a user stop killed this process, so its exit is not a failure."""
+    with _lock:
+        return proc in _killed
 
 
 # ─────────────────────── Cross-process pid markers ───────────────────────
@@ -178,6 +191,10 @@ def kill_session_processes(session_id: str) -> int:
     killed = 0
     for proc in handles:
         if proc.poll() is None:
+            # Marked BEFORE the kill: the action's communicate() returns the
+            # instant the process dies, and must already see the mark.
+            with _lock:
+                _killed.add(proc)
             _kill_tree(proc.pid)
             killed += 1
             try:

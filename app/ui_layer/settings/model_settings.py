@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import httpx
 
 from app.config import SETTINGS_CONFIG_PATH
+from app.settings_store import settings_transaction, settings_write_lock, write_settings
 from app.models import (
     MODEL_REGISTRY,
     InterfaceType,
@@ -34,6 +35,7 @@ from agent_core.core.models.registry import provider_info as _derive_provider_in
 PROVIDER_INFO = _derive_provider_info()
 
 
+@settings_transaction
 def _load_settings() -> Dict[str, Any]:
     """Load settings from settings.json."""
     if not SETTINGS_CONFIG_PATH.exists():
@@ -69,9 +71,7 @@ def _load_settings() -> Dict[str, Any]:
 def _save_settings(settings: Dict[str, Any]) -> bool:
     """Save settings to settings.json."""
     try:
-        SETTINGS_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-        with open(SETTINGS_CONFIG_PATH, "w", encoding="utf-8") as f:
-            json.dump(settings, f, indent=2)
+        write_settings(SETTINGS_CONFIG_PATH, settings)
         return True
     except Exception:
         return False
@@ -168,11 +168,14 @@ def get_available_providers() -> Dict[str, Any]:
 # ─────────────────────────────────────────────────────────────────────
 
 
-def get_model_settings() -> Dict[str, Any]:
+def get_model_settings(*, include_subscription_status: bool = True) -> Dict[str, Any]:
     """Get current model settings.
 
     Returns:
         Dict with current LLM/VLM provider, models, and API key status
+
+    Live subscription status may run the Claude CLI. Callers on an event
+    loop must offload this function or omit status when it is unused.
     """
     try:
         settings = _load_settings()
@@ -213,7 +216,7 @@ def get_model_settings() -> Dict[str, Any]:
             if MODEL_REGISTRY.get(vlm_provider, {}).get(InterfaceType.VIDEO_GEN):
                 video_gen_provider = vlm_provider
             else:
-                video_gen_provider = "gemini"
+                video_gen_provider = "byteplus"
         video_gen_model = model_settings.get("video_gen_model") or MODEL_REGISTRY.get(
             video_gen_provider, {}
         ).get(InterfaceType.VIDEO_GEN)
@@ -248,7 +251,9 @@ def get_model_settings() -> Dict[str, Any]:
             )
 
             for provider_id, info in PROVIDER_INFO.items():
-                if not info.get("supports_subscription_oauth"):
+                if not include_subscription_status or not info.get(
+                    "supports_subscription_oauth"
+                ):
                     continue
                 subscription_status[provider_id] = _oauth_status(provider_id)
         except Exception:
@@ -331,6 +336,7 @@ def update_model_settings(
     base_url: Optional[str] = None,
     provider_for_url: Optional[str] = None,
     aws_credentials: Optional[Dict[str, str]] = None,
+    include_subscription_status: bool = True,
 ) -> Dict[str, Any]:
     """Update model settings.
 
@@ -345,152 +351,157 @@ def update_model_settings(
         provider_for_key: Provider to save API key for
         base_url: Base URL to save (for byteplus/remote)
         provider_for_url: Provider to save base URL for
+        include_subscription_status: Include live account checks in the result.
+            Disable for synchronous onboarding callers that discard the result.
 
     Returns:
         Dict with success status and updated settings
     """
     try:
-        settings = _load_settings()
-        if "model" not in settings:
-            settings["model"] = {}
-        if "api_keys" not in settings:
-            settings["api_keys"] = {}
-        if "endpoints" not in settings:
-            settings["endpoints"] = {}
-        if "aws_credentials" not in settings:
-            settings["aws_credentials"] = {}
+        with settings_write_lock:
+            settings = _load_settings()
+            if "model" not in settings:
+                settings["model"] = {}
+            if "api_keys" not in settings:
+                settings["api_keys"] = {}
+            if "endpoints" not in settings:
+                settings["endpoints"] = {}
+            if "aws_credentials" not in settings:
+                settings["aws_credentials"] = {}
 
-        # Update providers
-        # When provider changes, clear the model override so default model is used
-        old_llm_provider = settings["model"].get("llm_provider")
-        old_vlm_provider = settings["model"].get("vlm_provider")
+            # Update providers
+            # When provider changes, clear the model override so default model is used
+            old_llm_provider = settings["model"].get("llm_provider")
+            old_vlm_provider = settings["model"].get("vlm_provider")
 
-        if llm_provider:
-            settings["model"]["llm_provider"] = llm_provider
-            # Clear LLM model if provider changed (unless new model explicitly provided)
-            if llm_provider != old_llm_provider and llm_model is None:
-                settings["model"]["llm_model"] = None
+            if llm_provider:
+                settings["model"]["llm_provider"] = llm_provider
+                # Clear LLM model if provider changed (unless new model explicitly provided)
+                if llm_provider != old_llm_provider and llm_model is None:
+                    settings["model"]["llm_model"] = None
 
-        if vlm_provider:
-            settings["model"]["vlm_provider"] = vlm_provider
-            # Clear VLM model if provider changed (unless new model explicitly provided)
-            if vlm_provider != old_vlm_provider and vlm_model is None:
-                settings["model"]["vlm_model"] = None
-        elif llm_provider and llm_provider != old_llm_provider:
-            # If only llm_provider changed and vlm_provider not specified,
-            # also update vlm_provider to match and clear vlm_model
-            settings["model"]["vlm_provider"] = llm_provider
-            if vlm_model is None:
-                settings["model"]["vlm_model"] = None
+            if vlm_provider:
+                settings["model"]["vlm_provider"] = vlm_provider
+                # Clear VLM model if provider changed (unless new model explicitly provided)
+                if vlm_provider != old_vlm_provider and vlm_model is None:
+                    settings["model"]["vlm_model"] = None
+            elif llm_provider and llm_provider != old_llm_provider:
+                # If only llm_provider changed and vlm_provider not specified,
+                # also update vlm_provider to match and clear vlm_model
+                settings["model"]["vlm_provider"] = llm_provider
+                if vlm_model is None:
+                    settings["model"]["vlm_model"] = None
 
-        # Update image generation provider (validate before saving)
-        if image_gen_provider:
-            supported_img_providers = {
-                p
-                for p, caps in MODEL_REGISTRY.items()
-                if caps.get(InterfaceType.IMAGE_GEN)
-            }
-            if image_gen_provider not in supported_img_providers:
+            # Update image generation provider (validate before saving)
+            if image_gen_provider:
+                supported_img_providers = {
+                    p
+                    for p, caps in MODEL_REGISTRY.items()
+                    if caps.get(InterfaceType.IMAGE_GEN)
+                }
+                if image_gen_provider not in supported_img_providers:
+                    return {
+                        "success": False,
+                        "error": (
+                            f"'{image_gen_provider}' does not support image generation. "
+                            f"Supported providers: {', '.join(sorted(supported_img_providers))}"
+                        ),
+                    }
+                old_img_provider = settings["model"].get("image_gen_provider")
+                settings["model"]["image_gen_provider"] = image_gen_provider
+                if image_gen_provider != old_img_provider and image_gen_model is None:
+                    settings["model"]["image_gen_model"] = None
+
+            # Update video generation provider (validate before saving)
+            if video_gen_provider:
+                supported_vid_providers = {
+                    p
+                    for p, caps in MODEL_REGISTRY.items()
+                    if caps.get(InterfaceType.VIDEO_GEN)
+                }
+                if video_gen_provider not in supported_vid_providers:
+                    return {
+                        "success": False,
+                        "error": (
+                            f"'{video_gen_provider}' does not support video generation. "
+                            f"Supported providers: {', '.join(sorted(supported_vid_providers))}"
+                        ),
+                    }
+                old_vid_provider = settings["model"].get("video_gen_provider")
+                settings["model"]["video_gen_provider"] = video_gen_provider
+                if video_gen_provider != old_vid_provider and video_gen_model is None:
+                    settings["model"]["video_gen_model"] = None
+
+            # Update custom models (explicit values override the auto-clear above)
+            if llm_model is not None:
+                settings["model"]["llm_model"] = llm_model if llm_model else None
+            if vlm_model is not None:
+                settings["model"]["vlm_model"] = vlm_model if vlm_model else None
+            if image_gen_model is not None:
+                settings["model"]["image_gen_model"] = (
+                    image_gen_model if image_gen_model else None
+                )
+            if video_gen_model is not None:
+                settings["model"]["video_gen_model"] = (
+                    video_gen_model if video_gen_model else None
+                )
+
+            # Update API key in settings.json
+            if provider_for_key and api_key is not None:
+                info = PROVIDER_INFO.get(provider_for_key, {})
+                settings_key = info.get("settings_key")
+                if settings_key:
+                    settings["api_keys"][settings_key] = api_key
+
+            # Update base URL in settings.json. The endpoints key is derived from
+            # the provider profile so every provider with an endpoint (local
+            # servers, new cloud providers, custom) persists — not just the
+            # legacy four. Bedrock's derived slot is aws_region (the "base URL"
+            # carries the region).
+            if provider_for_url and base_url is not None:
+                profile = get_registry().get(provider_for_url)
+                if profile is None:
+                    return {
+                        "success": False,
+                        "error": f"Unknown provider for base URL: {provider_for_url}",
+                    }
+                settings["endpoints"][profile.settings_endpoint_key] = base_url
+
+            # Update AWS credentials block (bedrock-only)
+            if aws_credentials:
+                for field in ("access_key_id", "secret_access_key", "session_token"):
+                    value = aws_credentials.get(field)
+                    if value is not None:
+                        settings["aws_credentials"][field] = value
+                region = aws_credentials.get("region")
+                if region:
+                    settings["endpoints"]["aws_region"] = region
+
+            # Clear remote URL when switching away from remote so stale values don't persist
+            if (
+                llm_provider
+                and llm_provider != "remote"
+                and old_llm_provider == "remote"
+                and not provider_for_url
+            ):
+                settings["endpoints"]["remote_model_url"] = ""
+
+            # Save settings.json
+            if not _save_settings(settings):
                 return {
                     "success": False,
-                    "error": (
-                        f"'{image_gen_provider}' does not support image generation. "
-                        f"Supported providers: {', '.join(sorted(supported_img_providers))}"
-                    ),
+                    "error": "Failed to save settings.json",
                 }
-            old_img_provider = settings["model"].get("image_gen_provider")
-            settings["model"]["image_gen_provider"] = image_gen_provider
-            if image_gen_provider != old_img_provider and image_gen_model is None:
-                settings["model"]["image_gen_model"] = None
 
-        # Update video generation provider (validate before saving)
-        if video_gen_provider:
-            supported_vid_providers = {
-                p
-                for p, caps in MODEL_REGISTRY.items()
-                if caps.get(InterfaceType.VIDEO_GEN)
-            }
-            if video_gen_provider not in supported_vid_providers:
-                return {
-                    "success": False,
-                    "error": (
-                        f"'{video_gen_provider}' does not support video generation. "
-                        f"Supported providers: {', '.join(sorted(supported_vid_providers))}"
-                    ),
-                }
-            old_vid_provider = settings["model"].get("video_gen_provider")
-            settings["model"]["video_gen_provider"] = video_gen_provider
-            if video_gen_provider != old_vid_provider and video_gen_model is None:
-                settings["model"]["video_gen_model"] = None
+            # Reload settings cache so changes take effect
+            from app.config import reload_settings
 
-        # Update custom models (explicit values override the auto-clear above)
-        if llm_model is not None:
-            settings["model"]["llm_model"] = llm_model if llm_model else None
-        if vlm_model is not None:
-            settings["model"]["vlm_model"] = vlm_model if vlm_model else None
-        if image_gen_model is not None:
-            settings["model"]["image_gen_model"] = (
-                image_gen_model if image_gen_model else None
-            )
-        if video_gen_model is not None:
-            settings["model"]["video_gen_model"] = (
-                video_gen_model if video_gen_model else None
-            )
-
-        # Update API key in settings.json
-        if provider_for_key and api_key is not None:
-            info = PROVIDER_INFO.get(provider_for_key, {})
-            settings_key = info.get("settings_key")
-            if settings_key:
-                settings["api_keys"][settings_key] = api_key
-
-        # Update base URL in settings.json. The endpoints key is derived from
-        # the provider profile so every provider with an endpoint (local
-        # servers, new cloud providers, custom) persists — not just the
-        # legacy four. Bedrock's derived slot is aws_region (the "base URL"
-        # carries the region).
-        if provider_for_url and base_url is not None:
-            profile = get_registry().get(provider_for_url)
-            if profile is None:
-                return {
-                    "success": False,
-                    "error": f"Unknown provider for base URL: {provider_for_url}",
-                }
-            settings["endpoints"][profile.settings_endpoint_key] = base_url
-
-        # Update AWS credentials block (bedrock-only)
-        if aws_credentials:
-            for field in ("access_key_id", "secret_access_key", "session_token"):
-                value = aws_credentials.get(field)
-                if value is not None:
-                    settings["aws_credentials"][field] = value
-            region = aws_credentials.get("region")
-            if region:
-                settings["endpoints"]["aws_region"] = region
-
-        # Clear remote URL when switching away from remote so stale values don't persist
-        if (
-            llm_provider
-            and llm_provider != "remote"
-            and old_llm_provider == "remote"
-            and not provider_for_url
-        ):
-            settings["endpoints"]["remote_model_url"] = ""
-
-        # Save settings.json
-        if not _save_settings(settings):
-            return {
-                "success": False,
-                "error": "Failed to save settings.json",
-            }
-
-        # Reload settings cache so changes take effect
-        from app.config import reload_settings
-
-        reload_settings()
+            reload_settings()
 
         # Return updated settings
-        return get_model_settings()
+        return get_model_settings(
+            include_subscription_status=include_subscription_status
+        )
 
     except Exception as e:
         return {
@@ -795,6 +806,7 @@ def get_slow_mode_settings() -> Dict[str, Any]:
     }
 
 
+@settings_transaction
 def set_slow_mode(enabled: bool, tpm_limit: Optional[int] = None) -> Dict[str, Any]:
     """Set slow mode on or off, optionally updating the TPM limit."""
     settings = _load_settings()

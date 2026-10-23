@@ -1,6 +1,7 @@
 import os
 import ssl
 import sys
+import tempfile
 
 import pytest
 from pathlib import Path
@@ -8,7 +9,9 @@ from pathlib import Path
 # Windows SSL-store shim: importing aiohttp in this env can hit a broken
 # certificate in the Windows cert store (ssl.SSLError [ASN1: NOT_ENOUGH_DATA]).
 # Swallow the error so collection/imports succeed (mirrors app/main.py shim).
-_orig_load_windows_store_certs = ssl.SSLContext._load_windows_store_certs
+_orig_load_windows_store_certs = getattr(
+    ssl.SSLContext, "_load_windows_store_certs", None
+)
 
 
 def _safe_load_windows_store_certs(self, storename, purpose):
@@ -18,11 +21,52 @@ def _safe_load_windows_store_certs(self, storename, purpose):
         pass
 
 
-ssl.SSLContext._load_windows_store_certs = _safe_load_windows_store_certs
+if _orig_load_windows_store_certs is not None:
+    ssl.SSLContext._load_windows_store_certs = _safe_load_windows_store_certs
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 os.chdir(PROJECT_ROOT)
+
+
+def pytest_addoption(parser):
+    parser.addoption(
+        "--live-state",
+        action="store_true",
+        default=False,
+        help="Use the explicitly configured runtime instead of disposable offline state",
+    )
+
+
+def pytest_configure(config):
+    # Runs before collection imports app.paths/config or integration registries.
+    if config.getoption("--live-state"):
+        if not os.environ.get("CRAFTBOT_HOME"):
+            raise pytest.UsageError("--live-state requires an explicit CRAFTBOT_HOME")
+        return
+    from tests.qa_runtime import seed_runtime
+
+    config._qa_runtime = tempfile.TemporaryDirectory(
+        prefix="craftbot-tests-", ignore_cleanup_errors=True
+    )
+    config._qa_previous_home = os.environ.get("CRAFTBOT_HOME")
+    home = Path(config._qa_runtime.name)
+    seed_runtime(PROJECT_ROOT, home)
+    os.environ["CRAFTBOT_HOME"] = str(home)
+
+
+def pytest_unconfigure(config):
+    runtime = getattr(config, "_qa_runtime", None)
+    if runtime is not None:
+        previous = config._qa_previous_home
+        if previous is None:
+            os.environ.pop("CRAFTBOT_HOME", None)
+        else:
+            os.environ["CRAFTBOT_HOME"] = previous
+        # Windows may still hold SQLite handles owned by imported singletons.
+        if "loguru" in sys.modules:
+            sys.modules["loguru"].logger.remove()
+        runtime.cleanup()
 
 
 @pytest.fixture(autouse=True)
@@ -45,31 +89,8 @@ def configured_context_window(monkeypatch):
             model["context_window"] = 128000
         settings["model"] = model
         context = dict(settings.get("context") or {})
-        context.setdefault("reserve_tokens", 16384)
         context.setdefault("keep_recent_tokens", 20000)
         settings["context"] = context
         return settings
 
     monkeypatch.setattr(app_config, "get_settings", _with_window)
-
-
-@pytest.fixture
-def event_stream_limits(monkeypatch):
-    """Pin how much recent history an EventStream keeps after a fold.
-
-    The stream never folds on its own; tests call summarize_by_LLM() when
-    they want one. This pins keep_recent_tokens so a local settings.json
-    edit cannot change what an event-stream test exercises. The import is
-    inside the fixture so collecting unrelated tests does not pull in
-    event_stream (and sklearn with it).
-    """
-    from agent_core.core.impl.event_stream import event_stream as event_stream_module
-
-    def _pin(keep_recent_tokens: int = 10000) -> None:
-        monkeypatch.setattr(
-            event_stream_module,
-            "_configured_keep_recent_tokens",
-            lambda: keep_recent_tokens,
-        )
-
-    return _pin

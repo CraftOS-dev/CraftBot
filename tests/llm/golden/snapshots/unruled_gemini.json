@@ -1,0 +1,230 @@
+{
+  "calls": [
+    {
+      "client": "gemini",
+      "method": "generateContent",
+      "payload": {
+        "body": {
+          "contents": [
+            {
+              "parts": [
+                {
+                  "text": "sessionless turn"
+                }
+              ],
+              "role": "user"
+            }
+          ],
+          "generationConfig": {
+            "maxOutputTokens": 50000,
+            "responseMimeType": "application/json",
+            "temperature": 0.0
+          },
+          "systemInstruction": {
+            "parts": [
+              {
+                "text": "You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. "
+              }
+            ]
+          }
+        },
+        "path": "models/gemini-2.0-flash:generateContent"
+      }
+    },
+    {
+      "client": "gemini",
+      "method": "generateContent",
+      "payload": {
+        "body": {
+          "contents": [
+            {
+              "parts": [
+                {
+                  "text": "session turn 1"
+                }
+              ],
+              "role": "user"
+            }
+          ],
+          "generationConfig": {
+            "maxOutputTokens": 50000,
+            "responseMimeType": "application/json",
+            "temperature": 0.0
+          },
+          "systemInstruction": {
+            "parts": [
+              {
+                "text": "You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. "
+              }
+            ]
+          }
+        },
+        "path": "models/gemini-2.0-flash:generateContent"
+      }
+    },
+    {
+      "client": "gemini",
+      "method": "generateContent",
+      "payload": {
+        "body": {
+          "contents": [
+            {
+              "parts": [
+                {
+                  "text": "session turn 1"
+                }
+              ],
+              "role": "user"
+            },
+            {
+              "parts": [
+                {
+                  "text": "{\"turn\": 2}"
+                }
+              ],
+              "role": "model"
+            },
+            {
+              "parts": [
+                {
+                  "text": "session turn 2"
+                }
+              ],
+              "role": "user"
+            }
+          ],
+          "generationConfig": {
+            "maxOutputTokens": 50000,
+            "responseMimeType": "application/json",
+            "temperature": 0.0
+          },
+          "systemInstruction": {
+            "parts": [
+              {
+                "text": "You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. "
+              }
+            ]
+          }
+        },
+        "path": "models/gemini-2.0-flash:generateContent"
+      }
+    },
+    {
+      "client": "gemini",
+      "method": "generateContent",
+      "payload": {
+        "body": {
+          "contents": [
+            {
+              "parts": [
+                {
+                  "text": "session turn 1"
+                }
+              ],
+              "role": "user"
+            },
+            {
+              "parts": [
+                {
+                  "text": "{\"turn\": 2}"
+                }
+              ],
+              "role": "model"
+            },
+            {
+              "parts": [
+                {
+                  "text": "session turn 2"
+                }
+              ],
+              "role": "user"
+            },
+            {
+              "parts": [
+                {
+                  "text": "{\"turn\": 3}"
+                }
+              ],
+              "role": "model"
+            },
+            {
+              "parts": [
+                {
+                  "text": "session turn 3"
+                }
+              ],
+              "role": "user"
+            }
+          ],
+          "generationConfig": {
+            "maxOutputTokens": 50000,
+            "responseMimeType": "application/json",
+            "temperature": 0.0
+          },
+          "systemInstruction": {
+            "parts": [
+              {
+                "text": "You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. "
+              }
+            ]
+          }
+        },
+        "path": "models/gemini-2.0-flash:generateContent"
+      }
+    }
+  ],
+  "session_buffers": {
+    "session_histories": {
+      "task-golden:reasoning": [
+        {
+          "parts": [
+            {
+              "text": "session turn 1"
+            }
+          ],
+          "role": "user"
+        },
+        {
+          "parts": [
+            {
+              "text": "{\"turn\": 2}"
+            }
+          ],
+          "role": "model"
+        },
+        {
+          "parts": [
+            {
+              "text": "session turn 2"
+            }
+          ],
+          "role": "user"
+        },
+        {
+          "parts": [
+            {
+              "text": "{\"turn\": 3}"
+            }
+          ],
+          "role": "model"
+        },
+        {
+          "parts": [
+            {
+              "text": "session turn 3"
+            }
+          ],
+          "role": "user"
+        },
+        {
+          "parts": [
+            {
+              "text": "{\"turn\": 4}"
+            }
+          ],
+          "role": "model"
+        }
+      ]
+    }
+  }
+}

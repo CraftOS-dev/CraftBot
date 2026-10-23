@@ -20,6 +20,7 @@ import { MCPSettings } from './MCPSettings'
 import { SkillsSettings } from './SkillsSettings'
 import { IntegrationsSettings } from './IntegrationsSettings'
 import { AgentAppSettings } from './AgentAppSettings'
+import { CredentialsSettings } from './CredentialsSettings'
 
 export function SettingsPage() {
   const { t } = useTranslation(['settings', 'common'])
@@ -57,6 +58,8 @@ export function SettingsPage() {
         return <SkillsSettings />
       case 'integrations':
         return <IntegrationsSettings />
+      case 'credentials':
+        return <CredentialsSettings />
       case 'agent_app':
         return <AgentAppSettings />
       default:

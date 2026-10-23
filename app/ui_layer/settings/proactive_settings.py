@@ -8,6 +8,7 @@ import json
 import shutil
 from typing import Dict, Any, Optional, List
 
+from app.settings_store import settings_transaction, write_settings
 from app.config import (
     AGENT_FILE_SYSTEM_PATH,
     AGENT_FILE_SYSTEM_TEMPLATE_PATH,
@@ -25,6 +26,7 @@ SCHEDULER_CONFIG_PATH = PROJECT_ROOT / "app" / "config" / "scheduler_config.json
 # ─────────────────────────────────────────────────────────────────────
 
 
+@settings_transaction
 def _load_settings() -> Dict[str, Any]:
     """Load settings from settings.json."""
     if not SETTINGS_CONFIG_PATH.exists():
@@ -40,9 +42,7 @@ def _load_settings() -> Dict[str, Any]:
 def _save_settings(settings: Dict[str, Any]) -> bool:
     """Save settings to settings.json."""
     try:
-        SETTINGS_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-        with open(SETTINGS_CONFIG_PATH, "w", encoding="utf-8") as f:
-            json.dump(settings, f, indent=2)
+        write_settings(SETTINGS_CONFIG_PATH, settings)
         return True
     except Exception:
         return False
@@ -71,6 +71,7 @@ def get_proactive_mode() -> Dict[str, Any]:
         return {"success": False, "error": f"Failed to get proactive mode: {str(e)}"}
 
 
+@settings_transaction
 def set_proactive_mode(enabled: bool) -> Dict[str, Any]:
     """Set the proactive mode on or off.
 

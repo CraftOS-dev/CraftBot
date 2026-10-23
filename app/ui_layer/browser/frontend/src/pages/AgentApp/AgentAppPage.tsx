@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react'
+import { flushSync } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
@@ -291,6 +292,18 @@ export function AgentAppPage() {
   useEffect(() => {
     if (!isResizing) return
 
+    // The drag ends and the panel collapses in one render: a pointermove is a
+    // continuous event, so React would render the store's update (the panel
+    // closing) before this component's (the drag ending), while the drag
+    // still turns the panel's transition off, and the panel would jump shut.
+    const collapseFromDrag = () => {
+      dragRef.current = null
+      flushSync(() => {
+        setIsResizing(false)
+        setShowChat(false)
+      })
+    }
+
     const handlePointerMove = (e: PointerEvent) => {
       if (!dragRef.current) return
       if (
@@ -305,20 +318,16 @@ export function AgentAppPage() {
       if (!rect) return
       if (isMobile) {
         const ratio = (rect.bottom - e.clientY) / rect.height
-        // Dragged too small ⇒ collapse and end the drag.
+        // Dragged too small ⇒ collapse (animated) and end the drag.
         if (ratio < MOBILE_COLLAPSE_RATIO) {
-          dragRef.current = null
-          setIsResizing(false)
-          setShowChat(false)
+          collapseFromDrag()
           return
         }
         setMobileChatRatio(Math.max(MOBILE_MIN_RATIO, Math.min(MOBILE_MAX_RATIO, ratio)))
       } else {
         const newWidth = rect.right - e.clientX
         if (newWidth < PANEL_COLLAPSE_WIDTH) {
-          dragRef.current = null
-          setIsResizing(false)
-          setShowChat(false)
+          collapseFromDrag()
           return
         }
         setPanelWidth(Math.max(PANEL_MIN_WIDTH, Math.min(PANEL_MAX_WIDTH, newWidth)))
@@ -453,6 +462,7 @@ export function AgentAppPage() {
               <Chat
                 sessionId={project.sessionId}
                 placeholder={t('agentapp:page.chatPlaceholder')}
+                panelLayout="stacked"
               />
             </div>
           </div>

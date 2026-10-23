@@ -10,6 +10,7 @@ import shutil
 from datetime import datetime
 from typing import Dict, Any, Optional, List
 
+from app.settings_store import settings_transaction, write_settings
 from app.config import (
     AGENT_FILE_SYSTEM_PATH,
     AGENT_FILE_SYSTEM_TEMPLATE_PATH,
@@ -85,6 +86,7 @@ _CANDIDATE_SKIP_DIRS = {
 # ─────────────────────────────────────────────────────────────────────
 
 
+@settings_transaction
 def _load_settings() -> Dict[str, Any]:
     """Load settings from settings.json."""
     if not SETTINGS_CONFIG_PATH.exists():
@@ -108,9 +110,7 @@ def _load_settings() -> Dict[str, Any]:
 def _save_settings(settings: Dict[str, Any]) -> bool:
     """Save settings to settings.json."""
     try:
-        SETTINGS_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-        with open(SETTINGS_CONFIG_PATH, "w", encoding="utf-8") as f:
-            json.dump(settings, f, indent=2)
+        write_settings(SETTINGS_CONFIG_PATH, settings)
         return True
     except Exception:
         return False
@@ -148,6 +148,7 @@ def get_memory_processing_threshold() -> int:
     return max(0, min(PROCESSING_THRESHOLD_MAX, raw))
 
 
+@settings_transaction
 def set_memory_processing_threshold(value: int) -> bool:
     """Persist the threshold-driven processing count (clamped to [0, max])."""
     settings = _load_settings()
@@ -244,6 +245,7 @@ def get_memory_mode() -> Dict[str, Any]:
         return {"success": False, "error": f"Failed to get memory mode: {str(e)}"}
 
 
+@settings_transaction
 def set_memory_mode(enabled: bool) -> Dict[str, Any]:
     """Set the memory mode on or off.
 
@@ -652,6 +654,7 @@ def get_memory_indexed_files() -> List[str]:
     return [str(f) for f in files if isinstance(f, str) and f.strip()]
 
 
+@settings_transaction
 def set_memory_indexed_files(paths: List[str]) -> Dict[str, Any]:
     """Replace the extra indexed-files list.
 
@@ -700,19 +703,20 @@ def set_memory_indexed_files(paths: List[str]) -> Dict[str, Any]:
         return {"success": False, "error": f"Failed to set indexed files: {str(e)}"}
 
 
+@settings_transaction
 def add_memory_indexed_file(path: str) -> Dict[str, Any]:
     """Add a single file to the extra indexed-files list.
 
     Reads the currently persisted list fresh and appends the one path,
-    reusing set_memory_indexed_files for validation and dedup. Because the
-    browser adapter processes WebSocket messages serially, concurrent "+"
-    clicks compose additively instead of clobbering each other: each call
-    sees the result of the previous one.
+    reusing set_memory_indexed_files for validation and dedup. The shared
+    settings transaction keeps concurrent additions from clobbering each
+    other: each call sees the result of the previous one.
     """
     current = get_memory_indexed_files()
     return set_memory_indexed_files(current + [path])
 
 
+@settings_transaction
 def remove_memory_indexed_file(path: str) -> Dict[str, Any]:
     """Remove a single file from the extra indexed-files list.
 

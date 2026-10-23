@@ -9,7 +9,9 @@ from agent_core import action
         "'save_to' to a destination path — the raw bytes are streamed to disk intact and "
         "'saved_path' is returned instead of 'body'. Binary responses are auto-saved to "
         "the workspace 'downloads/' folder even without 'save_to'; only text/JSON is ever "
-        "returned inline in 'body'. Never expect binary file content inside 'body'."
+        "returned inline in 'body'. Never expect binary file content inside 'body'. "
+        "For API keys saved in Settings > Credentials, use credential_list_api_keys "
+        "and credential_api_request instead; never ask for the key in chat."
     ),
     mode="CLI",
     action_sets=["core"],

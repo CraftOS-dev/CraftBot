@@ -1,0 +1,47 @@
+/* The browser's own parts of its tabs; the Chrome look itself is shared
+   (components/ui/ChromeTabs.module.css). */
+
+/* An SVG icon that adapts to the color scheme (GitHub's) follows the app's
+   theme, as Chrome's icons follow the browser's. */
+.favicon {
+  display: block;
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+  color-scheme: dark;
+  pointer-events: none;
+  user-select: none;
+}
+
+:global([data-theme='light']) .favicon {
+  color-scheme: light;
+}
+
+/* An agent uses the tab (who, in the tooltip); blue while it works. */
+.agentMark {
+  display: flex;
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+
+.tabBusy .agentMark {
+  color: var(--color-info);
+}
+
+.spin {
+  animation: spin 0.9s linear infinite;
+}
+
+.busyIcon {
+  color: var(--color-info);
+}
+
+.crashedIcon {
+  color: var(--color-warning);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spin {
+    animation-duration: 2.4s;
+  }
+}

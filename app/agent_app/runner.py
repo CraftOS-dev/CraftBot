@@ -77,6 +77,27 @@ def read_superuser_creds(project_dir: Path):
     return None
 
 
+def _superuser_stamp(db_path: Path, email: str) -> Optional[str]:
+    """The `updated` stamp of the superuser row for `email` in a PocketBase
+    data.db, or None when the database or the row does not exist. Read-only;
+    used to confirm that `superuser upsert` really saved."""
+    import sqlite3
+
+    if not Path(db_path).exists():
+        return None
+    try:
+        con = sqlite3.connect(Path(db_path).resolve().as_uri() + "?mode=ro", uri=True)
+        try:
+            row = con.execute(
+                "SELECT updated FROM _superusers WHERE email = ?", (email,)
+            ).fetchone()
+        finally:
+            con.close()
+    except sqlite3.Error:
+        return None
+    return str(row[0]) if row else None
+
+
 class AgentAppRunner:
     """Drives Agent App projects through scaffold → install → gate → serve."""
 
@@ -105,10 +126,9 @@ class AgentAppRunner:
                 )
             raise AgentAppRunnerUnavailable(
                 f"Node.js >= {MIN_NODE_MAJOR} is required to build Agent Apps "
-                f"and none was found{hint}. CraftBot never upgrades your "
-                "default Node: run `python install.py` to add a side-by-side "
-                "Node (nvm install 24 also works), or point the CRAFTBOT_NODE "
-                "env var at a >= 24 binary, then restart."
+                f"with working npm and none was found{hint}. Use Repair in "
+                "the installer to restore CraftBot's private Node/npm. For "
+                "a source checkout, run `python craftbot.py install`, then restart."
             )
         major = node_runtime.major_of(rt.version)
         if major is not None and major < MIN_NODE_MAJOR:
@@ -233,13 +253,16 @@ class AgentAppRunner:
         frontend = project_dir / "frontend"
         if (frontend / "node_modules").exists():
             return
-        # Windows: bare "npm" is npm.cmd — CreateProcess only finds it via a
-        # full path, so never spawn the bare name.
-        npm = node_runtime.npm_cmd() or "npm"
+        # Invoke the selected Node's npm JS directly, without a Windows shell.
+        npm = node_runtime.npm_command()
+        if not npm:
+            raise AgentAppRunnerUnavailable(
+                "npm is unavailable. Run CraftBot Repair to restore the Node runtime."
+            )
         code, out = await self._run(
             # --ignore-scripts: any npm package is allowed in a project, so
             # lifecycle scripts must never run (supply-chain guard, spec B7).
-            [npm, "install", "--no-audit", "--no-fund", "--ignore-scripts"],
+            npm + ["install", "--no-audit", "--no-fund", "--ignore-scripts"],
             timeout=INSTALL_TIMEOUT_S,
             cwd=frontend,
         )
@@ -355,34 +378,63 @@ class AgentAppRunner:
         creds = read_superuser_creds(project_dir)
         email = creds[0] if creds else "agent@agent-app.local"
         password = creds[1] if creds else secrets.token_urlsafe(18)
+        db_path = (data_dir if data_dir is not None else pb_dir / "pb_data") / "data.db"
+        stamp_before = _superuser_stamp(db_path, email)
 
+        # Flags first, then `--`, then the positional email and password: a
+        # token_urlsafe password can start with "-", and without the
+        # separator PocketBase's CLI parses it as an unknown flag, prints an
+        # error, saves NOTHING and still exits 0 (IP Manager 2026-09-29: the
+        # .superuser file and the database disagreed from then on, every
+        # CLI read ran unauthenticated and came back "not found").
+        #
+        # This is a full PocketBase bootstrap, not a quick write: before the
+        # command runs, PocketBase applies pending migrations and deletes
+        # request logs older than logs.maxDays, and both scale with the app's
+        # data. A 60s cap killed a healthy run mid-delete on an app with 5M
+        # log rows (Command Center, 2026-10-07); the delete rolled back, so
+        # every launch redid it and failed the same way. Same budget as the
+        # other bootstrapping commands (kit-sync, adapter-sync).
         code, out = await self._run(
             [
                 str(pb_bin),
                 "superuser",
                 "upsert",
-                email,
-                password,
                 "--dir",
                 str(data_dir if data_dir is not None else pb_dir / "pb_data"),
                 "--migrationsDir",
                 str(pb_dir / "pb_migrations"),
                 "--hooksDir",
                 str(pb_dir / "pb_hooks"),
+                "--",
+                email,
+                password,
             ],
-            timeout=60,
+            timeout=GATE_TIMEOUT_S,
         )
-        if code != 0:
+        # PocketBase's CLI exits 0 even when a command fails, so the exit
+        # code alone proves nothing: the save is confirmed from the database
+        # itself (the superuser row exists and its `updated` stamp moved).
+        saved = code == 0 and _superuser_stamp(db_path, email) not in (
+            None,
+            stamp_before,
+        )
+        if not saved:
             # FAIL CLOSED. A serve without a superuser makes PocketBase pop
             # the user's SYSTEM BROWSER with a one-time /_/#/pbinstall/…
             # admin-installer token (observed live 2026-08-05, kanban_board
             # marketplace install) — a jarring tab AND an unauthenticated
             # admin takeover link. A failed launch with evidence beats that.
-            # Never include the password in the error.
+            # Never include the password in the error. A timeout's output is
+            # only the echoed command, whose last 300 chars hid the cause.
+            if code == 124:
+                tail = f"PocketBase did not finish within {GATE_TIMEOUT_S}s"
+            else:
+                tail = out[-300:].replace(password, "<password>")
             raise RuntimeError(
                 f"superuser upsert failed for {project_dir.name} — refusing "
                 f"to serve without one (PocketBase would open its installer "
-                f"page in the user's browser): {out[-300:]}"
+                f"page in the user's browser): {tail}"
             )
         try:
             cred_file.write_text(

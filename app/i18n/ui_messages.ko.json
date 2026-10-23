@@ -74,5 +74,6 @@
   "onboarding_field_user_name_label": "당신의 이름",
   "onboarding_field_user_name_placeholder": "이름",
   "onboarding_validate_expected_dict": "폼 값의 딕셔너리가 필요합니다",
-  "onboarding_validate_user_name_too_long": "이름은 20자 이하여야 합니다"
+  "onboarding_validate_user_name_too_long": "이름은 20자 이하여야 합니다",
+  "question_dismissed": "질문을 닫았습니다. 사용자가 작업을 중단했습니다."
 }

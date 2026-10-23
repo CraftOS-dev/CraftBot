@@ -160,6 +160,7 @@ register_subagent(
         "list_folder",
         # Execute checks
         "run_shell",
+        "run_powershell",
         # External standards & API verification
         "web_search",
         "web_fetch",

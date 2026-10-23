@@ -1,6 +1,6 @@
 # YouTube
 
-Search YouTube, manage the user's subscriptions and playlists, post
+Search YouTube, manage the user's subscriptions, read playlists, post
 comments, and rate videos.
 
 ## Multi-account

@@ -76,6 +76,8 @@ system module `pb/pb_hooks/_craftbot_bridge.js` — no API keys in the app:
 ```js
 const bridge = require(`${__hooks}/_craftbot_bridge.js`);
 const summary = bridge.callLLM('Summarize:\n' + text, 'Reply in one sentence.');
+// Parsing the reply? Ask for the provider's JSON mode instead of scraping prose:
+const notes = JSON.parse(bridge.callLLM(prompt, 'Reply with one JSON object.', { json: true }) || 'null');
 const res = bridge.callIntegration('slack', 'POST', '/chat.postMessage', { ... });
 ```
 
@@ -175,6 +177,7 @@ Use the CLI — it resolves the port, authenticates, and validates params:
 
 ```
 agent-app ops  <project>                       # what can this app do?
+agent-app ops  <project> <area>                # one area's ops, every param explained
 agent-app run  <project> <op> --param value    # execute a declared op
 agent-app data <project> <collection> list --filter '...' --limit 20
 agent-app data <project> <collection> create --json '{...}'

@@ -18,6 +18,7 @@ from ..contracts import Provider
 
 def default_providers() -> List[Provider]:
     from .discord import DiscordProvider
+    from .figma import FigmaProvider
     from .github import GitHubProvider
     from .gmail import GmailProvider
     from .google_calendar import GoogleCalendarProvider
@@ -36,6 +37,7 @@ def default_providers() -> List[Provider]:
     from .posthog import PostHogProvider
     from .slack import SlackProvider
     from .stripe import StripeProvider
+    from .supabase import SupabaseProvider
     from .telegram_bot import TelegramBotProvider
     from .telegram_user import TelegramUserProvider
     from .twitter import TwitterProvider
@@ -44,6 +46,7 @@ def default_providers() -> List[Provider]:
 
     return [
         # Full ports — operations generated from the provider.
+        FigmaProvider(),
         GmailProvider(),
         GoogleCalendarProvider(),
         GoogleDocsProvider(),
@@ -55,6 +58,7 @@ def default_providers() -> List[Provider]:
         OutlookProvider(),
         PostHogProvider(),
         SlackProvider(),
+        SupabaseProvider(),
         # Auth-layer bridges — multi-account storage/UI/listeners; the
         # action surface stays, made account-aware centrally
         # (see app/data/action/integrations/account_bridge.py).

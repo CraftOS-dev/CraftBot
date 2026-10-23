@@ -9,5 +9,6 @@ Send and read mail from the user's connected Google account. Part of the Google 
 - **Self-emails are auto-filtered on incoming events** — the agent's own outgoing mail doesn't loop back as new mail.
 - **Identity format:** plain email-address strings (e.g. `alice@example.com`). Multiple recipients: depends on action; read the schema.
 - **Message IDs are Gmail-opaque strings.** Don't construct them; always pull from `list_gmail` / search results.
+- **Message and thread removal uses Trash.** Permanent deletion and emptying Trash are not supported. Use the trash/untrash actions; Gmail authorization remains `https://www.googleapis.com/auth/gmail.modify`. Draft and label deletion are still available.
 - **`process_incoming=False` config:** if set, incoming mail is silently dropped (the agent never sees new emails). Sending and reading still work. If a user expected push-style notifications and isn't getting any, check this flag first.
 - **`historyId` 404 is self-healing.** The internal polling sometimes returns 404 when the historyId expires — the client transparently re-fetches. Don't surface or retry.

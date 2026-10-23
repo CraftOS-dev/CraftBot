@@ -3,8 +3,8 @@ from agent_core import action
 
 @action(
     name="generate_video",
-    description="""Generates a video from a text prompt using the configured video generation provider (Google Gemini Veo, OpenAI Sora, or BytePlus Seedance).
-- The provider is determined by 'video_gen_provider' in settings.json (default: gemini). Supported: gemini, openai, byteplus.
+    description="""Generates a video from a text prompt using the configured video generation provider (BytePlus Seedance; Google Veo and OpenAI Sora have been retired upstream).
+- The provider is determined by 'video_gen_provider' in settings.json; a provider without a video model falls back to one that has a model and a configured key. Supported: byteplus.
 - The action BLOCKS while the long-running generation completes (typically 60-300s; up to ~25 min hard cap).
 - Saves the result as an MP4 file to output_path, or a timestamped temp file if omitted.
 - TIP: For image-to-video, pass an absolute path to a single start frame via 'reference_image'.
@@ -142,8 +142,10 @@ def generate_video(input_data: dict) -> dict:
             "message": "prompt is required.",
         }
 
-    # Fallback priority when the configured provider can't generate videos:
-    # prefer Gemini Veo, then OpenAI Sora, then BytePlus Seedance.
+    # Fallback priority when the configured provider can't generate videos.
+    # Only providers whose profile has a VIDEO_GEN default qualify
+    # (_supports): Gemini Veo and OpenAI Sora were retired upstream, so their
+    # defaults are None and BytePlus Seedance is the one that remains.
     _VIDEO_GEN_PRIORITY = ["gemini", "openai", "byteplus"]
 
     def _supports(p):
@@ -178,9 +180,9 @@ def generate_video(input_data: dict) -> dict:
             "video_paths": [],
             "message": (
                 "No video-generation provider is available. Video generation requires "
-                "Google (Gemini Veo), OpenAI (Sora), or BytePlus (Seedance) with a "
-                "configured API key. Set 'video_gen_provider' and add the matching "
-                "key under 'api_keys' in settings.json."
+                "BytePlus (Seedance) with a configured API key (Google Veo and OpenAI "
+                "Sora have been retired upstream). Set 'video_gen_provider' to "
+                "'byteplus' and add the key under 'api_keys' in settings.json."
             ),
         }
 

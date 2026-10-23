@@ -7,6 +7,9 @@ import time
 import socket
 import signal
 import threading
+from app.console import configure_console
+
+configure_console()
 
 # --- CONFIGURATION ---
 # Path to the directory containing the docker-compose.yml file

@@ -38,6 +38,25 @@ def _normalise_model_name(model: str) -> str:
     return model if model.startswith("models/") else f"models/{model}"
 
 
+def _thinking_config(
+    thinking_budget: Optional[int], thinking_level: Optional[str]
+) -> Optional[Dict[str, Any]]:
+    """Build ``generationConfig.thinkingConfig``, or None to omit it.
+
+    ``thinkingBudget`` is the Gemini 2.5 knob and ``thinkingLevel`` the
+    Gemini 3.x one; the API rejects a request that sets both with a 400.
+    """
+    if thinking_budget is not None and thinking_level is not None:
+        raise ValueError(
+            "Gemini accepts either thinking_budget or thinking_level, not both."
+        )
+    if thinking_budget is not None:
+        return {"thinkingBudget": thinking_budget}
+    if thinking_level is not None:
+        return {"thinkingLevel": thinking_level}
+    return None
+
+
 class GeminiClient:
     """Lightweight REST client for Gemini models.
 
@@ -94,6 +113,7 @@ class GeminiClient:
         max_output_tokens: Optional[int] = None,
         json_mode: bool = False,
         thinking_budget: Optional[int] = None,
+        thinking_level: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Generate text for a purely textual prompt.
 
@@ -121,6 +141,9 @@ class GeminiClient:
                 (and can exhaust maxOutputTokens on thoughts alone, emitting no
                 text — finishReason=MAX_TOKENS, parts_count=0). Set it to
                 reserve output room for the actual answer.
+            thinking_level: Optional reasoning level for Gemini 3.x thinking
+                models (``thinkingLevel``). Mutually exclusive with
+                ``thinking_budget``.
 
         Returns:
             Dict with generation results and token counts
@@ -139,8 +162,9 @@ class GeminiClient:
             generation_config["maxOutputTokens"] = max_output_tokens
         if json_mode:
             generation_config["responseMimeType"] = "application/json"
-        if thinking_budget is not None:
-            generation_config["thinkingConfig"] = {"thinkingBudget": thinking_budget}
+        thinking_config = _thinking_config(thinking_budget, thinking_level)
+        if thinking_config is not None:
+            generation_config["thinkingConfig"] = thinking_config
 
         payload: Dict[str, Any] = {"contents": contents}
         if system_prompt:
@@ -181,6 +205,8 @@ class GeminiClient:
         temperature: Optional[float] = None,
         max_output_tokens: Optional[int] = None,
         json_mode: bool = False,
+        thinking_budget: Optional[int] = None,
+        thinking_level: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Generate text from a pre-built multi-turn `contents` array.
 
@@ -199,6 +225,10 @@ class GeminiClient:
             temperature: Sampling temperature.
             max_output_tokens: Output token cap.
             json_mode: Force JSON response.
+            thinking_budget: Reasoning token budget (Gemini 2.5), see
+                ``generate_text``.
+            thinking_level: Reasoning level (Gemini 3.x), see
+                ``generate_text``.
 
         Returns:
             Same shape as ``generate_text``.
@@ -210,6 +240,9 @@ class GeminiClient:
             generation_config["maxOutputTokens"] = max_output_tokens
         if json_mode:
             generation_config["responseMimeType"] = "application/json"
+        thinking_config = _thinking_config(thinking_budget, thinking_level)
+        if thinking_config is not None:
+            generation_config["thinkingConfig"] = thinking_config
 
         payload: Dict[str, Any] = {"contents": contents}
         if system_prompt:
@@ -425,6 +458,8 @@ class GeminiClient:
         temperature: Optional[float] = None,
         max_output_tokens: Optional[int] = None,
         json_mode: bool = False,
+        thinking_budget: Optional[int] = None,
+        thinking_level: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Generate text using an explicit cache.
 
@@ -438,6 +473,10 @@ class GeminiClient:
             temperature: Sampling temperature
             max_output_tokens: Maximum output tokens
             json_mode: If True, enforce JSON output format
+            thinking_budget: Reasoning token budget (Gemini 2.5), see
+                ``generate_text``.
+            thinking_level: Reasoning level (Gemini 3.x), see
+                ``generate_text``.
 
         Returns:
             Dict with tokens_used, content, prompt_tokens, completion_tokens, cached_tokens
@@ -456,6 +495,9 @@ class GeminiClient:
             generation_config["maxOutputTokens"] = max_output_tokens
         if json_mode:
             generation_config["responseMimeType"] = "application/json"
+        thinking_config = _thinking_config(thinking_budget, thinking_level)
+        if thinking_config is not None:
+            generation_config["thinkingConfig"] = thinking_config
 
         payload: Dict[str, Any] = {
             "contents": contents,

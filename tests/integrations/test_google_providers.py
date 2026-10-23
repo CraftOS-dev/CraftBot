@@ -8,10 +8,13 @@ result, and refresh-persistence routing.
 from __future__ import annotations
 
 import asyncio
+import base64
+import email
 
 import pytest
 
 import craftos_integrations.providers._google as google_mod
+import craftos_integrations.providers.gmail.client as gmail_client_mod
 from craftos_integrations.core.storage import FileCredentialStore
 from craftos_integrations.core.system import IntegrationSystem
 from craftos_integrations.providers.gmail import GmailProvider
@@ -48,6 +51,8 @@ def test_oauth_spec_carries_the_chooser_fix():
     assert spec.extra_authorize_params["prompt"] == "consent select_account"
     assert spec.extra_authorize_params["access_type"] == "offline"
     assert spec.has_chooser
+    assert "https://www.googleapis.com/auth/gmail.modify" in spec.scopes
+    assert "https://mail.google.com/" not in spec.scopes
 
 
 def test_binding_replaces_disk_plumbing():
@@ -131,6 +136,234 @@ def test_operation_error_shape_is_agent_friendly(system, monkeypatch):
     )
     assert result["status"] == "error"
     assert "403" in result["message"]
+
+
+@pytest.mark.parametrize(
+    ("operation", "inputs"),
+    [
+        ("delete_gmail", {"message_id": "m1"}),
+        ("batch_delete_gmail", {"message_ids": ["m1", "m2"]}),
+        ("delete_gmail_thread", {"thread_id": "t1"}),
+    ],
+)
+def test_permanent_deletion_is_not_discoverable_or_executable(
+    system, monkeypatch, operation, inputs
+):
+    def unexpected_http(*args, **kwargs):
+        pytest.fail("Removed Gmail actions must not issue an HTTP request")
+
+    monkeypatch.setattr(gmail_client_mod, "http_request", unexpected_http)
+    assert operation not in {op.name for op in system.operations("gmail")}
+    with pytest.raises(LookupError, match="has no operation"):
+        run(system.execute("gmail", operation, inputs, account="school"))
+
+
+@pytest.mark.parametrize(
+    ("operation", "input_key", "resource_id", "endpoint"),
+    [
+        ("trash_gmail", "message_id", "m1", "messages/m1/trash"),
+        ("untrash_gmail", "message_id", "m1", "messages/m1/untrash"),
+        ("trash_gmail_thread", "thread_id", "t1", "threads/t1/trash"),
+        ("untrash_gmail_thread", "thread_id", "t1", "threads/t1/untrash"),
+        ("delete_gmail_draft", "draft_id", "d1", "drafts/d1"),
+        ("delete_gmail_label", "label_id", "l1", "labels/l1"),
+    ],
+)
+def test_supported_removal_and_restore_actions_use_selected_account(
+    system, monkeypatch, operation, input_key, resource_id, endpoint
+):
+    calls = []
+
+    def fake_http(method, url, **kwargs):
+        calls.append((method, url, kwargs["headers"]["Authorization"]))
+        payload = {"id": resource_id}
+        transform = kwargs.get("transform")
+        return {"ok": True, "result": transform(payload) if transform else payload}
+
+    monkeypatch.setattr(gmail_client_mod, "http_request", fake_http)
+    result = run(
+        system.execute("gmail", operation, {input_key: resource_id}, account="school")
+    )
+    assert result["status"] == "success"
+    expected_method = "DELETE" if operation.startswith("delete_") else "POST"
+    assert calls == [
+        (
+            expected_method,
+            f"https://gmail.googleapis.com/gmail/v1/users/me/{endpoint}",
+            "Bearer at-b",
+        )
+    ]
+
+
+# ----- Outgoing MIME: HTML + inline images -----
+
+PNG = b"\x89PNG\r\n\x1a\nfake-png-bytes"
+
+
+@pytest.fixture
+def sent(monkeypatch):
+    """Captures the parsed MIME message of every Gmail send/draft call."""
+    captured = []
+
+    def fake_http(method, url, **kwargs):
+        payload = kwargs["json"]
+        raw = (payload.get("message") or payload)["raw"]
+        captured.append(email.message_from_bytes(base64.urlsafe_b64decode(raw)))
+        return {"ok": True, "result": {"id": "m1", "threadId": "t1"}}
+
+    monkeypatch.setattr(gmail_client_mod, "http_request", fake_http)
+    return captured
+
+
+def _parts(msg):
+    return {p.get_content_type(): p for p in msg.walk()}
+
+
+def _image(tmp_path, name="chart.png"):
+    path = tmp_path / name
+    path.write_bytes(PNG)
+    return str(path)
+
+
+def test_plain_send_is_unchanged(system, sent):
+    run(system.execute("gmail", "send_gmail", {"subject": "s", "body": "hi"}))
+    (msg,) = sent
+    assert [p.get_content_type() for p in msg.get_payload()] == ["text/plain"]
+    assert msg.get_payload()[0].get_payload(decode=True) == b"hi"
+
+
+def test_html_body_with_cid_inline_image(system, sent, tmp_path):
+    path = _image(tmp_path)
+    result = run(
+        system.execute(
+            "gmail",
+            "send_gmail",
+            {
+                "subject": "s",
+                "body": '<p>Report</p><img src="cid:chart.png">',
+                "html": True,
+                "inline_images": [path],
+            },
+        )
+    )
+    assert result["status"] == "success"
+    (msg,) = sent
+    parts = _parts(msg)
+    assert "multipart/related" in parts and "multipart/alternative" in parts
+    html = parts["text/html"].get_payload(decode=True).decode()
+    assert html == '<p>Report</p><img src="cid:chart.png">'
+    assert parts["text/plain"].get_payload(decode=True).decode() == "Report"
+    img = parts["image/png"]
+    assert img["Content-ID"] == "<chart.png>"
+    assert img.get_content_disposition() == "inline"
+    assert img.get_filename() == "chart.png"
+    assert img.get_payload(decode=True) == PNG
+
+
+def test_local_img_src_is_embedded_and_rewritten(system, sent, tmp_path):
+    path = _image(tmp_path, "my chart.png")
+    run(
+        system.execute(
+            "gmail",
+            "send_gmail",
+            {"subject": "s", "body": f'<img src="{path}">', "html": True},
+        )
+    )
+    parts = _parts(sent[0])
+    html = parts["text/html"].get_payload(decode=True).decode()
+    assert html == '<img src="cid:my_chart.png">'
+    assert parts["image/png"]["Content-ID"] == "<my_chart.png>"
+
+
+def test_unplaced_image_is_appended_to_plain_text_body(system, sent, tmp_path):
+    path = _image(tmp_path)
+    run(
+        system.execute(
+            "gmail",
+            "send_gmail",
+            {"subject": "s", "body": "a < b\nsee below", "inline_images": [path]},
+        )
+    )
+    parts = _parts(sent[0])
+    html = parts["text/html"].get_payload(decode=True).decode()
+    assert html.startswith("<div>a &lt; b<br>\nsee below</div>")
+    assert html.endswith('<img src="cid:chart.png" alt="chart.png"></div>')
+    assert parts["text/plain"].get_payload(decode=True).decode() == "a < b\nsee below"
+
+
+def test_inline_images_and_attachments_together(system, sent, tmp_path):
+    img = _image(tmp_path)
+    doc = tmp_path / "notes.txt"
+    doc.write_text("notes")
+    run(
+        system.execute(
+            "gmail",
+            "send_gmail",
+            {
+                "subject": "s",
+                "body": '<img src="cid:chart.png">',
+                "html": True,
+                "inline_images": [img],
+                "attachments": [str(doc)],
+            },
+        )
+    )
+    (msg,) = sent
+    top = [p.get_content_type() for p in msg.get_payload()]
+    assert top == ["multipart/related", "text/plain"]
+    assert msg.get_payload()[1].get_content_disposition() == "attachment"
+
+
+def test_duplicate_file_names_get_distinct_cids(system, sent, tmp_path):
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    first, second = _image(tmp_path / "a"), _image(tmp_path / "b")
+    run(
+        system.execute(
+            "gmail",
+            "send_gmail",
+            {"subject": "s", "body": "x", "inline_images": [first, second]},
+        )
+    )
+    cids = [
+        p["Content-ID"] for p in sent[0].walk() if p.get_content_maintype() == "image"
+    ]
+    assert cids == ["<chart.png>", "<chart-2.png>"]
+
+
+@pytest.mark.parametrize("name", ["missing.png", "notes.txt"])
+def test_bad_inline_image_fails_without_sending(system, sent, tmp_path, name):
+    if name == "notes.txt":
+        (tmp_path / name).write_text("not an image")
+    result = run(
+        system.execute(
+            "gmail",
+            "send_gmail",
+            {"subject": "s", "body": "x", "inline_images": [str(tmp_path / name)]},
+        )
+    )
+    assert result["status"] == "error"
+    assert name in result["message"]
+    assert sent == []
+
+
+def test_reply_and_draft_support_inline_images(system, sent, tmp_path, monkeypatch):
+    path = _image(tmp_path)
+    monkeypatch.setattr(
+        BoundGmailClient,
+        "_fetch_reply_headers",
+        lambda self, mid: {"From": "c@z.com", "Subject": "Hi", "_thread_id": "t1"},
+    )
+    body = {"body": '<img src="cid:chart.png">', "html": True, "inline_images": [path]}
+    run(system.execute("gmail", "reply_gmail", {"message_id": "m0", **body}))
+    run(
+        system.execute(
+            "gmail", "create_gmail_draft", {"to": "c@z.com", "subject": "s", **body}
+        )
+    )
+    assert len(sent) == 2
+    for msg in sent:
+        assert _parts(msg)["image/png"]["Content-ID"] == "<chart.png>"
 
 
 def test_default_providers_importable():

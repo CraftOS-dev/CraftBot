@@ -22,12 +22,18 @@ from agent_core.core.impl.llm.cache import (
     get_cache_metrics,
 )
 from agent_core.core.impl.llm.errors import classify_llm_error
+from agent_core.core.models.reasoning import ReasoningDecision
 from agent_core.utils.logger import logger
 
 
 @profile("llm_byteplus_call", OperationCategory.LLM)
 def generate(
-    iface, system_prompt: str | None, user_prompt: str, json_mode: bool = True
+    iface,
+    system_prompt: str | None,
+    user_prompt: str,
+    json_mode: bool = True,
+    *,
+    reasoning: Optional[ReasoningDecision],
 ) -> Dict[str, Any]:
     """Generate response using BytePlus with automatic prefix caching.
 
@@ -35,6 +41,8 @@ def generate(
 
     ``json_mode`` is accepted for transport-signature uniformity but unused:
     the Responses API has no json_object knob here — JSON is prompt-instructed.
+    ``reasoning`` is accepted for the same reason: no BytePlus model has a
+    reasoning rule, so it is always None.
     """
     config = get_cache_config()
     # Use prefix caching if:

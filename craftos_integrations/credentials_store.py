@@ -25,6 +25,8 @@ from __future__ import annotations
 import json
 import os
 import stat
+import tempfile
+import time
 from dataclasses import asdict, fields
 from pathlib import Path
 from typing import Optional, Type, TypeVar
@@ -62,8 +64,15 @@ def _load_dataclass(filename: str, cls: Type[T], kind: str) -> Optional[T]:
     if not path.exists():
         return None
     try:
-        with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
+        for attempt in range(10):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                break
+            except PermissionError:
+                if os.name != "nt" or attempt == 9:
+                    raise
+                time.sleep(0.005 * (attempt + 1))
         valid = {fld.name for fld in fields(cls)}
         return cls(**{k: v for k, v in data.items() if k in valid})
     except Exception as e:
@@ -74,9 +83,25 @@ def _load_dataclass(filename: str, cls: Type[T], kind: str) -> Optional[T]:
 def _save_dataclass(filename: str, obj, kind: str) -> None:
     """Serialize a dataclass instance to ``.credentials/<filename>``."""
     path = _credentials_dir() / filename
+    temporary = None
     try:
-        with open(path, "w", encoding="utf-8") as f:
+        fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(asdict(obj), f, indent=2, default=str)
+            f.flush()
+            os.fsync(f.fileno())
+        # Readers see the complete old or new document, never an empty or
+        # partially-written permission list during a concurrent save.
+        for attempt in range(10):
+            try:
+                os.replace(temporary, path)
+                break
+            except PermissionError:
+                # Windows readers briefly hold the destination without
+                # FILE_SHARE_DELETE. Keep the old snapshot until they close.
+                if os.name != "nt" or attempt == 9:
+                    raise
+                time.sleep(0.005 * (attempt + 1))
         try:
             os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
         except OSError:
@@ -84,6 +109,9 @@ def _save_dataclass(filename: str, obj, kind: str) -> None:
         logger.info(f"Saved {kind}: {filename}")
     except Exception as e:
         logger.error(f"Failed to save {kind} {filename}: {e}")
+    finally:
+        if temporary and os.path.exists(temporary):
+            os.unlink(temporary)
 
 
 def _remove(filename: str, kind: str) -> bool:

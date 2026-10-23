@@ -10,15 +10,19 @@ export const selectMainSession = createSelector(
   (sessions): SessionInfo | undefined => sessions.find(s => s.type === 'main'),
 )
 
-// Plain chat sessions, newest first (createdAt is an ISO string, so a
-// lexicographic descending sort is chronological).
+// Plain chats follow their latest activity, including after reconnecting.
+// Older session records can fall back to their creation timestamp.
 export const selectChatSessions = createSelector(
   selectSessions,
   (sessions): SessionInfo[] =>
     sessions
       .filter(s => s.type === 'chat')
       .slice()
-      .sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0)),
+      .sort((a, b) => {
+        const aUpdated = a.lastActiveAt || a.createdAt
+        const bUpdated = b.lastActiveAt || b.createdAt
+        return aUpdated < bUpdated ? 1 : aUpdated > bUpdated ? -1 : 0
+      }),
 )
 
 export const selectSessionById = (state: RootState, sessionId: string): SessionInfo | undefined =>

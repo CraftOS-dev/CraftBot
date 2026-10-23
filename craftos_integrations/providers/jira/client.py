@@ -21,7 +21,7 @@ from ... import (
     save_config,
     register_client,
 )
-from ...helpers import Result, arequest
+from ...helpers import Result, arequest, clip
 from ...logger import get_logger
 
 logger = get_logger(__name__)
@@ -29,6 +29,10 @@ logger = get_logger(__name__)
 JIRA_CLOUD_API = "https://api.atlassian.com/ex/jira"
 POLL_INTERVAL = 10
 RETRY_DELAY = 15
+
+# The latest comment on an inbound issue update is previewed at this length
+# (token cost); a longer comment is flagged as PlatformMessage.truncated.
+_COMMENT_PREVIEW_CHARS = 200
 
 # Fields requested from the API when the caller wants a lean issue payload
 # (include_metadata=False and no explicit fields list). Restricting server-side
@@ -429,12 +433,14 @@ class JiraClient(BasePlatformClient):
         ]
         if labels:
             text_parts.append(f"Labels: {', '.join(labels)}")
+        truncated = False
         if comments:
             latest = comments[-1]
             cb = _extract_adf_text(latest.get("body", {}))
             ca = (latest.get("author") or {}).get("displayName", "")
             if cb:
-                text_parts.append(f"Latest comment by {ca}: {cb[:200]}")
+                preview, truncated = clip(cb, _COMMENT_PREVIEW_CHARS)
+                text_parts.append(f"Latest comment by {ca}: {preview}")
 
         timestamp = None
         try:
@@ -456,6 +462,7 @@ class JiraClient(BasePlatformClient):
                 timestamp=timestamp,
                 raw=issue,
                 attachments=attachments,
+                truncated=truncated,
             )
         )
 

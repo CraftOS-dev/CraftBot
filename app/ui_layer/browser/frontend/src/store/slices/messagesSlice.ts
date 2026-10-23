@@ -1,7 +1,10 @@
 import { createSlice, current, isDraft, PayloadAction } from '@reduxjs/toolkit'
 import type { ChatMessage } from '../../types'
+import type { AppDispatch, RootState } from '../index'
 import { register } from '../socket/messageRegistry'
+import { UI_STATE } from '../uiState'
 import { findIndexInDraft } from './draftSearch'
+import { resetUiState } from './uiSlice'
 
 // Chat messages keyed per session. Each bucket keeps its messages in
 // timestamp-ascending order. Optimistic ("pending") messages use
@@ -161,6 +164,18 @@ const messagesSlice = createSlice({
     setLoadingOlder(state, action: PayloadAction<{ sessionId: string; loading: boolean }>) {
       bucketFor(state, action.payload.sessionId).loadingOlder = action.payload.loading
     },
+    /** The user closed a Generative UI output (here or on another client):
+     *  every revision of it keeps only a closed marker, its code is gone. */
+    uiArtifactClosed(state, action: PayloadAction<{ sessionId: string; artifactId: string }>) {
+      const bucket = state.bySession[action.payload.sessionId]
+      if (!bucket) return
+      for (const entry of bucket.items) {
+        const artifact = entry.uiArtifact
+        if (artifact && artifact.id === action.payload.artifactId && !artifact.closed) {
+          entry.uiArtifact = { id: artifact.id, title: artifact.title, revision: artifact.revision, closed: true }
+        }
+      }
+    },
     markOptionSelected(state, action: PayloadAction<{
       sessionId: string
       messageId: string
@@ -187,6 +202,7 @@ export const {
   clearSession,
   dropSession,
   setLoadingOlder,
+  uiArtifactClosed,
   markOptionSelected,
 } = messagesSlice.actions
 
@@ -213,19 +229,52 @@ register('chat_history', (data, dispatch) => {
   }))
 })
 
-register('chat_clear', (data, dispatch) => {
+// Progress may belong to an output outside the loaded/paginated history.
+// Keep reset tombstones so a stale legacy tab cannot migrate it back later.
+function resetArtifactProgress(sessionId: string | null, dispatch: AppDispatch, state: RootState) {
+  const prefix = UI_STATE.chat.artifactState('').key
+  for (const key of Object.keys(state.ui.values)) {
+    if (!key.startsWith(prefix)) continue
+    try {
+      const id = key.slice(prefix.length)
+      const scope: unknown = JSON.parse(id)
+      if (Array.isArray(scope) && scope.length === 2 && scope.every(item => typeof item === 'string') && (sessionId === null || scope[0] === sessionId)) {
+        dispatch(resetUiState(UI_STATE.chat.artifactState(id)))
+      }
+    } catch { /* Ignore malformed storage keys. */ }
+  }
+}
+
+register('chat_clear', (data, dispatch, getState) => {
   const d = data as { sessionId?: string | null } | undefined
+  resetArtifactProgress(d?.sessionId ?? null, dispatch, getState())
   dispatch(clearSession({ sessionId: d?.sessionId ?? null }))
 })
 
-register('session_cleared', (data, dispatch) => {
+register('session_cleared', (data, dispatch, getState) => {
   const d = data as { sessionId?: string } | undefined
-  if (d?.sessionId) dispatch(clearSession({ sessionId: d.sessionId }))
+  if (d?.sessionId) {
+    resetArtifactProgress(d.sessionId, dispatch, getState())
+    dispatch(clearSession({ sessionId: d.sessionId }))
+  }
 })
 
-register('session_deleted', (data, dispatch) => {
+register('session_deleted', (data, dispatch, getState) => {
   const d = data as { sessionId?: string } | undefined
-  if (d?.sessionId) dispatch(dropSession({ sessionId: d.sessionId }))
+  if (d?.sessionId) {
+    resetArtifactProgress(d.sessionId, dispatch, getState())
+    dispatch(dropSession({ sessionId: d.sessionId }))
+  }
+})
+
+// A Generative UI output was closed (possibly on another client): its code
+// goes, and so does its saved progress in this window.
+register('generative_ui_closed', (data, dispatch) => {
+  const d = data as { sessionId?: string; artifactId?: string } | undefined
+  if (d?.sessionId && d.artifactId) {
+    dispatch(uiArtifactClosed({ sessionId: d.sessionId, artifactId: d.artifactId }))
+    dispatch(resetUiState(UI_STATE.chat.artifactState(JSON.stringify([d.sessionId, d.artifactId]))))
+  }
 })
 
 // A pinned question was answered/dismissed (possibly on another client):

@@ -265,6 +265,20 @@ export function ModelSettings() {
           setTestBeforeSave(false)
         }
       }),
+      onMessage('model_subscription_connect', (data: unknown) => {
+        const d = data as { provider?: string; success: boolean; message?: string; error?: string }
+        if (d.provider === provider && !d.success) {
+          showToast('error', d.message || d.error || t('settings:model.subscription.connectFailed'))
+        }
+      }),
+      onMessage('model_subscription_disconnect', (data: unknown) => {
+        const d = data as { provider?: string; success: boolean; message?: string; error?: string }
+        if (d.provider !== provider) return
+        showToast(
+          d.success ? 'success' : 'error',
+          d.message || d.error || t('settings:model.subscription.disconnectFailed'),
+        )
+      }),
       onMessage('ollama_models_get', (data: unknown) => {
         const d = data as { success: boolean; models: string[] }
         setOllamaModelsLoading(false)
@@ -376,6 +390,9 @@ export function ModelSettings() {
   }, [provider, isConnected, send, baseUrls])
 
   const currentProvider = providers.find(p => p.id === provider)
+  const testRequiresKey = !!currentProvider?.requires_api_key &&
+    !apiKeys[provider]?.has_key && !newApiKey.trim() &&
+    !subscriptionOauth[provider]?.connected
 
   // Generic /v1/models discovery: fetch whenever the active provider
   // advertises has_model_discovery (new cloud providers). Ollama keeps its
@@ -868,6 +885,9 @@ export function ModelSettings() {
 
             const subscriptionBlock = supportsSub && (
               <div className={styles.formGroup}>
+                {provider === 'anthropic' && (
+                  <p className={styles.hint}>{t('settings:model.subscription.claudeProfileNote')}</p>
+                )}
                 <label>
                   {t('settings:model.subscription.label')}
                   {isSubConnected ? (
@@ -959,7 +979,8 @@ export function ModelSettings() {
                         // xAI/Grok's flow ends on a "copy this code" page in
                         // most browser contexts, so it goes through the
                         // paste-back flow instead.
-                        const useLoopback = provider === 'openai'
+                        // Claude Code manages its own browser callback too.
+                        const useLoopback = provider === 'openai' || provider === 'anthropic'
                         send(
                           useLoopback ? 'model_subscription_connect' : 'model_subscription_prepare',
                           { provider },
@@ -975,6 +996,24 @@ export function ModelSettings() {
                         : (currentProvider?.subscription_label || t('settings:model.subscription.signInWith', { provider: currentProvider?.name || provider }))}
                     </Button>
                   </div>
+                )}
+                {!isSubConnected && subStatus?.configured && (
+                  <>
+                    <p className={styles.hint}>{t('settings:model.subscription.recoveryHint')}</p>
+                    <Button
+                      variant="secondary"
+                      disabled={isSubPending}
+                      onClick={() => {
+                        dispatch(setSubscriptionPending({ provider, pending: true }))
+                        send('model_subscription_disconnect', { provider })
+                      }}
+                    >
+                      {t('common:actions.disconnect')}
+                    </Button>
+                  </>
+                )}
+                {subStatus?.error && (
+                  <p role="alert" className={styles.hint}>{subStatus.error}</p>
                 )}
               </div>
             )
@@ -1148,13 +1187,10 @@ export function ModelSettings() {
               variant="secondary"
               onClick={handleTestConnection}
               disabled={
-                isTesting ||
-                (!!currentProvider?.requires_api_key &&
-                  !apiKeys[provider]?.has_key)
+                isTesting || testRequiresKey
               }
               title={
-                currentProvider?.requires_api_key &&
-                !apiKeys[provider]?.has_key
+                testRequiresKey
                   ? t('settings:model.actions.testRequiresKey')
                   : ''
               }
