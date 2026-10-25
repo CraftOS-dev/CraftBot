@@ -98,28 +98,30 @@ def _download_progress(count: int, block_size: int, total_size: int) -> None:
     sys.stdout.write(f"\r  Downloading  {bar}  {ORANGE}[ {pct:3d}% ]{RESET}")
     sys.stdout.flush()
 
+# Python 3.10.11 was the last Python 3.10 release with binary installers.
+PYTHON_310_BINARY_INSTALLER_VERSIONS = ("3.10.11",)
+
 
 def _auto_install_python_310() -> None:
     """Download and silently install Python 3.10 (tries recent patch versions in order), then re-launch install.py with it."""
     import urllib.request
 
-    # Try recent patch versions in descending order.
-    PYTHON_VERSION_CANDIDATES = [
-        "3.10.17",
-        "3.10.16",
-        "3.10.15",
-        "3.10.14",
-        "3.10.13",
-        "3.10.12",
-        "3.10.11",
-    ]
+    print(
+        "\n  WARNING: Python 3.10 reached end-of-life on October 1, 2026 "
+        "and no longer receives security updates."
+    )
+    print(
+        "  CraftBot currently uses Python 3.10 dependencies; "
+        "this installer is a compatibility fallback."
+    )
+
 
     if sys.platform == "win32":
         is_64bit = sys.maxsize > 2**32
 
         installer = None
         chosen_version = None
-        for version in PYTHON_VERSION_CANDIDATES:
+        for version in PYTHON_310_BINARY_INSTALLER_VERSIONS:
             suffix = "-amd64.exe" if is_64bit else ".exe"
             filename = f"python-{version}{suffix}"
             url = f"https://www.python.org/ftp/python/{version}/{filename}"
@@ -146,10 +148,10 @@ def _auto_install_python_310() -> None:
             )
             print("  All download attempts failed (HTTP 404 or network error).")
             print("\n  Please install Python 3.10 manually:")
-            print("  1. Go to: https://www.python.org/downloads/")
-            print("  2. Download the latest Python 3.10 installer for Windows")
+            print("  1. Go to: https://www.python.org/downloads/release/python-31011/")
+            print("  2. Download the Python 3.10.11 Windows installer")
             print("  3. Run the installer (check 'Add Python to PATH')")
-            print("  4. Open a NEW terminal and run: python install.py")
+            print("  4. Open a NEW terminal and run: py -3.10 install.py")
             sys.exit(1)
 
         print(
@@ -176,10 +178,10 @@ def _auto_install_python_310() -> None:
         if result.returncode != 0:
             print(f"\n  {RED}✗{RESET} Installer exited with code {result.returncode}.")
             print("\n  Please install Python 3.10 manually:")
-            print("  1. Go to: https://www.python.org/downloads/")
-            print("  2. Download the latest Python 3.10 installer for Windows")
+            print("  1. Go to: https://www.python.org/downloads/release/python-31011/")
+            print("  2. Download the Python 3.10.11 Windows installer")
             print("  3. Run the installer (check 'Add Python to PATH')")
-            print("  4. Open a NEW terminal and run: python install.py")
+            print("  4. Open a NEW terminal and run: py -3.10 install.py")
             sys.exit(1)
 
         print(f"\n  {GREEN}✓{RESET} {WHITE}Python {chosen_version} installed!{RESET}")
@@ -211,7 +213,7 @@ def _auto_install_python_310() -> None:
     elif sys.platform == "darwin":
         installer = None
         chosen_version = None
-        for version in PYTHON_VERSION_CANDIDATES:
+        for version in PYTHON_310_BINARY_INSTALLER_VERSIONS:
             url = f"https://www.python.org/ftp/python/{version}/python-{version}-macos11.pkg"
             dest = os.path.join(BASE_DIR, f"python-{version}.pkg")
             print(f"\n  {WHITE}Trying Python {version}...{RESET}")
@@ -234,8 +236,8 @@ def _auto_install_python_310() -> None:
                 f"\n  {RED}✗{RESET} {WHITE}Could not download Python automatically.{RESET}"
             )
             print("\n  Please install Python 3.10 manually:")
-            print("  1. Go to: https://www.python.org/downloads/")
-            print("  2. Download the latest Python 3.10 macOS installer")
+            print("  1. Go to: https://www.python.org/downloads/release/python-31011/")
+            print("  2. Download the Python 3.10.11 macOS installer")
             print("  3. Run the installer")
             print("  4. Open a NEW terminal and run: python3.10 install.py")
             sys.exit(1)
@@ -251,7 +253,7 @@ def _auto_install_python_310() -> None:
         if result.returncode != 0:
             print(f"\n  {RED}✗{RESET} Installation failed.")
             print(
-                "\n  Please install Python 3.10 manually from: https://www.python.org/downloads/"
+                "\n  Please install Python 3.10 manually from: https://www.python.org/downloads/release/python-31011/"
             )
             sys.exit(1)
         print(f"\n  {GREEN}✓{RESET} {WHITE}Python {chosen_version} installed!{RESET}")
