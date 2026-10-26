@@ -1,35 +1,20 @@
-import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react'
 import { flushSync } from 'react-dom'
 import { useTranslation } from 'react-i18next'
-import { ArrowUpRight, Globe, Layers3 } from 'lucide-react'
-import type { ChatMessage, ClosedGenerativeUIArtifact, GenerativeUIArtifact } from '../../types'
+import { Globe, Layers3, Plus } from 'lucide-react'
+import type { ChatMessage, GenerativeUIArtifact } from '../../types'
 import { usePersistedState } from '../../hooks'
 import { useAppDispatch } from '../../store/hooks'
 import { resetUiState } from '../../store/slices/uiSlice'
 import { UI_STATE } from '../../store/uiState'
-import { ChromeTabs } from '../ui/ChromeTabs'
-import { GenerativeUI, type OutputVersion } from './GenerativeUI'
-import styles from './OutputWorkspace.module.css'
-
-const OutputContext = createContext<((artifact: GenerativeUIArtifact) => void) | null>(null)
-
-/** A small reference in the conversation; generated code only runs in the
- *  output pane. A closed output stays listed, without anything to open. */
-export function OutputReference({ artifact }: { artifact: GenerativeUIArtifact | ClosedGenerativeUIArtifact }) {
-  const open = useContext(OutputContext)
-  const { t } = useTranslation('chat')
-  if (artifact.closed) {
-    return <div className={`${styles.reference} ${styles.referenceClosed}`}>
-      <span className={styles.referenceIcon}><Layers3 size={19} /></span>
-      <span className={styles.referenceText}><strong>{artifact.title}</strong><span>{t('generativeUI.closed')}</span></span>
-    </div>
-  }
-  return <button type="button" className={styles.reference} onClick={() => open?.(artifact)} disabled={!open}>
-    <span className={styles.referenceIcon}><Layers3 size={19} /></span>
-    <span className={styles.referenceText}><strong>{artifact.title}</strong><span>{t('generativeUI.openOutput')}</span></span>
-    <ArrowUpRight size={17} />
-  </button>
-}
+import { IconButton } from '../ui/IconButton'
+import { ChromeTabs, type ChromeTab } from '../ui/ChromeTabs'
+import { GenerativeUI, type OutputVersion } from '../GenerativeUI/GenerativeUI'
+import styles from './ChatWorkspace.module.css'
+import { OutputContext } from './OutputReference'
+import { PanelChooser } from './PanelChooser'
+import { PanelSwitcher } from './PanelSwitcher'
+import { PanelAppContext } from '../../features/agentApps/PanelAppContext'
 
 /** The chat's own browser as the panel's second mode. */
 export interface BrowserPanelMode {
@@ -48,7 +33,7 @@ export type PanelLayout = 'side' | 'stacked'
 
 type Exiting =
   | { sessionId: string; kind: 'output'; artifact: GenerativeUIArtifact }
-  | { sessionId: string; kind: 'browser' }
+  | { sessionId: string; kind: 'browser' | 'apps' | 'chooser' }
 
 interface Tracks { columns: string; rows: string }
 
@@ -79,20 +64,31 @@ const readTracks = (element: HTMLElement): Tracks => {
 
 /**
  * The chat with its panel. The panel shows one thing at a time: the chat's
- * Generative UI outputs, or (with `browser`) the chat's own browser. The
- * round buttons at the chat's top left switch between them; pressing the
- * one on show closes the panel. A new output opens the panel on it; the
+ * Generative UI outputs, installed apps, or the chat's own browser. The
+ * single button at the chat's top left toggles the panel; its shared
+ * tab strip selects the content. A new output opens the panel on it; the
  * chat's browser takes it over when the agent starts browsing (set by the
  * browser's owner through the same per-session panel mode). Opening and
  * closing animate the shared grid tracks. The seam between panel and chat
  * works like an Agent App's: drag it to resize, drag it to the panel's edge
  * or click it to close the panel.
  */
-export function OutputWorkspace({ sessionId, messages, browser, layout = 'side', onCloseOutput, children }: {
+export function ChatWorkspace({ sessionId, messages, browser, apps, layout = 'side', onCloseOutput, children }: {
   sessionId: string
   messages: ChatMessage[]
   /** The chat's browser; omitted where there is none (a draft chat). */
   browser?: BrowserPanelMode
+  apps?: {
+    render(moving: boolean, active: boolean): ReactNode
+    openProject(projectId: string): void
+    canOpenProject(projectId: string): boolean
+    tabs: ChromeTab[]
+    selectedId: string | null
+    removeProject(projectId: string): void
+    loaded: boolean
+    choices: { id: string; title: string; icon: ReactNode }[]
+    actions: ReactNode
+  }
   layout?: PanelLayout
   /** The user closed an output (its tab's ×): it goes for good (its code
    *  and saved progress). */
@@ -102,6 +98,8 @@ export function OutputWorkspace({ sessionId, messages, browser, layout = 'side',
   const { t } = useTranslation('chat')
   const dispatch = useAppDispatch()
   const [mode, setMode] = usePersistedState(UI_STATE.chat.panelMode(sessionId))
+  const [browserTabOpen, setBrowserTabOpen] = usePersistedState(UI_STATE.chat.panelBrowserOpen(sessionId))
+  const [lastMode, setLastMode] = usePersistedState(UI_STATE.chat.panelLastMode(sessionId))
   const [selection, setSelection] = usePersistedState(UI_STATE.chat.outputSelection(sessionId))
   const [chatWidth, setChatWidth] = usePersistedState(UI_STATE.chat.conversationWidth)
   const [stackedShare, setStackedShare] = usePersistedState(UI_STATE.chat.stackedPanelShare)
@@ -114,8 +112,8 @@ export function OutputWorkspace({ sessionId, messages, browser, layout = 'side',
   const workspace = useRef<HTMLDivElement>(null)
   const pane = useRef<HTMLElement>(null)
   const seam = useRef<HTMLDivElement>(null)
-  const outputsButton = useRef<HTMLButtonElement>(null)
-  const browserButton = useRef<HTMLButtonElement>(null)
+  const panelButton = useRef<HTMLButtonElement>(null)
+  const [animating, setAnimating] = useState(false)
   const layoutAnimation = useRef<Animation | null>(null)
   const previousTracks = useRef<Tracks | null>(null)
   // The grid as the last commit left it: the starting point when the panel
@@ -159,12 +157,15 @@ export function OutputWorkspace({ sessionId, messages, browser, layout = 'side',
   const showBrowser = !!browser && (exiting ? exiting.kind === 'browser' : mode === 'browser')
   const showOutput = !showBrowser && !!selected
     && (exiting ? exiting.kind === 'output' : mode === 'output' || mode === 'auto')
-  const isOpen = showBrowser || showOutput
+  const showApps = !!apps && (exiting ? exiting.kind === 'apps' : mode === 'apps')
+  const showChooser = (exiting ? exiting.kind === 'chooser' : mode === 'chooser') || showApps && !apps?.selectedId
+  const isOpen = showBrowser || showOutput || showApps || showChooser
   const stacked = layout === 'stacked' || (workspaceWidth > 0 && workspaceWidth < SIDE_BY_SIDE_MIN_WIDTH)
   const captureLayout = useCallback(() => {
     if (workspace.current) previousTracks.current = readTracks(workspace.current)
     layoutAnimation.current?.cancel()
     layoutAnimation.current = null
+    setAnimating(false)
   }, [])
 
   // Incoming outputs open automatically (over the browser too). Prepending
@@ -183,6 +184,8 @@ export function OutputWorkspace({ sessionId, messages, browser, layout = 'side',
     knownOutputs.current = { sessionId, keys }
   }, [sessionId, outputs, newestKey, setSelection, setMode, captureLayout])
   useEffect(() => { setClosing(null) }, [sessionId])
+  useEffect(() => { if (mode === 'browser') setBrowserTabOpen(true) }, [mode, setBrowserTabOpen])
+  useEffect(() => { if (mode !== 'closed') setLastMode(mode) }, [mode, setLastMode])
   // A drag never carries over to another chat or layout.
   useEffect(() => {
     press.current = null
@@ -217,6 +220,7 @@ export function OutputWorkspace({ sessionId, messages, browser, layout = 'side',
       // Read the new layout itself, not a frame of a motion still running.
       layoutAnimation.current?.cancel()
       layoutAnimation.current = null
+      setAnimating(false)
     }
     const next = readTracks(element)
     committed.current = { tracks: next, isOpen, stacked }
@@ -232,10 +236,12 @@ export function OutputWorkspace({ sessionId, messages, browser, layout = 'side',
     // Animate the shared tracks, so chat, seam and pane travel together. No
     // screenshot overlays, document recreation or text scaling.
     const animation = element.animate([from, to], { duration: 300, easing: 'cubic-bezier(.22, 1, .36, 1)' })
+    setAnimating(true)
     layoutAnimation.current = animation
     void animation.finished.then(() => {
       if (layoutAnimation.current !== animation) return
       layoutAnimation.current = null
+      setAnimating(false)
       if (exiting) finishClose()
     }).catch(() => { /* Reversing direction or switching sessions cancels motion. */ })
   }, [isOpen, exiting, stacked])
@@ -268,21 +274,34 @@ export function OutputWorkspace({ sessionId, messages, browser, layout = 'side',
     setSelection(`${artifact.id}:${artifact.revision}`)
     setMode('output')
   }
+  const openApp = (id?: string) => {
+    if (id && !apps?.canOpenProject(id)) return
+    if (!isOpen) captureLayout()
+    setClosing(null)
+    if (id) apps?.openProject(id)
+    setMode('apps')
+  }
+  const openChooser = () => {
+    if (!isOpen) captureLayout()
+    setClosing(null)
+    setMode('chooser')
+  }
   const openBrowser = () => {
+    setBrowserTabOpen(true)
     if (!isOpen) captureLayout()
     setClosing(null)
     setMode('browser')
   }
   const selectOutput = (id: string) => {
     const tab = tabs.find(item => item.id === id)
-    if (tab) setSelection(`${tab.id}:${tab.revision}`)
+    if (tab) { setSelection(`${tab.id}:${tab.revision}`); setClosing(null); setMode('output') }
   }
   // Closing an output disposes of it: its saved progress here, then its code
   // everywhere (onCloseOutput). The tab next to it takes its place; the last
   // one closes the panel.
   const closeOutput = (id: string) => {
     dispatch(resetUiState(UI_STATE.chat.artifactState(JSON.stringify([sessionId, id]))))
-    if (selected?.id === id) {
+    if (selected?.id === id && showOutput) {
       const remaining = tabs.filter(tab => tab.id !== id)
       if (remaining.length === 0) {
         close()
@@ -294,7 +313,7 @@ export function OutputWorkspace({ sessionId, messages, browser, layout = 'side',
     onCloseOutput(id)
   }
   const finishClose = () => {
-    const opener = closing?.kind === 'browser' ? browserButton : outputsButton
+    const opener = panelButton
     setClosing(null)
     if (!restoreFocus.current) return
     restoreFocus.current = false
@@ -303,11 +322,13 @@ export function OutputWorkspace({ sessionId, messages, browser, layout = 'side',
   const close = () => {
     if (exiting || !isOpen) return
     const active = document.activeElement
-    restoreFocus.current = !!active && (active === seam.current || !!pane.current?.contains(active))
+    restoreFocus.current = !!active && (active === seam.current || !!pane.current?.contains(active) || showApps && active instanceof HTMLIFrameElement)
     captureLayout()
     // Persist intent immediately; only the visible pane waits for the exit.
     // Switching chats during that exit must not discard the close choice.
-    if (showBrowser) setClosing({ sessionId, kind: 'browser' })
+    if (showChooser) setClosing({ sessionId, kind: 'chooser' })
+    else if (showApps) setClosing({ sessionId, kind: 'apps' })
+    else if (showBrowser) setClosing({ sessionId, kind: 'browser' })
     else if (selected) setClosing({ sessionId, kind: 'output', artifact: selected })
     setMode('closed')
   }
@@ -321,6 +342,7 @@ export function OutputWorkspace({ sessionId, messages, browser, layout = 'side',
     event.preventDefault()
     layoutAnimation.current?.cancel()
     layoutAnimation.current = null
+    setAnimating(false)
     event.currentTarget.focus({ preventScroll: true })
     event.currentTarget.setPointerCapture(event.pointerId)
     press.current = { x: event.clientX, y: event.clientY, moved: false }
@@ -403,29 +425,36 @@ export function OutputWorkspace({ sessionId, messages, browser, layout = 'side',
         current: artifact.revision === selected.revision,
       }))
     : []
-  return <OutputContext.Provider value={open}>
+  return <OutputContext.Provider value={open}><PanelAppContext.Provider value={apps ? { open: openApp, canOpen: apps.canOpenProject } : null}>
     <div ref={workspace} style={sizes} className={`${styles.workspace} ${stacked ? styles.stacked : ''} ${isOpen && !exiting ? styles.open : ''} ${exiting ? styles.closing : ''} ${resizing ? styles.resizing : ''}`}>
       {isOpen && <>
-        {showBrowser && browser ? <section ref={pane} className={styles.pane} aria-label={t('browserPanel.region')} {...exitingProps}>
-          {browser.render()}
-        </section> : selected && <section ref={pane} className={styles.pane} aria-label={t('generativeUI.outputPanel')} {...exitingProps}>
-          <ChromeTabs
-            label={t('generativeUI.tabsLabel')}
-            tabs={shownTabs.map(artifact => ({
-              id: artifact.id,
-              title: artifact.title,
-              icon: <Layers3 size={13} />,
-              closeLabel: t('generativeUI.closeNamed', { title: artifact.title }),
-            }))}
-            selectedId={selected.id}
-            onSelect={selectOutput}
-            onClose={closeOutput}
-            closeTitle={t('generativeUI.close')}
-            actionsRef={setControlsTarget}
-          />
-          <GenerativeUI key={`${sessionId}:${selected.id}`} artifact={selected} sessionId={sessionId}
-            controlsTarget={controlsTarget} versions={versions} onSelectVersion={setSelection} />
-        </section>}
+        <section ref={pane} className={styles.pane} aria-label={t(showChooser ? 'panel.open' : showApps ? 'apps.region' : showBrowser ? 'browserPanel.region' : 'generativeUI.outputPanel')} {...exitingProps}>
+          <ChromeTabs label={t('panel.tabs')} tabs={[
+            ...(browser && (browserTabOpen || showBrowser) ? [{ id: 'browser', title: t('panel.browser'), icon: <Globe size={13} />, closeLabel: t('panel.close') }] : []),
+            ...(apps?.tabs ?? []),
+            ...shownTabs.map(artifact => ({ id: `output:${artifact.id}`, title: artifact.title, icon: <Layers3 size={13} />, closeLabel: t('generativeUI.closeNamed', { title: artifact.title }) })),
+          ]} selectedId={showChooser ? null : showBrowser ? 'browser' : showApps ? apps?.selectedId ?? null : selected ? `output:${selected.id}` : null}
+            onSelect={id => id === 'browser' ? openBrowser() : id.startsWith('app:') ? openApp(id.slice(4)) : selectOutput(id.slice(7))}
+            onClose={id => {
+              if (id === 'browser') { setBrowserTabOpen(false); if (showBrowser) openChooser(); return }
+              if (id.startsWith('output:')) { closeOutput(id.slice(7)); return }
+              apps?.removeProject(id.slice(4))
+              requestAnimationFrame(() => {
+                const next = pane.current?.querySelector<HTMLButtonElement>('[role="tab"][aria-selected="true"]')
+                  ?? pane.current?.querySelector<HTMLButtonElement>('button[aria-label]')
+                next?.focus()
+              })
+            }} closeTitle={t('panel.close')}
+            after={(apps || browser) && <IconButton type="button" size="sm" icon={<Plus size={16} />} onClick={openChooser} aria-label={t('panel.open')} tooltip={t('panel.open')} />}
+            actions={showApps ? apps?.actions : undefined} actionsRef={setControlsTarget} />
+          {showChooser ? <PanelChooser browser={!!browser} apps={apps?.choices ?? []} loaded={apps?.loaded ?? true}
+            outputs={tabs.map(item => ({ id: item.id, title: item.title, icon: <Layers3 size={19} /> }))}
+            onBrowser={openBrowser} onApp={openApp} onOutput={selectOutput} />
+            : showApps && apps ? apps.render(resizing || animating, !exiting)
+            : showBrowser && browser ? browser.render()
+            : selected && <GenerativeUI key={`${sessionId}:${selected.id}`} artifact={selected} sessionId={sessionId}
+              controlsTarget={controlsTarget} versions={versions} onSelectVersion={setSelection} />}
+        </section>
         <div ref={seam} className={styles.seam} role="separator" tabIndex={0} aria-label={t('generativeUI.resizePanel')} title={t('panel.close')}
           aria-orientation={stacked ? 'horizontal' : 'vertical'} aria-valuenow={seamValue.now} aria-valuemin={seamValue.min} aria-valuemax={seamValue.max}
           onPointerDown={onSeamPointerDown} onPointerMove={onSeamPointerMove} onPointerUp={onSeamPointerUp} onLostPointerCapture={endPress} onKeyDown={onSeamKeyDown}>
@@ -433,17 +462,20 @@ export function OutputWorkspace({ sessionId, messages, browser, layout = 'side',
         </div>
       </>}
       <div className={styles.conversation}>
-        {(outputs.length > 0 || browser) && <div className={styles.switcher}>
-          {outputs.length > 0 && <button type="button" ref={outputsButton} onClick={() => (showOutput && !exiting ? close() : selected && open(selected))} aria-label={t('generativeUI.showOutputs')} title={t('generativeUI.showOutputs')} aria-expanded={showOutput && !exiting}>
-            <Layers3 size={16} />
-          </button>}
-          {browser && <button type="button" ref={browserButton} onClick={() => (showBrowser && !exiting ? close() : openBrowser())} aria-label={t('browserPanel.show')} title={t(browser.browsing ? 'browserPanel.browsing' : browser.running ? 'browserPanel.running' : 'browserPanel.show')} aria-expanded={showBrowser && !exiting}>
-            <Globe size={16} />
-            {browser.running && <span className={`${styles.browserDot} ${browser.browsing ? styles.browserDotBusy : ''}`} aria-hidden="true" />}
-          </button>}
-        </div>}
+        {(outputs.length > 0 || browser || apps) && <PanelSwitcher key={sessionId} buttonRef={panelButton} panelOpen={isOpen && !exiting}
+          label={apps || browser && outputs.length ? t('panel.toggle') : browser ? t('browserPanel.show') : t('generativeUI.showOutputs')}
+          browserRunning={browser?.running} browsing={browser?.browsing} onToggle={() => {
+            if (isOpen && !exiting) { close(); return }
+            if (apps) { openChooser(); return }
+            if (lastMode === 'chooser') { openChooser(); return }
+            if (lastMode === 'browser' && browser) openBrowser()
+            else if (lastMode === 'apps' && apps) openApp()
+            else if (selected) open(selected)
+            else if (apps) openApp()
+            else openBrowser()
+          }} />}
         <div className={styles.chat}>{children}</div>
       </div>
     </div>
-  </OutputContext.Provider>
+  </PanelAppContext.Provider></OutputContext.Provider>
 }

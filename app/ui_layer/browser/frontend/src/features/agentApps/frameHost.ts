@@ -2,8 +2,7 @@
  * Persistent iframe pool for Agent Apps.
  *
  * Iframes live in a fixed container on document.body so they are never
- * unmounted by React Router navigation. AgentAppPage positions a pool
- * iframe over its placeholder div via ResizeObserver.
+ * unmounted by React Router navigation. Visible surfaces hold exclusive leases.
  */
 
 import i18n from '../../i18n/config'
@@ -13,6 +12,15 @@ const MAX_POOL_SIZE = 5
 const pool = new Map<string, HTMLIFrameElement>()
 // Track access order for LRU eviction
 const accessOrder: string[] = []
+const owners = new Map<string, symbol>()
+const listeners = new Set<() => void>()
+
+export function subscribeFrameHost(listener: () => void) {
+  listeners.add(listener)
+  return () => { listeners.delete(listener) }
+}
+
+function changed() { listeners.forEach(listener => listener()) }
 
 let container: HTMLDivElement | null = null
 
@@ -34,7 +42,8 @@ function touchAccess(id: string) {
 
   // Evict oldest if over limit
   while (accessOrder.length > MAX_POOL_SIZE) {
-    const evictId = accessOrder.shift()!
+    const evictId = accessOrder.find(key => !owners.has(key))
+    if (!evictId) break
     removeIframe(evictId)
   }
 }
@@ -61,6 +70,10 @@ export function frameUrl(url: string): string {
 }
 
 export function getOrCreateIframe(id: string, src: string): HTMLIFrameElement {
+  const url = new URL(src, window.location.href)
+  if (!['http:', 'https:'].includes(url.protocol) || url.origin === window.location.origin) {
+    throw new Error('Agent Apps require a separate HTTP(S) origin.')
+  }
   let iframe = pool.get(id)
   if (!iframe) {
     iframe = document.createElement('iframe')
@@ -119,6 +132,47 @@ export function removeIframe(id: string) {
   }
   const idx = accessOrder.indexOf(id)
   if (idx !== -1) accessOrder.splice(idx, 1)
+  owners.delete(id)
+  changed()
+}
+
+/** Exactly one owner places each project frame; stale cleanup is harmless. */
+export function acquireIframe(id: string, src: string) {
+  if (owners.has(id)) return null
+  if (!pool.has(id) && pool.size >= MAX_POOL_SIZE) {
+    const candidate = accessOrder.find(key => !owners.has(key))
+    if (!candidate) return null
+    removeIframe(candidate)
+  }
+  const owner = Symbol(id)
+  owners.set(id, owner)
+  let frame: HTMLIFrameElement
+  try { frame = getOrCreateIframe(id, src) }
+  catch (error) { owners.delete(id); throw error }
+  return {
+    frame,
+    update(rect: DOMRect, visible: boolean, interactive: boolean) {
+      if (owners.get(id) !== owner) return
+      if (visible) {
+        showIframe(id, rect)
+        frame.style.pointerEvents = interactive ? 'auto' : 'none'
+      } else hideIframe(id)
+      frame.inert = !visible || !interactive
+    },
+    release() {
+      if (owners.get(id) !== owner) return
+      hideIframe(id)
+      frame.inert = true
+      owners.delete(id)
+      changed()
+    },
+  }
+}
+
+/** Dispose stopped/deleted frames even when their React surface is absent. */
+export function reconcileIframes(projects: { id: string; status: string }[]) {
+  const running = new Set(projects.filter(p => p.status === 'running').map(p => p.id))
+  for (const id of pool.keys()) if (!running.has(id)) removeIframe(id)
 }
 
 // The host does NOT refresh an app's data view — an app owns its own live
@@ -144,7 +198,7 @@ export function broadcastThemeToIframes(theme: string, cssVars: Record<string, s
   const message = { type: 'craftbot-theme', theme, cssVars }
   pool.forEach(iframe => {
     try {
-      iframe.contentWindow?.postMessage(message, '*')
+      iframe.contentWindow?.postMessage(message, new URL(iframe.src).origin)
     } catch (e) {}
   })
 }
@@ -153,7 +207,7 @@ export function sendThemeToIframe(id: string, theme: string, cssVars: Record<str
   const iframe = pool.get(id)
   if (!iframe) return
   try {
-    iframe.contentWindow?.postMessage({ type: 'craftbot-theme', theme, cssVars }, '*')
+    iframe.contentWindow?.postMessage({ type: 'craftbot-theme', theme, cssVars }, new URL(iframe.src).origin)
   } catch (e) {}
 }
 
@@ -161,6 +215,11 @@ export function postMessageToIframe(id: string, data: unknown) {
   const iframe = pool.get(id)
   if (!iframe) return
   try {
-    iframe.contentWindow?.postMessage(data, '*')
+    iframe.contentWindow?.postMessage(data, new URL(iframe.src).origin)
   } catch (e) {}
+}
+
+export function acceptsFrameMessage(id: string, event: MessageEvent): boolean {
+  const frame = pool.get(id)
+  return !!frame && ownsProjectWindow(id, event.source) && event.origin === new URL(frame.src).origin
 }

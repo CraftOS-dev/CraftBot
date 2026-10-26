@@ -9,17 +9,6 @@
 .chat { flex: 1; min-height: 0; }
 .pane { grid-area: pane; container: output-pane / inline-size; display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; background: var(--bg-primary); }
 
-/* The panel's buttons: round icons floating at the chat's top left. */
-.switcher { position: absolute; top: 10px; left: 12px; z-index: 3; display: flex; gap: 6px; }
-/* Same look as the chat's scroll-to-latest button (Chat.module.css), without its shadow. */
-.switcher button { position: relative; display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 1px solid var(--border-primary); border-radius: 50%; background: var(--bg-secondary); color: var(--text-secondary); cursor: pointer; transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease; }
-.switcher button:hover { background: var(--bg-tertiary); color: var(--text-primary); }
-.switcher button[aria-expanded=true] { border-color: var(--text-primary); background: var(--text-primary); color: var(--bg-primary); }
-/* The chat's browser runs; it pulses while an agent is browsing in it. */
-.browserDot { position: absolute; top: 1px; right: 1px; width: 8px; height: 8px; border-radius: 50%; background: var(--text-tertiary); box-shadow: 0 0 0 2px var(--bg-primary); }
-.browserDotBusy { background: var(--color-success); animation: browserDotPulse 1.6s ease-in-out infinite; }
-@keyframes browserDotPulse { 50% { opacity: .35; } }
-
 /* The seam, as on an Agent App: a hairline divider with a pill grip on it.
    Drag to resize, click to close. A transparent ::after widens the grab
    zone; the pill is purely visual. */
@@ -52,6 +41,5 @@
 .reference:hover > svg { transform: translate(2px, -2px); }
 @media (prefers-reduced-motion: reduce) {
   .workspace button, .workspace select, .grip, .reference > svg { transition: none; }
-  .browserDotBusy { animation: none; }
   .reference:hover > svg { transform: none; }
 }

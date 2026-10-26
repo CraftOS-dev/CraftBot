@@ -1,5 +1,11 @@
 # Generative UI (issue #479)
 
+The shared layout now lives in frontend `components/ChatWorkspace/`. It composes
+Outputs, Browser and installed Apps in the same chat panel. See
+[Agent Apps in the chat panel](panel-agent-apps.md) for app-view ownership and
+lifecycle. Hiding a panel preserves its content; closing an output tab deletes
+that output, whereas removing an app tab only detaches the view from the chat.
+
 Generative UI turns an agent answer into an interactive HTML/CSS/JavaScript
 experience in a dedicated output workspace beside the conversation. The generated document requires no backend, database,
 package installation, build, or server process. CraftBot's existing backend

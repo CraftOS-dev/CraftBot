@@ -1,3 +1,11 @@
+async function openBrowserTab(page: Page) {
+  const tab = page.getByRole('tab', { name: 'Browser', exact: true })
+  if (await tab.count()) await tab.click()
+  else {
+    await page.getByRole('button', { name: 'Open in panel', exact: true }).click()
+    await page.getByRole('region', { name: 'Open in panel', exact: true }).getByRole('button', { name: 'Browser', exact: true }).click()
+  }
+}
 import { test, expect, type Page } from '@playwright/test'
 
 const preview = (page: Page) => page.frameLocator('iframe')
@@ -127,7 +135,8 @@ test('valid legacy progress replaces malformed durable data', async ({ page }) =
 test('an older buffered write cannot undo a reset from another tab', async ({ page, context }) => {
   await page.clock.install()
   await open(page)
-  await page.clock.pauseAt(new Date())
+  // Pause against the browser clock; the runner clock can lag its installed clock.
+  await page.clock.pauseAt(await page.evaluate(() => new Date(Date.now() + 1000).toISOString()))
   await preview(page).getByLabel('Servings').fill('4')
   await preview(page).getByLabel('Servings').press('Tab')
   await expect(preview(page).getByText('400 g pasta')).toBeVisible()
@@ -156,7 +165,8 @@ for (const action of ['reset', 'close']) test(`durable ${action} cannot resurrec
 test('a new tab sees the latest progress without waiting for a flush timer', async ({ page, context }) => {
   await page.clock.install()
   await open(page)
-  await page.clock.pauseAt(new Date())
+  // Pause against the browser clock; the runner clock can lag its installed clock.
+  await page.clock.pauseAt(await page.evaluate(() => new Date(Date.now() + 1000).toISOString()))
   await preview(page).getByLabel('Servings').fill('8')
   await preview(page).getByLabel('Servings').press('Tab')
   await expect(preview(page).getByText('800 g pasta')).toBeVisible()
@@ -344,7 +354,7 @@ test('the output is the pane on desktop and switches itself to phone width in a 
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   // Wide again: back to desktop, the same running document.
   await page.setViewportSize({ width: 1440, height: 900 })
-  await expect.poll(async () => (await page.locator('iframe').boundingBox())!.width).toBeCloseTo((await pane.boundingBox())!.width, 0)
+  await expect.poll(async () => Math.abs((await page.locator('iframe').boundingBox())!.width - (await pane.boundingBox())!.width)).toBeLessThan(0.5)
   expect(await page.locator('iframe').getAttribute('srcdoc')).toBe(document)
   await expect(preview(page).getByRole('heading', { name: 'Step 2 of 4' })).toBeVisible()
   await outputsButton(page).click()
@@ -487,35 +497,24 @@ test('resize supports dragging and keyboard, persists, and preserves the running
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
 })
 
-test("the panel sits on the chat's left; its buttons are round icons at the chat's top left", async ({ page }) => {
+test("the panel has one round toggle button at the chat's top left", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
   await open(page)
   await page.getByRole('button', { name: 'Add browser' }).click()
   const panel = (await page.getByRole('region', { name: 'Output panel' }).boundingBox())!
-  const outputs = (await outputsButton(page).boundingBox())!
-  const browser = page.getByRole('button', { name: "Show this chat's browser", exact: true })
-  // Panel, seam, then the chat with its buttons in the top left corner.
+  const trigger = page.getByRole('button', { name: 'Toggle panel', exact: true })
+  const button = (await trigger.boundingBox())!
   const workspace = (await seam(page).locator('..').boundingBox())!
   expect(panel.x).toBe(workspace.x)
-  expect(outputs.x).toBeGreaterThan(panel.x + panel.width)
-  expect(outputs.x - (panel.x + panel.width)).toBeLessThan(24)
-  expect(outputs.y - workspace.y).toBeLessThan(24)
-  expect((await browser.boundingBox())!.x).toBeGreaterThan(outputs.x)
-  // Icons only, round; no conversation bar, and the output's own bar shows its name.
-  for (const button of [outputsButton(page), browser]) {
-    expect((await button.innerText()).trim()).toBe('')
-    await expect(button).toHaveCSS('border-radius', '50%')
-  }
-  await expect(page.getByText('Conversation', { exact: true })).toHaveCount(0)
-  await expect(page.getByRole('button', { name: 'Fullscreen output' })).toHaveCount(0)
-  await expect(page.getByRole('button', { name: 'Back to conversation' })).toHaveCount(0)
-  await expect(page.getByRole('region', { name: 'Output panel' }).getByRole('tab', { name: 'Cooking guide', exact: true })).toBeVisible()
-  // The one on show is pressed.
-  await expect(outputsButton(page)).toHaveAttribute('aria-expanded', 'true')
-  await expect(browser).toHaveAttribute('aria-expanded', 'false')
-  await browser.click()
-  await expect(outputsButton(page)).toHaveAttribute('aria-expanded', 'false')
-  await expect(browser).toHaveAttribute('aria-expanded', 'true')
+  expect(button.x).toBeGreaterThan(panel.x + panel.width)
+  expect(button.x - (panel.x + panel.width)).toBeLessThan(24)
+  expect(button.y - workspace.y).toBeLessThan(24)
+  await expect(trigger).toHaveCSS('border-radius', '6px')
+  await expect(outputsButton(page)).toHaveCount(0)
+  await expect(page.getByRole('button', { name: "Show this chat's browser", exact: true })).toHaveCount(0)
+  await expect(page.getByRole('tab', { name: 'Cooking guide', exact: true })).toHaveAttribute('aria-selected', 'true')
+  await openBrowserTab(page)
+  await expect(page.getByRole('menu')).toHaveCount(0)
   expect((await page.getByRole('region', { name: 'Browser panel' }).boundingBox())!.x).toBe(workspace.x)
 })
 
@@ -841,23 +840,23 @@ for (const panel of ['browser', 'closed'] as const) {
 test('the browser shares the panel with outputs, one at a time', async ({ page }) => {
   await open(page)
   await page.getByRole('button', { name: 'Add browser' }).click()
-  // The panel's browser button opens the browser in place of the output.
-  await page.getByRole('button', { name: "Show this chat's browser", exact: true }).click()
+  // The shared menu opens the browser in place of the output.
+  await openBrowserTab(page)
   await expect(page.getByRole('region', { name: 'Browser panel' })).toBeVisible()
   await expect(page.getByText('Fake browser')).toBeVisible()
   await expect(page.locator('iframe')).toHaveCount(0)
   // Outputs take it back; the output kept its place.
-  await outputsButton(page).click()
+  await page.getByRole('tab', { name: 'Cooking guide', exact: true }).click()
   await expect(preview(page).getByRole('heading', { name: 'Weeknight tomato pasta' })).toBeVisible()
   await expect(page.getByRole('region', { name: 'Browser panel' })).toHaveCount(0)
   // A new output switches the panel from the browser to it.
-  await page.getByRole('button', { name: "Show this chat's browser", exact: true }).click()
+  await openBrowserTab(page)
   await page.getByRole('button', { name: 'Revise interface' }).click()
   await expect(page.getByRole('region', { name: 'Output panel' })).toBeVisible()
   await expect(page.getByRole('region', { name: 'Browser panel' })).toHaveCount(0)
-  // The browser button toggles: a second press closes the panel.
-  await page.getByRole('button', { name: "Show this chat's browser", exact: true }).click()
-  await page.getByRole('button', { name: "Show this chat's browser", exact: true }).click()
+  // Closing is a separate action in the shared menu.
+  await openBrowserTab(page)
+  await page.getByRole('button', { name: 'Toggle panel', exact: true }).click()
   await expect(page.getByRole('region', { name: 'Browser panel' })).toHaveCount(0)
   await expect(page.locator('iframe')).toHaveCount(0)
 })
@@ -865,7 +864,7 @@ test('the browser shares the panel with outputs, one at a time', async ({ page }
 test('the browser opens by itself when the agent starts browsing, per session', async ({ page }) => {
   await open(page)
   await page.getByRole('button', { name: 'Add browser' }).click()
-  await outputsButton(page).click()
+  await page.getByRole('button', { name: 'Toggle panel', exact: true }).click()
   await expect(page.locator('iframe')).toHaveCount(0)
   await page.getByRole('button', { name: 'Agent starts browsing' }).click()
   await expect(page.getByRole('region', { name: 'Browser panel' })).toBeVisible()

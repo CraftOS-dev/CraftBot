@@ -120,7 +120,15 @@
     "region": "浏览器面板"
   },
   "panel": {
-    "close": "关闭面板"
+    "close": "关闭面板",
+    "toggle": "切换面板",
+    "tabs": "面板标签页",
+    "browser": "浏览器",
+    "open": "在面板中打开",
+    "search": "搜索应用和输出",
+    "apps": "已安装应用",
+    "outputs": "输出",
+    "noMatches": "没有匹配的项目。"
   },
   "references": {
     "title": "Add context",
@@ -147,5 +155,28 @@
     "emptyHint": "Try another name or category.",
     "sessionSingular": "Chat",
     "appSingular": "Agent app"
+  },
+  "apps": {
+    "region": "智能体应用面板",
+    "show": "显示应用",
+    "tabs": "应用标签页",
+    "add": "添加应用",
+    "remove": "从面板移除{{name}}",
+    "detach": "从面板移除",
+    "openFull": "打开完整应用",
+    "search": "搜索已安装应用",
+    "added": "已添加",
+    "done": "完成",
+    "empty": "将已安装的应用添加到此聊天面板。",
+    "loading": "正在加载已安装应用…",
+    "disconnected": "请重新连接以加载或启动应用。",
+    "noMatches": "没有匹配的应用。",
+    "noInstalled": "没有已安装的应用。",
+    "loadingView": "正在加载应用视图…",
+    "viewTimeout": "应用加载时间较长。请重试或打开完整应用。",
+    "viewUnavailable": "此应用视图不可用，或已在其他位置打开。",
+    "retry": "重试",
+    "openPanel": "在面板中打开",
+    "limit": "面板已达到100个应用的上限。"
   }
 }

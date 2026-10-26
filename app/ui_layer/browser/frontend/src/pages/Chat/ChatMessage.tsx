@@ -12,7 +12,7 @@ import { UI_STATE } from '../../store/uiState'
 import { getErrorCategoryStyle } from '../../constants/errorCategories'
 import { formatTime } from '../../i18n/format'
 import styles from './ChatPage.module.css'
-import { OutputReference } from '../../components/GenerativeUI/OutputWorkspace'
+import { OutputReference } from '../../components/ChatWorkspace/OutputReference'
 
 interface ChatMessageProps {
   message: ChatMessageType

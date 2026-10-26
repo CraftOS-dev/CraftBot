@@ -1,0 +1,13 @@
+.chooser { flex: 1; width: min(100%, 480px); margin: 0 auto; padding: clamp(12px, 3vh, 32px); min-height: 0; overflow: auto; color: var(--text-primary); }
+.chooser h2 { margin: 0; font-size: 18px; font-weight: 500; }
+.search { display: flex; align-items: center; gap: 10px; margin-top: 16px; padding: 10px 12px; border: 1px solid var(--border-primary); border-radius: 8px; color: var(--text-secondary); }
+.search input { min-width: 0; flex: 1; color: var(--text-primary); background: transparent; border: 0; outline: 0; font: inherit; font-size: 13px; }
+.search:focus-within { outline: 2px solid var(--text-secondary); outline-offset: 2px; }
+.choices { margin-top: 16px; }
+.choices section { margin-top: 18px; }
+.choices h3 { color: var(--text-secondary); font-size: 11px; font-weight: 500; margin: 0 12px 6px; }
+.choice { display: flex; gap: 12px; align-items: center; width: 100%; min-width: 0; padding: 12px; border-radius: 8px; text-align: left; color: var(--text-primary); font-size: 13px; cursor: pointer; }
+.choice svg, .choice img { flex-shrink: 0; color: var(--text-secondary); }
+.choice span { overflow-wrap: anywhere; }
+.choice:hover, .choice:focus-visible { background: var(--bg-hover); }
+.choices p { padding: 12px; color: var(--text-secondary); font-size: 13px; }

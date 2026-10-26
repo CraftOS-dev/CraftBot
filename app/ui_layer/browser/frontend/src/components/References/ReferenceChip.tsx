@@ -1,3 +1,4 @@
+import { usePanelAppActions } from '../../features/agentApps/PanelAppContext'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
@@ -10,6 +11,7 @@ import styles from './References.module.css'
 export function ReferenceChip({ reference, onRemove }: { reference: ReferenceInput & { label: string }; onRemove?: () => void }) {
   const { t } = useTranslation('chat')
   const navigate = useNavigate()
+  const panelApps = usePanelAppActions()
   const [open, setOpen] = useState(false)
   const snapshot = 'capturedAt' in reference && reference.capturedAt ? reference as ReferenceSnapshot : null
   const available = useAppSelector(state => reference.kind === 'session'
@@ -28,6 +30,7 @@ export function ReferenceChip({ reference, onRemove }: { reference: ReferenceInp
           {snapshot.truncated && <p>{t('references.truncated')}</p>}</> : <p>{t('references.captureOnSend')}</p>}
         <p>{t('references.retention')}</p>
         {!available && <p role="status">{t('references.unavailable')}</p>}
+        {reference.kind === 'agent_app' && panelApps && <button type="button" disabled={!available || !panelApps.canOpen(reference.targetId)} onClick={() => { setOpen(false); panelApps.open(reference.targetId) }}>{t('apps.openPanel')}</button>}
         <button type="button" disabled={!available} onClick={() => { setOpen(false); navigate(reference.kind === 'session' ? `/session/${encodeURIComponent(reference.targetId)}` : `/agent-app/${encodeURIComponent(reference.targetId)}`) }}>{t('references.openSource')}</button>
     </ReferenceDialog>
   </>

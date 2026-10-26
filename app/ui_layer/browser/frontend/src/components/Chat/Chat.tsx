@@ -1,3 +1,4 @@
+import { usePanelApps } from '../../features/agentApps/usePanelApps'
 import { ReferencePicker } from '../References/ReferencePicker'
 import { ReferenceChip } from '../References/ReferenceChip'
 import { ReferenceAutocomplete, type ReferenceAutocompleteHandle } from '../References/ReferenceAutocomplete'
@@ -15,7 +16,7 @@ import { useToast } from '../../contexts/ToastContext'
 import { SlashCommandAutocomplete, AttachmentPreviewModal, PlaybookModal } from '../ui'
 import type { SlashCommandAutocompleteHandle } from '../ui'
 import { ChatMessageItem } from '../../pages/Chat/ChatMessage'
-import { OutputWorkspace, type PanelLayout } from '../GenerativeUI/OutputWorkspace'
+import { ChatWorkspace, type PanelLayout } from '../ChatWorkspace/ChatWorkspace'
 import { useChatBrowser } from '../MiniBrowser/useChatBrowser'
 import { TypingIndicatorRow } from '../../pages/Chat/TypingIndicator'
 import { ReasoningBlock, ActionBlock, ChunkHeaderRow } from '../activity/ActivityBlocks'
@@ -80,6 +81,8 @@ interface ChatProps {
   /** Where the chat's panel (outputs, browser) opens: on its left, or above
    *  it ('stacked', for a narrow host such as an Agent App's chat panel). */
   panelLayout?: PanelLayout
+  panelVisible?: boolean
+  excludedPanelAppId?: string
 }
 
 // One RENDERED row. Activity entries are grouped into chunks (consecutive
@@ -168,7 +171,7 @@ const formatDateDivider = (tsMs: number): string => {
   return formatDate(date, { year: 'numeric', month: 'long', day: 'numeric' })
 }
 
-export function Chat({ sessionId, placeholder, panelLayout = 'side' }: ChatProps) {
+export function Chat({ sessionId, placeholder, panelLayout = 'side', panelVisible = true, excludedPanelAppId }: ChatProps) {
   const { t } = useTranslation(['chat', 'common'])
   const navigate = useNavigate()
   const {
@@ -195,7 +198,8 @@ export function Chat({ sessionId, placeholder, panelLayout = 'side' }: ChatProps
   // session_created (the context then navigates to /session/{id}).
   const isDraft = sessionId === 'new'
   // The chat's own browser, in its panel (none for a draft: no session yet).
-  const browser = useChatBrowser(sessionId, !isDraft)
+  const browser = useChatBrowser(sessionId, !isDraft && panelVisible)
+  const panelApps = usePanelApps(sessionId, !isDraft, excludedPanelAppId, panelVisible)
 
   const messages = useAppSelector(state => selectSessionMessages(state, sessionId))
   const activity = useAppSelector(state => selectSessionActivity(state, sessionId))
@@ -1342,7 +1346,7 @@ export function Chat({ sessionId, placeholder, panelLayout = 'side' }: ChatProps
   }
 
   return (
-    <OutputWorkspace sessionId={sessionId} messages={messages} browser={browser} layout={panelLayout} onCloseOutput={closeOutput}>
+    <ChatWorkspace sessionId={sessionId} messages={messages} browser={browser} apps={panelApps} layout={panelLayout} onCloseOutput={closeOutput}>
     <div className={styles.chat}>
       <div className={styles.messagesArea}>
         <div className={styles.messagesContainer} ref={parentRef}>
@@ -1780,6 +1784,6 @@ export function Chat({ sessionId, placeholder, panelLayout = 'side' }: ChatProps
       />
       <PlaybookModal isOpen={playbookOpen} onClose={() => setPlaybookOpen(false)} />
     </div>
-    </OutputWorkspace>
+    </ChatWorkspace>
   )
 }
