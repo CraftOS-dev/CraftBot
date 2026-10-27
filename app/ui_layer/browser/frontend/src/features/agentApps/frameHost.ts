@@ -92,6 +92,10 @@ export function getOrCreateIframe(id: string, src: string): HTMLIFrameElement {
     iframe.style.cssText =
       'position:fixed;border:none;visibility:hidden;pointer-events:none;z-index:10;'
     iframe.title = i18n.t('agentapp:iframe.title', { id })
+    // Recorded here, not by a surface: a frame can finish loading while no
+    // surface holds it (its tab is in the background), and must not then be
+    // reported as still loading when it is shown again.
+    iframe.addEventListener('load', function () { this.dataset.loadedSrc = this.dataset.requestedSrc })
     getContainer().appendChild(iframe)
     pool.set(id, iframe)
   } else if (iframe.dataset.requestedSrc !== src) {
@@ -104,6 +108,12 @@ export function getOrCreateIframe(id: string, src: string): HTMLIFrameElement {
   }
   touchAccess(id)
   return iframe
+}
+
+/** Whether the frame finished navigating to the src it was last given. */
+export function isIframeLoaded(id: string): boolean {
+  const iframe = pool.get(id)
+  return !!iframe && iframe.dataset.loadedSrc === iframe.dataset.requestedSrc
 }
 
 export function showIframe(id: string, rect: DOMRect) {

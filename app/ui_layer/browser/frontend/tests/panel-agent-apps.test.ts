@@ -178,6 +178,24 @@ test('a stalled app navigation leaves the timeout and retry controls usable', as
   await expect(page.frameLocator('iframe[title="Notes"]').getByRole('textbox', { name: 'App note' })).toBeVisible()
 })
 
+test('an app that finishes loading in a background tab shows at once when its tab returns', async ({ page }) => {
+  let release!: () => void
+  const held = new Promise<void>(resolve => { release = resolve })
+  // Hold only Notes (Calendar's URL carries ?calendar) until its tab is in the background.
+  await page.route(url => url.pathname.endsWith('/tests/fixtures/panel-app.html') && !url.searchParams.has('calendar'),
+    async route => { await held; await route.continue() })
+  await open(page)
+  await add(page, 'Notes')
+  await expect(panel(page).getByText('Loading app view…')).toBeVisible()
+  await add(page, 'Calendar')
+  await expect(page.frameLocator('iframe[title="Calendar"]').getByRole('textbox', { name: 'App note' })).toBeVisible()
+  release()
+  await page.frameLocator('iframe[title="Notes"]').getByRole('textbox', { name: 'App note' }).waitFor({ state: 'attached' })
+  await panel(page).getByRole('tab', { name: 'Notes', exact: true }).click()
+  await expect(page.frameLocator('iframe[title="Notes"]').getByRole('textbox', { name: 'App note' })).toBeVisible()
+  await expect(panel(page).getByText('Loading app view…')).toHaveCount(0)
+})
+
 test('app references can open in the panel without submitting or switching the chat', async ({ page }) => {
   await page.goto('/tests/panel-agent-apps.html')
   await page.waitForFunction(() => typeof (window as any).panelReceive === 'function')

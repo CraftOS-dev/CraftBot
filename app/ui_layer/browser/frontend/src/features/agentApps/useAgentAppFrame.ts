@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState } from 'react'
-import { acquireIframe, frameUrl, subscribeFrameHost } from './frameHost'
+import { acquireIframe, frameUrl, isIframeLoaded, subscribeFrameHost } from './frameHost'
 import type { AgentAppProject } from '../../types'
 
 /** Bind a persistent frame to a React surface without moving its DOM node. */
@@ -69,11 +69,11 @@ export function useAgentAppFrame(project: AgentAppProject, active: boolean, movi
     document.addEventListener('transitionrun', onTransition, true)
     document.addEventListener('transitionend', onTransitionEnd, true)
     document.addEventListener('transitioncancel', onTransitionEnd, true)
-    const onLoad = () => { lease.frame.dataset.loadedSrc = lease.frame.dataset.requestedSrc; setStatus('ready') }
+    const onLoad = () => setStatus('ready')
     lease.frame.addEventListener('load', onLoad)
-    setStatus(lease.frame.dataset.loadedSrc === lease.frame.dataset.requestedSrc ? 'ready' : 'loading')
+    setStatus(isIframeLoaded(project.id) ? 'ready' : 'loading')
     const timeout = window.setTimeout(() => {
-      if (lease.frame.dataset.loadedSrc !== lease.frame.dataset.requestedSrc) setStatus('timeout')
+      if (!isIframeLoaded(project.id)) setStatus('timeout')
     }, 20_000)
     update()
     return () => {

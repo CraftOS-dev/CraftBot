@@ -27,6 +27,22 @@ test('leases protect owners, survive stale releases, and evict only idle frames'
   expect(Object.values(result).every(Boolean)).toBe(true)
 })
 
+test('a frame that loads while no surface holds it is reported as loaded', async ({ page }) => {
+  await page.goto('/tests/panel-agent-apps.html')
+  const result = await page.evaluate(async () => {
+    const host = await import('/src/features/agentApps/frameHost.ts')
+    const lease = host.acquireIframe('background', 'http://localhost:7935/tests/fixtures/panel-app.html?background')!
+    const loaded = new Promise(resolve => lease.frame.addEventListener('load', resolve, { once: true }))
+    const beforeLoad = host.isIframeLoaded('background')
+    lease.release()
+    await loaded
+    const afterLoad = host.isIframeLoaded('background')
+    host.removeIframe('background')
+    return { beforeLoad, afterLoad }
+  })
+  expect(result).toEqual({ beforeLoad: false, afterLoad: true })
+})
+
 test('persisted panel references validate and removing the selected app chooses a neighbor', async ({ page }) => {
   await page.goto('/tests/panel-agent-apps.html')
   const result = await page.evaluate(async () => {
