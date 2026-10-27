@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import urllib.parse
 import urllib.request
 
 from .service import ReferenceError, bounded
@@ -51,9 +52,11 @@ class AgentAppReferenceProvider:
             "type": project.project_type,
             "status": project.status,
         }
-        port = project.backend_port or project.port
-        if project.status == "running" and isinstance(port, int) and 0 < port < 65536:
-            described = await asyncio.to_thread(self._describe, port)
+        # The manager's registered address, as the agent's own app note uses
+        # (agent_base): external apps need not listen on 127.0.0.1:<port>.
+        base_url = project.backend_url or project.url
+        if project.status == "running" and base_url:
+            described = await asyncio.to_thread(self._describe, base_url)
             data["schema"] = (
                 described if described is not None else "Schema unavailable"
             )
@@ -68,19 +71,22 @@ class AgentAppReferenceProvider:
         }
 
     @staticmethod
-    def _describe(port: int) -> dict | None:
-        """Read only a registered loopback app; never follow redirects or fetch records."""
+    def _describe(base_url: str) -> dict | None:
+        """Read only the app's manager-registered HTTP(S) address; never follow
+        redirects or fetch records."""
 
         class NoRedirect(urllib.request.HTTPRedirectHandler):
             def redirect_request(self, req, fp, code, msg, headers, newurl):
                 return None
 
+        if urllib.parse.urlsplit(base_url).scheme not in ("http", "https"):
+            return None
         try:
             opener = urllib.request.build_opener(
                 urllib.request.ProxyHandler({}), NoRedirect()
             )
             with opener.open(
-                f"http://127.0.0.1:{port}/api/_a2app/describe", timeout=2
+                f"{base_url.rstrip('/')}/api/_a2app/describe", timeout=2
             ) as response:
                 raw = response.read(65537)
             if len(raw) > 65536:

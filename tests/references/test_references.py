@@ -30,6 +30,8 @@ def system(tmp_path):
         status="stopped",
         backend_port=None,
         port=None,
+        backend_url=None,
+        url=None,
         bridge_token="SECRET",
         path="private",
         session_id="other",
@@ -185,16 +187,45 @@ def test_stopped_app_does_not_launch_or_expose_secrets(system):
 
 def test_running_app_uses_optional_bounded_schema(system, monkeypatch):
     service, _, _, app = system
-    app.status, app.backend_port = "running", 12345
+    app.status, app.url = "running", "http://127.0.0.1:12345"
     monkeypatch.setattr(
         AgentAppReferenceProvider,
         "_describe",
-        staticmethod(lambda port: {"entities": {"notes": {}}}),
+        staticmethod(lambda base_url: {"entities": {"notes": {}}}),
     )
     result = asyncio.run(
         service.resolve([{"kind": "agent_app", "targetId": "app-1"}], "dest")
     )[0]
     assert "notes" in result["excerpt"]
+
+
+@pytest.mark.parametrize(
+    "backend_url,url,expected",
+    [
+        ("http://192.168.1.20:3000", "http://192.168.1.20:8080", "http://192.168.1.20:3000"),
+        (None, "https://notes.example.test", "https://notes.example.test"),
+    ],
+)
+def test_app_schema_comes_from_the_registered_address(
+    system, monkeypatch, backend_url, url, expected
+):
+    """External apps need not listen on 127.0.0.1:<port>; use what the manager
+    registered, as the agent's own app note does."""
+    service, _, _, app = system
+    app.status, app.project_type = "running", "external"
+    app.backend_url, app.url = backend_url, url
+    asked = []
+    monkeypatch.setattr(
+        AgentAppReferenceProvider,
+        "_describe",
+        staticmethod(lambda base_url: asked.append(base_url) or {"entities": {}}),
+    )
+    asyncio.run(service.resolve([{"kind": "agent_app", "targetId": "app-1"}], "dest"))
+    assert asked == [expected]
+
+
+def test_describe_refuses_non_http_addresses():
+    assert AgentAppReferenceProvider._describe("file:///etc/passwd") is None
 
 
 def test_app_describe_filters_records_credentials_and_system_operations(monkeypatch):
@@ -221,7 +252,7 @@ def test_app_describe_filters_records_credentials_and_system_operations(monkeypa
             open=lambda *args, **kw: io.BytesIO(json.dumps(response).encode())
         ),
     )
-    result = AgentAppReferenceProvider._describe(12345)
+    result = AgentAppReferenceProvider._describe("http://127.0.0.1:12345")
     assert result["entities"]["notes"]["fields"]["title"] == {"type": "string"}
     assert result["operations"] == [{"name": "notes.list", "description": "List notes"}]
     assert "PRIVATE" not in json.dumps(result) and "CUSTOMER" not in json.dumps(result)
