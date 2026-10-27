@@ -87,6 +87,12 @@ const messagesSlice = createSlice({
       const message = bucketFor(state, action.payload.sessionId).items.find(m => m.clientId === action.payload.clientId)
       if (message) { message.pending = true; delete message.submissionError }
     },
+    // Edit moved a rejected message back into the composer: drop its bubble.
+    // Only a rejected (never accepted) message can go this way.
+    discardSubmission(state, action: PayloadAction<{ sessionId: string; clientId: string }>) {
+      const bucket = bucketFor(state, action.payload.sessionId)
+      bucket.items = bucket.items.filter(m => m.clientId !== action.payload.clientId || !m.submissionError)
+    },
     setInitial(state, action: PayloadAction<{ messages: ChatMessage[] }>) {
       // Replaces everything: init carries only the backend's in-memory
       // snapshot, so every bucket restarts unfetched and the per-session
@@ -206,6 +212,7 @@ const messagesSlice = createSlice({
 export const {
   rejectSubmission,
   resubmitSubmission,
+  discardSubmission,
   setInitial,
   addOrReconcile,
   addOptimistic,

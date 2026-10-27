@@ -128,8 +128,12 @@ test('a failed reference can be restored, removed and resubmitted', async ({ pag
   await respond(page, 'message_rejected', { sessionId: 'dest', clientId: sent.clientId, error: 'Source unavailable' })
   await page.getByRole('button', { name: 'Edit message', exact: true }).click()
   await expect(input(page)).toHaveValue('Compare')
+  // The unsent bubble moved into the composer: it and its retry are gone.
+  await expect(page.getByText('Source unavailable')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Retry message' })).toHaveCount(0)
   await page.getByRole('button', { name: 'Remove reference: Pricing discussion' }).click()
   await input(page).press('Enter')
+  await expect.poll(() => requests(page)).toHaveLength(2)
   expect((await requests(page))[1].references).toEqual([])
 })
 
