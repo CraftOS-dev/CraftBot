@@ -26,6 +26,28 @@ export interface BrowserPanelMode {
   render(): ReactNode
 }
 
+/** The chat's installed apps as a panel mode (features/agentApps/usePanelApps). */
+export interface AppsPanelMode {
+  render(moving: boolean, active: boolean): ReactNode
+  openProject(projectId: string): void
+  canOpenProject(projectId: string): boolean
+  removeProject(projectId: string): void
+  /** The apps attached to this chat, in tab order. */
+  attached: { projectId: string; title: string; icon: ReactNode; closeLabel: string }[]
+  selectedProjectId: string | null
+  loaded: boolean
+  choices: { id: string; title: string; icon: ReactNode }[]
+  actions: ReactNode
+}
+
+/** A tab of the panel's strip with what selecting and closing it does. Its id
+ *  is only a unique key for the strip; nothing reads meaning back out of it. */
+interface PanelTab extends ChromeTab {
+  shown: boolean
+  select(): void
+  close(): void
+}
+
 /** Where the panel sits: on the chat's left, or above it (an Agent App's
  *  narrow chat panel). A workspace too narrow for both side by side stacks
  *  either way. */
@@ -78,17 +100,8 @@ export function ChatWorkspace({ sessionId, messages, browser, apps, layout = 'si
   messages: ChatMessage[]
   /** The chat's browser; omitted where there is none (a draft chat). */
   browser?: BrowserPanelMode
-  apps?: {
-    render(moving: boolean, active: boolean): ReactNode
-    openProject(projectId: string): void
-    canOpenProject(projectId: string): boolean
-    tabs: ChromeTab[]
-    selectedId: string | null
-    removeProject(projectId: string): void
-    loaded: boolean
-    choices: { id: string; title: string; icon: ReactNode }[]
-    actions: ReactNode
-  }
+  /** Installed apps; omitted where there are none (a draft chat). */
+  apps?: AppsPanelMode
   layout?: PanelLayout
   /** The user closed an output (its tab's ×): it goes for good (its code
    *  and saved progress). */
@@ -158,7 +171,7 @@ export function ChatWorkspace({ sessionId, messages, browser, apps, layout = 'si
   const showOutput = !showBrowser && !!selected
     && (exiting ? exiting.kind === 'output' : mode === 'output' || mode === 'auto')
   const showApps = !!apps && (exiting ? exiting.kind === 'apps' : mode === 'apps')
-  const showChooser = (exiting ? exiting.kind === 'chooser' : mode === 'chooser') || showApps && !apps?.selectedId
+  const showChooser = (exiting ? exiting.kind === 'chooser' : mode === 'chooser') || showApps && !apps?.selectedProjectId
   const isOpen = showBrowser || showOutput || showApps || showChooser
   const stacked = layout === 'stacked' || (workspaceWidth > 0 && workspaceWidth < SIDE_BY_SIDE_MIN_WIDTH)
   const captureLayout = useCallback(() => {
@@ -312,6 +325,19 @@ export function ChatWorkspace({ sessionId, messages, browser, apps, layout = 'si
     }
     onCloseOutput(id)
   }
+  const closeBrowserTab = () => {
+    setBrowserTabOpen(false)
+    if (showBrowser) openChooser()
+  }
+  // Detaching only: the app keeps running. Focus the tab that takes its place.
+  const removeApp = (projectId: string) => {
+    apps?.removeProject(projectId)
+    requestAnimationFrame(() => {
+      const next = pane.current?.querySelector<HTMLButtonElement>('[role="tab"][aria-selected="true"]')
+        ?? pane.current?.querySelector<HTMLButtonElement>('button[aria-label]')
+      next?.focus()
+    })
+  }
   const finishClose = () => {
     const opener = panelButton
     setClosing(null)
@@ -415,6 +441,24 @@ export function ChatWorkspace({ sessionId, messages, browser, apps, layout = 'si
   const shownTabs = exiting?.kind === 'output' && !tabs.some(tab => tab.id === exiting.artifact.id)
     ? [...tabs, exiting.artifact]
     : tabs
+  const panelTabs: PanelTab[] = [
+    ...(browser && (browserTabOpen || showBrowser) ? [{
+      id: 'browser', title: t('panel.browser'), icon: <Globe size={13} />, closeLabel: t('panel.close'),
+      shown: !showChooser && showBrowser, select: openBrowser, close: closeBrowserTab,
+    }] : []),
+    ...(apps?.attached ?? []).map(app => ({
+      id: `app:${app.projectId}`, title: app.title, icon: app.icon, closeLabel: app.closeLabel,
+      shown: !showChooser && showApps && apps?.selectedProjectId === app.projectId,
+      select: () => openApp(app.projectId), close: () => removeApp(app.projectId),
+    })),
+    ...shownTabs.map(artifact => ({
+      id: `output:${artifact.id}`, title: artifact.title, icon: <Layers3 size={13} />,
+      closeLabel: t('generativeUI.closeNamed', { title: artifact.title }),
+      shown: !showChooser && !showBrowser && !showApps && selected?.id === artifact.id,
+      select: () => selectOutput(artifact.id), close: () => closeOutput(artifact.id),
+    })),
+  ]
+  const panelTabById = new Map(panelTabs.map(tab => [tab.id, tab]))
   const versions: OutputVersion[] = selected
     ? outputs
       .filter(artifact => artifact.id === selected.id)
@@ -429,22 +473,10 @@ export function ChatWorkspace({ sessionId, messages, browser, apps, layout = 'si
     <div ref={workspace} style={sizes} className={`${styles.workspace} ${stacked ? styles.stacked : ''} ${isOpen && !exiting ? styles.open : ''} ${exiting ? styles.closing : ''} ${resizing ? styles.resizing : ''}`}>
       {isOpen && <>
         <section ref={pane} className={styles.pane} aria-label={t(showChooser ? 'panel.open' : showApps ? 'apps.region' : showBrowser ? 'browserPanel.region' : 'generativeUI.outputPanel')} {...exitingProps}>
-          <ChromeTabs label={t('panel.tabs')} tabs={[
-            ...(browser && (browserTabOpen || showBrowser) ? [{ id: 'browser', title: t('panel.browser'), icon: <Globe size={13} />, closeLabel: t('panel.close') }] : []),
-            ...(apps?.tabs ?? []),
-            ...shownTabs.map(artifact => ({ id: `output:${artifact.id}`, title: artifact.title, icon: <Layers3 size={13} />, closeLabel: t('generativeUI.closeNamed', { title: artifact.title }) })),
-          ]} selectedId={showChooser ? null : showBrowser ? 'browser' : showApps ? apps?.selectedId ?? null : selected ? `output:${selected.id}` : null}
-            onSelect={id => id === 'browser' ? openBrowser() : id.startsWith('app:') ? openApp(id.slice(4)) : selectOutput(id.slice(7))}
-            onClose={id => {
-              if (id === 'browser') { setBrowserTabOpen(false); if (showBrowser) openChooser(); return }
-              if (id.startsWith('output:')) { closeOutput(id.slice(7)); return }
-              apps?.removeProject(id.slice(4))
-              requestAnimationFrame(() => {
-                const next = pane.current?.querySelector<HTMLButtonElement>('[role="tab"][aria-selected="true"]')
-                  ?? pane.current?.querySelector<HTMLButtonElement>('button[aria-label]')
-                next?.focus()
-              })
-            }} closeTitle={t('panel.close')}
+          <ChromeTabs label={t('panel.tabs')} tabs={panelTabs}
+            selectedId={panelTabs.find(tab => tab.shown)?.id ?? null}
+            onSelect={id => panelTabById.get(id)?.select()}
+            onClose={id => panelTabById.get(id)?.close()} closeTitle={t('panel.close')}
             after={(apps || browser) && <IconButton type="button" size="sm" icon={<Plus size={16} />} onClick={openChooser} aria-label={t('panel.open')} tooltip={t('panel.open')} />}
             actions={showApps ? apps?.actions : undefined} actionsRef={setControlsTarget} />
           {showChooser ? <PanelChooser browser={!!browser} apps={apps?.choices ?? []} loaded={apps?.loaded ?? true}

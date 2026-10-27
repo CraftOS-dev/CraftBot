@@ -6,7 +6,7 @@ async function toggleApps(page: Page) {
   const trigger = page.getByRole('button', { name: 'Toggle panel', exact: true })
   if (await panel(page).count()) { await trigger.click(); return }
   if (await trigger.getAttribute('aria-expanded') !== 'true') await trigger.click()
-  const appTabs = page.locator('[data-tab-id^="app:"] [role="tab"]')
+  const appTabs = page.getByRole('tab', { name: /^(Notes|Calendar|Weather)$/ })
   if (await appTabs.count()) await appTabs.first().click()
 }
 async function add(page: Page, name: string) {
