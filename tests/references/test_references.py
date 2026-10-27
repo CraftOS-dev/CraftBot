@@ -9,7 +9,7 @@ import pytest
 
 from app.references import ReferenceError, create_reference_service
 from app.references.providers import AgentAppReferenceProvider
-from app.references.service import TOTAL_BYTES
+from app.references.service import TOTAL_BYTES, reference_token_budget
 from app.usage.chat_storage import ChatStorage, StoredChatMessage
 from app.ui_layer.components.types import ChatMessage
 
@@ -313,3 +313,21 @@ def test_cursor_positions_reject_non_sqlite_integers(system, field, value):
         storage.reference_page("source", cursor, 512)
 
     assert storage.get_recent_messages("source")[0].content == "visible source"
+
+
+@pytest.mark.parametrize(
+    "window,budget", [(None, 8192), (1_000_000, 8192), (16_000, 2000), (512, 128)]
+)
+def test_token_budget_follows_the_running_models_window(window, budget):
+    assert reference_token_budget(window) == budget
+
+
+def test_service_budget_comes_from_the_llm_not_settings(system):
+    _, storage, sources, project = system
+    service = create_reference_service(
+        SimpleNamespace(get=sources.get),
+        storage,
+        SimpleNamespace(get_project=lambda key: None),
+        llm=SimpleNamespace(context_window=lambda: 16_000),
+    )
+    assert service.token_budget == 2000

@@ -926,6 +926,10 @@ class LLMInterface:
 
         return get_context_window(), None
 
+    def context_window(self) -> int:
+        """Context window, in tokens, of the model this interface serves."""
+        return self._context_limits()[0]
+
     def _input_budget(self, reasoning: Optional[ReasoningDecision]) -> int:
         """Input tokens a request with this reasoning decision may carry.
 

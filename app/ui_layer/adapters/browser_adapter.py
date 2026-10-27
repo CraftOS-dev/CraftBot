@@ -9669,14 +9669,19 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
         accepted = False
         try:
-            from app.references import create_reference_service
+            from app.references import ReferenceService, create_reference_service
 
-            service = create_reference_service(
-                sessions=self._controller.agent.session_manager,
-                storage=self._chat._storage,
-                apps=self._agent_app_manager,
-            )
-            snapshots = await service.resolve(references or [], session_id)
+            snapshots: List[Dict[str, Any]] = []
+            # Only a message that carries references depends on the reference
+            # service (and its model-window budget); attachments never do.
+            if references:
+                service = create_reference_service(
+                    sessions=self._controller.agent.session_manager,
+                    storage=self._chat._storage,
+                    apps=self._agent_app_manager,
+                    llm=self._controller.agent.llm,
+                )
+                snapshots = await service.resolve(references, session_id)
             if snapshots and not content.strip():
                 content = "Referenced: " + ", ".join(r["label"] for r in snapshots)
             processed_attachments: List[Attachment] = []
@@ -9767,7 +9772,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
             # Combine content with attachment info for agent context
             # (This is what the agent sees in the event stream - includes file paths)
-            agent_context = content + attachment_note + service.render(snapshots)
+            agent_context = (
+                content + attachment_note + ReferenceService.render(snapshots)
+            )
 
             if not agent_context.strip():
                 return
