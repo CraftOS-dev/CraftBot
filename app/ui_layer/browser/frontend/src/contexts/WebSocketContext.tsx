@@ -16,6 +16,7 @@ import type { OutboundEnvelope } from '../store/socket/types'
 import { useAppDispatch } from '../store/hooks'
 import {
   rejectSubmission as messagesRejectSubmission,
+  resubmitSubmission as messagesResubmitSubmission,
   addOptimistic as messagesAddOptimistic,
   setLoadingOlder as messagesSetLoadingOlder,
   historyRequested as messagesHistoryRequested,
@@ -341,9 +342,10 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     if (payload) {
       const sessionId = JSON.parse(payload).sessionId
       rollbackRunStates.current.set(clientId, { sessionId, state: selectSessionRunState(store.getState(), sessionId) })
+      dispatch(messagesResubmitSubmission({ sessionId, clientId }))
       sendOrQueue(payload)
     }
-  }, [sendOrQueue, store])
+  }, [sendOrQueue, store, dispatch])
   useEffect(() => client.onMessage('chat_message', (data) => {
     const message = data as { clientId?: string }
     if (message.clientId) { retryPayloads.current.delete(message.clientId); rollbackRunStates.current.delete(message.clientId) }

@@ -9607,8 +9607,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         references: Optional[List[Dict[str, Any]]] = None,
         ws=None,
     ) -> None:
-        """Deduplicate reference retries before resolving sources or enqueueing."""
-        if not references or not client_id or not self._chat._storage:
+        """Deduplicate retries of one client submission before resolving
+        sources, saving attachments or enqueueing."""
+        if not client_id or not self._chat._storage:
             await self._submit_chat_context(
                 content, attachments, session_id, client_id, references, ws
             )
@@ -9624,18 +9625,23 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     self._chat._storage.get_message_by_id, session_id, key
                 )
             except Exception:
-                await self._send_to(
-                    ws,
-                    {
-                        "type": "message_rejected",
-                        "data": {
-                            "sessionId": session_id,
-                            "clientId": client_id,
-                            "error": "Chat storage is unavailable. Please retry.",
+                if not references:
+                    # Attachment-only messages stay best-effort, as before:
+                    # an unreadable store must not block them.
+                    previous = None
+                else:
+                    await self._send_to(
+                        ws,
+                        {
+                            "type": "message_rejected",
+                            "data": {
+                                "sessionId": session_id,
+                                "clientId": client_id,
+                                "error": "Chat storage is unavailable. Please retry.",
+                            },
                         },
-                    },
-                )
-                return
+                    )
+                    return
             if previous:
                 message = self._chat._stored_to_chat_message(previous)
                 message.client_id = client_id
@@ -9749,7 +9755,8 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 session_id=session_id,
                 client_id=client_id,
             )
-            if snapshots and client_id:
+            if client_id:
+                # Deterministic per client submission, so a retry finds it.
                 from app.references.service import submission_message_id
 
                 user_message.message_id = submission_message_id(session_id, client_id)

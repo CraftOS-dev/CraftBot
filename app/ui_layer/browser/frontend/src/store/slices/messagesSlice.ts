@@ -81,6 +81,12 @@ const messagesSlice = createSlice({
       const message = bucket.items.find(m => m.clientId === action.payload.clientId)
       if (message) { message.pending = false; message.submissionError = action.payload.error }
     },
+    // A retry is in flight again: hide its retry controls, and stay pending so
+    // the server echo (matched by clientId) replaces this bubble.
+    resubmitSubmission(state, action: PayloadAction<{ sessionId: string; clientId: string }>) {
+      const message = bucketFor(state, action.payload.sessionId).items.find(m => m.clientId === action.payload.clientId)
+      if (message) { message.pending = true; delete message.submissionError }
+    },
     setInitial(state, action: PayloadAction<{ messages: ChatMessage[] }>) {
       // Replaces everything: init carries only the backend's in-memory
       // snapshot, so every bucket restarts unfetched and the per-session
@@ -199,6 +205,7 @@ const messagesSlice = createSlice({
 
 export const {
   rejectSubmission,
+  resubmitSubmission,
   setInitial,
   addOrReconcile,
   addOptimistic,

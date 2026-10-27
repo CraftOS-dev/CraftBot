@@ -20,8 +20,9 @@ PAGE_BYTES = 24576
 
 
 def submission_message_id(destination: str, client_id: str) -> str:
+    """Stable message id for one client submission (references or attachments)."""
     return (
-        "reference:"
+        "submission:"
         + hashlib.sha256(json.dumps([destination, client_id]).encode()).hexdigest()
     )
 

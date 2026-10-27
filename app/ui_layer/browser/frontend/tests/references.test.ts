@@ -109,6 +109,14 @@ test('failed submissions expose an explicit retry', async ({ page }) => {
   await page.getByRole('button', { name: 'Retry message' }).click()
   await expect.poll(() => requests(page)).toHaveLength(2)
   expect((await requests(page))[1]).toEqual(sent)
+  // In flight again: it cannot be sent twice, and the echo replaces the failed bubble.
+  await expect(page.getByRole('button', { name: 'Retry message' })).toHaveCount(0)
+  await expect(page.getByText('Source unavailable')).toHaveCount(0)
+  await respond(page, 'chat_message', { sender: 'You', content: 'Referenced: Pricing discussion', style: 'user', timestamp: 1,
+    sessionId: 'dest', messageId: 'server-message', clientId: sent.clientId,
+    references: [{ kind: 'session', targetId: 'pricing', label: 'Pricing discussion', capturedAt: '2026-10-26T12:00:00Z', schemaVersion: 1, contentHash: 'test', excerpt: 'Captured', truncated: false }] })
+  await expect(page.getByText('Referenced: Pricing discussion', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Pricing discussion', exact: true })).toHaveCount(1)
 })
 
 test('a failed reference can be restored, removed and resubmitted', async ({ page }) => {

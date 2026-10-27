@@ -171,3 +171,26 @@ def test_concurrent_retries_reuse_the_original_snapshot_and_queue_once(adapter):
     assert len(storage.get_recent_messages("dest")) == 1
     assert browser._send_to.call_args.args[1]["type"] == "chat_message"
     assert browser._reference_submission_gate._entries == {}
+
+
+def test_attachment_only_retries_queue_once_and_save_the_file_once(adapter, tmp_path):
+    browser, storage, agent = adapter
+    attachment = {
+        "name": "notes.txt",
+        "type": "text/plain",
+        "size": 5,
+        "content": base64.b64encode(b"hello").decode(),
+    }
+
+    async def send_twice():
+        args = ("Notes", [attachment], "dest", "attachment-client", [])
+        await asyncio.gather(
+            browser._handle_chat_message_with_attachments(*args),
+            browser._handle_chat_message_with_attachments(*args),
+        )
+
+    asyncio.run(send_twice())
+    assert agent._handle_chat_message.await_count == 1
+    assert len(storage.get_recent_messages("dest")) == 1
+    assert len(list((tmp_path / "download").iterdir())) == 1
+    assert browser._send_to.call_args.args[1]["type"] == "chat_message"
