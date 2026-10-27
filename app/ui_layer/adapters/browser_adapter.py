@@ -9819,11 +9819,17 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
             from app.references import ReferenceError
 
-            error = (
-                str(e)
-                if isinstance(e, ReferenceError)
-                else "The message could not be submitted. Please retry."
-            )
+            if accepted:
+                # Saved and echoed already: resending the same submission is
+                # deduplicated, so only a new message reaches the agent.
+                error = (
+                    "Your message was saved, but the agent could not start on "
+                    "it. Send it again as a new message."
+                )
+            elif isinstance(e, ReferenceError):
+                error = str(e)
+            else:
+                error = "The message could not be submitted. Please retry."
             if not accepted:
                 await self._send_to(
                     ws,

@@ -197,6 +197,27 @@ def test_attachment_only_retries_queue_once_and_save_the_file_once(adapter, tmp_
     assert browser._send_to.call_args.args[1]["type"] == "chat_message"
 
 
+def test_failure_after_acceptance_does_not_ask_for_a_retry(adapter):
+    browser, storage, agent = adapter
+    agent._handle_chat_message.side_effect = RuntimeError("queue unavailable")
+    asyncio.run(
+        browser._handle_chat_message_with_attachments(
+            "Compare",
+            [],
+            "dest",
+            "client-6",
+            [{"kind": "session", "targetId": "source"}],
+        )
+    )
+    # The message itself was accepted, so it is not rejected for retry.
+    browser._send_to.assert_not_awaited()
+    stored = storage.get_recent_messages("dest")
+    assert sorted(m.style for m in stored) == ["error", "user"]
+    notice = next(m for m in stored if m.style == "error").content
+    assert "saved" in notice and "new message" in notice
+    assert "retry" not in notice.lower()
+
+
 def test_attachment_only_messages_never_build_the_reference_service(
     adapter, monkeypatch
 ):
