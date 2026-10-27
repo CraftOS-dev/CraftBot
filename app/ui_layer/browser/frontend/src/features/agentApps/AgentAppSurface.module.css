@@ -2,6 +2,7 @@
 .placeholder { flex: 1; min-height: 0; width: 100%; }
 .state { display: flex; flex: 1; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-3); padding: var(--space-4); color: var(--text-secondary); text-align: center; }
 .state p { margin: 0; }
+.hint { font-size: var(--text-sm); color: var(--text-muted); }
 .error { color: var(--color-error); overflow-wrap: anywhere; max-width: 100%; }
 .notice { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: var(--space-3); padding: var(--space-4); color: var(--text-secondary); pointer-events: none; }
 .notice button { pointer-events: auto; }

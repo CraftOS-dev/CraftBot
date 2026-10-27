@@ -80,6 +80,17 @@ test('launch is explicit and switches from a process status to the app view', as
   await expect(page.frameLocator('iframe[title="Weather"]').getByRole('textbox', { name: 'App note' })).toBeVisible()
 })
 
+test('process states keep the full app page guidance', async ({ page }) => {
+  await open(page)
+  await add(page, 'Weather')
+  await panel(page).getByRole('button', { name: 'Launch', exact: true }).click()
+  await expect(panel(page).getByText('Installing dependencies, running tests, starting servers')).toBeVisible()
+  await page.evaluate(() => (window as any).panelReceive({ type: 'agent_app_launch', data: { success: false, projectId: 'weather' } }))
+  await page.evaluate(() => (window as any).panelReceive({ type: 'agent_app_list', data: { success: true,
+    projects: (window as any).panelProjects.map((p: any) => p.id === 'weather' ? { ...p, status: 'error' } : p) } }))
+  await expect(panel(page).getByText('Unknown error', { exact: true })).toBeVisible()
+})
+
 test('per-chat tabs survive reload, and disconnected or failed catalogs do not prune them', async ({ page }) => {
   await open(page)
   await add(page, 'Notes')

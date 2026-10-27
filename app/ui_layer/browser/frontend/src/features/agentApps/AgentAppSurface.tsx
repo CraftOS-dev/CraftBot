@@ -36,6 +36,7 @@ export function AgentAppSurface({ project, active = true, moving = false, blocke
   const snapshot = useAppSelector(selectAgentAppSnapshots)[project.id] ?? null
   const frame = useAgentAppFrame(project, active, moving, blocked)
   const busy = project.status === 'launching' || project.status === 'stopping'
+  const errorText = project.error || (project.status === 'error' ? t('common:status.unknownError') : '')
   return <div className={styles.surface}>
     {!themeManaged && <ThemeBridge key={project.id} project={project} />}
     {project.status === 'running' && project.url ? <>
@@ -47,9 +48,13 @@ export function AgentAppSurface({ project, active = true, moving = false, blocke
       </div>}
     </> : project.status === 'creating' ? <ConstructionDock project={project} todos={todos} events={events} snapshot={snapshot} />
       : <div className={styles.state} role="status">
-        {busy ? <Loader2 size={32} className={styles.spinner} /> : project.status === 'error' ? <AlertCircle size={32} /> : <CraftBotMascot state="stopped" size={96} />}
+        {project.status === 'launching' ? <CraftBotMascot state="launching" size={96} />
+          : project.status === 'stopping' ? <Loader2 size={32} className={styles.spinner} />
+          : project.status === 'error' ? <AlertCircle size={32} />
+          : <CraftBotMascot state="stopped" size={96} />}
         <p>{t(`agentapp:page.${project.status === 'launching' ? 'launchingTitle' : project.status === 'stopping' ? 'stoppingTitle' : project.status === 'error' ? 'errorTitle' : 'stoppedTitle'}`)}</p>
-        {project.error && <p className={styles.error}>{project.error}</p>}
+        {project.status === 'launching' && <p className={styles.hint}>{t('agentapp:page.launchingHint')}</p>}
+        {errorText && <p className={styles.error}>{errorText}</p>}
         {!busy && <Button variant="primary" disabled={!connected} onClick={() => launchAgentApp(project.id)}><Play size={16} />{t('agentapp:page.launch')}</Button>}
         {project.status === 'error' && onDelete && <Button variant="secondary" onClick={onDelete}>{t('agentapp:page.deleteProject')}</Button>}
         {!connected && <p>{t('chat:apps.disconnected')}</p>}
