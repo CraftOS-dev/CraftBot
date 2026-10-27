@@ -394,7 +394,10 @@ export function Chat({ sessionId, placeholder, panelLayout = 'side', panelVisibl
   const contextHoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   useEffect(() => () => { if (contextHoverTimer.current) clearTimeout(contextHoverTimer.current) }, [])
   const [caret, setCaret] = useState({ start: 0, end: 0 })
-  const [dismissedReference, setDismissedReference] = useState<string | null>(null)
+  // Escape dismisses the mention at this position until the caret leaves it,
+  // so typing on after Escape does not reopen the list on every keystroke.
+  const [dismissedReferenceStart, setDismissedReferenceStart] = useState<number | null>(null)
+  const [composerFocused, setComposerFocused] = useState(false)
   const [referenceAria, setReferenceAria] = useState<{ active?: string; list: string }>({ list: '' })
   const referenceAutocompleteRef = useRef<ReferenceAutocompleteHandle>(null)
   const sessions = useAppSelector(state => state.sessions.sessions)
@@ -402,9 +405,13 @@ export function Chat({ sessionId, placeholder, panelLayout = 'side', panelVisibl
   useResource(RESOURCES.agentAppsList)
   const referenceItems = useMemo(() => referenceCatalog(sessions, apps, sessionId), [sessions, apps, sessionId])
   const activeReference = referenceQuery(input, caret.start, caret.end)
-  const triggerKey = activeReference ? `${activeReference.start}:${activeReference.query}` : null
-  const referenceOpen = !!activeReference && triggerKey !== dismissedReference && !referencePickerOpen
+  const activeReferenceStart = activeReference?.start ?? null
+  useEffect(() => { if (activeReferenceStart === null) setDismissedReferenceStart(null) }, [activeReferenceStart])
   const referenceResults = useMemo(() => searchReferences(referenceItems, activeReference?.query || '').slice(0, 50), [referenceItems, activeReference?.query])
+  // A multi-word query that matches nothing is ordinary prose ("ping @john please review").
+  const referenceIsProse = !!activeReference && /\s/.test(activeReference.query) && referenceResults.length === 0
+  const referenceOpen = !!activeReference && composerFocused && activeReferenceStart !== dismissedReferenceStart
+    && !referenceIsProse && !referencePickerOpen
   const updateReferenceAria = useCallback((active: string | undefined, list: string) => setReferenceAria({ active, list }), [])
   const addReference = (item: ReferenceCandidate) => {
     const exists = pendingReferences.some(r => referenceKey(r) === referenceKey(item))
@@ -419,7 +426,7 @@ export function Chat({ sessionId, placeholder, panelLayout = 'side', panelVisibl
     const value = input.slice(0, start) + input.slice(end)
     pendingReferenceCaret.current = { value, position: start, sessionId }
     setInput(value)
-    setDismissedReference(null)
+    setDismissedReferenceStart(null)
   }
   const inputRef = useRef<HTMLTextAreaElement>(null)
   // Restore selection in the commit that consumes the mention. A deferred
@@ -659,7 +666,7 @@ export function Chat({ sessionId, placeholder, panelLayout = 'side', panelVisibl
     setPendingAttachments([])
     setPendingReferences([])
     setReferencePickerOpen(false)
-    setDismissedReference(null)
+    setDismissedReferenceStart(null)
     setAttachmentError(null)
     setIsDragOver(false)
     setPreviewAttachment(null)
@@ -1111,7 +1118,7 @@ export function Chat({ sessionId, placeholder, panelLayout = 'side', panelVisibl
       setReplyTarget(null)
       setPendingAttachments([])
       setPendingReferences([])
-      setDismissedReference(null)
+      setDismissedReferenceStart(null)
       setAttachmentError(null)
       if (inputRef.current) {
         inputRef.current.style.height = 'auto'
@@ -1591,7 +1598,7 @@ export function Chat({ sessionId, placeholder, panelLayout = 'side', panelVisibl
           {pendingReferences.length > 0 && <div>{pendingReferences.map(reference => <ReferenceChip key={referenceKey(reference)} reference={reference}
             onRemove={() => setPendingReferences(previous => previous.filter(r => referenceKey(r) !== referenceKey(reference)))} />)}</div>}
           <ReferenceAutocomplete ref={referenceAutocompleteRef} items={referenceResults} open={referenceOpen}
-            onSelect={selectInlineReference} onClose={() => setDismissedReference(triggerKey)} onActive={updateReferenceAria} />
+            onSelect={selectInlineReference} onClose={() => setDismissedReferenceStart(activeReferenceStart)} onActive={updateReferenceAria} />
           <SlashCommandAutocomplete
             ref={autocompleteRef}
             input={referenceOpen ? "" : input}
@@ -1607,12 +1614,12 @@ export function Chat({ sessionId, placeholder, panelLayout = 'side', panelVisibl
             value={input}
             onChange={e => { pendingReferenceCaret.current = null; setInput(e.target.value); setCaret({ start: e.target.selectionStart, end: e.target.selectionEnd }) }}
             onSelect={e => { const el = e.currentTarget; setCaret({ start: el.selectionStart, end: el.selectionEnd }) }}
-            onBlur={() => setDismissedReference(triggerKey)}
+            onBlur={() => setComposerFocused(false)}
             aria-autocomplete="list"
             aria-expanded={referenceOpen}
             aria-controls={referenceOpen ? referenceAria.list : undefined}
             aria-activedescendant={referenceOpen ? referenceAria.active : undefined}
-            onFocus={() => setUnreadDismissed(true)}
+            onFocus={() => { setUnreadDismissed(true); setComposerFocused(true) }}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
             rows={1}

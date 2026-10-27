@@ -25,16 +25,14 @@ export const ReferenceAutocomplete = forwardRef<ReferenceAutocompleteHandle, Pro
   useImperativeHandle(ref, () => ({ handleKey(event) {
     if (!open || event.nativeEvent.isComposing) return false
     if (event.key === 'Escape') { onClose(); return true }
+    // With nothing to choose the list is only a hint: Enter still sends.
+    if (!items.length) return false
     if (event.key === 'Enter' && event.shiftKey) { onClose(); return false }
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-      if (items.length) setSelected(referenceKey(items[(index + (event.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length]))
+      setSelected(referenceKey(items[(index + (event.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length]))
       return true
     }
-    if (event.key === 'Enter' || (event.key === 'Tab' && !event.shiftKey)) {
-      if (items[index]) { onSelect(items[index]); return true }
-      if (event.key === 'Tab') { onClose(); return false }
-      return true
-    }
+    if (event.key === 'Enter' || (event.key === 'Tab' && !event.shiftKey)) { onSelect(items[index]); return true }
     if (event.key === 'Tab') onClose()
     return false
   } }), [open, items, index, onSelect, onClose])

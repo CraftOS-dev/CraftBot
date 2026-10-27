@@ -25,18 +25,38 @@ test('typing @ searches both source types and selection attaches without sending
   expect((await requests(page))[0].references).toEqual([{ kind: 'session', targetId: 'pricing' }])
 })
 
-test('email, escape and no-match Enter preserve ordinary input', async ({ page }) => {
+test('email, a bare @ and an escaped mention preserve ordinary input', async ({ page }) => {
   await page.goto('/tests/references.html')
   await input(page).fill('name@example.com')
   await expect(page.getByRole('listbox')).toHaveCount(0)
+  await input(page).fill('see you @ 5pm')
+  await expect(page.getByRole('listbox')).toHaveCount(0)
   await input(page).fill('@does-not-exist')
   await expect(page.getByText('No matches')).toBeVisible()
-  await input(page).press('Enter')
-  expect(await requests(page)).toHaveLength(0)
   await input(page).press('Escape')
   await expect(page.getByRole('listbox')).toHaveCount(0)
+  // Typing on does not reopen a mention the user dismissed.
+  await input(page).pressSequentially('-really')
+  await expect(page.getByRole('listbox')).toHaveCount(0)
+  expect(await requests(page)).toHaveLength(0)
   await input(page).press('Enter')
-  expect((await requests(page))[0].content).toBe('@does-not-exist')
+  await expect.poll(() => requests(page)).toHaveLength(1)
+  expect((await requests(page))[0].content).toBe('@does-not-exist-really')
+})
+
+test('a mention that matches nothing never blocks Enter', async ({ page }) => {
+  await page.goto('/tests/references.html')
+  await input(page).fill('@nobody')
+  await expect(page.getByText('No matches')).toBeVisible()
+  await input(page).press('Enter')
+  await expect.poll(() => requests(page)).toHaveLength(1)
+  expect((await requests(page))[0].content).toBe('@nobody')
+  // Prose after an unmatched mention closes the list instead of waiting for Escape.
+  await input(page).fill('ping @john please review')
+  await expect(page.getByRole('listbox')).toHaveCount(0)
+  await input(page).press('Enter')
+  await expect.poll(() => requests(page)).toHaveLength(2)
+  expect((await requests(page))[1].content).toBe('ping @john please review')
 })
 
 test('+ picker shares selections with @ and supports reference-only sends', async ({ page }) => {
