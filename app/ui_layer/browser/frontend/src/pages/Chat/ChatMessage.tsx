@@ -1,3 +1,5 @@
+import { ReferenceChip } from "../../components/References/ReferenceChip"
+import { useWebSocket } from "../../contexts/WebSocketContext"
 import React, { memo, useState, useRef, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Copy, Check, Reply, ChevronRight } from 'lucide-react'
@@ -34,6 +36,12 @@ function parseReplyContext(content: string): { userMessage: string; replyContext
   const userMessage = content.slice(0, markerIndex).trim()
   const replyContext = content.slice(markerIndex + REPLY_MARKER.length).trim()
   return { userMessage, replyContext }
+}
+
+function RetrySubmission({ clientId }: { clientId: string }) {
+  const { retryMessage, editMessage } = useWebSocket()
+  const { t } = useTranslation('chat')
+  return <><button type="button" onClick={() => retryMessage(clientId)}>{t('references.retry')}</button> <button type="button" onClick={() => editMessage(clientId)}>{t('references.edit')}</button></>
 }
 
 export const ChatMessageItem = memo(function ChatMessageItem({
@@ -181,6 +189,8 @@ export const ChatMessageItem = memo(function ChatMessageItem({
           </div>
         )}
       </div>
+      {message.references?.map(reference => <ReferenceChip key={`${reference.kind}:${reference.targetId}`} reference={reference} />)}
+      {message.submissionError && <div role="alert">{message.submissionError} {message.clientId && <RetrySubmission clientId={message.clientId} />}</div>}
       {message.attachments && message.attachments.length > 0 && (
         <div className={styles.messageAttachments}>
           <AttachmentDisplay
@@ -250,4 +260,7 @@ export const ChatMessageItem = memo(function ChatMessageItem({
   && prev.message.details === next.message.details
   && prev.message.sessionId === next.message.sessionId
   && prev.message.uiArtifact === next.message.uiArtifact
+  && prev.message.references === next.message.references
+  && prev.message.submissionError === next.message.submissionError
+  && prev.message.pending === next.message.pending
 )

@@ -121,5 +121,31 @@
   },
   "panel": {
     "close": "패널 닫기"
+  },
+  "references": {
+    "title": "Add context",
+    "search": "Search sessions and apps",
+    "filter": "Reference type",
+    "all": "All",
+    "session": "Sessions",
+    "agent_app": "Agent apps",
+    "noMatches": "No matches",
+    "done": "Done",
+    "preview": "Preview reference",
+    "remove": "Remove reference: {{name}}",
+    "captured": "Captured: {{time}}",
+    "truncated": "This excerpt omits source content. The agent can read more using read_reference.",
+    "captureOnSend": "Context will be captured when this message is sent.",
+    "retention": "Captured excerpts remain in this chat if the source is deleted.",
+    "unavailable": "Source unavailable",
+    "openSource": "Open source",
+    "limit": "Select at most 8 references.",
+    "retry": "Retry message",
+    "edit": "Edit message",
+    "pickerTitle": "Add context",
+    "selectedCount": "{{count}} selected",
+    "emptyHint": "Try another name or category.",
+    "sessionSingular": "Chat",
+    "appSingular": "Agent app"
   }
 }

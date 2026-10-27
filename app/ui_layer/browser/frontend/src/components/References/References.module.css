@@ -1,0 +1,38 @@
+.picker { padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+.picker input, .picker select, .picker button { font: inherit; color: var(--text-primary); background: var(--bg-secondary); border: 1px solid var(--border-primary); border-radius: 6px; padding: 8px; }
+.results, .list { max-height: 280px; overflow-y: auto; }
+.list { list-style: none; padding: 0; margin: 0; }
+.option { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px; width: 100%; cursor: pointer; text-align: left; overflow-wrap: anywhere; }
+.option small { color: var(--text-secondary); flex-shrink: 0; }
+.active, .option:hover, .option[aria-pressed=true] { background: var(--bg-tertiary); }
+.suggestions { position: absolute; bottom: 100%; left: 0; right: 0; z-index: 20; padding: 6px; background: var(--bg-primary); color: var(--text-primary); border: 1px solid var(--border-primary); border-radius: 8px; box-shadow: 0 4px 16px #0003; }
+.chip { display: inline-flex; align-items: center; height: 28px; max-width: 220px; margin: 0 6px 6px 0; padding: 0 3px 0 0; border: 1px solid var(--border-primary); border-radius: 7px; background: var(--bg-tertiary); vertical-align: middle; transition: border-color .15s; }
+.chip:hover { border-color: var(--border-hover); }
+.chip button { display: inline-flex; align-items: center; background: transparent; border: 0; cursor: pointer; font: inherit; }
+.chip .chipLabel { gap: 6px; min-width: 0; height: 26px; padding: 0 7px; color: var(--text-secondary); font-size: 12px; }
+.chipLabel svg { flex-shrink: 0; color: var(--text-tertiary); }
+.chipText { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chipRemove { flex-shrink: 0; width: 20px; height: 20px; padding: 3px; justify-content: center; border-radius: 4px; color: var(--text-tertiary); }
+.chipRemove:hover { color: var(--text-primary); background: var(--bg-hover); }
+.chip button:focus-visible, .option:focus-visible { outline: 2px solid var(--text-primary); outline-offset: 2px; }
+.excerpt { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 350px; overflow-y: auto; font-size: 12px; }
+
+
+/* A compact flyout using the same visual weight as the parent + menu. */
+.pickerPopover { position: fixed; z-index: 1001; width: 260px; max-width: calc(100vw - 16px); display: flex; flex-direction: column; overflow: hidden; padding: 4px; color: var(--text-primary); background: var(--bg-secondary); border: 1px solid var(--border-primary); border-radius: var(--radius-md); box-shadow: 0 4px 16px #0005; font-size: 12px; }
+.searchField { padding: 3px 6px 6px; display: flex; align-items: center; gap: 7px; border-bottom: 1px solid var(--border-primary); color: var(--text-tertiary); flex-shrink: 0; }
+.searchField input { min-width: 0; width: 100%; padding: 5px 0; background: transparent; border: 0; outline: 0; color: var(--text-primary); font: inherit; }
+.searchField input::placeholder { color: var(--text-tertiary); }
+.searchField:focus-within { border-color: var(--border-hover); }
+.pickerResults { overflow-y: auto; min-height: 0; overscroll-behavior: contain; }
+.groupLabel { padding: 9px 8px 4px; color: var(--text-tertiary); font-size: 10px; font-weight: 500; }
+.sourceRow { width: 100%; display: flex; align-items: center; gap: 8px; padding: 7px 8px; color: var(--text-primary); background: transparent; border: 0; border-radius: var(--radius-sm); cursor: pointer; font: inherit; text-align: left; }
+.sourceRow:hover, .sourceRow:focus-visible { background: var(--bg-tertiary); }
+.sourceRow:focus-visible { outline: 1px solid var(--border-hover); outline-offset: -1px; }
+.sourceRow:disabled { opacity: .4; cursor: default; }
+.sourceIcon { display: flex; flex-shrink: 0; color: var(--text-secondary); }
+.sourceText { min-width: 0; flex: 1; overflow: hidden; }
+.sourceTitle { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; line-height: 16px; }
+.selectionMark { display: flex; width: 14px; height: 14px; flex-shrink: 0; color: var(--text-secondary); }
+.empty { padding: 16px 8px; display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; color: var(--text-secondary); }
+.empty small { color: var(--text-tertiary); }

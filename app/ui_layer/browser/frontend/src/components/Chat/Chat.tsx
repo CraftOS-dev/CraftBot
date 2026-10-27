@@ -1,9 +1,13 @@
+import { ReferencePicker } from '../References/ReferencePicker'
+import { ReferenceChip } from '../References/ReferenceChip'
+import { ReferenceAutocomplete, type ReferenceAutocompleteHandle } from '../References/ReferenceAutocomplete'
+import { referenceCatalog, referenceKey, referenceQuery, searchReferences, type ReferenceCandidate } from '../References/references'
 import React, { useState, useRef, useEffect, useLayoutEffect, KeyboardEvent, useCallback, ChangeEvent, useMemo } from 'react'
 import { useTranslation, Trans } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
 import i18n from '../../i18n/config'
 import { formatDate } from '../../i18n/format'
-import { Send, Square, Paperclip, Plus, X, Loader2, File, AlertCircle, Mic, MicOff, ChevronDown, Sparkles, BookOpen, Reply } from 'lucide-react'
+import { Send, Square, Paperclip, Plus, X, Loader2, File, AlertCircle, Mic, MicOff, ChevronDown, ChevronRight, Sparkles, BookOpen, Reply } from 'lucide-react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useStore } from 'react-redux'
 import { useWebSocket } from '../../contexts/WebSocketContext'
@@ -27,6 +31,7 @@ import { selectPendingPrefill, selectDraftText } from '../../store/selectors/cha
 import { selectPlaybooks } from '../../store/selectors/playbooks'
 import type { Playbook } from '../../store/slices/playbooksSlice'
 import {
+  consumeSubmission,
   clearPendingPrefill,
   setPendingPrefill,
   setDraftText,
@@ -380,7 +385,65 @@ export function Chat({ sessionId, placeholder, panelLayout = 'side' }: ChatProps
   const [attachmentError, setAttachmentError] = useState<string | null>(null)
   const [isDragOver, setIsDragOver] = useState(false)
   const [previewAttachment, setPreviewAttachment] = useState<PendingAttachment | null>(null)
+  const [pendingReferences, setPendingReferences] = useState<ReferenceCandidate[]>([])
+  const [referencePickerOpen, setReferencePickerOpen] = useState(false)
+  const contextHoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => () => { if (contextHoverTimer.current) clearTimeout(contextHoverTimer.current) }, [])
+  const [caret, setCaret] = useState({ start: 0, end: 0 })
+  const [dismissedReference, setDismissedReference] = useState<string | null>(null)
+  const [referenceAria, setReferenceAria] = useState<{ active?: string; list: string }>({ list: '' })
+  const referenceAutocompleteRef = useRef<ReferenceAutocompleteHandle>(null)
+  const sessions = useAppSelector(state => state.sessions.sessions)
+  const apps = useAppSelector(state => state.agentApp.projects)
+  useResource(RESOURCES.agentAppsList)
+  const referenceItems = useMemo(() => referenceCatalog(sessions, apps, sessionId), [sessions, apps, sessionId])
+  const activeReference = referenceQuery(input, caret.start, caret.end)
+  const triggerKey = activeReference ? `${activeReference.start}:${activeReference.query}` : null
+  const referenceOpen = !!activeReference && triggerKey !== dismissedReference && !referencePickerOpen
+  const referenceResults = useMemo(() => searchReferences(referenceItems, activeReference?.query || '').slice(0, 50), [referenceItems, activeReference?.query])
+  const updateReferenceAria = useCallback((active: string | undefined, list: string) => setReferenceAria({ active, list }), [])
+  const addReference = (item: ReferenceCandidate) => {
+    const exists = pendingReferences.some(r => referenceKey(r) === referenceKey(item))
+    if (!exists && pendingReferences.length >= 8) { setAttachmentError(t('chat:references.limit')); return false }
+    if (!exists) setPendingReferences(previous => [...previous, item])
+    return true
+  }
+  const pendingReferenceCaret = useRef<{ value: string; position: number; sessionId: string } | null>(null)
+  const selectInlineReference = (item: ReferenceCandidate) => {
+    if (!activeReference || !addReference(item)) return
+    const { start, end } = activeReference
+    const value = input.slice(0, start) + input.slice(end)
+    pendingReferenceCaret.current = { value, position: start, sessionId }
+    setInput(value)
+    setDismissedReference(null)
+  }
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  // Restore selection in the commit that consumes the mention. A deferred
+  // animation frame can otherwise overwrite the caret of the user's next edit.
+  useLayoutEffect(() => {
+    const pending = pendingReferenceCaret.current
+    pendingReferenceCaret.current = null
+    if (!pending || pending.sessionId !== sessionId || pending.value !== input) return
+    const element = inputRef.current
+    if (!element || element.value !== pending.value) return
+    element.focus()
+    element.setSelectionRange(pending.position, pending.position)
+    setCaret({ start: pending.position, end: pending.position })
+  }, [input, sessionId])
+  const restoredSubmission = useAppSelector(state => state.chatInput.pendingSubmissions[sessionId])
+  useEffect(() => {
+    if (!restoredSubmission) return
+    setInput(input ? `${input}\n${restoredSubmission.content}` : restoredSubmission.content)
+    setPendingAttachments(previous => [...previous, ...restoredSubmission.attachments])
+    setPendingReferences(previous => [...new Map([...previous, ...restoredSubmission.references.map(r => ({ ...r, description: '', updatedAt: '' }))].map(r => [referenceKey(r), r])).values()])
+    if (restoredSubmission.replyContext?.originalMessage) {
+      const originalContent = restoredSubmission.replyContext.originalMessage
+      setReplyTarget({ displayName: originalContent.slice(0, 50), originalContent })
+    }
+    dispatch(consumeSubmission(sessionId))
+    inputRef.current?.focus()
+  }, [restoredSubmission, dispatch, sessionId, input, setInput, setReplyTarget])
+
   const autocompleteRef = useRef<SlashCommandAutocompleteHandle>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -590,6 +653,9 @@ export function Chat({ sessionId, placeholder, panelLayout = 'side' }: ChatProps
     // Reply target and expanded chunks are persisted per session, so they
     // already follow the switch.
     setPendingAttachments([])
+    setPendingReferences([])
+    setReferencePickerOpen(false)
+    setDismissedReference(null)
     setAttachmentError(null)
     setIsDragOver(false)
     setPreviewAttachment(null)
@@ -999,7 +1065,8 @@ export function Chat({ sessionId, placeholder, panelLayout = 'side' }: ChatProps
 
   const handleSend = () => {
     if (!attachmentValidation.valid) return
-    if (input.trim() || pendingAttachments.length > 0) {
+    if (pendingReferences.length > 8) { setAttachmentError(t('chat:references.limit')); return }
+    if (input.trim() || pendingAttachments.length > 0 || pendingReferences.length > 0) {
       // Save to input history
       if (input.trim()) {
         setInputHistory(prev => [...prev, input.trim()].slice(-INPUT_HISTORY_LIMIT))
@@ -1019,7 +1086,7 @@ export function Chat({ sessionId, placeholder, panelLayout = 'side' }: ChatProps
       // Attachments + slash command falls through to chat (commands don't
       // accept attachments), which preserves the existing behavior for that
       // edge case.
-      const isSlashCommand = trimmed.startsWith('/') && pendingAttachments.length === 0
+      const isSlashCommand = trimmed.startsWith('/') && pendingAttachments.length === 0 && pendingReferences.length === 0
       if (isSlashCommand) {
         sendCommand(trimmed, sessionId)
       } else {
@@ -1028,6 +1095,7 @@ export function Chat({ sessionId, placeholder, panelLayout = 'side' }: ChatProps
           pendingAttachments.length > 0 ? pendingAttachments : undefined,
           sessionId,
           replyTarget ? { originalMessage: replyTarget.originalContent } : undefined,
+          pendingReferences,
         )
       }
       if (!connected) {
@@ -1038,6 +1106,8 @@ export function Chat({ sessionId, placeholder, panelLayout = 'side' }: ChatProps
       setInput('')
       setReplyTarget(null)
       setPendingAttachments([])
+      setPendingReferences([])
+      setDismissedReference(null)
       setAttachmentError(null)
       if (inputRef.current) {
         inputRef.current.style.height = 'auto'
@@ -1052,12 +1122,14 @@ export function Chat({ sessionId, placeholder, panelLayout = 'side' }: ChatProps
   // input flips it back to stop. 'stopping' pins the button to a spinner
   // until the backend confirms the run is fully shut (turn cancelled, child
   // processes killed), which arrives as the terminal session_busy 'idle'.
-  const composerHasContent = !!input.trim() || pendingAttachments.length > 0
+  const composerHasContent = !!input.trim() || pendingAttachments.length > 0 || pendingReferences.length > 0
   const stopping = runState === 'stopping'
   const showStopButton =
     !isDraft && (stopping || (runState === 'running' && !composerHasContent))
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.nativeEvent.isComposing) return
+    if (referenceAutocompleteRef.current?.handleKey(e)) { e.preventDefault(); return }
     if (e.key === 'Tab' && !e.shiftKey) {
       if (autocompleteRef.current?.handleTab()) {
         e.preventDefault()
@@ -1512,9 +1584,13 @@ export function Chat({ sessionId, placeholder, panelLayout = 'side' }: ChatProps
             </div>
           )}
 
+          {pendingReferences.length > 0 && <div>{pendingReferences.map(reference => <ReferenceChip key={referenceKey(reference)} reference={reference}
+            onRemove={() => setPendingReferences(previous => previous.filter(r => referenceKey(r) !== referenceKey(reference)))} />)}</div>}
+          <ReferenceAutocomplete ref={referenceAutocompleteRef} items={referenceResults} open={referenceOpen}
+            onSelect={selectInlineReference} onClose={() => setDismissedReference(triggerKey)} onActive={updateReferenceAria} />
           <SlashCommandAutocomplete
             ref={autocompleteRef}
-            input={input}
+            input={referenceOpen ? "" : input}
             onSelectItem={(name) => {
               setInput(`/${name}`)
               inputRef.current?.focus()
@@ -1525,7 +1601,13 @@ export function Chat({ sessionId, placeholder, panelLayout = 'side' }: ChatProps
             className={styles.input}
             placeholder={isListening ? t('chat:composer.listening') : (placeholder || t('chat:composer.placeholder'))}
             value={input}
-            onChange={e => setInput(e.target.value)}
+            onChange={e => { pendingReferenceCaret.current = null; setInput(e.target.value); setCaret({ start: e.target.selectionStart, end: e.target.selectionEnd }) }}
+            onSelect={e => { const el = e.currentTarget; setCaret({ start: el.selectionStart, end: el.selectionEnd }) }}
+            onBlur={() => setDismissedReference(triggerKey)}
+            aria-autocomplete="list"
+            aria-expanded={referenceOpen}
+            aria-controls={referenceOpen ? referenceAria.list : undefined}
+            aria-activedescendant={referenceOpen ? referenceAria.active : undefined}
             onFocus={() => setUnreadDismissed(true)}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
@@ -1541,7 +1623,7 @@ export function Chat({ sessionId, placeholder, panelLayout = 'side' }: ChatProps
                 <button
                   type="button"
                   className={styles.plusBtn}
-                  onClick={() => setPlusOpen(o => !o)}
+                  onClick={() => { setReferencePickerOpen(false); setPlusOpen(o => !o) }}
                   title={t('chat:composer.attachAndTools')}
                   aria-label={t('chat:composer.attachAndTools')}
                   aria-expanded={plusOpen}
@@ -1560,6 +1642,20 @@ export function Chat({ sessionId, placeholder, panelLayout = 'side' }: ChatProps
                       <Paperclip size={15} />
                       <span>{t('chat:composer.attachFiles')}</span>
                     </button>
+                    <div className={styles.contextSubmenu}
+                      onMouseEnter={() => { if (contextHoverTimer.current) clearTimeout(contextHoverTimer.current); setReferencePickerOpen(true) }}
+                      onMouseLeave={() => { contextHoverTimer.current = setTimeout(() => setReferencePickerOpen(false), 180) }}>
+                      <button type="button" data-context-trigger className={styles.plusMenuItem}
+                        aria-haspopup="dialog" aria-expanded={referencePickerOpen}
+                        onClick={() => setReferencePickerOpen(true)}
+                        onFocus={() => setReferencePickerOpen(true)}
+                        onKeyDown={event => { if (event.key === 'ArrowRight') { event.preventDefault(); setReferencePickerOpen(true); requestAnimationFrame(() => plusMenuRef.current?.querySelector<HTMLInputElement>('[data-context-search]')?.focus()) } }}>
+                        <BookOpen size={15} /><span>{t('chat:references.title')}</span><ChevronRight size={13} className={styles.submenuArrow} />
+                      </button>
+                      <ReferencePicker open={plusOpen && referencePickerOpen} items={referenceItems} selected={pendingReferences}
+                        onSelect={addReference} onRemove={item => setPendingReferences(previous => previous.filter(r => referenceKey(r) !== referenceKey(item)))}
+                        onClose={() => { setReferencePickerOpen(false); setPlusOpen(false); inputRef.current?.focus() }} />
+                    </div>
                     <button
                       className={styles.plusMenuItem}
                       onClick={() => { setPlusOpen(false); handleEnhancePrompt() }}
@@ -1631,7 +1727,7 @@ export function Chat({ sessionId, placeholder, panelLayout = 'side' }: ChatProps
                   type="button"
                   className={styles.sendBtn}
                   onClick={handleSend}
-                  disabled={(!input.trim() && pendingAttachments.length === 0) || !attachmentValidation.valid || enhancing}
+                  disabled={(!input.trim() && pendingAttachments.length === 0 && pendingReferences.length === 0) || !attachmentValidation.valid || enhancing}
                   title={t('chat:composer.send')}
                   aria-label={t('chat:composer.sendMessage')}
                 >

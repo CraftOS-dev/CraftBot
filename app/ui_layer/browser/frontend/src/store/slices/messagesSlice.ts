@@ -76,6 +76,11 @@ const messagesSlice = createSlice({
   name: 'messages',
   initialState,
   reducers: {
+    rejectSubmission(state, action: PayloadAction<{ sessionId: string; clientId: string; error: string }>) {
+      const bucket = bucketFor(state, action.payload.sessionId)
+      const message = bucket.items.find(m => m.clientId === action.payload.clientId)
+      if (message) { message.pending = false; message.submissionError = action.payload.error }
+    },
     setInitial(state, action: PayloadAction<{ messages: ChatMessage[] }>) {
       // Replaces everything: init carries only the backend's in-memory
       // snapshot, so every bucket restarts unfetched and the per-session
@@ -193,6 +198,7 @@ const messagesSlice = createSlice({
 })
 
 export const {
+  rejectSubmission,
   setInitial,
   addOrReconcile,
   addOptimistic,
@@ -284,4 +290,9 @@ register('question_answered', (data, dispatch) => {
   if (d?.sessionId && d.messageId && d.value) {
     dispatch(markOptionSelected({ sessionId: d.sessionId, messageId: d.messageId, value: d.value }))
   }
+})
+
+register('message_rejected', (data, dispatch) => {
+  const d = data as { sessionId: string; clientId: string; error: string }
+  if (d?.sessionId && d.clientId) dispatch(messagesSlice.actions.rejectSubmission(d))
 })

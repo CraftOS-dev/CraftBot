@@ -41,7 +41,7 @@ def _ui_session_key(session_id: str) -> str:
 _ROW_COLUMNS = (
     "message_id, sender, content, style, timestamp, attachments, "
     "session_id, options, option_selected, continue_work, "
-    "is_question, allow_free_text, details, ui_artifact"
+    "is_question, allow_free_text, details, ui_artifact, reference_snapshots"
 )
 
 
@@ -72,6 +72,7 @@ class StoredChatMessage:
     # incoming integration message on the "📩 Incoming …" system stub).
     details: Optional[str] = None
     ui_artifact: Optional[Dict[str, Any]] = None
+    references: Optional[List[Dict[str, Any]]] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
@@ -83,6 +84,8 @@ class StoredChatMessage:
             "timestamp": self.timestamp,
             "sessionId": self.session_id,
         }
+        if self.references:
+            result["references"] = self.references
         if self.attachments:
             result["attachments"] = self.attachments
         if self.options:
@@ -117,6 +120,7 @@ def _row_to_message(row) -> StoredChatMessage:
         allow_free_text=bool(row[11]),
         details=row[12],
         ui_artifact=json.loads(row[13]) if row[13] else None,
+        references=json.loads(row[14]) if row[14] else None,
     )
 
 
@@ -218,6 +222,10 @@ class ChatStorage:
                 )
             if "details" not in columns:
                 cursor.execute("ALTER TABLE chat_messages ADD COLUMN details TEXT")
+            if "reference_snapshots" not in columns:
+                cursor.execute(
+                    "ALTER TABLE chat_messages ADD COLUMN reference_snapshots TEXT"
+                )
             if "ui_artifact" not in columns:
                 cursor.execute("ALTER TABLE chat_messages ADD COLUMN ui_artifact TEXT")
 
@@ -301,8 +309,8 @@ class ChatStorage:
             cursor.execute(
                 """
                 INSERT OR REPLACE INTO chat_messages
-                (message_id, sender, content, style, timestamp, attachments, session_id, options, option_selected, continue_work, is_question, allow_free_text, details, ui_artifact)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (message_id, sender, content, style, timestamp, attachments, session_id, options, option_selected, continue_work, is_question, allow_free_text, details, ui_artifact, reference_snapshots)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     message.message_id,
@@ -319,10 +327,191 @@ class ChatStorage:
                     1 if message.allow_free_text else 0,
                     message.details,
                     json.dumps(message.ui_artifact) if message.ui_artifact else None,
+                    json.dumps(message.references) if message.references else None,
                 ),
             )
             conn.commit()
             return cursor.lastrowid
+
+    def get_message_by_id(
+        self, session_id: str, message_id: str
+    ) -> Optional[StoredChatMessage]:
+        """Read an accepted message without crossing session boundaries."""
+        with sqlite3.connect(self._db_path) as conn:
+            row = conn.execute(
+                f"SELECT {_ROW_COLUMNS} FROM chat_messages WHERE session_id = ? AND message_id = ?",
+                (session_id, message_id),
+            ).fetchone()
+            return _row_to_message(row) if row else None
+
+    def has_reference(self, session_id: str, kind: str, target_id: str) -> bool:
+        """Membership is scoped to persisted messages in the destination."""
+        with sqlite3.connect(self._db_path) as conn:
+            return (
+                conn.execute(
+                    "SELECT 1 FROM chat_messages m, json_each(m.reference_snapshots) r "
+                    "WHERE m.session_id = ? AND json_extract(r.value, '$.kind') = ? "
+                    "AND json_extract(r.value, '$.targetId') = ? LIMIT 1",
+                    (session_id, kind, target_id),
+                ).fetchone()
+                is not None
+            )
+
+    def reference_page(
+        self, session_id: str, cursor: Optional[str], byte_limit: int
+    ) -> dict:
+        """Page visible history backwards; split long messages without losing text.
+
+        Row IDs are stable acceptance order, including equal timestamps. Cursors
+        pin the high-water row and optionally continue a chunk within one message.
+        Source clear/delete invalidates them rather than exposing a new history.
+        """
+        import base64
+        from app.references import ReferenceError
+
+        def encode_cursor(high, before, row=0, offset=0):
+            return base64.urlsafe_b64encode(
+                json.dumps(
+                    {
+                        "session": session_id,
+                        "high": high,
+                        "before": before,
+                        "row": row,
+                        "offset": offset,
+                    }
+                ).encode()
+            ).decode()
+
+        with sqlite3.connect(self._db_path) as conn:
+            high = (
+                conn.execute(
+                    "SELECT MAX(id) FROM chat_messages WHERE session_id = ?",
+                    (session_id,),
+                ).fetchone()[0]
+                or 0
+            )
+            before, continued_row, offset = high + 1, 0, 0
+            if cursor:
+                try:
+                    state = json.loads(base64.urlsafe_b64decode(cursor).decode())
+                    if state["session"] != session_id:
+                        raise ValueError()
+
+                    def cursor_integer(name, default=None):
+                        value = state.get(name, default)
+                        # SQLite binds signed 64-bit integers. Do not coerce
+                        # floats, strings or booleans into cursor positions.
+                        if type(value) is not int or not 0 <= value <= (1 << 63) - 1:
+                            raise ValueError()
+                        return value
+
+                    high, before = cursor_integer("high"), cursor_integer("before")
+                    continued_row, offset = (
+                        cursor_integer("row", 0),
+                        cursor_integer("offset", 0),
+                    )
+                    if high < 1 or before < 1 or before > high + 1 or offset < 0:
+                        raise ValueError()
+                    if (offset and not continued_row) or (
+                        continued_row
+                        and (continued_row != before - 1 or continued_row > high)
+                    ):
+                        raise ValueError()
+                except (
+                    ValueError,
+                    KeyError,
+                    TypeError,
+                    UnicodeError,
+                    OverflowError,
+                    AttributeError,
+                ) as exc:
+                    raise ReferenceError("Invalid reference cursor.") from exc
+                if not conn.execute(
+                    "SELECT 1 FROM chat_messages WHERE session_id = ? AND id = ?",
+                    (session_id, high),
+                ).fetchone():
+                    raise ReferenceError(
+                        "The source history changed; request a fresh page."
+                    )
+            rows = conn.execute(
+                "SELECT id, message_id, sender, timestamp, "
+                "CASE WHEN id = ? THEN substr(content, ? + 1, ?) ELSE substr(content, 1, ?) END, length(content) "
+                "FROM chat_messages WHERE session_id = ? AND style IN ('user', 'agent') "
+                "AND id <= ? AND id < ? ORDER BY id DESC LIMIT 80",
+                (
+                    continued_row,
+                    offset,
+                    byte_limit,
+                    byte_limit,
+                    session_id,
+                    high,
+                    before,
+                ),
+            ).fetchall()
+            if continued_row and (
+                not rows or rows[0][0] != continued_row or offset >= rows[0][5]
+            ):
+                raise ReferenceError(
+                    "The source message changed; request a fresh page."
+                )
+            parts, used, last, next_cursor = [], 0, None, None
+            for row in rows:
+                start = offset if row[0] == continued_row else 0
+
+                def render_chunk(chunk):
+                    return json.dumps(
+                        {
+                            "messageId": row[1],
+                            "sender": str(row[2])[:128],
+                            "timestamp": row[3],
+                            "content": chunk,
+                            "offset": start,
+                        },
+                        ensure_ascii=False,
+                    )
+
+                text = render_chunk(row[4])
+                remaining = byte_limit - used - (1 if parts else 0)
+                if len(text.encode("utf-8")) > remaining:
+                    if parts:
+                        break
+                    low, upper = 0, len(row[4])
+                    while low < upper:
+                        mid = (low + upper + 1) // 2
+                        if len(render_chunk(row[4][:mid]).encode("utf-8")) <= remaining:
+                            low = mid
+                        else:
+                            upper = mid - 1
+                    if low == 0 and row[4]:
+                        raise ReferenceError(
+                            "Too little context is available for this message."
+                        )
+                    chunk = row[4][:low]
+                    text = render_chunk(chunk)
+                else:
+                    chunk = row[4]
+                parts.append(text)
+                used += len(text.encode("utf-8")) + (1 if len(parts) > 1 else 0)
+                last = row[0]
+                if start + len(chunk) < row[5]:
+                    next_cursor = encode_cursor(
+                        high, row[0] + 1, row[0], start + len(chunk)
+                    )
+                    break
+            more = last is not None and bool(
+                conn.execute(
+                    "SELECT 1 FROM chat_messages WHERE session_id = ? AND style IN ('user', 'agent') AND id < ? LIMIT 1",
+                    (session_id, last),
+                ).fetchone()
+            )
+            if more and not next_cursor:
+                next_cursor = encode_cursor(high, last)
+            return {
+                "text": "\n".join(reversed(parts))
+                or "No visible messages in this session.",
+                "nextCursor": next_cursor,
+                "truncated": bool(next_cursor),
+            }
 
     def close_ui_artifact(self, session_id: str, artifact_id: str) -> int:
         """The user closed a Generative UI output: every stored revision of it
