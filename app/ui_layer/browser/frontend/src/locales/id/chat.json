@@ -133,8 +133,6 @@
   "references": {
     "title": "Add context",
     "search": "Search sessions and apps",
-    "filter": "Reference type",
-    "all": "All",
     "session": "Sessions",
     "agent_app": "Agent apps",
     "noMatches": "No matches",
@@ -151,32 +149,18 @@
     "retry": "Retry message",
     "edit": "Edit message",
     "pickerTitle": "Add context",
-    "selectedCount": "{{count}} selected",
-    "emptyHint": "Try another name or category.",
-    "sessionSingular": "Chat",
-    "appSingular": "Agent app"
+    "emptyHint": "Try another name or category."
   },
   "apps": {
     "region": "Panel aplikasi agen",
-    "show": "Tampilkan aplikasi",
-    "tabs": "Tab aplikasi",
-    "add": "Tambah aplikasi",
     "remove": "Hapus {{name}} dari panel",
-    "detach": "Hapus dari panel",
     "openFull": "Buka aplikasi penuh",
-    "search": "Cari aplikasi terpasang",
-    "added": "Ditambahkan",
-    "done": "Selesai",
-    "empty": "Tambahkan aplikasi terpasang ke panel obrolan ini.",
     "loading": "Memuat aplikasi terpasang…",
     "disconnected": "Hubungkan kembali untuk memuat atau menjalankan aplikasi.",
-    "noMatches": "Tidak ada aplikasi yang cocok.",
-    "noInstalled": "Tidak ada aplikasi terpasang.",
     "loadingView": "Memuat tampilan aplikasi…",
     "viewTimeout": "Aplikasi memerlukan waktu lebih lama untuk dimuat. Coba lagi atau buka aplikasi penuh.",
     "viewUnavailable": "Tampilan aplikasi tidak tersedia atau sudah terbuka di tempat lain.",
     "retry": "Coba lagi",
-    "openPanel": "Buka di panel",
-    "limit": "Panel telah mencapai batas 100 aplikasi."
+    "openPanel": "Buka di panel"
   }
 }

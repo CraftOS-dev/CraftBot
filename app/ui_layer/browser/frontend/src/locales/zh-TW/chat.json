@@ -133,8 +133,6 @@
   "references": {
     "title": "Add context",
     "search": "Search sessions and apps",
-    "filter": "Reference type",
-    "all": "All",
     "session": "Sessions",
     "agent_app": "Agent apps",
     "noMatches": "No matches",
@@ -151,32 +149,18 @@
     "retry": "Retry message",
     "edit": "Edit message",
     "pickerTitle": "Add context",
-    "selectedCount": "{{count}} selected",
-    "emptyHint": "Try another name or category.",
-    "sessionSingular": "Chat",
-    "appSingular": "Agent app"
+    "emptyHint": "Try another name or category."
   },
   "apps": {
     "region": "智慧代理應用程式面板",
-    "show": "顯示應用程式",
-    "tabs": "應用程式分頁",
-    "add": "新增應用程式",
     "remove": "從面板移除{{name}}",
-    "detach": "從面板移除",
     "openFull": "開啟完整應用程式",
-    "search": "搜尋已安裝的應用程式",
-    "added": "已新增",
-    "done": "完成",
-    "empty": "將已安裝的應用程式新增至此聊天面板。",
     "loading": "正在載入已安裝的應用程式…",
     "disconnected": "請重新連線以載入或啟動應用程式。",
-    "noMatches": "沒有相符的應用程式。",
-    "noInstalled": "沒有已安裝的應用程式。",
     "loadingView": "正在載入應用程式畫面…",
     "viewTimeout": "載入時間較長。請重試或開啟完整應用程式。",
     "viewUnavailable": "此應用程式畫面無法使用，或已在其他位置開啟。",
     "retry": "重試",
-    "openPanel": "在面板中開啟",
-    "limit": "面板已達到100個應用程式的上限。"
+    "openPanel": "在面板中開啟"
   }
 }

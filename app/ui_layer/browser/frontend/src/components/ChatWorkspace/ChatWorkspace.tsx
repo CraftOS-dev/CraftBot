@@ -287,11 +287,11 @@ export function ChatWorkspace({ sessionId, messages, browser, apps, layout = 'si
     setSelection(`${artifact.id}:${artifact.revision}`)
     setMode('output')
   }
-  const openApp = (id?: string) => {
-    if (id && !apps?.canOpenProject(id)) return
+  const openApp = (id: string) => {
+    if (!apps?.canOpenProject(id)) return
     if (!isOpen) captureLayout()
     setClosing(null)
-    if (id) apps?.openProject(id)
+    apps.openProject(id)
     setMode('apps')
   }
   const openChooser = () => {
@@ -498,12 +498,11 @@ export function ChatWorkspace({ sessionId, messages, browser, apps, layout = 'si
           label={apps || browser && outputs.length ? t('panel.toggle') : browser ? t('browserPanel.show') : t('generativeUI.showOutputs')}
           browserRunning={browser?.running} browsing={browser?.browsing} onToggle={() => {
             if (isOpen && !exiting) { close(); return }
-            if (apps) { openChooser(); return }
-            if (lastMode === 'chooser') { openChooser(); return }
+            // With apps the panel always opens on its chooser. Without them
+            // (a draft chat), it returns to what it last showed.
+            if (apps || lastMode === 'chooser') { openChooser(); return }
             if (lastMode === 'browser' && browser) openBrowser()
-            else if (lastMode === 'apps' && apps) openApp()
             else if (selected) open(selected)
-            else if (apps) openApp()
             else openBrowser()
           }} />}
         <div className={styles.chat}>{children}</div>

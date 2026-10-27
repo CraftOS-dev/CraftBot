@@ -1,6 +1,6 @@
 .picker { padding: 16px; display: flex; flex-direction: column; gap: 12px; }
 .picker input, .picker select, .picker button { font: inherit; color: var(--text-primary); background: var(--bg-secondary); border: 1px solid var(--border-primary); border-radius: 6px; padding: 8px; }
-.results, .list { max-height: 280px; overflow-y: auto; }
+.list { max-height: 280px; overflow-y: auto; }
 .list { list-style: none; padding: 0; margin: 0; }
 .option { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px; width: 100%; cursor: pointer; text-align: left; overflow-wrap: anywhere; }
 .option small { color: var(--text-secondary); flex-shrink: 0; }

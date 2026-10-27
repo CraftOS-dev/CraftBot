@@ -33,7 +33,7 @@ does not change the active app view.
 Missing IDs are pruned after a successful catalog response, never because the
 initial catalog is empty or a connection/request fails. Deleting the chat clears
 its panel-app record. Removing a selected app chooses a neighboring tab. Removing
-the final app leaves an empty Apps view with an Add app action.
+the final app returns the panel to its **Open in panel** chooser.
 
 New generated outputs and a browser-start transition retain their existing
 automatic activation behavior. They can replace the app on screen without
@@ -47,7 +47,9 @@ Paths are relative to `app/ui_layer/browser/frontend/src/`:
 
 - `components/ChatWorkspace/ChatWorkspace.tsx` owns the common layout, shared tab strip, resizing, animations and focus restoration. `PanelSwitcher.tsx`
   supplies the single direct toggle. Browser and Apps supply
-  narrow rendering contracts; generated output rendering stays in its feature.
+  narrow rendering contracts (`BrowserPanelMode`, `AppsPanelMode`); generated
+  output rendering stays in its feature. Each tab in the strip carries its own
+  select and close actions; tab ids are only unique keys and are never parsed.
 - `components/ChatWorkspace/OutputReference.tsx` owns generated-output references
   and their context. The former `GenerativeUI/OutputWorkspace` has moved here.
 - `features/agentApps/usePanelApps.tsx` reads the existing project selectors,
@@ -57,7 +59,7 @@ Paths are relative to `app/ui_layer/browser/frontend/src/`:
   tab metadata and the selected app surface; it has no modal picker or nested
   tab strip.
 - `features/agentApps/panelAppsState.ts` contains validated, pure add/select/prune
-  operations. The picker caps a chat at 100 attached apps.
+  operations. A chat holds at most 100 attached apps; attaching more is ignored.
 - `features/agentApps/AgentAppSurface.tsx` renders app status, construction or the
   running view, shared by the panel and full app page. It has no backing chat or
   route ownership. Existing construction UI and theme catalog are reused.

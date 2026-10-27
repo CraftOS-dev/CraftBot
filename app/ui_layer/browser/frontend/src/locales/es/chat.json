@@ -133,8 +133,6 @@
   "references": {
     "title": "Add context",
     "search": "Search sessions and apps",
-    "filter": "Reference type",
-    "all": "All",
     "session": "Sessions",
     "agent_app": "Agent apps",
     "noMatches": "No matches",
@@ -151,32 +149,18 @@
     "retry": "Retry message",
     "edit": "Edit message",
     "pickerTitle": "Add context",
-    "selectedCount": "{{count}} selected",
-    "emptyHint": "Try another name or category.",
-    "sessionSingular": "Chat",
-    "appSingular": "Agent app"
+    "emptyHint": "Try another name or category."
   },
   "apps": {
     "region": "Panel de aplicaciones",
-    "show": "Mostrar aplicaciones",
-    "tabs": "Pestañas de aplicaciones",
-    "add": "Añadir aplicación",
     "remove": "Quitar {{name}} del panel",
-    "detach": "Quitar del panel",
     "openFull": "Abrir aplicación completa",
-    "search": "Buscar aplicaciones instaladas",
-    "added": "Añadida",
-    "done": "Listo",
-    "empty": "Añade una aplicación instalada al panel de este chat.",
     "loading": "Cargando aplicaciones instaladas…",
     "disconnected": "Vuelve a conectarte para cargar o iniciar aplicaciones.",
-    "noMatches": "No hay coincidencias.",
-    "noInstalled": "No hay aplicaciones instaladas.",
     "loadingView": "Cargando aplicación…",
     "viewTimeout": "La aplicación tarda en cargar. Reintenta o abre la aplicación completa.",
     "viewUnavailable": "Esta vista no está disponible o ya está abierta en otra superficie.",
     "retry": "Reintentar",
-    "openPanel": "Abrir en el panel",
-    "limit": "El panel ha alcanzado el límite de 100 aplicaciones."
+    "openPanel": "Abrir en el panel"
   }
 }
