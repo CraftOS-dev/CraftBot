@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import json
-import urllib.parse
-import urllib.request
+
+from app.agent_app import agent_view
 
 from .service import ReferenceError, bounded
 
@@ -72,26 +72,15 @@ class AgentAppReferenceProvider:
 
     @staticmethod
     def _describe(base_url: str) -> dict | None:
-        """Read only the app's manager-registered HTTP(S) address; never follow
-        redirects or fetch records."""
+        """Schema and operation declarations from the app's describe document.
 
-        class NoRedirect(urllib.request.HTTPRedirectHandler):
-            def redirect_request(self, req, fp, code, msg, headers, newurl):
-                return None
-
-        if urllib.parse.urlsplit(base_url).scheme not in ("http", "https"):
+        The document comes from agent_view.describe, the same cached, bounded,
+        no-redirect reader the agent's own app note uses; this never fetches
+        records."""
+        result = agent_view.describe(base_url)
+        if result is None:
             return None
         try:
-            opener = urllib.request.build_opener(
-                urllib.request.ProxyHandler({}), NoRedirect()
-            )
-            with opener.open(
-                f"{base_url.rstrip('/')}/api/_a2app/describe", timeout=2
-            ) as response:
-                raw = response.read(65537)
-            if len(raw) > 65536:
-                return None
-            result = json.loads(raw)
             # Keep schema/operation declarations only. Never forward arbitrary
             # extra keys returned by an app's describe endpoint.
             entities = result.get("entities") or {}
@@ -128,5 +117,5 @@ class AgentAppReferenceProvider:
                     if isinstance(op, dict) and not op.get("system")
                 ],
             }
-        except (OSError, ValueError, TypeError, AttributeError):
+        except (TypeError, AttributeError):
             return None

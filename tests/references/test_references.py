@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from app.agent_app import agent_view
 from app.references import ReferenceError, create_reference_service
 from app.references.providers import AgentAppReferenceProvider
 from app.references.service import TOTAL_BYTES, reference_token_budget
@@ -224,14 +225,33 @@ def test_app_schema_comes_from_the_registered_address(
     assert asked == [expected]
 
 
-def test_describe_refuses_non_http_addresses():
-    assert AgentAppReferenceProvider._describe("file:///etc/passwd") is None
+def test_shared_describe_refuses_non_http_addresses():
+    assert agent_view.describe("file:///etc/passwd") is None
 
 
-def test_app_describe_filters_records_credentials_and_system_operations(monkeypatch):
+def test_shared_describe_is_bounded_refuses_redirects_and_caches(monkeypatch):
     import io
     import urllib.request
 
+    openers = []
+    oversized = b'{"entities": {}, "pad": "' + b"x" * agent_view._MAX_DESCRIBE_BYTES + b'"}'
+    monkeypatch.setattr(agent_view, "_CACHE", {})
+    monkeypatch.setattr(
+        urllib.request,
+        "build_opener",
+        lambda *handlers: openers.append(handlers)
+        or SimpleNamespace(open=lambda *args, **kw: io.BytesIO(oversized)),
+    )
+    assert agent_view.describe("http://127.0.0.1:12345/") is None
+    assert agent_view.describe("http://127.0.0.1:12345") is None
+    assert len(openers) == 1  # the second read is the cached answer
+    assert any(isinstance(h, agent_view._NoRedirect) for h in openers[0])
+    assert any(
+        isinstance(h, urllib.request.ProxyHandler) and not h.proxies for h in openers[0]
+    )
+
+
+def test_app_describe_filters_records_credentials_and_system_operations(monkeypatch):
     response = {
         "token": "PRIVATE ROOT",
         "records": ["CUSTOMER DATA"],
@@ -245,13 +265,7 @@ def test_app_describe_filters_records_credentials_and_system_operations(monkeypa
             {"name": "system.inspect", "system": True},
         ],
     }
-    monkeypatch.setattr(
-        urllib.request,
-        "build_opener",
-        lambda *args: SimpleNamespace(
-            open=lambda *args, **kw: io.BytesIO(json.dumps(response).encode())
-        ),
-    )
+    monkeypatch.setattr(agent_view, "describe", lambda base_url: response)
     result = AgentAppReferenceProvider._describe("http://127.0.0.1:12345")
     assert result["entities"]["notes"]["fields"]["title"] == {"type": "string"}
     assert result["operations"] == [{"name": "notes.list", "description": "List notes"}]
