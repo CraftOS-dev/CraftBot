@@ -134,6 +134,7 @@ def main() -> int:
             "craftos_integrations/providers/whatsapp_web/bridge.js",
             "craftos_integrations/providers/gmail/INTEGRATION.md",
             "app/ui_layer/browser/frontend/dist/index.html",
+            "app/ui_layer/terminal/dist/craftbot-tui.mjs",
             "app/i18n/errors.en.json",
         ]
         for rel in required:

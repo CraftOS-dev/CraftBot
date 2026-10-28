@@ -39,15 +39,16 @@ from typing import List
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
-# Gitignored build outputs that ARE required at runtime. Kept short and
-# explicit: every entry here is a hole in the "git decides" guarantee.
-BUILD_OUTPUTS = [
+# Gitignored build outputs that ARE required at runtime, each with the
+# command that builds it. Kept short and explicit: every entry here is a hole
+# in the "git decides" guarantee.
+BUILD_OUTPUTS = {
     # The compiled browser UI. Users have no Node toolchain at install time
     # and must not need one to see a working interface.
-    "app/ui_layer/browser/frontend/dist",
-    # The terminal edition's client, one bundled ES module run by Node.
-    "app/ui_layer/terminal/dist",
-]
+    "app/ui_layer/browser/frontend/dist": "cd app/ui_layer/browser/frontend && npx vite build",
+    # The terminal edition's client, one bundled ES module run by Node 24+.
+    "app/ui_layer/terminal/dist": "cd app/ui_layer/terminal && npm ci && node build.mjs",
+}
 
 # Tracked paths that are pure development weight. Excluded to keep the
 # download small; none is reachable at runtime.
@@ -101,8 +102,8 @@ def build(output: Path) -> int:
         print(
             "error: required build output missing: "
             + ", ".join(missing_outputs)
-            + "\nBuild the frontend first:\n"
-            "  cd app/ui_layer/browser/frontend && npx vite build",
+            + "\nBuild it first:\n"
+            + "\n".join(f"  {BUILD_OUTPUTS[b]}" for b in missing_outputs),
             file=sys.stderr,
         )
         return 1
