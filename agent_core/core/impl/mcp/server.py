@@ -552,11 +552,17 @@ class SSETransport(MCPTransport):
         """URL requests are POSTed to: the announced endpoint, else a guess."""
         return self._endpoint or self.url.replace("/sse", "/message")
 
+    @staticmethod
+    def _origin(url: str) -> tuple:
+        """(scheme, hostname, effective port), so `:443` equals the default."""
+        parts = urlparse(url)
+        port = parts.port or {"http": 80, "https": 443}.get(parts.scheme)
+        return (parts.scheme, parts.hostname, port)
+
     def _accept_endpoint(self, data: str) -> None:
         """Record the endpoint the server announced, if it is same-origin."""
         endpoint = urljoin(self.url, data)
-        base, target = urlparse(self.url), urlparse(endpoint)
-        if (base.scheme, base.netloc) != (target.scheme, target.netloc):
+        if self._origin(self.url) != self._origin(endpoint):
             logger.warning(
                 f"Ignoring SSE endpoint {endpoint}: origin differs from {self.url}"
             )
@@ -568,30 +574,35 @@ class SSETransport(MCPTransport):
         """Listen for SSE events."""
         import json
 
+        # SSE fields arrive in any order; an event is complete at the blank line.
         event_name = ""
+        data_lines: List[str] = []
         try:
             async with self._client.stream("GET", self.url) as response:
                 async for line in response.aiter_lines():
-                    if not line:
-                        event_name = ""
-                    elif line.startswith("event:"):
-                        event_name = line[6:].strip()
-                    elif line.startswith("data:"):
-                        data = line[5:].strip()
-                        if event_name == "endpoint":
-                            self._accept_endpoint(data)
-                            continue
-                        try:
-                            message = json.loads(data)
-                            if (
-                                "id" in message
-                                and message["id"] in self._pending_requests
-                            ):
-                                future = self._pending_requests.pop(message["id"])
-                                if not future.done():
-                                    future.set_result(message)
-                        except json.JSONDecodeError:
-                            continue
+                    if line:
+                        field_name, _, value = line.partition(":")
+                        value = value[1:] if value.startswith(" ") else value
+                        if field_name == "event":
+                            event_name = value
+                        elif field_name == "data":
+                            data_lines.append(value)
+                        continue
+                    data = "\n".join(data_lines)
+                    name, event_name, data_lines = event_name, "", []
+                    if not data:
+                        continue
+                    if name == "endpoint":
+                        self._accept_endpoint(data.strip())
+                        continue
+                    try:
+                        message = json.loads(data)
+                        if "id" in message and message["id"] in self._pending_requests:
+                            future = self._pending_requests.pop(message["id"])
+                            if not future.done():
+                                future.set_result(message)
+                    except json.JSONDecodeError:
+                        continue
         except asyncio.CancelledError:
             pass
         except Exception as e:
