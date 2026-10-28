@@ -1,0 +1,120 @@
+{
+  "transcript": {
+    "title": "对话记录 · {{session}}",
+    "count_one": "{{count}} 条消息",
+    "count_other": "{{count}} 条消息",
+    "match": "第 {{index}} 个匹配，共 {{count}} 个",
+    "noMatch": "没有与 {{query}} 匹配的内容",
+    "loadingOlder": "正在加载更早的消息...",
+    "olderAbove": "滚动到顶部时加载更早的消息",
+    "start": "对话开始",
+    "empty": "此对话还没有内容。",
+    "reasoning": "推理",
+    "thinking": "思考中...",
+    "details": "详情",
+    "detailsHidden_one": "详情已隐藏（{{count}} 行） · Enter 显示",
+    "detailsHidden_other": "详情已隐藏（{{count}} 行） · Enter 显示",
+    "replyingTo": "正在回复",
+    "you": "你",
+    "waiting": "等待你的回答",
+    "status": {
+      "running": "运行中",
+      "waiting": "等待中",
+      "paused": "已暂停",
+      "pending": "排队中",
+      "cancelled": "已取消"
+    },
+    "copied": "已复制为 Markdown",
+    "copiedTerminal": "已发送到终端剪贴板（OSC 52）",
+    "copyFailed": "无法复制：{{error}}",
+    "replyOnlyAgent": "只能回复智能体的消息",
+    "replyChoose": "请在对话中通过选项回答此问题",
+    "editorSaved": "已保存到 {{path}}",
+    "editorFailed": "无法打开 {{editor}}：{{error}}",
+    "searchPlaceholder": "搜索对话记录",
+    "dumpEnd": "对话记录结束",
+    "hint": {
+      "fold": "折叠",
+      "search": "搜索",
+      "match": "下一个匹配",
+      "copy": "复制",
+      "reply": "回复",
+      "scrollback": "输出到终端",
+      "editor": "编辑器",
+      "back": "返回",
+      "keep": "保留",
+      "clear": "清除"
+    }
+  },
+  "browser": {
+    "title": "浏览器 · {{session}}",
+    "newChat": "新对话会在发送第一条消息时获得自己的浏览器。",
+    "off": "已关闭。智能体浏览网页时会自动打开；按 s 立即启动。",
+    "starting": "正在启动浏览器...",
+    "installing": "正在安装 Chromium...",
+    "installDone": "Chromium 已安装。按 s 启动浏览器。",
+    "installFailed": "安装失败：{{error}}",
+    "installHint": "按 i 安装 Chromium（一次性下载）。",
+    "status": {
+      "starting": "启动中",
+      "ready": "就绪",
+      "stopped": "已关闭",
+      "installing": "安装中",
+      "error": "错误"
+    },
+    "browsing": "智能体浏览中",
+    "tabs_one": "{{count}} 个标签页",
+    "tabs_other": "{{count}} 个标签页",
+    "col": {
+      "owner": "使用者",
+      "title": "标题",
+      "address": "地址",
+      "state": "状态"
+    },
+    "owner": {
+      "you": "你",
+      "agent": "智能体",
+      "subagent": "子智能体",
+      "main": "主对话",
+      "session": "对话"
+    },
+    "state": {
+      "crashed": "已崩溃",
+      "control": "由你操作",
+      "working": "智能体工作中",
+      "loading": "加载中",
+      "idle": "空闲"
+    },
+    "untitled": "新标签页",
+    "noTabs": "没有打开的标签页。",
+    "controlNote": "浏览器以桌面窗口的形式运行。接管智能体的标签页即可在那里使用。",
+    "controlTaken": "你已接管：请使用浏览器窗口，完成后在此按 t 将标签页交还。",
+    "controlReturned": "已将标签页交还给智能体。",
+    "linkCopied": "链接已复制",
+    "linkCopiedTerminal": "链接已发送到终端剪贴板（OSC 52）",
+    "copyFailed": "无法复制：{{error}}",
+    "confirmClose": "{{owner}} 正在 {{title}} 中工作。仍要关闭吗？",
+    "stopping": "正在停止智能体的运行...",
+    "notBrowsing": "没有智能体运行在控制此标签页",
+    "event": {
+      "download": "已下载 {{name}}",
+      "crash": "有标签页崩溃了",
+      "blocked": "有页面被拦截",
+      "dialog": "页面弹出了对话框",
+      "popup": "页面打开了弹窗",
+      "notice": "通知",
+      "problem": "问题"
+    },
+    "hint": {
+      "control": "接管操作",
+      "handBack": "交还给智能体",
+      "show": "显示",
+      "close": "关闭标签页",
+      "copy": "复制链接",
+      "stop": "停止智能体",
+      "start": "启动",
+      "install": "安装 Chromium",
+      "back": "返回"
+    }
+  }
+}

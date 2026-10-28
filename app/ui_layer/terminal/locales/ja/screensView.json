@@ -1,0 +1,120 @@
+{
+  "transcript": {
+    "title": "会話ログ · {{session}}",
+    "count_one": "{{count}} 件のメッセージ",
+    "count_other": "{{count}} 件のメッセージ",
+    "match": "{{count}} 件中 {{index}} 件目",
+    "noMatch": "{{query}} に一致するものはありません",
+    "loadingOlder": "以前のメッセージを読み込み中...",
+    "olderAbove": "先頭まで移動すると以前のメッセージを読み込みます",
+    "start": "会話の始まり",
+    "empty": "この会話にはまだ何もありません。",
+    "reasoning": "推論",
+    "thinking": "思考中...",
+    "details": "詳細",
+    "detailsHidden_one": "詳細を非表示（{{count}} 行） · Enter で表示",
+    "detailsHidden_other": "詳細を非表示（{{count}} 行） · Enter で表示",
+    "replyingTo": "返信先",
+    "you": "あなた",
+    "waiting": "あなたの回答を待っています",
+    "status": {
+      "running": "実行中",
+      "waiting": "待機中",
+      "paused": "一時停止",
+      "pending": "順番待ち",
+      "cancelled": "キャンセル済み"
+    },
+    "copied": "Markdown としてコピーしました",
+    "copiedTerminal": "ターミナルのクリップボードに送信しました (OSC 52)",
+    "copyFailed": "コピーできませんでした: {{error}}",
+    "replyOnlyAgent": "返信できるのはエージェントのメッセージだけです",
+    "replyChoose": "この質問にはチャットで選択肢から回答してください",
+    "editorSaved": "{{path}} に保存しました",
+    "editorFailed": "{{editor}} を開けませんでした: {{error}}",
+    "searchPlaceholder": "会話ログを検索",
+    "dumpEnd": "会話ログの終わり",
+    "hint": {
+      "fold": "折りたたみ",
+      "search": "検索",
+      "match": "次の一致",
+      "copy": "コピー",
+      "reply": "返信",
+      "scrollback": "ターミナルに出力",
+      "editor": "エディター",
+      "back": "戻る",
+      "keep": "確定",
+      "clear": "クリア"
+    }
+  },
+  "browser": {
+    "title": "ブラウザ · {{session}}",
+    "newChat": "新しいチャットでは、最初のメッセージでブラウザが用意されます。",
+    "off": "オフです。エージェントがブラウズすると開きます。s で今すぐ起動します。",
+    "starting": "ブラウザを起動中...",
+    "installing": "Chromium をインストール中...",
+    "installDone": "Chromium をインストールしました。s でブラウザを起動します。",
+    "installFailed": "インストールに失敗しました: {{error}}",
+    "installHint": "i で Chromium をインストールします（初回のみのダウンロード）。",
+    "status": {
+      "starting": "起動中",
+      "ready": "準備完了",
+      "stopped": "オフ",
+      "installing": "インストール中",
+      "error": "エラー"
+    },
+    "browsing": "エージェントが閲覧中",
+    "tabs_one": "{{count}} 個のタブ",
+    "tabs_other": "{{count}} 個のタブ",
+    "col": {
+      "owner": "使用者",
+      "title": "タイトル",
+      "address": "アドレス",
+      "state": "状態"
+    },
+    "owner": {
+      "you": "あなた",
+      "agent": "エージェント",
+      "subagent": "サブエージェント",
+      "main": "メイン",
+      "session": "チャット"
+    },
+    "state": {
+      "crashed": "クラッシュ",
+      "control": "あなたが操作中",
+      "working": "エージェント作業中",
+      "loading": "読み込み中",
+      "idle": "待機中"
+    },
+    "untitled": "新しいタブ",
+    "noTabs": "開いているタブはありません。",
+    "controlNote": "ブラウザはデスクトップ上のウィンドウとして動作します。そこで使うには、エージェントのタブの操作を代わってください。",
+    "controlTaken": "操作を代わりました。ブラウザウィンドウを使い終わったら、ここで t を押してタブをエージェントに戻してください。",
+    "controlReturned": "タブをエージェントに戻しました。",
+    "linkCopied": "リンクをコピーしました",
+    "linkCopiedTerminal": "リンクをターミナルのクリップボードに送信しました (OSC 52)",
+    "copyFailed": "コピーできませんでした: {{error}}",
+    "confirmClose": "{{owner}} が {{title}} で作業中です。それでも閉じますか？",
+    "stopping": "エージェントの実行を停止中...",
+    "notBrowsing": "このタブを操作しているエージェントの実行はありません",
+    "event": {
+      "download": "{{name}} をダウンロードしました",
+      "crash": "タブがクラッシュしました",
+      "blocked": "ページがブロックされました",
+      "dialog": "ページにダイアログが表示されました",
+      "popup": "ページがポップアップを開きました",
+      "notice": "お知らせ",
+      "problem": "問題"
+    },
+    "hint": {
+      "control": "操作を代わる",
+      "handBack": "エージェントに戻す",
+      "show": "表示",
+      "close": "タブを閉じる",
+      "copy": "リンクをコピー",
+      "stop": "エージェントを停止",
+      "start": "起動",
+      "install": "Chromium をインストール",
+      "back": "戻る"
+    }
+  }
+}

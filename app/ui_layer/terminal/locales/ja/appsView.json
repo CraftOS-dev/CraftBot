@@ -1,0 +1,63 @@
+{
+  "title": "Agent App",
+  "notFound": "このアプリはもう存在しません。",
+  "loading": "読み込み中...",
+  "stopped": "アプリは停止しています。l で起動します。",
+  "asOwner": "オーナーとして",
+  "agent": "AI エージェント",
+  "agentIdle": "待機中",
+  "agentWorking": "作業中",
+  "status": {
+    "running": "実行中",
+    "ready": "実行中",
+    "stopped": "停止",
+    "creating": "構築中",
+    "launching": "起動中",
+    "stopping": "停止中",
+    "error": "エラー",
+    "created": "未起動"
+  },
+  "tabs": {
+    "ops": "操作",
+    "records": "レコード",
+    "requests": "リクエスト",
+    "settings": "設定"
+  },
+  "hint": {
+    "back": "戻る",
+    "cancel": "キャンセル",
+    "confirm": "確定",
+    "anyKey": "その他のキー",
+    "anyKeyBack": "任意のキーで戻ります",
+    "nextOrRun": "次の項目、最後の項目で実行",
+    "nextField": "次の項目",
+    "open": "開く",
+    "send": "送信",
+    "closeChat": "チャットを閉じる",
+    "allOps": "すべての操作",
+    "chat": "チャット",
+    "screens": "画面",
+    "stop": "停止",
+    "launch": "起動"
+  },
+  "fieldError": {
+    "required": "必須",
+    "number": "数値を入力してください"
+  },
+  "noParams": "入力は不要です。Enter で実行します。",
+  "confirmDestructive": "{{label}} はデータを変更、または完全に削除します。実行しますか？",
+  "confirmHint": "y で実行 · その他のキーで戻る",
+  "destructive": "破壊的",
+  "noActions": "この行にはアクションがありません。",
+  "paletteHint": "入力して操作を検索",
+  "recordCount_one": "{{count}} 件のレコード",
+  "recordCount_other": "{{count}} 件のレコード",
+  "readOnly": "読み取り専用（変更は操作から行います）",
+  "recordsHint": "アプリのデータ（読み取り専用）。Enter でコレクションを開きます。",
+  "requestsHint": "アプリが AI エージェントに送ったリクエストです。Enter で一覧を表示します。",
+  "viewsInvalid": "views.json に問題があるため、生成された画面を表示しています: {{problem}}",
+  "actionsOnly": "このエリア単体で表示する内容はありません。下のアクションを使ってください。",
+  "you": "あなた",
+  "chatEmpty": "まだ会話はありません。",
+  "chatPlaceholder": "このアプリについて AI エージェントに質問"
+}

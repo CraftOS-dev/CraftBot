@@ -25,6 +25,12 @@
           "description": "Unique verb name, e.g. \"items.clear-done\"."
         },
         "description": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 60,
+          "description": "Short name for people, shown on buttons and in forms (e.g. \"Add expense\"). Defaults to one derived from the op name."
+        },
         "system": {
           "type": "boolean",
           "description": "True for tooling-maintained built-ins (health, ops.list, …). Agents never edit system entries."
@@ -32,6 +38,19 @@
         "destructive": {
           "type": "boolean",
           "description": "Marks ops that delete/overwrite data; hosts show confirmation and AGENT-ACCESS may require per-call consent (AC-E3)."
+        },
+        "readOnly": {
+          "type": "boolean",
+          "description": "True when the op changes nothing. Defaults to true for GET and crud list, false otherwise. Views may only read from readOnly ops."
+        },
+        "confirm": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "The question a host asks before running a destructive op (e.g. \"Delete this expense for good?\")."
+        },
+        "returns": {
+          "enum": ["record", "list", "summary", "series", "job", "none"],
+          "description": "Shape of a successful result, so hosts can lay it out: one record, a list of records, a summary object, a series of points, a job, or nothing."
         },
         "schedule": {
           "type": "string",
@@ -55,7 +74,13 @@
         "description": { "type": "string" },
         "required": { "type": "boolean", "default": false },
         "default": {},
-        "enum": { "type": "array", "items": { "type": ["string", "number"] } }
+        "enum": { "type": "array", "items": { "type": ["string", "number"] } },
+        "label": { "type": "string", "minLength": 1, "maxLength": 40, "description": "Field label for people. Defaults to the param name." },
+        "format": {
+          "type": "string",
+          "pattern": "^(date|datetime|money|percent|multiline|secret|json|ref:[a-z][a-z0-9_]*)$",
+          "description": "How a host edits and shows a string param: date (YYYY-MM-DD), datetime, money, percent, multiline text, secret (masked, never echoed), json (validated JSON text), or ref:<collection> (a record id picked from that collection)."
+        }
       }
     },
     "executor": {

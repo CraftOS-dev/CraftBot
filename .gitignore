@@ -71,6 +71,8 @@ app/data/.file_index/
 **/playwright-report/
 # Sidecar Node runtime (install.py downloads it when the system Node is too old for Agent App)
 runtime/
+# ...but not the terminal client's own source folder of that name.
+!app/ui_layer/terminal/src/runtime/
 
 # Local wheel cache built by scripts/build_wheelhouse.py (~2GB of .whl
 # files). Machine- and platform-specific, and regenerable from the lock, so

@@ -377,9 +377,12 @@ class AgentBase:
         # Bind session_manager so state_manager can look up sessions by id
         self.state_manager.bind_session_manager(self.session_manager)
 
-        # Set _interface_mode early so context_engine.make_prompt() works during restore
-        # (will be updated again in run() based on selected interface)
-        self._interface_mode: str = "cli"
+        # The edition (browser or terminal) is fixed for the whole process
+        # (app/edition.py); set before restore so make_prompt() sees it and
+        # every prompt built from it stays identical turn after turn.
+        from app import edition
+
+        self._interface_mode: str = edition.current()
 
         # Restore persisted sessions (main + chats + agent app) from the
         # previous run, then guarantee the main session exists.
@@ -3063,6 +3066,32 @@ class AgentBase:
                     "chat as your final message. Ask for a 2FA code in chat; never guess one."
                 )
             return prompt
+        if self._interface_mode == "terminal":
+            prompt = (
+                "\n\n## Terminal\n"
+                "The user talks to you in a terminal. Your replies render as Markdown "
+                "(headings, lists, tables, code blocks); never send HTML. Keep tables "
+                "under 100 characters wide. Interactive pages and the output panel do "
+                "not exist here: answer in text."
+                "\n\n## File Sharing\n"
+                "You can send files to the user using the `send_message_with_attachment` action. "
+                "Use this when the user asks you to share, send, or provide a file from the workspace. "
+                "The user sees each file's name and path and opens it from the terminal."
+            )
+            if self._mini_browser_usable():
+                prompt += (
+                    "\n\n## Mini Browser\n"
+                    "This chat has a browser of its own (its own cookies and signed-in sites; "
+                    "saved passwords are shared). It opens as a window on the user's desktop "
+                    "when you start browsing, so they can watch it. When a site needs the user "
+                    "(a CAPTCHA, a sign-in with no saved login), tell them (send_message with "
+                    "continue_work=true) to take control of your tab in the Browser screen "
+                    "(Ctrl+X b, then t) and do it in that window, then call `mini_browser_wait` "
+                    "with for_user=true: it returns once they hand the tab back there. If it "
+                    "times out, ask them in chat as your final message. Ask for a 2FA code in "
+                    "chat; never guess one."
+                )
+            return prompt
         return ""
 
     @staticmethod
@@ -4176,13 +4205,13 @@ class AgentBase:
     # Lifecycle
     # =====================================
 
-    async def boot(self, *, browser_ui, verbose: bool = True) -> None:
+    async def boot(self, *, verbose: bool = True) -> None:
         """Run the full production startup sequence except the UI loop.
 
         Called from ``run()`` before the interactive interface starts.
         Also called directly by the e2e test harness so tests get the
-        exact same setup as production without blocking on ``CLI/Browser``
-        interactive loops.
+        exact same setup as production without blocking on the WebSocket
+        interface loop.
 
         Steps:
           1. Config watcher (hot-reload of settings.json)
@@ -4203,15 +4232,11 @@ class AgentBase:
         def step(step_num: int, total: int, message: str) -> None:
             if not verbose:
                 return
-            if browser_ui:
-                # Browser mode: formatted with alignment and checkmark
-                prefix = f"  [{step_num:>2}/{total}]"
-                step_width = 45
-                padded_msg = f"{message}...".ljust(step_width - len(prefix))
-                print(f"{prefix} {padded_msg}✓", flush=True)
-            else:
-                # CLI mode: simple format
-                print(f"[{step_num}/{total}] {message}...")
+            # Aligned with run.py's own steps 1-2, ending in a checkmark.
+            prefix = f"  [{step_num:>2}/{total}]"
+            step_width = 45
+            padded_msg = f"{message}...".ljust(step_width - len(prefix))
+            print(f"{prefix} {padded_msg}✓", flush=True)
 
         # Startup progress messages
         step(3, 7, "Initializing agent")
@@ -4390,13 +4415,13 @@ class AgentBase:
         provider: str | None = None,
         api_key: str = "",
         base_url: str | None = None,
-        interface_mode: str = "cli",
     ) -> None:
         """
-        Launch the interactive loop for the agent.
+        Launch the agent and serve its interface until shutdown.
 
-        Performs the full production startup via ``boot()``, then enters
-        the chosen interactive interface.
+        Performs the full production startup via ``boot()``, starts the
+        Agent App host, then serves the WebSocket backend that both editions
+        connect to (the browser UI and the terminal client alike).
 
         Args:
             provider: Optional provider override passed to the interface before
@@ -4404,42 +4429,27 @@ class AgentBase:
                 initialization.
             api_key: Optional API key presented in the interface for convenience.
             base_url: Optional base URL for the provider.
-            interface_mode: "browser" for the browser WebSocket UI, or "cli"
-                for the terminal command-line interface (default).
         """
-        browser_ui = os.getenv("BROWSER_STARTUP_UI", "0") == "1"
-
-        await self.boot(browser_ui=browser_ui)
-
-        # Startup complete (only print in CLI mode, browser mode handles this in run.py)
-        if not browser_ui:
-            print("\n[OK] Ready!\n", flush=True)
+        await self.boot()
 
         import sys
 
         sys.stdout.flush()
         sys.stderr.flush()
-        # Store interface mode for context-aware prompts
-        self._interface_mode = interface_mode
 
         try:
-            # Select interface based on mode
-            if interface_mode == "browser":
-                from app.browser import BrowserInterface
+            # Agent Apps run whichever edition is in front of the user.
+            from app.agent_app.host import start_agent_app_host
 
-                interface = BrowserInterface(
-                    self,
-                    default_provider=provider or self.llm.provider,
-                    default_api_key=api_key,
-                )
-            else:
-                from app.cli import CLIInterface
+            start_agent_app_host(self)
 
-                interface = CLIInterface(
-                    self,
-                    default_provider=provider or self.llm.provider,
-                    default_api_key=api_key,
-                )
+            from app.browser import BrowserInterface
+
+            interface = BrowserInterface(
+                self,
+                default_provider=provider or self.llm.provider,
+                default_api_key=api_key,
+            )
 
             await interface.start()
         finally:

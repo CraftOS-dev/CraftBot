@@ -13,7 +13,7 @@ Options:
 Note: GUI mode (--gui) is temporarily disabled in V1.2.2.
 
 After installation completes, CraftBot will automatically launch in browser mode.
-To use the CLI instead, run: python run.py --cli
+To use the terminal edition instead, run: python run.py --tui
 """
 
 import math

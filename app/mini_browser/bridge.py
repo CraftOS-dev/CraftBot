@@ -3,7 +3,7 @@
 The browsers run on their own thread (see ``host.py``); the UI adapter runs
 on the app's main loop. The adapter registers a :class:`UISink` (``ws.py``)
 that hops messages onto its own loop; the browsers publish through
-:func:`publish`, which is a no-op when no UI is attached (CLI mode, tests).
+:func:`publish`, which is a no-op when no UI is attached (tests).
 
 Every session has a browser of its own, and a UI client watches one
 session's browser at a time (that chat's browser panel). So per-session

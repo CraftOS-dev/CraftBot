@@ -1,0 +1,8 @@
+{
+  "name": "@agentapp/view",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Agent App views: declared or generated screens over an app's operations, laid out as text",
+  "main": "./src/index.ts"
+}

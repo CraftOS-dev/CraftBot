@@ -1,0 +1,63 @@
+{
+  "title": "Agent App",
+  "notFound": "Aplikasi ini sudah tidak ada.",
+  "loading": "Memuat...",
+  "stopped": "Aplikasi berhenti. Tekan l untuk meluncurkannya.",
+  "asOwner": "sebagai pemilik",
+  "agent": "agen AI Anda",
+  "agentIdle": "siaga",
+  "agentWorking": "bekerja",
+  "status": {
+    "running": "berjalan",
+    "ready": "berjalan",
+    "stopped": "berhenti",
+    "creating": "sedang dibangun",
+    "launching": "memulai",
+    "stopping": "menghentikan",
+    "error": "kesalahan",
+    "created": "belum dimulai"
+  },
+  "tabs": {
+    "ops": "Operasi",
+    "records": "Entri",
+    "requests": "Permintaan",
+    "settings": "Pengaturan"
+  },
+  "hint": {
+    "back": "kembali",
+    "cancel": "batal",
+    "confirm": "konfirmasi",
+    "anyKey": "tombol lain",
+    "anyKeyBack": "Tombol apa pun untuk kembali",
+    "nextOrRun": "kolom berikutnya, dijalankan di kolom terakhir",
+    "nextField": "kolom berikutnya",
+    "open": "buka",
+    "send": "kirim",
+    "closeChat": "tutup obrolan",
+    "allOps": "semua operasi",
+    "chat": "obrolan",
+    "screens": "layar",
+    "stop": "hentikan",
+    "launch": "luncurkan"
+  },
+  "fieldError": {
+    "required": "wajib",
+    "number": "harus berupa angka"
+  },
+  "noParams": "Tidak perlu detail. Tekan Enter untuk menjalankan.",
+  "confirmDestructive": "{{label}} mengubah atau menghapus data secara permanen. Jalankan?",
+  "confirmHint": "y jalankan · tombol lain untuk kembali",
+  "destructive": "destruktif",
+  "noActions": "Tidak ada tindakan untuk baris ini.",
+  "paletteHint": "Ketik untuk mencari operasi",
+  "recordCount_one": "{{count}} entri",
+  "recordCount_other": "{{count}} entri",
+  "readOnly": "hanya baca (perubahan melalui operasi)",
+  "recordsHint": "Data aplikasi, hanya baca. Enter membuka koleksi.",
+  "requestsHint": "Permintaan yang dikirim aplikasi ke agen AI Anda. Enter menampilkan daftarnya.",
+  "viewsInvalid": "views.json bermasalah, menampilkan layar yang dibuat otomatis: {{problem}}",
+  "actionsOnly": "Area ini tidak menampilkan apa pun sendiri; gunakan tindakannya di bawah.",
+  "you": "Anda",
+  "chatEmpty": "Belum ada percakapan.",
+  "chatPlaceholder": "Tanyakan kepada agen AI Anda tentang aplikasi ini"
+}

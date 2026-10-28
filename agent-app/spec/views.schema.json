@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://craftos.dev/schemas/agent-app/views-v1.json",
+  "title": "Agent App views (viewsVersion 1)",
+  "description": "How the app is shown where its web page is not: the CraftBot terminal edition and `agent-app view`. A catalog of semantic blocks; every data source and every action names a declared operation, so everything a person sees or does is reachable through the app's ops. The gate checks the references (agent-app/view/src/validate.ts): sources must be read ops (GET or readOnly), actions must name declared ops, keys are one character, unique per screen and not one of the navigation keys (q j k g h l c r J G s t p o x v y n).",
+  "type": "object",
+  "required": ["viewsVersion", "screens"],
+  "additionalProperties": false,
+  "properties": {
+    "viewsVersion": { "const": 1 },
+    "home": { "type": "string", "description": "id of the first screen (default: the first in the list)." },
+    "screens": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/screen" } }
+  },
+  "$defs": {
+    "opRef": {
+      "type": "object",
+      "required": ["op"],
+      "additionalProperties": false,
+      "properties": {
+        "op": { "type": "string", "description": "A declared operation name." },
+        "params": {
+          "type": "object",
+          "additionalProperties": { "type": ["string", "number", "boolean"] },
+          "description": "Fixed params. In row actions a value \"$row.<field>\" takes that field of the selected row."
+        }
+      }
+    },
+    "action": {
+      "type": "object",
+      "required": ["key", "op"],
+      "additionalProperties": false,
+      "properties": {
+        "key": { "type": "string", "minLength": 1, "maxLength": 2 },
+        "op": { "type": "string" },
+        "label": { "type": "string" },
+        "params": { "$ref": "#/$defs/opRef/properties/params" }
+      }
+    },
+    "format": {
+      "type": "string",
+      "pattern": "^(text|number|percent|date|datetime|boolean|money|money:.+)$",
+      "description": "money:/pointer reads the currency from the source; money:JPY fixes it."
+    },
+    "column": {
+      "type": "object",
+      "required": ["field"],
+      "additionalProperties": false,
+      "properties": {
+        "field": { "type": "string" },
+        "label": { "type": "string" },
+        "format": { "$ref": "#/$defs/format" },
+        "priority": { "type": "integer", "minimum": 0, "description": "0 = always shown; higher numbers drop first on narrow terminals." }
+      }
+    },
+    "pointer": { "type": "string", "pattern": "^(/.*)?$", "description": "JSON Pointer into the source op's result ('' = the whole result)." },
+    "block": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": { "enum": ["metrics", "keyvalue", "table", "list", "bars", "sparkline", "text", "auto"] },
+        "title": { "type": "string" },
+        "source": { "$ref": "#/$defs/opRef" },
+        "items": {},
+        "value": { "$ref": "#/$defs/pointer" },
+        "fields": { "type": "array" },
+        "rows": { "$ref": "#/$defs/pointer" },
+        "rowKey": { "type": "string" },
+        "columns": { "type": "array", "items": { "$ref": "#/$defs/column" } },
+        "rowActions": { "type": "array", "items": { "$ref": "#/$defs/action" } },
+        "empty": { "type": "string" },
+        "primary": { "type": "string" },
+        "secondary": { "type": "string" },
+        "series": { "$ref": "#/$defs/pointer" },
+        "x": { "type": "string" },
+        "y": { "type": "string" },
+        "format": { "$ref": "#/$defs/format" },
+        "text": { "type": "string" }
+      },
+      "description": "metrics {items:[{label, value: pointer, format}]}, keyvalue {value, fields}, table {rows, columns, rowActions}, list {items, primary, secondary, rowActions}, bars {series, x, y}, sparkline {series, y, x}, text {value | text}, auto {value} (laid out by its shape)."
+    },
+    "screen": {
+      "type": "object",
+      "required": ["id", "title", "blocks"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "title": { "type": "string", "minLength": 1 },
+        "source": { "$ref": "#/$defs/opRef" },
+        "refreshOn": { "type": "array", "items": { "type": "string" }, "description": "Collections whose changes refresh this screen (default: all)." },
+        "blocks": { "type": "array", "items": { "$ref": "#/$defs/block" } },
+        "actions": { "type": "array", "items": { "$ref": "#/$defs/action" } }
+      }
+    }
+  }
+}

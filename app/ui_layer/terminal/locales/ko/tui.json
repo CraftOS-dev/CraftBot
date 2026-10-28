@@ -1,0 +1,223 @@
+{
+  "settings": {
+    "otherTab": "다른 탭",
+    "tabList": "탭 목록",
+    "tabs": {
+      "general": "일반",
+      "proactive": "능동",
+      "memory": "메모리",
+      "model": "모델",
+      "mcp": "MCP 서버",
+      "skills": "스킬",
+      "integrations": "연동",
+      "credentials": "자격 증명",
+      "agentApps": "Agent App"
+    }
+  },
+  "actions": {
+    "newChat": "새 채팅",
+    "enhance": "AI로 초안 다듬기",
+    "effort": "추론 강도",
+    "quit": "종료"
+  },
+  "screens": {
+    "sessions": "세션",
+    "apps": "Agent App",
+    "memory": "메모리",
+    "workspace": "작업 공간",
+    "dashboard": "대시보드",
+    "browser": "브라우저",
+    "settings": "설정",
+    "transcript": "대화 기록",
+    "help": "단축키",
+    "palette": "명령 팔레트"
+  },
+  "session": {
+    "main": "메인",
+    "newChat": "새 채팅",
+    "untitled": "제목 없는 채팅"
+  },
+  "composer": {
+    "placeholder": "무엇이든 물어보세요 · / 명령 · ? 단축키",
+    "moreAbove": "↑ {{count}}줄 더",
+    "moreBelow": "↓ {{count}}줄 더",
+    "leaderHint": "s 세션 · a 앱 · m 메모리 · w 작업 공간 · d 대시보드 · b 브라우저 · , 설정 · n 새 채팅",
+    "invisibleRemoved_one": "메시지에서 보이지 않는 문자 {{count}}개를 제거했습니다",
+    "invisibleRemoved_other": "메시지에서 보이지 않는 문자 {{count}}개를 제거했습니다",
+    "sendFailed": "보내지 못했습니다: {{error}}",
+    "enhanceUnavailable": "먼저 초안을 입력한 뒤 Ctrl+X e를 누르세요",
+    "enhancing": "초안을 다듬는 중...",
+    "folder": "폴더",
+    "replyingTo": "답장 대상: {{name}} · Esc 취소",
+    "enhanceFailed": "초안을 다듬지 못했습니다",
+    "attached_one": "파일 {{count}}개를 첨부했습니다",
+    "attached_other": "파일 {{count}}개를 첨부했습니다",
+    "attachTooMany": "메시지당 최대 {{count}}개 파일까지 첨부할 수 있습니다",
+    "attachTooLarge": "첨부 파일은 합계 200MB까지입니다"
+  },
+  "connect": {
+    "connecting": "CraftBot 시작 중...",
+    "waiting": "CraftBot이 시작을 마치기를 기다리는 중...",
+    "greeting": "연결되었습니다. 채팅을 불러오는 중...",
+    "unresponsive": "CraftBot이 응답하지 않습니다.",
+    "seeLog": "로그: {{path}}",
+    "stopHint": "Ctrl+C로 종료한 뒤 다음을 실행하세요: python craftbot.py stop",
+    "legacyConsole": "기존 Windows 콘솔입니다. CraftBot은 Windows Terminal에서 더 잘 작동합니다(더 부드러운 화면 갱신, Shift+Enter, 붙여넣기).",
+    "wrongEdition": "CraftBot이 {{edition}} 에디션으로 실행 중입니다. 터미널용으로 다시 시작하세요: python craftbot.py restart --tui"
+  },
+  "working": {
+    "label": "작업 중",
+    "stopping": "중지 중",
+    "stopHint": "esc 중지",
+    "waiting": "답변을 기다리는 중",
+    "moreDone_one": "{{count}}개 더 완료",
+    "moreDone_other": "{{count}}개 더 완료",
+    "subagent_one": "하위 에이전트 {{name}} · 작업 {{count}}개",
+    "subagent_other": "하위 에이전트 {{name}} · 작업 {{count}}개"
+  },
+  "question": {
+    "title": "{{name}}의 질문 · {{total}}개 중 {{index}}번째",
+    "choiceTitle": "계속할 방법을 선택하세요",
+    "recommended": "권장",
+    "hint": "답변을 입력하거나 Tab으로 옵션을 선택하세요",
+    "choiceHint": "Tab으로 선택",
+    "focusedHint": "1-9 또는 화살표로 선택 · Enter 보내기 · x 닫기(작업 중단) · Esc 입력으로 돌아가기",
+    "focusedChoiceHint": "1-9 또는 화살표로 선택 · Enter 확인 · Esc 입력으로 돌아가기",
+    "dismissed": "질문을 닫았습니다"
+  },
+  "notify": {
+    "question": "{{session}}에서 답변이 필요합니다",
+    "done": "{{session}} 완료",
+    "needsYou": "{{count}}개 응답 필요"
+  },
+  "firstRun": {
+    "keys": "Enter 보내기 · Ctrl+J 줄바꿈 · Esc 중지 · / 명령 · Ctrl+X 화면 · Ctrl+P 팔레트 · ? 단축키 · Ctrl+C 두 번 종료"
+  },
+  "quit": {
+    "pressAgain": "종료하려면 Ctrl+C를 한 번 더 누르세요"
+  },
+  "status": {
+    "moreSessions_one": "+{{count}}개",
+    "moreSessions_other": "+{{count}}개",
+    "effort": "추론 {{value}}",
+    "cache": "캐시 {{value}}%",
+    "apps_one": "앱 {{count}}개 실행 중",
+    "apps_other": "앱 {{count}}개 실행 중",
+    "offline": "다시 연결 중",
+    "backendBusy": "CraftBot이 바쁩니다",
+    "help": "? 단축키"
+  },
+  "todo": {
+    "title": "할 일 {{done}}/{{total}}"
+  },
+  "transcript": {
+    "actions_one": "작업 {{count}}개",
+    "actions_other": "작업 {{count}}개",
+    "failed_one": "{{count}}개 실패",
+    "failed_other": "{{count}}개 실패",
+    "stopped": "중지됨",
+    "earlier_one": "이전 항목 {{count}}개 · Ctrl+O로 모두 보기",
+    "earlier_other": "이전 항목 {{count}}개 · Ctrl+O로 모두 보기",
+    "interactiveOutput": "대화형 출력 · {{title}} · rev {{revision}} · 브라우저 버전에서 여세요",
+    "detailsHint": "자세한 내용은 대화 기록에서 확인하세요 (Ctrl+O)",
+    "error": "오류",
+    "system": "시스템"
+  },
+  "help": {
+    "chat": "채팅",
+    "send": "보내기",
+    "newline": "줄바꿈",
+    "stop": "실행 중인 작업 중지, 팝업 닫기",
+    "history": "이전 입력(첫 줄 또는 마지막 줄에서)",
+    "focusQuestion": "고정된 질문의 옵션 선택",
+    "commands": "명령과 스킬",
+    "todos": "할 일 목록 표시 또는 숨기기",
+    "redraw": "화면 다시 그리기",
+    "clearOrQuit": "입력 지우기, 두 번 누르면 종료",
+    "leader": "화면(Ctrl+X 다음에 키)",
+    "screensTitle": "화면 안에서",
+    "move": "이동",
+    "open": "열기",
+    "back": "한 단계 뒤로",
+    "closeAll": "채팅으로 돌아가기",
+    "filter": "필터",
+    "addEditDelete": "추가, 편집, 삭제",
+    "refresh": "새로 고침",
+    "panesTabs": "다음 창, 이전 및 다음 탭",
+    "apps": "Agent App 목록",
+    "appOpen": "앱 열기",
+    "appLaunchStop": "실행, 중지",
+    "appAdd": "앱 추가(마켓플레이스, 만들기, 가져오기)",
+    "appThemeSettings": "테마, 앱 설정",
+    "appDelete": "중지된 앱 삭제",
+    "appReorder": "앱을 아래로, 위로 이동",
+    "appView": "앱 안에서",
+    "appScreens": "다음 화면, 이전, 다음",
+    "appRows": "행 간 이동, 다음 표",
+    "appRow": "행의 세부 정보와 작업",
+    "appOps": "앱의 모든 작업",
+    "appChat": "AI 에이전트와 앱에 대해 채팅",
+    "appRefreshRecords": "새로 고침, 앱의 레코드(읽기 전용)",
+    "editing": "편집",
+    "lineEnds": "줄의 시작과 끝",
+    "wordMove": "단어 단위로 이동",
+    "deleteWord": "이전 단어 삭제",
+    "killLine": "줄의 시작 또는 끝까지 삭제"
+  },
+  "hint": {
+    "back": "뒤로",
+    "open": "열기",
+    "move": "이동",
+    "run": "실행",
+    "scroll": "스크롤",
+    "filter": "필터",
+    "rename": "이름 변경",
+    "clear": "지우기",
+    "delete": "삭제",
+    "makeSkill": "스킬 만들기",
+    "confirm": "y 확인 · 다른 키는 취소",
+    "help": "도움말"
+  },
+  "sessions": {
+    "count_one": "대화 {{count}}개",
+    "count_other": "대화 {{count}}개",
+    "mainNote": "메인은 자동으로 일어나는 모든 일을 받습니다: 일정, 연동, 알림.",
+    "confirmClear": "{{title}}의 모든 메시지를 지울까요?",
+    "confirmDelete": "{{title}}을(를) 영구적으로 삭제할까요?",
+    "skillRequested": "이 대화를 스킬로 바꾸는 중..."
+  },
+  "palette": {
+    "placeholder": "입력하여 화면, 채팅, 앱, 명령 검색",
+    "count_one": "{{count}}개 일치",
+    "count_other": "{{count}}개 일치",
+    "screen": "화면",
+    "action": "작업",
+    "session": "채팅",
+    "app": "앱",
+    "command": "명령",
+    "skill": "스킬"
+  },
+  "onboarding": {
+    "title": "CraftBot 설정",
+    "loading": "설정을 불러오는 중...",
+    "continue": "계속",
+    "next": "다음",
+    "nextField": "다음 필드",
+    "skip": "건너뛰기",
+    "apiKey": "API 키",
+    "ollamaUrl": "Ollama 주소",
+    "agentNamePlaceholder": "에이전트 이름을 지어 주세요",
+    "via": "연결 방식: {{via}} (Tab으로 전환)",
+    "viaDirect": "공급자에 직접 연결",
+    "subscriptionHint": "키 대신 {{label}}: 설정을 마친 뒤 설정 > 모델에서 사용할 수 있습니다.",
+    "imageLater": "사진은 나중에 설정에서 추가하세요",
+    "working": "저장 중..."
+  },
+  "welcome": {
+    "commands": "명령",
+    "help": "도움말",
+    "sessions": "세션",
+    "transcript": "대화 기록",
+    "tagline": "무엇이든 물어보세요. /로 명령을, @로 파일을 첨부합니다."
+  }
+}

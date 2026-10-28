@@ -127,12 +127,7 @@ def main():
                 print("\n[3/3] Launching Python Agent...")
         else:
             if not browser_startup_ui:
-                print("\n[1/1] Launching Python Agent (CLI Mode)...")
-
-        if not browser_startup_ui:
-            print("--------------------------------")
-            print("Type '/exit' or use your defined quit hotkey to stop.")
-            print("--------------------------------")
+                print("\n[1/1] Launching Python Agent...")
 
         # Run the main Python app in the foreground.
         # This call BLOCKS until the app exits.
@@ -184,7 +179,7 @@ def main():
             # containers we started. Killing whatever else listens on the
             # port would hit processes CraftBot never launched.
         else:
-            print("[*] Skipping Docker cleanup (not started in CLI mode).")
+            print("[*] Skipping Docker cleanup (GUI mode was not started).")
 
         sys.exit(final_exit_code)
 

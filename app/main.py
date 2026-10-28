@@ -165,7 +165,7 @@ from app.agent_base import AgentBase
 
 
 def _parse_cli_args() -> dict:
-    """Parse CLI-specific arguments.
+    """Parse command-line arguments.
 
     Returns:
         Dictionary with parsed arguments.
@@ -173,16 +173,6 @@ def _parse_cli_args() -> dict:
     parser = argparse.ArgumentParser(
         description="CraftBot Agent",
         add_help=False,  # Don't conflict with other parsers
-    )
-    parser.add_argument(
-        "--cli",
-        action="store_true",
-        help="Run in CLI mode (terminal command-line interface)",
-    )
-    parser.add_argument(
-        "--browser",
-        action="store_true",
-        help="Run with browser interface (WebSocket server)",
     )
     parser.add_argument(
         "--provider",
@@ -238,9 +228,8 @@ def _initial_settings() -> tuple:
 
 
 async def main_async() -> None:
-    # Parse CLI arguments
+    # Parse command-line arguments
     cli_args = _parse_cli_args()
-    browser_mode = cli_args.get("browser", False)
 
     # Get settings from settings.json
     (
@@ -255,7 +244,7 @@ async def main_async() -> None:
         has_valid_key,
     ) = _initial_settings()
 
-    # CLI args override settings.json if provided
+    # Command-line args override settings.json if provided
     if cli_args.get("provider"):
         provider = cli_args["provider"]
         api_key = get_api_key(provider)
@@ -267,8 +256,8 @@ async def main_async() -> None:
         api_key = cli_args["api_key"]
         has_valid_key = True
 
-    # Use deferred initialization if no valid API key is configured yet
-    # This allows the CLI to start so first-time users can configure settings
+    # Use deferred initialization if no valid API key is configured yet.
+    # This lets the interface start so first-time users can configure settings.
     agent = AgentBase(
         data_dir="app/data",
         chroma_path="./chroma_db",
@@ -288,17 +277,12 @@ async def main_async() -> None:
 
     onboarding_manager.set_agent(agent)
 
-    # Determine interface mode: browser if requested, otherwise CLI
-    if browser_mode:
-        interface_mode = "browser"
-    else:
-        interface_mode = "cli"
-
+    # The edition (browser or terminal) comes from CRAFTBOT_FRONTEND, set by
+    # the launcher (app/edition.py); both are served by the same backend.
     await agent.run(
         provider=provider,
         api_key=api_key,
         base_url=base_url,
-        interface_mode=interface_mode,
     )
 
 

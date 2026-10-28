@@ -49,7 +49,10 @@ this skill covers only what differs.
   (NEW files only — never edit, rename, or delete an applied migration: the
   filename is its identity in the live DB, and a renamed one makes the app
   unable to boot), `pb/pb_hooks/ops.pb.js` (+ new `*.pb.js` / `*.js` helper
-  modules), `operations.json` (non-system), `triggers.json`, `AGENT_APP.md`.
+  modules), `operations.json` (non-system), `triggers.json`, `views.json`,
+  `AGENT_APP.md`. A change that adds or alters what people can see or do also
+  updates `views.json` (the terminal screens; see the creator skill's
+  "Terminal views"), and `agent-app view` shows the result.
   Adding/changing an agent trigger (app fires the agent): declare it in
   `triggers.json` first — see the creator skill's `references/TRIGGERS.md`;
   the gate re-derives `capabilities.triggers` on relaunch, and fires of

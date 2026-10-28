@@ -6,6 +6,10 @@ frozen :class:`MiniBrowserSettings`, so a hand-edited value can never stop the
 browser from starting. Both use the same rules (:func:`clean_setting`), so a
 value means the same whichever way it is read.
 
+One default depends on the edition (``app.edition``): the terminal edition has
+no live view of the browser, so there it opens as a window on the user's
+desktop unless settings.json sets ``headless`` itself (:func:`load_settings`).
+
 The path helpers never touch the disk. Create a directory with
 :func:`ensure_dir` from a worker thread (``asyncio.to_thread``): this module
 is used on the Mini Browser event loop, where blocking I/O is not allowed.
@@ -20,7 +24,7 @@ import os
 import re
 import sys
 import warnings
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, FrozenSet, Mapping, Optional, Tuple
@@ -64,6 +68,8 @@ _FALSE_WORDS = frozenset({"false", "0", "no", "off"})
 class MiniBrowserSettings:
     """Validated Mini Browser settings (see settings.json ``mini_browser``)."""
 
+    # The terminal edition opens a window instead unless settings.json sets
+    # this key itself (see load_settings).
     headless: bool = True
     adblock: bool = True
     humanlike: bool = True
@@ -201,6 +207,11 @@ def _usable_search_url(text: str) -> bool:
 def load_settings() -> MiniBrowserSettings:
     """Current settings from settings.json, validated. Never raises.
 
+    In the terminal edition the browser is headed (a window on the user's
+    desktop, which they can watch and use when they take control of a tab)
+    unless settings.json sets ``headless`` itself. The browser edition shows
+    the browser in its own panel and keeps the plain setting.
+
     May read settings.json (blocking): call it from a worker thread when on an
     event loop.
     """
@@ -217,7 +228,44 @@ def load_settings() -> MiniBrowserSettings:
         logger.warning(
             f"[MiniBrowser] Settings unavailable, using defaults: {type(exc).__name__}"
         )
-    return MiniBrowserSettings.from_mapping(data if isinstance(data, Mapping) else None)
+    settings = MiniBrowserSettings.from_mapping(
+        data if isinstance(data, Mapping) else None
+    )
+    if settings.headless and _terminal_edition() and not _headless_set_by_user():
+        settings = replace(settings, headless=False)
+    return settings
+
+
+def _terminal_edition() -> bool:
+    """Whether this process serves the terminal edition. Never raises."""
+    try:
+        from app import edition
+
+        return edition.is_terminal()
+    except Exception:
+        return False
+
+
+def _headless_set_by_user() -> bool:
+    """Whether the user's settings.json sets ``mini_browser.headless`` itself,
+    to a usable value. The shipped defaults (what ``app.config`` falls back to
+    without a settings.json) do not count. Never raises.
+
+    May read settings.json (blocking), like :func:`load_settings`.
+    """
+    try:
+        from app import config as app_config
+
+        path = getattr(app_config, "SETTINGS_CONFIG_PATH", None)
+        if path is None or not Path(path).is_file():
+            return False
+        section = (app_config.get_settings() or {}).get("mini_browser")
+    except Exception:
+        return False
+    if not isinstance(section, Mapping) or "headless" not in section:
+        return False
+    usable, _value = clean_setting("headless", section["headless"])
+    return usable
 
 
 def save_setting(key: str, value: Any) -> None:

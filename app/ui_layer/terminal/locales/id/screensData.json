@@ -1,0 +1,285 @@
+{
+  "common": {
+    "back": "kembali",
+    "close": "tutup",
+    "confirm": "y konfirmasi · n batal",
+    "scroll": "gulir",
+    "refresh": "segarkan",
+    "move": "pindah",
+    "search": "cari",
+    "pane": "panel",
+    "save": "simpan",
+    "ok": "konfirmasi",
+    "cancel": "batal",
+    "edit": "edit",
+    "add": "tambah",
+    "delete": "hapus",
+    "open": "buka",
+    "tab": "tab",
+    "notConnected": "Tidak tersambung ke CraftBot",
+    "timedOut": "Tidak ada balasan dari CraftBot",
+    "unknownError": "Kesalahan tidak diketahui",
+    "justNow": "baru saja",
+    "duration": {
+      "dhm": "{{days}}h {{hours}}j {{minutes}}m",
+      "hm": "{{hours}}j {{minutes}}m",
+      "m": "{{minutes}}m"
+    }
+  },
+  "dashboard": {
+    "title": "Dasbor",
+    "aside": "{{period}} · [ ] periode",
+    "waiting": "Menunggu metrik pertama dari CraftBot...",
+    "period": {
+      "1h": "Satu jam terakhir",
+      "1d": "24 jam terakhir",
+      "1w": "7 hari terakhir",
+      "1m": "30 hari terakhir",
+      "total": "Sepanjang waktu"
+    },
+    "periodShort": {
+      "1h": "1 jam",
+      "1d": "1 hr",
+      "1w": "1 mgg",
+      "1m": "1 bln",
+      "total": "Semua"
+    },
+    "hint": {
+      "period": "periode"
+    },
+    "status": {
+      "title": "Status",
+      "uptime": "Aktif {{value}}",
+      "version": "versi {{value}}"
+    },
+    "tasks": {
+      "title": "Tugas",
+      "completed": "{{value}} selesai",
+      "failed": "{{value}} gagal",
+      "running": "{{value}} berjalan",
+      "total": "{{value}} total",
+      "success": "Berhasil"
+    },
+    "tokens": {
+      "title": "Token",
+      "input": "Input baru",
+      "output": "Output",
+      "cached": "Tersimpan cache",
+      "total": "{{value}} baru",
+      "live": "Per 10 dtk",
+      "liveLabel": "sejak {{since}} · maks {{max}} · kini {{last}}"
+    },
+    "usage": {
+      "title": "Permintaan per jam",
+      "summary": "{{requests}} permintaan · puncak {{hour}}:00 dengan {{peak}}",
+      "empty": "Tidak ada permintaan pada periode ini"
+    },
+    "system": {
+      "title": "Sistem",
+      "cpu": "CPU",
+      "memory": "Memori",
+      "disk": "Disk",
+      "threads": "Thread",
+      "network": "Jaringan",
+      "networkValue": "unggah {{up}} KB/s · unduh {{down}} KB/s",
+      "high": "tinggi"
+    },
+    "connections": {
+      "title": "Alat dan koneksi",
+      "mcp": "MCP",
+      "skills": "Keahlian",
+      "integrations": "Integrasi",
+      "mcpValue": "{{connected}}/{{total}} tersambung · {{tools}} alat · {{calls}} panggilan",
+      "skillsValue": "{{enabled}}/{{total}} aktif · {{calls}} penggunaan",
+      "integrationsValue": "{{connected}}/{{total}} tersambung · {{calls}} panggilan",
+      "top": "teratas {{list}}"
+    },
+    "model": {
+      "title": "Model",
+      "provider": "Penyedia",
+      "model": "Model",
+      "id": "ID",
+      "notConfigured": "Belum dikonfigurasi"
+    },
+    "apps": {
+      "title": "Agent App",
+      "summary": "{{installed}} terpasang · {{running}} berjalan",
+      "empty": "Belum ada Agent App",
+      "more": "+{{count}} lagi"
+    },
+    "activity": {
+      "title": "Aktivitas terbaru",
+      "empty": "Belum ada aktivitas",
+      "reasoning": "Penalaran",
+      "tokens": "{{value}} tok",
+      "minutesAgo": "{{count}} mnt lalu",
+      "hoursAgo": "{{count}} jam lalu",
+      "daysAgo": "{{count}} hr lalu"
+    }
+  },
+  "memory": {
+    "title": "Memori",
+    "off": "memori nonaktif",
+    "tabs": {
+      "nodes": "Memori dan tautan",
+      "files": "Berkas terindeks"
+    },
+    "kind": {
+      "memory": "Memori",
+      "fileMemory": "Bagian berkas",
+      "entity": "Entitas",
+      "file": "Berkas"
+    },
+    "toggle": {
+      "memories": "memori {{count}}",
+      "entities": "entitas {{count}}",
+      "files": "berkas {{count}}",
+      "hideDefault": "sembunyikan berkas default"
+    },
+    "category": {
+      "fact": "fakta",
+      "preference": "preferensi",
+      "event": "peristiwa",
+      "decision": "keputusan",
+      "learning": "pembelajaran",
+      "project": "proyek",
+      "contact": "kontak"
+    },
+    "searchPlaceholder": "Cari memori, entitas, dan berkas",
+    "searchHint": "/ cari · 1 2 3 jenis · 4 sembunyikan berkas default",
+    "loading": "Memuat memori...",
+    "empty": "Belum ada memori. Agen AI Anda menyimpan apa yang dipelajarinya saat Anda mengobrol, atau tekan a untuk menambahkan.",
+    "noMatches": "Tidak ada yang cocok",
+    "noSelection": "Pilih memori untuk melihat detailnya",
+    "superseded": "digantikan",
+    "mentions_one": "{{count}} penyebutan",
+    "mentions_other": "{{count}} penyebutan",
+    "sections_one": "{{count}} bagian",
+    "sections_other": "{{count}} bagian",
+    "meta": {
+      "category": "Kategori",
+      "saved": "Disimpan",
+      "links": "Tautan",
+      "file": "Berkas",
+      "section": "Bagian"
+    },
+    "connected": "Terhubung {{count}}",
+    "noNeighbours": "Tidak ada koneksi",
+    "moreNeighbours": "+{{count}} lagi",
+    "readOnly": "Dari berkas terindeks (hanya baca)",
+    "notEditable": "Hanya memori percakapan yang dapat diedit",
+    "form": {
+      "addTitle": "Tambah memori",
+      "editTitle": "Edit memori",
+      "category": "Kategori",
+      "content": "Konten",
+      "contentPlaceholder": "Apa yang harus diingat agen AI Anda?",
+      "superseded": "Digantikan (disimpan, tetapi tidak lagi benar)",
+      "entitiesHint": "Tulis [[Nama]] untuk menautkan orang, tempat, atau proyek.",
+      "hint": "Tab kolom berikutnya · Left/Right ubah kategori · Space alihkan · Enter simpan · Esc batal",
+      "empty": "Tulis dulu sesuatu untuk diingat"
+    },
+    "confirmDelete": "Hapus memori ini?",
+    "saved": "Memori disimpan",
+    "deleted": "Memori dihapus",
+    "failed": "Tidak dapat memperbarui memori: {{error}}",
+    "files": {
+      "hint": "Berkas yang dicentang diindeks: agen AI Anda dapat mencari bagian-bagiannya.",
+      "chunks_one": "{{count}} bagian",
+      "chunks_other": "{{count}} bagian",
+      "missing": "hilang",
+      "size": "{{value}} KB",
+      "always": "selalu",
+      "indexing": "memproses",
+      "empty": "Belum ada berkas untuk diindeks",
+      "skipped": "Melewati {{path}}: {{reason}}"
+    },
+    "hints": {
+      "kinds": "jenis",
+      "tree": "koneksi",
+      "expand": "bentangkan",
+      "goTo": "lompat",
+      "index": "indeks",
+      "folder": "buka folder"
+    }
+  },
+  "workspace": {
+    "title": "Ruang Kerja",
+    "root": "ruang kerja",
+    "loading": "Memuat...",
+    "empty": "Folder ini kosong",
+    "noMatches": "Tidak ada berkas yang cocok",
+    "searchPlaceholder": "Saring folder ini",
+    "count_one": "{{count}} item",
+    "count_other": "{{count}} item",
+    "shown": "{{shown}} dari {{total}}",
+    "marked_one": "{{count}} ditandai",
+    "marked_other": "{{count}} ditandai",
+    "clipboardCopy_one": "{{count}} disalin, p menempel",
+    "clipboardCopy_other": "{{count}} disalin, p menempel",
+    "clipboardCut_one": "{{count}} dipotong, p memindahkan",
+    "clipboardCut_other": "{{count}} dipotong, p memindahkan",
+    "folder": "Folder",
+    "name": "Nama",
+    "size": "Ukuran",
+    "modified": "Diubah",
+    "path": "Path",
+    "binary": "Berkas biner, tidak ada pratinjau teks. Tekan o untuk membukanya.",
+    "previewEmpty": "Berkas kosong",
+    "previewLoading": "Membaca...",
+    "selectHint": "Pilih berkas untuk melihat pratinjaunya",
+    "previewFocus": "Tab kembali ke daftar",
+    "prompt": {
+      "rename": "Ganti nama menjadi",
+      "newFile": "Nama berkas baru",
+      "newFolder": "Nama folder baru",
+      "upload": "Salin dari path lokal",
+      "download": "Simpan ke path lokal",
+      "uploadPlaceholder": "C:\\Users\\you\\file.txt atau ~/file.txt",
+      "submit": "Enter konfirmasi · Esc batal"
+    },
+    "confirmDeleteOne": "Hapus {{name}}?",
+    "confirmDeleteMany_one": "Hapus {{count}} item?",
+    "confirmDeleteMany_other": "Hapus {{count}} item?",
+    "confirmOverwrite": "{{path}} sudah ada. Ganti?",
+    "deleted_one": "{{count}} item dihapus",
+    "deleted_other": "{{count}} item dihapus",
+    "deletePartial": "Menghapus {{succeeded}} dari {{total}}; {{failed}} gagal: {{error}}",
+    "deleteFailed": "Tidak dapat menghapus: {{error}}",
+    "pasted_one": "{{count}} item ditempel",
+    "pasted_other": "{{count}} item ditempel",
+    "moved_one": "{{count}} item dipindahkan",
+    "moved_other": "{{count}} item dipindahkan",
+    "pasteFailed": "Tidak dapat menempel {{name}}: {{error}}",
+    "renamed": "Nama diganti menjadi {{name}}",
+    "renameFailed": "Tidak dapat mengganti nama: {{error}}",
+    "created": "{{name}} dibuat",
+    "createFailed": "Tidak dapat membuat {{name}}: {{error}}",
+    "uploaded": "{{name}} disalin ke ruang kerja",
+    "uploadFailed": "Tidak dapat menyalin {{name}}: {{error}}",
+    "notAFile": "{{path}} bukan berkas",
+    "tooLarge": "Ukuran {{name}} {{size}}; batasnya 200 MB",
+    "downloaded": "{{path}} disimpan",
+    "downloadFailed": "Tidak dapat menyimpan {{name}}: {{error}}",
+    "downloadFolder": "Folder tidak dapat disimpan; tandai berkas sebagai gantinya",
+    "downloadNeedsFolder": "Beberapa berkas masuk ke folder: berikan folder yang sudah ada",
+    "opened": "{{name}} dibuka",
+    "openFailed": "Tidak dapat membuka {{name}}: {{error}}",
+    "hints": {
+      "open": "buka",
+      "up": "naik",
+      "mark": "tandai",
+      "copy": "salin",
+      "cut": "potong",
+      "paste": "tempel",
+      "rename": "ganti nama",
+      "newFile": "berkas baru",
+      "newFolder": "folder baru",
+      "upload": "unggah",
+      "download": "simpan",
+      "osOpen": "buka di aplikasi",
+      "reveal": "tampilkan di folder",
+      "preview": "pratinjau"
+    }
+  }
+}

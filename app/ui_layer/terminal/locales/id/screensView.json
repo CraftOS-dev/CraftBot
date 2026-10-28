@@ -1,0 +1,120 @@
+{
+  "transcript": {
+    "title": "Transkrip · {{session}}",
+    "count_one": "{{count}} pesan",
+    "count_other": "{{count}} pesan",
+    "match": "kecocokan {{index}} dari {{count}}",
+    "noMatch": "tidak ada yang cocok untuk {{query}}",
+    "loadingOlder": "Memuat pesan lama...",
+    "olderAbove": "Pesan lama dimuat saat Anda mencapai bagian atas",
+    "start": "Awal percakapan",
+    "empty": "Belum ada apa pun di percakapan ini.",
+    "reasoning": "Penalaran",
+    "thinking": "Berpikir...",
+    "details": "Detail",
+    "detailsHidden_one": "Detail disembunyikan ({{count}} baris) · Enter menampilkannya",
+    "detailsHidden_other": "Detail disembunyikan ({{count}} baris) · Enter menampilkannya",
+    "replyingTo": "Membalas",
+    "you": "Anda",
+    "waiting": "Menunggu jawaban Anda",
+    "status": {
+      "running": "berjalan",
+      "waiting": "menunggu",
+      "paused": "dijeda",
+      "pending": "dalam antrean",
+      "cancelled": "dibatalkan"
+    },
+    "copied": "Disalin sebagai Markdown",
+    "copiedTerminal": "Dikirim ke papan klip terminal (OSC 52)",
+    "copyFailed": "Tidak dapat menyalin: {{error}}",
+    "replyOnlyAgent": "Hanya pesan agen yang bisa dibalas",
+    "replyChoose": "Jawab yang ini dengan opsinya di obrolan",
+    "editorSaved": "Disimpan ke {{path}}",
+    "editorFailed": "Tidak dapat membuka {{editor}}: {{error}}",
+    "searchPlaceholder": "cari di transkrip",
+    "dumpEnd": "akhir transkrip",
+    "hint": {
+      "fold": "lipat",
+      "search": "cari",
+      "match": "kecocokan berikutnya",
+      "copy": "salin",
+      "reply": "balas",
+      "scrollback": "ke terminal",
+      "editor": "editor",
+      "back": "kembali",
+      "keep": "pertahankan",
+      "clear": "bersihkan"
+    }
+  },
+  "browser": {
+    "title": "Peramban · {{session}}",
+    "newChat": "Obrolan baru mendapat perambannya dengan pesan pertamanya.",
+    "off": "Mati. Terbuka saat agen menjelajah; s memulainya sekarang.",
+    "starting": "Memulai peramban...",
+    "installing": "Memasang Chromium...",
+    "installDone": "Chromium terpasang. s memulai peramban.",
+    "installFailed": "Pemasangan gagal: {{error}}",
+    "installHint": "i memasang Chromium (unduhan satu kali).",
+    "status": {
+      "starting": "memulai",
+      "ready": "siap",
+      "stopped": "mati",
+      "installing": "memasang",
+      "error": "kesalahan"
+    },
+    "browsing": "agen menjelajah",
+    "tabs_one": "{{count}} tab",
+    "tabs_other": "{{count}} tab",
+    "col": {
+      "owner": "Pemilik",
+      "title": "Judul",
+      "address": "Alamat",
+      "state": "Status"
+    },
+    "owner": {
+      "you": "Anda",
+      "agent": "Agen",
+      "subagent": "Subagen",
+      "main": "Utama",
+      "session": "Obrolan"
+    },
+    "state": {
+      "crashed": "mogok",
+      "control": "Anda yang mengendalikan",
+      "working": "agen bekerja",
+      "loading": "memuat",
+      "idle": "siaga"
+    },
+    "untitled": "Tab baru",
+    "noTabs": "Tidak ada tab yang terbuka.",
+    "controlNote": "Peramban berjalan sebagai jendela di desktop Anda. Ambil alih tab agen untuk memakainya di sana.",
+    "controlTaken": "Anda mengendalikannya: gunakan jendela peramban, lalu tekan t di sini untuk mengembalikan tab.",
+    "controlReturned": "Tab dikembalikan ke agen.",
+    "linkCopied": "Tautan disalin",
+    "linkCopiedTerminal": "Tautan dikirim ke papan klip terminal (OSC 52)",
+    "copyFailed": "Tidak dapat menyalin: {{error}}",
+    "confirmClose": "{{owner}} sedang bekerja di {{title}}. Tetap tutup?",
+    "stopping": "Menghentikan proses agen...",
+    "notBrowsing": "Tidak ada proses agen yang mengendalikan tab ini",
+    "event": {
+      "download": "{{name}} telah diunduh",
+      "crash": "Sebuah tab mogok",
+      "blocked": "Sebuah halaman diblokir",
+      "dialog": "Halaman menampilkan dialog",
+      "popup": "Halaman membuka popup",
+      "notice": "Pemberitahuan",
+      "problem": "Masalah"
+    },
+    "hint": {
+      "control": "ambil alih",
+      "handBack": "kembalikan ke agen",
+      "show": "tampilkan",
+      "close": "tutup tab",
+      "copy": "salin tautan",
+      "stop": "hentikan agen",
+      "start": "mulai",
+      "install": "pasang Chromium",
+      "back": "kembali"
+    }
+  }
+}

@@ -1,0 +1,120 @@
+{
+  "transcript": {
+    "title": "Transcript · {{session}}",
+    "count_one": "{{count}} message",
+    "count_other": "{{count}} messages",
+    "match": "match {{index}} of {{count}}",
+    "noMatch": "no match for {{query}}",
+    "loadingOlder": "Loading older messages...",
+    "olderAbove": "Older messages load when you reach the top",
+    "start": "Start of the conversation",
+    "empty": "Nothing in this conversation yet.",
+    "reasoning": "Reasoning",
+    "thinking": "Thinking...",
+    "details": "Details",
+    "detailsHidden_one": "Details hidden ({{count}} line) · Enter shows them",
+    "detailsHidden_other": "Details hidden ({{count}} lines) · Enter shows them",
+    "replyingTo": "Replying to",
+    "you": "You",
+    "waiting": "Waiting for your answer",
+    "status": {
+      "running": "running",
+      "waiting": "waiting",
+      "paused": "paused",
+      "pending": "queued",
+      "cancelled": "cancelled"
+    },
+    "copied": "Copied as Markdown",
+    "copiedTerminal": "Sent to the terminal's clipboard (OSC 52)",
+    "copyFailed": "Could not copy: {{error}}",
+    "replyOnlyAgent": "Only the agent's messages take a reply",
+    "replyChoose": "Answer this one with its options in the chat",
+    "editorSaved": "Saved to {{path}}",
+    "editorFailed": "Could not open {{editor}}: {{error}}",
+    "searchPlaceholder": "search the transcript",
+    "dumpEnd": "end of transcript",
+    "hint": {
+      "fold": "fold",
+      "search": "search",
+      "match": "next match",
+      "copy": "copy",
+      "reply": "reply",
+      "scrollback": "to scrollback",
+      "editor": "editor",
+      "back": "back",
+      "keep": "keep",
+      "clear": "clear"
+    }
+  },
+  "browser": {
+    "title": "Browser · {{session}}",
+    "newChat": "A new chat gets its browser with its first message.",
+    "off": "Off. It opens when the agent browses; s starts it now.",
+    "starting": "Starting the browser...",
+    "installing": "Installing Chromium...",
+    "installDone": "Chromium installed. s starts the browser.",
+    "installFailed": "Install failed: {{error}}",
+    "installHint": "i installs Chromium (a one-time download).",
+    "status": {
+      "starting": "starting",
+      "ready": "ready",
+      "stopped": "off",
+      "installing": "installing",
+      "error": "error"
+    },
+    "browsing": "agent browsing",
+    "tabs_one": "{{count}} tab",
+    "tabs_other": "{{count}} tabs",
+    "col": {
+      "owner": "Owner",
+      "title": "Title",
+      "address": "Address",
+      "state": "State"
+    },
+    "owner": {
+      "you": "You",
+      "agent": "Agent",
+      "subagent": "Sub-agent",
+      "main": "Main",
+      "session": "Chat"
+    },
+    "state": {
+      "crashed": "crashed",
+      "control": "you control it",
+      "working": "agent working",
+      "loading": "loading",
+      "idle": "idle"
+    },
+    "untitled": "New tab",
+    "noTabs": "No tabs open.",
+    "controlNote": "The browser runs as a window on your desktop. Take control of the agent's tab to use it there.",
+    "controlTaken": "You have control: use the browser window, then press t here to hand the tab back.",
+    "controlReturned": "Handed the tab back to the agent.",
+    "linkCopied": "Link copied",
+    "linkCopiedTerminal": "Link sent to the terminal's clipboard (OSC 52)",
+    "copyFailed": "Could not copy: {{error}}",
+    "confirmClose": "{{owner}} is working in {{title}}. Close it anyway?",
+    "stopping": "Stopping the agent's run...",
+    "notBrowsing": "No agent run drives this tab",
+    "event": {
+      "download": "Downloaded {{name}}",
+      "crash": "A tab crashed",
+      "blocked": "A page was blocked",
+      "dialog": "The page showed a dialog",
+      "popup": "The page opened a popup",
+      "notice": "Notice",
+      "problem": "Problem"
+    },
+    "hint": {
+      "control": "take control",
+      "handBack": "hand back",
+      "show": "show",
+      "close": "close tab",
+      "copy": "copy link",
+      "stop": "stop agent",
+      "start": "start",
+      "install": "install Chromium",
+      "back": "back"
+    }
+  }
+}

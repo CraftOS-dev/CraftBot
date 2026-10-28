@@ -1,0 +1,223 @@
+{
+  "settings": {
+    "otherTab": "其他标签页",
+    "tabList": "标签页列表",
+    "tabs": {
+      "general": "常规",
+      "proactive": "主动",
+      "memory": "记忆",
+      "model": "模型",
+      "mcp": "MCP 服务器",
+      "skills": "技能",
+      "integrations": "集成",
+      "credentials": "凭据",
+      "agentApps": "Agent App"
+    }
+  },
+  "actions": {
+    "newChat": "新建对话",
+    "enhance": "用 AI 优化草稿",
+    "effort": "推理强度",
+    "quit": "退出"
+  },
+  "screens": {
+    "sessions": "会话",
+    "apps": "Agent App",
+    "memory": "记忆",
+    "workspace": "工作区",
+    "dashboard": "仪表盘",
+    "browser": "浏览器",
+    "settings": "设置",
+    "transcript": "对话记录",
+    "help": "快捷键",
+    "palette": "命令面板"
+  },
+  "session": {
+    "main": "主对话",
+    "newChat": "新建对话",
+    "untitled": "未命名对话"
+  },
+  "composer": {
+    "placeholder": "问我任何事 · / 命令 · ? 快捷键",
+    "moreAbove": "↑ 还有 {{count}} 行",
+    "moreBelow": "↓ 还有 {{count}} 行",
+    "leaderHint": "s 会话 · a 应用 · m 记忆 · w 工作区 · d 仪表盘 · b 浏览器 · , 设置 · n 新建对话",
+    "invisibleRemoved_one": "已从你的消息中移除 {{count}} 个不可见字符",
+    "invisibleRemoved_other": "已从你的消息中移除 {{count}} 个不可见字符",
+    "sendFailed": "无法发送：{{error}}",
+    "enhanceUnavailable": "请先输入草稿，再按 Ctrl+X e",
+    "enhancing": "正在优化你的草稿...",
+    "folder": "文件夹",
+    "replyingTo": "正在回复：{{name}} · Esc 取消",
+    "enhanceFailed": "无法优化草稿",
+    "attached_one": "已附加 {{count}} 个文件",
+    "attached_other": "已附加 {{count}} 个文件",
+    "attachTooMany": "每条消息最多 {{count}} 个文件",
+    "attachTooLarge": "附件总大小不能超过 200 MB"
+  },
+  "connect": {
+    "connecting": "正在启动 CraftBot...",
+    "waiting": "正在等待 CraftBot 启动完成...",
+    "greeting": "已连接，正在加载你的对话...",
+    "unresponsive": "CraftBot 没有响应。",
+    "seeLog": "日志：{{path}}",
+    "stopHint": "按 Ctrl+C 退出，然后运行：python craftbot.py stop",
+    "legacyConsole": "这是经典 Windows 控制台。CraftBot 在 Windows Terminal 中体验更好（重绘更流畅，支持 Shift+Enter 和粘贴）。",
+    "wrongEdition": "CraftBot 正以 {{edition}} 版本运行。请重启为终端版：python craftbot.py restart --tui"
+  },
+  "working": {
+    "label": "工作中",
+    "stopping": "正在停止",
+    "stopHint": "esc 停止",
+    "waiting": "等待你的回答",
+    "moreDone_one": "另有 {{count}} 个已完成",
+    "moreDone_other": "另有 {{count}} 个已完成",
+    "subagent_one": "子智能体 {{name}} · {{count}} 个操作",
+    "subagent_other": "子智能体 {{name}} · {{count}} 个操作"
+  },
+  "question": {
+    "title": "{{name}} 正在提问 · 第 {{index}} 个，共 {{total}} 个",
+    "choiceTitle": "选择如何继续",
+    "recommended": "推荐",
+    "hint": "输入回答，或按 Tab 选择选项",
+    "choiceHint": "按 Tab 选择",
+    "focusedHint": "1-9 或方向键选择 · Enter 发送 · x 关闭（停止任务） · Esc 返回输入",
+    "focusedChoiceHint": "1-9 或方向键选择 · Enter 确认 · Esc 返回输入",
+    "dismissed": "已关闭问题"
+  },
+  "notify": {
+    "question": "{{session}} 需要你回答",
+    "done": "{{session}} 已完成",
+    "needsYou": "{{count}} 个待你处理"
+  },
+  "firstRun": {
+    "keys": "Enter 发送 · Ctrl+J 换行 · Esc 停止 · / 命令 · Ctrl+X 界面 · Ctrl+P 命令面板 · ? 快捷键 · 按两次 Ctrl+C 退出"
+  },
+  "quit": {
+    "pressAgain": "再按一次 Ctrl+C 退出"
+  },
+  "status": {
+    "moreSessions_one": "+{{count}} 个",
+    "moreSessions_other": "+{{count}} 个",
+    "effort": "推理 {{value}}",
+    "cache": "缓存 {{value}}%",
+    "apps_one": "{{count}} 个应用运行中",
+    "apps_other": "{{count}} 个应用运行中",
+    "offline": "正在重新连接",
+    "backendBusy": "CraftBot 正忙",
+    "help": "? 快捷键"
+  },
+  "todo": {
+    "title": "待办 {{done}}/{{total}}"
+  },
+  "transcript": {
+    "actions_one": "{{count}} 个操作",
+    "actions_other": "{{count}} 个操作",
+    "failed_one": "{{count}} 个失败",
+    "failed_other": "{{count}} 个失败",
+    "stopped": "已停止",
+    "earlier_one": "{{count}} 条更早的内容 · Ctrl+O 显示全部",
+    "earlier_other": "{{count}} 条更早的内容 · Ctrl+O 显示全部",
+    "interactiveOutput": "交互式输出 · {{title}} · rev {{revision}} · 请在浏览器版中打开",
+    "detailsHint": "详情见对话记录（Ctrl+O）",
+    "error": "错误",
+    "system": "系统"
+  },
+  "help": {
+    "chat": "对话",
+    "send": "发送",
+    "newline": "换行",
+    "stop": "停止正在运行的任务，关闭弹窗",
+    "history": "之前的输入（在首行或末行时）",
+    "focusQuestion": "选择置顶问题的选项",
+    "commands": "命令和技能",
+    "todos": "显示或隐藏待办列表",
+    "redraw": "重绘屏幕",
+    "clearOrQuit": "清除输入；按两次退出",
+    "leader": "界面（先按 Ctrl+X，再按一个键）",
+    "screensTitle": "在界面中",
+    "move": "移动",
+    "open": "打开",
+    "back": "返回上一级",
+    "closeAll": "返回对话",
+    "filter": "筛选",
+    "addEditDelete": "添加、编辑、删除",
+    "refresh": "刷新",
+    "panesTabs": "下一个窗格，上一个和下一个标签页",
+    "apps": "Agent App 列表",
+    "appOpen": "打开应用",
+    "appLaunchStop": "启动、停止",
+    "appAdd": "添加应用（市场、创建、导入）",
+    "appThemeSettings": "主题、应用设置",
+    "appDelete": "删除已停止的应用",
+    "appReorder": "将应用下移、上移",
+    "appView": "在应用内",
+    "appScreens": "下一个界面，上一个、下一个",
+    "appRows": "在行之间移动，下一个表格",
+    "appRow": "该行的详情和操作",
+    "appOps": "应用的所有操作",
+    "appChat": "与你的 AI 智能体讨论这个应用",
+    "appRefreshRecords": "刷新，应用的记录（只读）",
+    "editing": "编辑",
+    "lineEnds": "行首和行尾",
+    "wordMove": "按单词移动",
+    "deleteWord": "删除前一个单词",
+    "killLine": "删除到行首或行尾"
+  },
+  "hint": {
+    "back": "返回",
+    "open": "打开",
+    "move": "移动",
+    "run": "运行",
+    "scroll": "滚动",
+    "filter": "筛选",
+    "rename": "重命名",
+    "clear": "清除",
+    "delete": "删除",
+    "makeSkill": "创建技能",
+    "confirm": "y 确认 · 其他任意键取消",
+    "help": "帮助"
+  },
+  "sessions": {
+    "count_one": "{{count}} 个对话",
+    "count_other": "{{count}} 个对话",
+    "mainNote": "主对话会接收所有自动发生的事：计划任务、集成、通知。",
+    "confirmClear": "清除 {{title}} 的所有消息？",
+    "confirmDelete": "永久删除 {{title}}？",
+    "skillRequested": "正在将此对话转为技能..."
+  },
+  "palette": {
+    "placeholder": "输入以搜索界面、对话、应用、命令",
+    "count_one": "{{count}} 个匹配",
+    "count_other": "{{count}} 个匹配",
+    "screen": "界面",
+    "action": "操作",
+    "session": "对话",
+    "app": "应用",
+    "command": "命令",
+    "skill": "技能"
+  },
+  "onboarding": {
+    "title": "设置 CraftBot",
+    "loading": "正在加载设置...",
+    "continue": "继续",
+    "next": "下一步",
+    "nextField": "下一个字段",
+    "skip": "跳过",
+    "apiKey": "API 密钥",
+    "ollamaUrl": "Ollama 地址",
+    "agentNamePlaceholder": "为你的智能体命名",
+    "via": "连接方式：{{via}}（按 Tab 切换）",
+    "viaDirect": "直接连接供应商",
+    "subscriptionHint": "可用 {{label}} 代替密钥：设置完成后在 设置 > 模型 中使用。",
+    "imageLater": "稍后可在设置中添加图片",
+    "working": "正在保存..."
+  },
+  "welcome": {
+    "commands": "命令",
+    "help": "帮助",
+    "sessions": "会话",
+    "transcript": "记录",
+    "tagline": "有问题尽管问。输入 / 使用命令，输入 @ 附加文件。"
+  }
+}
