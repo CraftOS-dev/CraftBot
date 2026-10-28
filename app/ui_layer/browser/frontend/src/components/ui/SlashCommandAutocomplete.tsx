@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState, useMemo, useImperativeHandle, forwardRef } from 'react'
+import { useEffect, useState, useMemo, useImperativeHandle, forwardRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ActivitySquare, Terminal } from 'lucide-react'
-import styles from './SlashCommandAutocomplete.module.css';
+import { AutocompleteMenu } from './AutocompleteMenu'
 import { useAppSelector } from '../../store/hooks';
 import { selectEnabledSkillNames } from '../../store/selectors/skillsSettings'
 import { selectCommandNames } from '../../store/selectors/commandsSettings'
@@ -37,7 +37,6 @@ export const SlashCommandAutocomplete = forwardRef<SlashCommandAutocompleteHandl
   function SlashCommandAutocomplete({ input, onSelectItem }, ref) {
     const { t } = useTranslation(['components', 'common'])
     const [selectedIndex, setSelectedIndex] = useState<number>(0);
-    const itemRefs = useRef<(HTMLLIElement | null)[]>([])
 
     const skills = useAppSelector(selectEnabledSkillNames);
     const commands = useAppSelector(selectCommandNames);
@@ -61,10 +60,6 @@ export const SlashCommandAutocomplete = forwardRef<SlashCommandAutocompleteHandl
         ]
         return { filteredCommands: fc, filteredSkills: fs, flatItems: flat }
     }, [query, commands, skills])
-
-    useEffect(() => {
-        itemRefs.current[selectedIndex]?.scrollIntoView({ block: 'nearest' })
-    }, [selectedIndex])
 
     // Reset / clamp the selected index whenever the visible list changes.
     useEffect(() => {
@@ -104,47 +99,25 @@ export const SlashCommandAutocomplete = forwardRef<SlashCommandAutocompleteHandl
 
     if (flatItems.length === 0) return null
 
-    let runningIndex = 0
     return (
-        <div>
-            <ul className={styles.autocomplete}>
-                {filteredCommands.length > 0 && (
-                    <>
-                        <p className={styles.header}><Terminal size={12} />{t('components:slashCommand.commands')}</p>
-                        {filteredCommands.map((item: string) => {
-                            const idx = runningIndex++
-                            const isSelected = idx === selectedIndex
-                            return (
-                                <li
-                                    key={`cmd-${item}`}
-                                    ref={el => { itemRefs.current[idx] = el }}
-                                    className={`${styles.item}${isSelected ? ` ${styles.itemSelected}` : ''}`}
-                                    onClick={() => onSelectItem(item)}
-                                    onMouseEnter={() => setSelectedIndex(idx)}
-                                >/{item}</li>
-                            )
-                        })}
-                    </>
-                )}
-                {filteredSkills.length > 0 && (
-                    <>
-                        <p className={styles.header}><ActivitySquare size={12} />{t('components:slashCommand.skills')}</p>
-                        {filteredSkills.map((item: string) => {
-                            const idx = runningIndex++
-                            const isSelected = idx === selectedIndex
-                            return (
-                                <li
-                                    key={`skill-${item}`}
-                                    ref={el => { itemRefs.current[idx] = el }}
-                                    className={`${styles.item}${isSelected ? ` ${styles.itemSelected}` : ''}`}
-                                    onClick={() => onSelectItem(item)}
-                                    onMouseEnter={() => setSelectedIndex(idx)}
-                                >/{item}</li>
-                            )
-                        })}
-                    </>
-                )}
-            </ul>
-        </div>
+        <AutocompleteMenu
+            groups={[
+                {
+                    key: 'commands',
+                    icon: <Terminal size={12} />,
+                    title: t('components:slashCommand.commands'),
+                    items: filteredCommands.map((name: string) => ({ key: `cmd-${name}`, label: `/${name}` })),
+                },
+                {
+                    key: 'skills',
+                    icon: <ActivitySquare size={12} />,
+                    title: t('components:slashCommand.skills'),
+                    items: filteredSkills.map((name: string) => ({ key: `skill-${name}`, label: `/${name}` })),
+                },
+            ]}
+            selectedIndex={selectedIndex}
+            onSelect={index => onSelectItem(flatItems[index].name)}
+            onHover={setSelectedIndex}
+        />
     );
 })

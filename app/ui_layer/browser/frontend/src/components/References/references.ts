@@ -31,7 +31,8 @@ export interface ReferenceQuery { start: number; end: number; query: string }
 export function referenceQuery(text: string, start: number, end = start): ReferenceQuery | null {
   if (start !== end) return null
   const before = text.slice(0, start)
-  const match = /(?:^|\s)@([^@\n]*)$/.exec(before)
+  // "@" then a space is prose ("see you @ 5pm"), not a mention.
+  const match = /(?:^|\s)@((?:\S[^@\n]*)?)$/.exec(before)
   if (!match) return null
   return { start: start - match[1].length - 1, end: start, query: match[1] }
 }

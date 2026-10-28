@@ -32,6 +32,7 @@ def adapter(tmp_path, monkeypatch):
     agent = SimpleNamespace(
         session_manager=SimpleNamespace(get=sessions.get),
         _handle_chat_message=AsyncMock(),
+        llm=SimpleNamespace(context_window=lambda: 128000),
     )
     result = BrowserAdapter.__new__(BrowserAdapter)
     result._controller = SimpleNamespace(
@@ -171,3 +172,74 @@ def test_concurrent_retries_reuse_the_original_snapshot_and_queue_once(adapter):
     assert len(storage.get_recent_messages("dest")) == 1
     assert browser._send_to.call_args.args[1]["type"] == "chat_message"
     assert browser._reference_submission_gate._entries == {}
+
+
+def test_attachment_only_retries_queue_once_and_save_the_file_once(adapter, tmp_path):
+    browser, storage, agent = adapter
+    attachment = {
+        "name": "notes.txt",
+        "type": "text/plain",
+        "size": 5,
+        "content": base64.b64encode(b"hello").decode(),
+    }
+
+    async def send_twice():
+        args = ("Notes", [attachment], "dest", "attachment-client", [])
+        await asyncio.gather(
+            browser._handle_chat_message_with_attachments(*args),
+            browser._handle_chat_message_with_attachments(*args),
+        )
+
+    asyncio.run(send_twice())
+    assert agent._handle_chat_message.await_count == 1
+    assert len(storage.get_recent_messages("dest")) == 1
+    assert len(list((tmp_path / "download").iterdir())) == 1
+    assert browser._send_to.call_args.args[1]["type"] == "chat_message"
+
+
+def test_failure_after_acceptance_does_not_ask_for_a_retry(adapter):
+    browser, storage, agent = adapter
+    agent._handle_chat_message.side_effect = RuntimeError("queue unavailable")
+    asyncio.run(
+        browser._handle_chat_message_with_attachments(
+            "Compare",
+            [],
+            "dest",
+            "client-6",
+            [{"kind": "session", "targetId": "source"}],
+        )
+    )
+    # The message itself was accepted, so it is not rejected for retry.
+    browser._send_to.assert_not_awaited()
+    stored = storage.get_recent_messages("dest")
+    assert sorted(m.style for m in stored) == ["error", "user"]
+    notice = next(m for m in stored if m.style == "error").content
+    assert "saved" in notice and "new message" in notice
+    assert "retry" not in notice.lower()
+
+
+def test_attachment_only_messages_never_build_the_reference_service(
+    adapter, monkeypatch
+):
+    import app.references
+
+    browser, storage, agent = adapter
+    monkeypatch.setattr(
+        app.references,
+        "create_reference_service",
+        Mock(side_effect=AssertionError("attachments do not need references")),
+    )
+    attachment = {
+        "name": "notes.txt",
+        "type": "text/plain",
+        "size": 5,
+        "content": base64.b64encode(b"hello").decode(),
+    }
+    asyncio.run(
+        browser._handle_chat_message_with_attachments(
+            "Notes", [attachment], "dest", "client-5", []
+        )
+    )
+    assert agent._handle_chat_message.await_count == 1
+    assert "REFERENCE CONTEXT" not in agent._handle_chat_message.call_args.args[0]["text"]
+    assert len(storage.get_recent_messages("dest")) == 1

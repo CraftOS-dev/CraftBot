@@ -22,6 +22,10 @@ class LLMInterfaceProtocol(Protocol):
     temperature: float
     max_tokens: int
 
+    def context_window(self) -> int:
+        """Context window, in tokens, of the model this interface serves."""
+        ...
+
     async def generate_response_async(
         self,
         user_prompt: str,

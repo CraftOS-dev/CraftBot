@@ -43,8 +43,9 @@ separate tenant/ACL system.
   chunk includes its messageId, speaker, timestamp and character offset. Clearing
   a source invalidates its cursors.
 - `AgentAppReferenceProvider` captures allowlisted project metadata. For a running
-  app it optionally reads bounded schema/operation declarations from the registered
-  loopback describe endpoint. It does not follow redirects, launch apps, inspect
+  app it optionally reads bounded schema/operation declarations from the describe
+  endpoint at the manager-registered address (`backend_url`, else `url`), the same
+  one the agent's app note uses. It does not follow redirects, launch apps, inspect
   their build transcripts, read records/files/secrets, or execute operations.
 - `read_reference(kind, target_id, cursor?)` is a core read-only action. Its trusted
   `_session_id` must already contain a persisted attachment of that source. Every

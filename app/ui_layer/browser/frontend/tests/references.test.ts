@@ -11,8 +11,12 @@ async function respond(page: Page, type: string, data: unknown) {
 test('typing @ searches both source types and selection attaches without sending', async ({ page }) => {
   await page.goto('/tests/references.html')
   await input(page).fill('@')
-  await expect(page.getByRole('option', { name: /Pricing discussion/ })).toBeVisible()
+  await expect(page.getByRole('option', { name: 'Pricing discussion', exact: true })).toBeVisible()
   await expect(page.getByRole('option', { name: /Weather dashboard/ })).toHaveCount(1)
+  // The same list as "/" commands: its stylesheet, grouped under icon headers.
+  await expect(page.getByRole('listbox')).toHaveClass(/autocomplete/)
+  await expect(page.getByText('Sessions', { exact: true })).toBeVisible()
+  await expect(page.getByText('Agent apps', { exact: true })).toBeVisible()
   await expect(page.getByRole('option', { name: /Current session/ })).toHaveCount(0)
   await input(page).fill('Compare @pric')
   await expect(page.getByRole('option')).toHaveCount(1)
@@ -25,18 +29,39 @@ test('typing @ searches both source types and selection attaches without sending
   expect((await requests(page))[0].references).toEqual([{ kind: 'session', targetId: 'pricing' }])
 })
 
-test('email, escape and no-match Enter preserve ordinary input', async ({ page }) => {
+test('email, a bare @ and an escaped mention preserve ordinary input', async ({ page }) => {
   await page.goto('/tests/references.html')
   await input(page).fill('name@example.com')
   await expect(page.getByRole('listbox')).toHaveCount(0)
-  await input(page).fill('@does-not-exist')
-  await expect(page.getByText('No matches')).toBeVisible()
-  await input(page).press('Enter')
-  expect(await requests(page)).toHaveLength(0)
+  await input(page).fill('see you @ 5pm')
+  await expect(page.getByRole('listbox')).toHaveCount(0)
+  await input(page).fill('@pric')
+  await expect(page.getByRole('listbox')).toBeVisible()
   await input(page).press('Escape')
   await expect(page.getByRole('listbox')).toHaveCount(0)
+  // Typing on does not reopen a mention the user dismissed.
+  await input(page).pressSequentially('ing')
+  await expect(page.getByRole('listbox')).toHaveCount(0)
+  expect(await requests(page)).toHaveLength(0)
   await input(page).press('Enter')
-  expect((await requests(page))[0].content).toBe('@does-not-exist')
+  await expect.poll(() => requests(page)).toHaveLength(1)
+  expect((await requests(page))[0].content).toBe('@pricing')
+})
+
+test('a mention that matches nothing never blocks Enter', async ({ page }) => {
+  await page.goto('/tests/references.html')
+  // Like "/" with no matching command, nothing is shown.
+  await input(page).fill('@nobody')
+  await expect(page.getByRole('listbox')).toHaveCount(0)
+  await input(page).press('Enter')
+  await expect.poll(() => requests(page)).toHaveLength(1)
+  expect((await requests(page))[0].content).toBe('@nobody')
+  // Prose after an unmatched mention closes the list instead of waiting for Escape.
+  await input(page).fill('ping @john please review')
+  await expect(page.getByRole('listbox')).toHaveCount(0)
+  await input(page).press('Enter')
+  await expect.poll(() => requests(page)).toHaveLength(2)
+  expect((await requests(page))[1].content).toBe('ping @john please review')
 })
 
 test('+ picker shares selections with @ and supports reference-only sends', async ({ page }) => {
@@ -89,6 +114,14 @@ test('failed submissions expose an explicit retry', async ({ page }) => {
   await page.getByRole('button', { name: 'Retry message' }).click()
   await expect.poll(() => requests(page)).toHaveLength(2)
   expect((await requests(page))[1]).toEqual(sent)
+  // In flight again: it cannot be sent twice, and the echo replaces the failed bubble.
+  await expect(page.getByRole('button', { name: 'Retry message' })).toHaveCount(0)
+  await expect(page.getByText('Source unavailable')).toHaveCount(0)
+  await respond(page, 'chat_message', { sender: 'You', content: 'Referenced: Pricing discussion', style: 'user', timestamp: 1,
+    sessionId: 'dest', messageId: 'server-message', clientId: sent.clientId,
+    references: [{ kind: 'session', targetId: 'pricing', label: 'Pricing discussion', capturedAt: '2026-10-26T12:00:00Z', schemaVersion: 1, contentHash: 'test', excerpt: 'Captured', truncated: false }] })
+  await expect(page.getByText('Referenced: Pricing discussion', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Pricing discussion', exact: true })).toHaveCount(1)
 })
 
 test('a failed reference can be restored, removed and resubmitted', async ({ page }) => {
@@ -100,8 +133,12 @@ test('a failed reference can be restored, removed and resubmitted', async ({ pag
   await respond(page, 'message_rejected', { sessionId: 'dest', clientId: sent.clientId, error: 'Source unavailable' })
   await page.getByRole('button', { name: 'Edit message', exact: true }).click()
   await expect(input(page)).toHaveValue('Compare')
+  // The unsent bubble moved into the composer: it and its retry are gone.
+  await expect(page.getByText('Source unavailable')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Retry message' })).toHaveCount(0)
   await page.getByRole('button', { name: 'Remove reference: Pricing discussion' }).click()
   await input(page).press('Enter')
+  await expect.poll(() => requests(page)).toHaveLength(2)
   expect((await requests(page))[1].references).toEqual([])
 })
 

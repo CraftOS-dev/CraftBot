@@ -1,4 +1,5 @@
 import { createSlice, current, isDraft, PayloadAction } from '@reduxjs/toolkit'
+import { reconcileIframes, removeIframe } from '../../features/agentApps/frameHost'
 import { setConnected } from './connectionSlice'
 import type {
   AgentAppProject,
@@ -50,6 +51,7 @@ interface AgentAppState {
   // True until the first project list after a (re)connect replaces the
   // projects wholesale (see setProjects).
   listIsAuthoritative: boolean
+  catalogLoaded: boolean
 }
 
 // Statuses the browser learns from live events, not from the saved list.
@@ -63,6 +65,7 @@ function settlesInFlight(inFlight: AgentAppStatus, server: AgentAppStatus): bool
 
 const initialState: AgentAppState = {
   listIsAuthoritative: true,
+  catalogLoaded: false,
   projects: [],
   creating: null,
   todos: {},
@@ -77,6 +80,7 @@ const agentAppSlice = createSlice({
   initialState,
   reducers: {
     setProjects(state, action: PayloadAction<AgentAppProject[]>) {
+      state.catalogLoaded = true
       // The list is the server's saved state, which says "stopped" until a
       // build or launch actually finishes; the in-flight state is only known
       // from live events. A refetch mid-launch (any tab's change triggers
@@ -260,7 +264,7 @@ const agentAppSlice = createSlice({
   extraReducers: (builder) => {
     // Events may be missed while disconnected; trust the next list fully.
     builder.addCase(setConnected, (state, action) => {
-      if (!action.payload) state.listIsAuthoritative = true
+      if (!action.payload) { state.listIsAuthoritative = true; state.catalogLoaded = false }
     })
   },
 })
@@ -290,9 +294,12 @@ export default agentAppSlice.reducer
 
 // --- inbound message handlers --------------------------------------------
 
-register('agent_app_list', (data, dispatch) => {
+register('agent_app_list', (data, dispatch, getState) => {
   const r = data as AgentAppListResponse
-  if (r.success && r.projects) dispatch(setProjects(r.projects))
+  if (r.success && r.projects) {
+    dispatch(setProjects(r.projects))
+    reconcileIframes(getState().agentApp.projects)
+  }
 })
 
 register('agent_app_create', (data, dispatch) => {
@@ -341,6 +348,7 @@ register('agent_app_stop', (data, dispatch) => {
   if (!r.projectId) return
   if (r.success) {
     dispatch(markStopped({ projectId: r.projectId }))
+    removeIframe(r.projectId)
   } else {
     // Stop failed — revert the optimistic 'stopping' back to 'running'.
     dispatch(markStopFailed({ projectId: r.projectId }))
@@ -351,6 +359,7 @@ register('agent_app_delete', (data, dispatch) => {
   const r = data as AgentAppDeleteResponse
   if (r.success && r.projectId) {
     dispatch(removeProject({ projectId: r.projectId }))
+    removeIframe(r.projectId)
   }
 })
 

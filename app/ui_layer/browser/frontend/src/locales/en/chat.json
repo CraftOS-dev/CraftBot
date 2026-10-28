@@ -159,8 +159,6 @@
   "references": {
     "title": "Add context",
     "search": "Search sessions and apps",
-    "filter": "Reference type",
-    "all": "All",
     "session": "Sessions",
     "agent_app": "Agent apps",
     "noMatches": "No matches",
@@ -177,9 +175,20 @@
     "retry": "Retry message",
     "edit": "Edit message",
     "pickerTitle": "Add context",
-    "selectedCount": "{{count}} selected",
-    "emptyHint": "Try another name or category.",
-    "sessionSingular": "Chat",
-    "appSingular": "Agent app"
+    "emptyHint": "Try another name or category."
+  },
+  "apps": {
+    "region": "Agent Apps panel",
+    "loading": "Loading installed apps…",
+    "disconnected": "Reconnect to load or launch apps.",
+    "loadingView": "Loading app view…",
+    "viewTimeout": "The app view is taking longer to load. Retry or open the full app.",
+    "viewUnavailable": "This app view is unavailable or already open in another surface.",
+    "retry": "Retry",
+    "openPanel": "Open in panel",
+    "show": "Show an agent app",
+    "title": "Agent apps",
+    "noInstalled": "No installed apps.",
+    "close": "Close"
   }
 }

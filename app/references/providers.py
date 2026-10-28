@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import json
-import urllib.request
+
+from app.agent_app import agent_view
 
 from .service import ReferenceError, bounded
 
@@ -51,9 +52,11 @@ class AgentAppReferenceProvider:
             "type": project.project_type,
             "status": project.status,
         }
-        port = project.backend_port or project.port
-        if project.status == "running" and isinstance(port, int) and 0 < port < 65536:
-            described = await asyncio.to_thread(self._describe, port)
+        # The manager's registered address, as the agent's own app note uses
+        # (agent_base): external apps need not listen on 127.0.0.1:<port>.
+        base_url = project.backend_url or project.url
+        if project.status == "running" and base_url:
+            described = await asyncio.to_thread(self._describe, base_url)
             data["schema"] = (
                 described if described is not None else "Schema unavailable"
             )
@@ -68,24 +71,16 @@ class AgentAppReferenceProvider:
         }
 
     @staticmethod
-    def _describe(port: int) -> dict | None:
-        """Read only a registered loopback app; never follow redirects or fetch records."""
+    def _describe(base_url: str) -> dict | None:
+        """Schema and operation declarations from the app's describe document.
 
-        class NoRedirect(urllib.request.HTTPRedirectHandler):
-            def redirect_request(self, req, fp, code, msg, headers, newurl):
-                return None
-
+        The document comes from agent_view.describe, the same cached, bounded,
+        no-redirect reader the agent's own app note uses; this never fetches
+        records."""
+        result = agent_view.describe(base_url)
+        if result is None:
+            return None
         try:
-            opener = urllib.request.build_opener(
-                urllib.request.ProxyHandler({}), NoRedirect()
-            )
-            with opener.open(
-                f"http://127.0.0.1:{port}/api/_a2app/describe", timeout=2
-            ) as response:
-                raw = response.read(65537)
-            if len(raw) > 65536:
-                return None
-            result = json.loads(raw)
             # Keep schema/operation declarations only. Never forward arbitrary
             # extra keys returned by an app's describe endpoint.
             entities = result.get("entities") or {}
@@ -122,5 +117,5 @@ class AgentAppReferenceProvider:
                     if isinstance(op, dict) and not op.get("system")
                 ],
             }
-        except (OSError, ValueError, TypeError, AttributeError):
+        except (TypeError, AttributeError):
             return None

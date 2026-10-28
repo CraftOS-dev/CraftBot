@@ -7,9 +7,10 @@ from types import SimpleNamespace
 
 import pytest
 
+from app.agent_app import agent_view
 from app.references import ReferenceError, create_reference_service
 from app.references.providers import AgentAppReferenceProvider
-from app.references.service import TOTAL_BYTES
+from app.references.service import TOTAL_BYTES, reference_token_budget
 from app.usage.chat_storage import ChatStorage, StoredChatMessage
 from app.ui_layer.components.types import ChatMessage
 
@@ -30,6 +31,8 @@ def system(tmp_path):
         status="stopped",
         backend_port=None,
         port=None,
+        backend_url=None,
+        url=None,
         bridge_token="SECRET",
         path="private",
         session_id="other",
@@ -185,11 +188,11 @@ def test_stopped_app_does_not_launch_or_expose_secrets(system):
 
 def test_running_app_uses_optional_bounded_schema(system, monkeypatch):
     service, _, _, app = system
-    app.status, app.backend_port = "running", 12345
+    app.status, app.url = "running", "http://127.0.0.1:12345"
     monkeypatch.setattr(
         AgentAppReferenceProvider,
         "_describe",
-        staticmethod(lambda port: {"entities": {"notes": {}}}),
+        staticmethod(lambda base_url: {"entities": {"notes": {}}}),
     )
     result = asyncio.run(
         service.resolve([{"kind": "agent_app", "targetId": "app-1"}], "dest")
@@ -197,10 +200,58 @@ def test_running_app_uses_optional_bounded_schema(system, monkeypatch):
     assert "notes" in result["excerpt"]
 
 
-def test_app_describe_filters_records_credentials_and_system_operations(monkeypatch):
+@pytest.mark.parametrize(
+    "backend_url,url,expected",
+    [
+        ("http://192.168.1.20:3000", "http://192.168.1.20:8080", "http://192.168.1.20:3000"),
+        (None, "https://notes.example.test", "https://notes.example.test"),
+    ],
+)
+def test_app_schema_comes_from_the_registered_address(
+    system, monkeypatch, backend_url, url, expected
+):
+    """External apps need not listen on 127.0.0.1:<port>; use what the manager
+    registered, as the agent's own app note does."""
+    service, _, _, app = system
+    app.status, app.project_type = "running", "external"
+    app.backend_url, app.url = backend_url, url
+    asked = []
+    monkeypatch.setattr(
+        AgentAppReferenceProvider,
+        "_describe",
+        staticmethod(lambda base_url: asked.append(base_url) or {"entities": {}}),
+    )
+    asyncio.run(service.resolve([{"kind": "agent_app", "targetId": "app-1"}], "dest"))
+    assert asked == [expected]
+
+
+def test_shared_describe_refuses_non_http_addresses():
+    assert agent_view.describe("file:///etc/passwd") is None
+
+
+def test_shared_describe_is_bounded_refuses_redirects_and_caches(monkeypatch):
     import io
     import urllib.request
 
+    openers = []
+    oversized = b'{"entities": {}, "pad": "' + b"x" * agent_view._MAX_DESCRIBE_BYTES + b'"}'
+    monkeypatch.setattr(agent_view, "_CACHE", {})
+    monkeypatch.setattr(
+        urllib.request,
+        "build_opener",
+        lambda *handlers: openers.append(handlers)
+        or SimpleNamespace(open=lambda *args, **kw: io.BytesIO(oversized)),
+    )
+    assert agent_view.describe("http://127.0.0.1:12345/") is None
+    assert agent_view.describe("http://127.0.0.1:12345") is None
+    assert len(openers) == 1  # the second read is the cached answer
+    assert any(isinstance(h, agent_view._NoRedirect) for h in openers[0])
+    assert any(
+        isinstance(h, urllib.request.ProxyHandler) and not h.proxies for h in openers[0]
+    )
+
+
+def test_app_describe_filters_records_credentials_and_system_operations(monkeypatch):
     response = {
         "token": "PRIVATE ROOT",
         "records": ["CUSTOMER DATA"],
@@ -214,14 +265,8 @@ def test_app_describe_filters_records_credentials_and_system_operations(monkeypa
             {"name": "system.inspect", "system": True},
         ],
     }
-    monkeypatch.setattr(
-        urllib.request,
-        "build_opener",
-        lambda *args: SimpleNamespace(
-            open=lambda *args, **kw: io.BytesIO(json.dumps(response).encode())
-        ),
-    )
-    result = AgentAppReferenceProvider._describe(12345)
+    monkeypatch.setattr(agent_view, "describe", lambda base_url: response)
+    result = AgentAppReferenceProvider._describe("http://127.0.0.1:12345")
     assert result["entities"]["notes"]["fields"]["title"] == {"type": "string"}
     assert result["operations"] == [{"name": "notes.list", "description": "List notes"}]
     assert "PRIVATE" not in json.dumps(result) and "CUSTOMER" not in json.dumps(result)
@@ -313,3 +358,21 @@ def test_cursor_positions_reject_non_sqlite_integers(system, field, value):
         storage.reference_page("source", cursor, 512)
 
     assert storage.get_recent_messages("source")[0].content == "visible source"
+
+
+@pytest.mark.parametrize(
+    "window,budget", [(None, 8192), (1_000_000, 8192), (16_000, 2000), (512, 128)]
+)
+def test_token_budget_follows_the_running_models_window(window, budget):
+    assert reference_token_budget(window) == budget
+
+
+def test_service_budget_comes_from_the_llm_not_settings(system):
+    _, storage, sources, project = system
+    service = create_reference_service(
+        SimpleNamespace(get=sources.get),
+        storage,
+        SimpleNamespace(get_project=lambda key: None),
+        llm=SimpleNamespace(context_window=lambda: 16_000),
+    )
+    assert service.token_budget == 2000

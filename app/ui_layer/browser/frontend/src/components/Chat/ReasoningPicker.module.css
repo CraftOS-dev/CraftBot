@@ -30,6 +30,17 @@
   cursor: not-allowed;
 }
 
+/* A narrow composer: a round icon button, like the composer's + button. */
+.compact .button {
+  justify-content: center;
+  width: 30px;
+  padding: 0;
+}
+
+.compact .button > :not(:first-child) {
+  display: none;
+}
+
 .menu {
   position: absolute;
   bottom: calc(100% + 8px);

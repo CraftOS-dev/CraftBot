@@ -1,3 +1,4 @@
+import { usePanelApps } from '../../features/agentApps/usePanelApps'
 import { ReferencePicker } from '../References/ReferencePicker'
 import { ReferenceChip } from '../References/ReferenceChip'
 import { ReferenceAutocomplete, type ReferenceAutocompleteHandle } from '../References/ReferenceAutocomplete'
@@ -15,7 +16,7 @@ import { useToast } from '../../contexts/ToastContext'
 import { SlashCommandAutocomplete, AttachmentPreviewModal, PlaybookModal } from '../ui'
 import type { SlashCommandAutocompleteHandle } from '../ui'
 import { ChatMessageItem } from '../../pages/Chat/ChatMessage'
-import { OutputWorkspace, type PanelLayout } from '../GenerativeUI/OutputWorkspace'
+import { ChatWorkspace, type PanelLayout } from '../ChatWorkspace/ChatWorkspace'
 import { useChatBrowser } from '../MiniBrowser/useChatBrowser'
 import { TypingIndicatorRow } from '../../pages/Chat/TypingIndicator'
 import { ReasoningBlock, ActionBlock, ChunkHeaderRow } from '../activity/ActivityBlocks'
@@ -80,6 +81,11 @@ interface ChatProps {
   /** Where the chat's panel (outputs, browser) opens: on its left, or above
    *  it ('stacked', for a narrow host such as an Agent App's chat panel). */
   panelLayout?: PanelLayout
+  /** False while the host hides the chat (an Agent App's collapsed chat). */
+  panelVisible?: boolean
+  /** The panel offers installed Agent Apps. Off in an Agent App's own chat:
+   *  its panel holds only outputs and the browser. */
+  showAgentApps?: boolean
 }
 
 // One RENDERED row. Activity entries are grouped into chunks (consecutive
@@ -99,6 +105,10 @@ type DisplayRow =
       startTs: number
     }
   | { kind: 'activity'; ts: number; item: ActionItem }
+
+// Narrower than this, the composer's reasoning button shows only its icon so
+// the controls row (+, reasoning, mic, send) still fits.
+const COMPOSER_COMPACT_WIDTH = 420
 
 const SUGGESTED_PLAYBOOK_COUNT = 3
 const ENHANCE_TIMEOUT_MS = 30000
@@ -168,7 +178,7 @@ const formatDateDivider = (tsMs: number): string => {
   return formatDate(date, { year: 'numeric', month: 'long', day: 'numeric' })
 }
 
-export function Chat({ sessionId, placeholder, panelLayout = 'side' }: ChatProps) {
+export function Chat({ sessionId, placeholder, panelLayout = 'side', panelVisible = true, showAgentApps = true }: ChatProps) {
   const { t } = useTranslation(['chat', 'common'])
   const navigate = useNavigate()
   const {
@@ -195,7 +205,8 @@ export function Chat({ sessionId, placeholder, panelLayout = 'side' }: ChatProps
   // session_created (the context then navigates to /session/{id}).
   const isDraft = sessionId === 'new'
   // The chat's own browser, in its panel (none for a draft: no session yet).
-  const browser = useChatBrowser(sessionId, !isDraft)
+  const browser = useChatBrowser(sessionId, !isDraft && panelVisible)
+  const panelApps = usePanelApps(sessionId, !isDraft && showAgentApps, panelVisible)
 
   const messages = useAppSelector(state => selectSessionMessages(state, sessionId))
   const activity = useAppSelector(state => selectSessionActivity(state, sessionId))
@@ -390,7 +401,10 @@ export function Chat({ sessionId, placeholder, panelLayout = 'side' }: ChatProps
   const contextHoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   useEffect(() => () => { if (contextHoverTimer.current) clearTimeout(contextHoverTimer.current) }, [])
   const [caret, setCaret] = useState({ start: 0, end: 0 })
-  const [dismissedReference, setDismissedReference] = useState<string | null>(null)
+  // Escape dismisses the mention at this position until the caret leaves it,
+  // so typing on after Escape does not reopen the list on every keystroke.
+  const [dismissedReferenceStart, setDismissedReferenceStart] = useState<number | null>(null)
+  const [composerFocused, setComposerFocused] = useState(false)
   const [referenceAria, setReferenceAria] = useState<{ active?: string; list: string }>({ list: '' })
   const referenceAutocompleteRef = useRef<ReferenceAutocompleteHandle>(null)
   const sessions = useAppSelector(state => state.sessions.sessions)
@@ -398,9 +412,13 @@ export function Chat({ sessionId, placeholder, panelLayout = 'side' }: ChatProps
   useResource(RESOURCES.agentAppsList)
   const referenceItems = useMemo(() => referenceCatalog(sessions, apps, sessionId), [sessions, apps, sessionId])
   const activeReference = referenceQuery(input, caret.start, caret.end)
-  const triggerKey = activeReference ? `${activeReference.start}:${activeReference.query}` : null
-  const referenceOpen = !!activeReference && triggerKey !== dismissedReference && !referencePickerOpen
+  const activeReferenceStart = activeReference?.start ?? null
+  useEffect(() => { if (activeReferenceStart === null) setDismissedReferenceStart(null) }, [activeReferenceStart])
   const referenceResults = useMemo(() => searchReferences(referenceItems, activeReference?.query || '').slice(0, 50), [referenceItems, activeReference?.query])
+  // Like the "/" list, the "@" list shows only while something matches, so
+  // prose such as "ping @john please review" never holds Enter.
+  const referenceOpen = !!activeReference && composerFocused && activeReferenceStart !== dismissedReferenceStart
+    && referenceResults.length > 0 && !referencePickerOpen
   const updateReferenceAria = useCallback((active: string | undefined, list: string) => setReferenceAria({ active, list }), [])
   const addReference = (item: ReferenceCandidate) => {
     const exists = pendingReferences.some(r => referenceKey(r) === referenceKey(item))
@@ -415,7 +433,7 @@ export function Chat({ sessionId, placeholder, panelLayout = 'side' }: ChatProps
     const value = input.slice(0, start) + input.slice(end)
     pendingReferenceCaret.current = { value, position: start, sessionId }
     setInput(value)
-    setDismissedReference(null)
+    setDismissedReferenceStart(null)
   }
   const inputRef = useRef<HTMLTextAreaElement>(null)
   // Restore selection in the commit that consumes the mention. A deferred
@@ -446,6 +464,20 @@ export function Chat({ sessionId, placeholder, panelLayout = 'side' }: ChatProps
 
   const autocompleteRef = useRef<SlashCommandAutocompleteHandle>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  // A size container query would break the + menu's fixed-position context
+  // picker (containment makes the composer its containing block), so the
+  // composer's width is observed here instead.
+  const inputShellRef = useRef<HTMLDivElement>(null)
+  const [composerCompact, setComposerCompact] = useState(false)
+  useLayoutEffect(() => {
+    const shell = inputShellRef.current
+    if (!shell) return
+    const measure = (width: number) => setComposerCompact(width < COMPOSER_COMPACT_WIDTH)
+    measure(shell.getBoundingClientRect().width)
+    const observer = new ResizeObserver(([entry]) => measure(entry.contentRect.width))
+    observer.observe(shell)
+    return () => observer.disconnect()
+  }, [])
 
   // Voice input state
   const [isListening, setIsListening] = useState(false)
@@ -655,7 +687,7 @@ export function Chat({ sessionId, placeholder, panelLayout = 'side' }: ChatProps
     setPendingAttachments([])
     setPendingReferences([])
     setReferencePickerOpen(false)
-    setDismissedReference(null)
+    setDismissedReferenceStart(null)
     setAttachmentError(null)
     setIsDragOver(false)
     setPreviewAttachment(null)
@@ -1107,7 +1139,7 @@ export function Chat({ sessionId, placeholder, panelLayout = 'side' }: ChatProps
       setReplyTarget(null)
       setPendingAttachments([])
       setPendingReferences([])
-      setDismissedReference(null)
+      setDismissedReferenceStart(null)
       setAttachmentError(null)
       if (inputRef.current) {
         inputRef.current.style.height = 'auto'
@@ -1342,7 +1374,7 @@ export function Chat({ sessionId, placeholder, panelLayout = 'side' }: ChatProps
   }
 
   return (
-    <OutputWorkspace sessionId={sessionId} messages={messages} browser={browser} layout={panelLayout} onCloseOutput={closeOutput}>
+    <ChatWorkspace sessionId={sessionId} messages={messages} browser={browser} apps={panelApps} layout={panelLayout} onCloseOutput={closeOutput}>
     <div className={styles.chat}>
       <div className={styles.messagesArea}>
         <div className={styles.messagesContainer} ref={parentRef}>
@@ -1520,6 +1552,7 @@ export function Chat({ sessionId, placeholder, panelLayout = 'side' }: ChatProps
         )}
         <input ref={fileInputRef} type="file" multiple className={styles.hiddenFileInput} onChange={handleFileSelect} />
         <div
+          ref={inputShellRef}
           className={`${styles.inputShell}${isDragOver ? ` ${styles.inputShellDragOver}` : ''}`}
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
@@ -1587,7 +1620,7 @@ export function Chat({ sessionId, placeholder, panelLayout = 'side' }: ChatProps
           {pendingReferences.length > 0 && <div>{pendingReferences.map(reference => <ReferenceChip key={referenceKey(reference)} reference={reference}
             onRemove={() => setPendingReferences(previous => previous.filter(r => referenceKey(r) !== referenceKey(reference)))} />)}</div>}
           <ReferenceAutocomplete ref={referenceAutocompleteRef} items={referenceResults} open={referenceOpen}
-            onSelect={selectInlineReference} onClose={() => setDismissedReference(triggerKey)} onActive={updateReferenceAria} />
+            onSelect={selectInlineReference} onClose={() => setDismissedReferenceStart(activeReferenceStart)} onActive={updateReferenceAria} />
           <SlashCommandAutocomplete
             ref={autocompleteRef}
             input={referenceOpen ? "" : input}
@@ -1603,12 +1636,12 @@ export function Chat({ sessionId, placeholder, panelLayout = 'side' }: ChatProps
             value={input}
             onChange={e => { pendingReferenceCaret.current = null; setInput(e.target.value); setCaret({ start: e.target.selectionStart, end: e.target.selectionEnd }) }}
             onSelect={e => { const el = e.currentTarget; setCaret({ start: el.selectionStart, end: el.selectionEnd }) }}
-            onBlur={() => setDismissedReference(triggerKey)}
+            onBlur={() => setComposerFocused(false)}
             aria-autocomplete="list"
             aria-expanded={referenceOpen}
             aria-controls={referenceOpen ? referenceAria.list : undefined}
             aria-activedescendant={referenceOpen ? referenceAria.active : undefined}
-            onFocus={() => setUnreadDismissed(true)}
+            onFocus={() => { setUnreadDismissed(true); setComposerFocused(true) }}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
             rows={1}
@@ -1669,7 +1702,7 @@ export function Chat({ sessionId, placeholder, panelLayout = 'side' }: ChatProps
                   </div>
                 )}
               </div>
-              <ReasoningPicker sessionId={sessionId} />
+              <ReasoningPicker sessionId={sessionId} compact={composerCompact} />
             </div>
 
             <div className={styles.controlsRight}>
@@ -1780,6 +1813,6 @@ export function Chat({ sessionId, placeholder, panelLayout = 'side' }: ChatProps
       />
       <PlaybookModal isOpen={playbookOpen} onClose={() => setPlaybookOpen(false)} />
     </div>
-    </OutputWorkspace>
+    </ChatWorkspace>
   )
 }

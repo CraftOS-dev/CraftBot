@@ -81,6 +81,18 @@ const messagesSlice = createSlice({
       const message = bucket.items.find(m => m.clientId === action.payload.clientId)
       if (message) { message.pending = false; message.submissionError = action.payload.error }
     },
+    // A retry is in flight again: hide its retry controls, and stay pending so
+    // the server echo (matched by clientId) replaces this bubble.
+    resubmitSubmission(state, action: PayloadAction<{ sessionId: string; clientId: string }>) {
+      const message = bucketFor(state, action.payload.sessionId).items.find(m => m.clientId === action.payload.clientId)
+      if (message) { message.pending = true; delete message.submissionError }
+    },
+    // Edit moved a rejected message back into the composer: drop its bubble.
+    // Only a rejected (never accepted) message can go this way.
+    discardSubmission(state, action: PayloadAction<{ sessionId: string; clientId: string }>) {
+      const bucket = bucketFor(state, action.payload.sessionId)
+      bucket.items = bucket.items.filter(m => m.clientId !== action.payload.clientId || !m.submissionError)
+    },
     setInitial(state, action: PayloadAction<{ messages: ChatMessage[] }>) {
       // Replaces everything: init carries only the backend's in-memory
       // snapshot, so every bucket restarts unfetched and the per-session
@@ -199,6 +211,8 @@ const messagesSlice = createSlice({
 
 export const {
   rejectSubmission,
+  resubmitSubmission,
+  discardSubmission,
   setInitial,
   addOrReconcile,
   addOptimistic,
@@ -269,6 +283,7 @@ register('session_deleted', (data, dispatch, getState) => {
   const d = data as { sessionId?: string } | undefined
   if (d?.sessionId) {
     resetArtifactProgress(d.sessionId, dispatch, getState())
+    dispatch(resetUiState(UI_STATE.chat.panelApp(d.sessionId)))
     dispatch(dropSession({ sessionId: d.sessionId }))
   }
 })

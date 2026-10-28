@@ -17,11 +17,26 @@ MAX_REFERENCES = 8
 EXCERPT_BYTES = 8192
 TOTAL_BYTES = 32768
 PAGE_BYTES = 24576
+# Reference context may use this share of the model's window, within bounds.
+CONTEXT_WINDOW_SHARE = 8
+MIN_TOKEN_BUDGET = 128
+MAX_TOKEN_BUDGET = 8192
+
+
+def reference_token_budget(context_window: int | None) -> int:
+    """Tokens reference context may use for a model with this window."""
+    if not context_window:
+        return MAX_TOKEN_BUDGET
+    return min(
+        MAX_TOKEN_BUDGET,
+        max(MIN_TOKEN_BUDGET, context_window // CONTEXT_WINDOW_SHARE),
+    )
 
 
 def submission_message_id(destination: str, client_id: str) -> str:
+    """Stable message id for one client submission (references or attachments)."""
     return (
-        "reference:"
+        "submission:"
         + hashlib.sha256(json.dumps([destination, client_id]).encode()).hexdigest()
     )
 
@@ -192,9 +207,12 @@ class ReferenceService:
 
 
 def create_reference_service(
-    sessions=None, storage=None, apps=None
+    sessions=None, storage=None, apps=None, llm=None
 ) -> ReferenceService:
-    """Composition root; adapters and actions reuse the existing application managers."""
+    """Composition root; adapters and actions reuse the existing application managers.
+
+    The token budget follows the window of the model the agent actually runs
+    (model catalog first, settings.json only for an uncatalogued model)."""
     from .providers import AgentAppReferenceProvider, SessionReferenceProvider
 
     if sessions is None:
@@ -209,7 +227,10 @@ def create_reference_service(
         from app.agent_app._state import get_agent_app_manager
 
         apps = get_agent_app_manager()
-    from app.config import get_settings
+    if llm is None:
+        from agent_core.core.registry.llm import get_llm_interface_or_none
+
+        llm = get_llm_interface_or_none()
     from agent_core.utils.token import count_tokens
 
     def reference_tokens(text: str) -> int:
@@ -219,8 +240,7 @@ def create_reference_service(
             # Tokenizer special-token literals are ordinary untrusted source text.
             return len(text.encode("utf-8"))
 
-    window = (get_settings().get("model") or {}).get("context_window")
-    token_budget = min(8192, max(128, int(window) // 8)) if window else 8192
+    token_budget = reference_token_budget(llm.context_window() if llm else None)
     return ReferenceService(
         {
             "session": SessionReferenceProvider(sessions, storage),
