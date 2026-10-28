@@ -1244,16 +1244,13 @@ agent_app_ops_verify(project_id, op_names?) EXTERNAL apps only: verifies operati
                                             through the adapter (destructive ops are shape-checked).
                                             Run during adoption after notify_ready and after every
                                             operations.json edit; the import isn't done until it passes.
-agent_app_approve_triggers(project_id)      Record the USER'S consent for an app's declared agent
-                                            triggers (triggers.json — requests the app may fire at you).
-                                            Call ONLY after the user explicitly agreed in chat. Apps
-                                            built here are pre-approved; marketplace/imported apps'
-                                            fires are refused until approved.
 agent_app_convert(source, ...)              Rebuild a foreign app as a Agent App: fresh scaffold, original kept
                                             in reference/source/, requirements synthesized,
                                             supervised build dispatched. Always a native rebuild; to keep a
                                             foreign app running as-is, use agent_app_import.
 ```
+
+App-to-agent requests require user review in CraftBot's approval modal at launch or after new/changed trigger definitions are delivered. This applies to imported, marketplace, newly created, and evolved apps. Never write approval records or ask for consent after a trigger fires; direct the user to Review requests on the app page if requests are off.
 
 ### Data and ops: the agent-app CLI
 
@@ -1448,7 +1445,7 @@ agent_app                agent_app_scaffold, agent_app_list_projects, agent_app_
                          agent_app_report_finding, agent_app_http, agent_app_usage,
                          agent_app_marketplace_list,
                          agent_app_marketplace_install, agent_app_import_zip, agent_app_import,
-                         agent_app_convert, agent_app_ops_verify, agent_app_approve_triggers
+                         agent_app_convert, agent_app_ops_verify
 
 per-integration sets     Discord, Slack, Telegram (bot/user), Notion, LinkedIn, Jira, GitHub,
                          Outlook, WhatsApp, Twitter, HubSpot, Stripe, LINE, Lark (+calendar/drive),

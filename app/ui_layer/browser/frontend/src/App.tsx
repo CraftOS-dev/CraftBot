@@ -15,6 +15,7 @@ import { useAppSelector } from './store/hooks'
 import { selectNeedsHardOnboarding } from './store/selectors/onboarding'
 import { TourProvider } from './tour'
 import { LoadingMascot } from '@mascot'
+import { AgentAppTriggerConsentModal } from './components/ui/AgentAppTriggerConsentModal'
 import { AgentAppImportToast } from './components/ui/AgentAppImportToast'
 
 // Forces AgentAppPage to remount per-project so useState initializers
@@ -147,6 +148,7 @@ function App() {
         progress/outcome toast has to be mounted somewhere that never
         unmounts. Renders nothing. */}
     <AgentAppImportToast />
+    <AgentAppTriggerConsentModal />
     <Layout>
       <Routes>
         <Route path="/" element={<ChatPage key="main" sessionId="main" />} />

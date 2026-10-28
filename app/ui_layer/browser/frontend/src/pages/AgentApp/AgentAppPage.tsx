@@ -18,7 +18,8 @@ import { ConstructionDock } from './ConstructionDock'
 import { AgentAppThemeModal, DEFAULT_CUSTOM_COLORS } from './AgentAppThemeModal'
 import type { AgentAppThemeId, AgentAppCustomColors } from './AgentAppThemeModal'
 import { usePersistedState } from '../../hooks'
-import { useAppSelector } from '../../store/hooks'
+import { openTriggerReview } from '../../store/slices/agentAppSlice'
+import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import {
   selectAgentAppBuildEvents,
   selectAgentAppProjects,
@@ -73,6 +74,7 @@ export function AgentAppPage() {
   const { t } = useTranslation(['agentapp', 'common'])
   const { projectId } = useParams<{ projectId: string }>()
   const navigate = useNavigate()
+  const dispatch = useAppDispatch()
   const {
     launchAgentApp,
     deleteAgentApp,
@@ -176,7 +178,7 @@ export function AgentAppPage() {
 
   // Persistent iframe — lives in a pool on document.body, positioned over the placeholder
   useEffect(() => {
-    if (!projectId || project?.status !== 'running' || !project?.url) {
+    if (!projectId || project?.status !== 'running' || !project?.url || project.triggerConsent?.needsReview) {
       if (projectId) hideIframe(projectId)
       return
     }
@@ -211,7 +213,7 @@ export function AgentAppPage() {
       window.removeEventListener('resize', updatePosition)
       if (projectId) hideIframe(projectId)
     }
-  }, [projectId, project?.status, project?.url, project?.readyAt])
+  }, [projectId, project?.status, project?.url, project?.readyAt, project?.triggerConsent?.needsReview])
 
   // Send the selected Agent App theme + current app mode to the iframe.
   // NOTE: the postMessage `type` stays 'livingui-theme' — it is the wire
@@ -369,6 +371,17 @@ export function AgentAppPage() {
 
   return (
     <div className={`${styles.container} ${isResizing ? styles.resizing : ''}`}>
+      {project.triggerConsent && (project.triggerConsent.required || project.triggerConsent.triggers.length > 0) && (
+        <div className={styles.triggerConsentBanner} role="status">
+          <span>{project.triggerConsent.error || t(project.triggerConsent.required
+            ? project.triggerConsent.triggers.some(request => request.change === 'approved')
+              ? 'agentapp:triggerConsent.pendingChanges' : 'agentapp:triggerConsent.off'
+            : 'agentapp:triggerConsent.on')}</span>
+          <Button variant="secondary" size="sm" onClick={() => dispatch(openTriggerReview(project.id))}>
+            {t('agentapp:triggerConsent.review')}
+          </Button>
+        </div>
+      )}
       {/* Main Content Area. The old top bar is gone: lifecycle + view controls
           now live on the sidebar row, and the chat panel collapses to an edge
           rail (below) so it can be hidden without losing its re-open affordance. */}
