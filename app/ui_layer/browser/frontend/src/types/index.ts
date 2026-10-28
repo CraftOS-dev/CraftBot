@@ -879,7 +879,21 @@ export interface OnboardingCompleteResponse {
 export type AgentAppStatus = 'creating' | 'launching' | 'ready' | 'running' | 'stopping' | 'stopped' | 'error'
 export type AgentAppCreationPhase = 'initializing' | 'scaffolding' | 'coding' | 'testing' | 'building' | 'launching'
 
+export interface AgentAppTriggerConsent {
+  revision: string
+  required: boolean
+  needsReview: boolean
+  error?: string
+  triggers: Array<{
+    name: string
+    description: string
+    instruction: string
+    change: 'new' | 'changed' | 'approved'
+  }>
+}
+
 export interface AgentAppProject {
+  triggerConsent?: AgentAppTriggerConsent
   id: string
   name: string
   description: string
@@ -986,6 +1000,7 @@ export interface AgentAppListResponse {
 }
 
 export interface AgentAppLaunchResponse {
+  triggerConsent?: AgentAppTriggerConsent
   success: boolean
   projectId?: string
   url?: string

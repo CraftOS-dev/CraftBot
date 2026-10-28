@@ -428,7 +428,7 @@ class IntegrationBridge:
         triggers.json on disk by the manager, so nothing app-controlled can
         steer the agent beyond what its author declared at build time.
 
-        Gate order: token → capability → consent → era. Every refusal fails
+        Gate order: token → capability → era → reviewed definition. Every refusal fails
         closed and leaves the queue row pending (harmless, inspectable)."""
         project_id = self._validate_token(request)
         if not project_id:
@@ -459,48 +459,8 @@ class IntegrationBridge:
                 {"error": f"This app may not fire '{trigger}': {why}"}, status=403
             )
 
-        # Gate 3 — consent. First-party builds are approved at creation;
-        # marketplace/imported apps need the user's explicit yes.
         try:
-            from app.factory.host_craftbot import get_factory_host
-
-            host = get_factory_host()
-            if not host.is_triggers_approved(project_id):
-                logger.warning(
-                    f"[INTEGRATION_BRIDGE] BLOCKED (consent) project={project_id} "
-                    f"trigger={trigger!r}"
-                )
-                # A silent refusal reads as a broken button (observed live
-                # 2026-08-06: three consent-blocks, user saw nothing). Ask
-                # the user via the project session — at most once an hour,
-                # never letting the ask fail the refusal response, and never
-                # consuming the hourly slot on a FAILED ask (a silent
-                # failure once suppressed every retry for an hour).
-                try:
-                    if host.consent_nudge_due(project_id):
-                        ask = await self._manager.notify_trigger_consent_needed(
-                            project_id, trigger
-                        )
-                        if ask.get("status") == "success":
-                            host.mark_consent_nudged(project_id)
-                        else:
-                            logger.warning(
-                                f"[INTEGRATION_BRIDGE] consent ask failed for "
-                                f"{project_id}: {ask.get('message')}"
-                            )
-                except Exception as e:
-                    logger.warning(f"[INTEGRATION_BRIDGE] consent ask failed: {e}")
-                return web.json_response(
-                    {
-                        "error": (
-                            "The user has not approved this app's agent triggers. "
-                            "Ask them to approve via agent_app_approve_triggers."
-                        )
-                    },
-                    status=403,
-                )
-
-            # Gate 4 — era. While a DEV environment exists, fires are
+            # Gate 3 — era. While a DEV environment exists, fires are
             # agent/verifier test traffic (the walk verifier clicks ⚡
             # buttons in the dev instance, which aliases to the real project
             # id through the shared bridge token) — they must not start real
@@ -528,6 +488,19 @@ class IntegrationBridge:
                             "agent runs until the app is delivered and live."
                         ),
                     }
+                )
+            # User consent is collected in the UI at launch/update, never by
+            # starting an agent run to ask after the first fire.
+            from app.agent_app.trigger_consent import approved_trigger
+
+            project = self._manager.get_project(project_id)
+            if approved_trigger(project, trigger) is None:
+                return web.json_response(
+                    {
+                        "error": "Agent requests are off. Review and allow them in CraftBot.",
+                        "code": "trigger_approval_required",
+                    },
+                    status=403,
                 )
         except Exception as e:
             # Fail closed: if the gates cannot be evaluated, no agent run.

@@ -1,4 +1,21 @@
 {
+  "triggerConsent": {
+    "title": "Allow requests from {{name}}?",
+    "intro": "This app can ask CraftBot to do the following work, including when you are not viewing the app.",
+    "scope": "These requests can start agent work and use your connected services. Review the instructions below and allow them only if you trust this app.",
+    "details": "View instructions for CraftBot",
+    "new": "New request",
+    "changed": "Changed request",
+    "approved": "Already allowed",
+    "later": "Keeping requests off leaves the app usable. You can review them again on the app page. New or changed requests will ask again. Earlier blocked requests will not run automatically.",
+    "allow": "Allow requests",
+    "decline": "Keep requests off",
+    "on": "This app can send approved requests to CraftBot.",
+    "pendingChanges": "New or changed agent requests are off until you review them.",
+    "off": "Agent requests are off until you review and allow them.",
+    "review": "Review requests",
+    "disconnected": "Connection lost. Reconnect before choosing."
+  },
   "page": {
     "notFoundTitle": "Agent App Not Found",
     "notFoundBody": "The Agent App project you're looking for doesn't exist or has been deleted.",
