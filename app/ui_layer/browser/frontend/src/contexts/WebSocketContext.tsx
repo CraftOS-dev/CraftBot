@@ -1,3 +1,4 @@
+import type { PendingChatSubmission, ReferenceInput, ReferenceSnapshot } from "../types"
 import { createContext, useContext, useEffect, useMemo, useRef, useState, useCallback, ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useStore } from 'react-redux'
@@ -14,13 +15,16 @@ import { onInboundMessage } from '../store/socket/socketMiddleware'
 import type { OutboundEnvelope } from '../store/socket/types'
 import { useAppDispatch } from '../store/hooks'
 import {
+  rejectSubmission as messagesRejectSubmission,
+  resubmitSubmission as messagesResubmitSubmission,
+  discardSubmission as messagesDiscardSubmission,
   addOptimistic as messagesAddOptimistic,
   setLoadingOlder as messagesSetLoadingOlder,
   historyRequested as messagesHistoryRequested,
   markOptionSelected as messagesMarkOptionSelected,
   transferSession as messagesTransferSession,
 } from '../store/slices/messagesSlice'
-import { transferDraft as chatInputTransferDraft } from '../store/slices/chatInputSlice'
+import { restoreSubmission, transferDraft as chatInputTransferDraft } from '../store/slices/chatInputSlice'
 import { selectLastMessageIdBySession, selectPendingQuestions } from '../store/selectors/messages'
 import { setLoading as onboardingSetLoading } from '../store/slices/onboardingSlice'
 import {
@@ -37,6 +41,7 @@ import {
 } from '../store/slices/agentAppSlice'
 import { setStatus, setSessionRunState } from '../store/slices/agentSlice'
 import { upsertSession } from '../store/slices/sessionsSlice'
+import { selectSessionRunState } from '../store/selectors/agent'
 import { selectSessionById } from '../store/selectors/sessions'
 import { setUiState } from '../store/slices/uiSlice'
 import { selectUiState } from '../store/selectors/ui'
@@ -77,6 +82,11 @@ const newClientId = (): string =>
 const rollbackExpiredSend = (envelope: OutboundEnvelope, dispatch: AppDispatch) => {
   switch (envelope.type) {
     case 'message':
+      if (typeof envelope.sessionId === 'string' && typeof envelope.clientId === 'string') {
+        dispatch(messagesRejectSubmission({ sessionId: envelope.sessionId, clientId: envelope.clientId, error: i18n.t('nav:connection.notConnectedRetry') }))
+        dispatch(setSessionRunState({ sessionId: envelope.sessionId, state: 'idle' }))
+      }
+      break
     case 'question_response':
     case 'session_stop':
       if (typeof envelope.sessionId === 'string') {
@@ -107,7 +117,10 @@ interface WebSocketContextType extends WebSocketState {
     attachments: PendingAttachment[] | undefined,
     sessionId: string,
     replyContext?: { originalMessage: string },
+    references?: (ReferenceInput & { label: string })[],
   ) => void
+  retryMessage: (clientId: string) => void
+  editMessage: (clientId: string) => void
   sendCommand: (command: string, sessionId: string) => void
   // Force-stop a session's in-flight run (send button ↔ stop button)
   stopSession: (sessionId: string) => void
@@ -228,6 +241,10 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         }
         if (session && clientId && pendingDraftClientIdsRef.current.has(clientId)) {
           pendingDraftClientIdsRef.current.delete(clientId)
+          const queued = retryPayloads.current.get(clientId)
+          if (queued) retryPayloads.current.set(clientId, { sessionId: session.id, payload: JSON.stringify({ ...JSON.parse(queued.payload), sessionId: session.id }) })
+          const rollback = rollbackRunStates.current.get(clientId)
+          if (rollback) rollback.sessionId = session.id
           // Move the draft bucket (the optimistic user bubble) into the
           // real session so the message is on screen from the first frame
           // after navigation — the server echo reconciles it by clientId
@@ -288,7 +305,11 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
   // tell the user once per batch and undo their optimistic UI.
   useEffect(() => client.onOutboxExpired((expired) => {
     showToast('error', i18n.t('nav:connection.actionsNotSent', { count: expired.length }))
-    for (const envelope of expired) rollbackExpiredSend(envelope, dispatch)
+    for (const envelope of expired) {
+      rollbackExpiredSend(envelope, dispatch)
+      const previous = typeof envelope.clientId === 'string' ? rollbackRunStates.current.get(envelope.clientId) : undefined
+      if (envelope.type === 'message' && previous) dispatch(setSessionRunState(previous))
+    }
   }), [dispatch, showToast])
 
   // A draft chat's reasoning choice rides along with whatever turns the
@@ -304,13 +325,73 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     [store],
   )
 
+  // Retry/Edit data for a sent message, kept only while its bubble is on
+  // screen: the echo, Edit, a cleared or deleted chat and a reconnect's fresh
+  // history each drop the bubble, and with it this (possibly base64) payload.
+  const retryPayloads = useRef(new Map<string, { sessionId: string; payload: string }>())
+  const rollbackRunStates = useRef(new Map<string, { sessionId: string; state: ReturnType<typeof selectSessionRunState> }>())
+  const forgetSubmission = useCallback((clientId: string) => {
+    retryPayloads.current.delete(clientId)
+    rollbackRunStates.current.delete(clientId)
+  }, [])
+  const pruneSubmissions = useCallback(() => {
+    const buckets = store.getState().messages.bySession
+    for (const entries of [retryPayloads.current, rollbackRunStates.current]) {
+      for (const [clientId, { sessionId }] of entries) {
+        if (!buckets[sessionId]?.items.some(m => m.clientId === clientId)) forgetSubmission(clientId)
+      }
+    }
+  }, [store, forgetSubmission])
+  const editMessage = useCallback((clientId: string) => {
+    const entry = retryPayloads.current.get(clientId)
+    if (!entry) return
+    const payload = JSON.parse(entry.payload)
+    const messages = store.getState().messages.bySession[entry.sessionId]?.items || []
+    const original = messages.find(m => m.clientId === clientId)
+    dispatch(restoreSubmission({ sessionId: entry.sessionId, content: payload.content, replyContext: payload.replyContext,
+      attachments: (payload.attachments || []).map((a: PendingAttachment) => ({ ...a, content: a.content || '' })),
+      references: (original?.references || []).map(({ kind, targetId, label }) => ({ kind, targetId, label })),
+    } as PendingChatSubmission))
+    // The content is back in the composer; the unsent bubble goes with its retry.
+    dispatch(messagesDiscardSubmission({ sessionId: entry.sessionId, clientId }))
+    forgetSubmission(clientId)
+  }, [dispatch, store, forgetSubmission])
+  const retryMessage = useCallback((clientId: string) => {
+    const entry = retryPayloads.current.get(clientId)
+    if (entry) {
+      const { sessionId, payload } = entry
+      rollbackRunStates.current.set(clientId, { sessionId, state: selectSessionRunState(store.getState(), sessionId) })
+      dispatch(messagesResubmitSubmission({ sessionId, clientId }))
+      sendOrQueue(payload)
+    }
+  }, [sendOrQueue, store, dispatch])
+  useEffect(() => client.onMessage('chat_message', (data) => {
+    const message = data as { clientId?: string }
+    if (message.clientId) forgetSubmission(message.clientId)
+  }), [forgetSubmission])
+  useEffect(() => client.onMessage('message_rejected', data => {
+    const message = data as { clientId: string; sessionId: string }
+    const previous = rollbackRunStates.current.get(message.clientId)
+    if (previous) dispatch(setSessionRunState({ sessionId: message.sessionId, state: previous.state }))
+    // Restored; a retry captures the run state afresh.
+    rollbackRunStates.current.delete(message.clientId)
+  }), [dispatch])
+  useEffect(() => client.onMessage('session_busy', data => {
+    const message = data as { sessionId: string; state: ReturnType<typeof selectSessionRunState> }
+    for (const previous of rollbackRunStates.current.values()) {
+      if (previous.sessionId === message.sessionId && message.state) previous.state = message.state
+    }
+  }), [])
+
   const sendMessage = useCallback((
     content: string,
     attachments: PendingAttachment[] | undefined,
     sessionId: string,
     replyContext?: { originalMessage: string },
+    references?: (ReferenceInput & { label: string })[],
   ) => {
     const clientId = newClientId()
+    pruneSubmissions()
 
     // Draft view send: remember the clientId so the session_created
     // broadcast (which precedes the chat_message echo) can be recognized as
@@ -322,9 +403,10 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     // Slash commands are handled by the controller's command executor and
     // never produce a user chat bubble — skip the optimistic insert so a
     // "pending" bubble doesn't linger when the server has nothing to echo.
-    const isSlashCommand = content.trimStart().startsWith('/')
+    const isSlashCommand = content.trimStart().startsWith('/') && !attachments?.length && !references?.length
 
     if (!isSlashCommand) {
+      rollbackRunStates.current.set(clientId, { sessionId, state: selectSessionRunState(store.getState(), sessionId) })
       // Optimistic busy: show the typing indicator instantly; the server's
       // session_busy events take over from the run's first trigger.
       dispatch(setSessionRunState({ sessionId, state: 'running' }))
@@ -341,6 +423,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         sessionId,
         clientId,
         pending: true,
+        references: references?.map(r => ({ ...r, schemaVersion: 1, capturedAt: '', contentHash: '', excerpt: '', truncated: false })) as ReferenceSnapshot[] | undefined,
       }
       dispatch(messagesAddOptimistic(optimistic))
 
@@ -349,16 +432,16 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
       // it now and let the next queued one move up. The server records the
       // same answer and broadcasts question_answered to every client.
       const shown = selectPendingQuestions(store.getState(), sessionId)[0]
-      if (shown) {
+      if (shown && !references?.length) {
         dispatch(messagesMarkOptionSelected({
           sessionId,
           messageId: shown.messageId,
-          value: content.trim() || (attachments || []).map(att => att.name).join(', '),
+          value: content.trim() || [...(attachments || []).map(att => att.name), ...(references || []).map(r => r.label)].join(', '),
         }))
       }
     }
 
-    sendOrQueue(JSON.stringify({
+    const payload = JSON.stringify({
       type: 'message',
       content,
       sessionId,
@@ -366,11 +449,15 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         ? { name: att.name, type: att.type, size: att.size, serverPath: att.serverPath }
         : { name: att.name, type: att.type, size: att.size, content: att.content }
       ),
+      references: (references || []).map(({ kind, targetId }) => ({ kind, targetId })),
       replyContext: replyContext || null,
       clientId,
       ...draftReasoning(sessionId),
-    }))
-  }, [sendOrQueue, dispatch, draftReasoning, store])
+    })
+    // A slash command has no bubble to retry from and gets no echo.
+    if (!isSlashCommand) retryPayloads.current.set(clientId, { sessionId, payload })
+    sendOrQueue(payload)
+  }, [sendOrQueue, dispatch, draftReasoning, store, pruneSubmissions])
 
   const sendCommand = useCallback((command: string, sessionId: string) => {
     const clientId = newClientId()
@@ -670,6 +757,8 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
   const value = useMemo<WebSocketContextType>(() => ({
     ...state,
     sendMessage,
+    retryMessage,
+    editMessage,
     sendCommand,
     stopSession,
     deleteSession,
@@ -708,7 +797,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     setActiveAgentApp,
     updateAgentAppTheme,
   }), [
-    state, sendMessage, sendCommand, stopSession, deleteSession, renameSession, clearSession, closeGenerativeUI,
+    state, sendMessage, retryMessage, editMessage, sendCommand, stopSession, deleteSession, renameSession, clearSession, closeGenerativeUI,
     setSessionReasoning, requestChatHistory, markSessionSeen, openFile, openFolder, requestFilteredMetrics,
     subscribeDashboardMetrics, unsubscribeDashboardMetrics, requestOnboardingStep,
     submitOnboardingStep, skipOnboardingStep, goBackOnboardingStep, checkLocalLLM,

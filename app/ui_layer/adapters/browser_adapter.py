@@ -352,10 +352,15 @@ class BrowserChatComponent(ChatComponentProtocol):
             requires_choice=not stored.is_question,
             details=stored.details,
             ui_artifact=stored.ui_artifact,
+            references=stored.references,
         )
 
-    async def append_message(self, message: ChatMessage) -> None:
+    async def append_message(
+        self, message: ChatMessage, *, require_persistence: bool = False
+    ) -> None:
         """Append message and broadcast to clients."""
+        if require_persistence and not self._storage:
+            raise RuntimeError("Chat storage is unavailable")
         self._messages.append(message)
         self._trim_buffer()
 
@@ -397,10 +402,13 @@ class BrowserChatComponent(ChatComponentProtocol):
                     allow_free_text=message.allow_free_text,
                     details=message.details,
                     ui_artifact=message.ui_artifact,
+                    references=message.references,
                 )
                 await self.run_storage(self._storage.insert_message, stored)
             except Exception:
-                pass
+                if require_persistence:
+                    self._messages.remove(message)
+                    raise
 
         # ChatMessage.to_dict() is the WS wire format (always emits sessionId).
         await self._adapter._broadcast(
@@ -1517,6 +1525,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             # User sent a message (may include attachments)
             content = data.get("content", "")
             attachments = data.get("attachments", [])
+            references = data.get("references", [])
             session_id = data.get("sessionId") or "main"
             client_id = data.get("clientId")
 
@@ -1557,10 +1566,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             # can immediately read the next frame. Otherwise rapid-fire sends are
             # serialised behind each message's per-session processing, which
             # makes optimistic bubbles un-gray one-by-one instead of all at once.
-            if attachments:
+            if attachments or references:
                 asyncio.create_task(
                     self._handle_chat_message_with_attachments(
-                        content, attachments, session_id, client_id
+                        content, attachments, session_id, client_id, references, ws
                     )
                 )
             elif content:
@@ -4332,7 +4341,11 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             pending_questions: list = []
             if self._chat and message_id:
                 question_text = next(
-                    (m.content for m in self._chat._messages if m.message_id == message_id),
+                    (
+                        m.content
+                        for m in self._chat._messages
+                        if m.message_id == message_id
+                    ),
                     "",
                 )
                 storage = self._chat._storage
@@ -9591,13 +9604,86 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         attachments: List[Dict[str, Any]],
         session_id: str = "main",
         client_id: Optional[str] = None,
+        references: Optional[List[Dict[str, Any]]] = None,
+        ws=None,
     ) -> None:
-        """Handle user chat message with attachments."""
+        """Deduplicate retries of one client submission before resolving
+        sources, saving attachments or enqueueing."""
+        if not client_id or not self._chat._storage:
+            await self._submit_chat_context(
+                content, attachments, session_id, client_id, references, ws
+            )
+            return
+        from app.references.service import SubmissionGate, submission_message_id
+
+        if not hasattr(self, "_reference_submission_gate"):
+            self._reference_submission_gate = SubmissionGate()
+        key = submission_message_id(session_id, client_id)
+        async with self._reference_submission_gate.hold(key):
+            try:
+                previous = await self._chat.run_storage(
+                    self._chat._storage.get_message_by_id, session_id, key
+                )
+            except Exception:
+                if not references:
+                    # Attachment-only messages stay best-effort, as before:
+                    # an unreadable store must not block them.
+                    previous = None
+                else:
+                    await self._send_to(
+                        ws,
+                        {
+                            "type": "message_rejected",
+                            "data": {
+                                "sessionId": session_id,
+                                "clientId": client_id,
+                                "error": "Chat storage is unavailable. Please retry.",
+                            },
+                        },
+                    )
+                    return
+            if previous:
+                message = self._chat._stored_to_chat_message(previous)
+                message.client_id = client_id
+                await self._send_to(
+                    ws, {"type": "chat_message", "data": message.to_dict()}
+                )
+                return
+            await self._submit_chat_context(
+                content, attachments, session_id, client_id, references, ws
+            )
+
+    async def _submit_chat_context(
+        self,
+        content: str,
+        attachments: List[Dict[str, Any]],
+        session_id: str = "main",
+        client_id: Optional[str] = None,
+        references: Optional[List[Dict[str, Any]]] = None,
+        ws=None,
+    ) -> None:
+        """Normalize attachments/references and submit one enriched user message."""
         import uuid
         from app.ui_layer.state.ui_state import AgentStateType
         from app.ui_layer.events import UIEvent, UIEventType
 
+        accepted = False
         try:
+            from app.references import ReferenceService, create_reference_service
+
+            snapshots: List[Dict[str, Any]] = []
+            # Only a message that carries references depends on the reference
+            # service (and its model-window budget); attachments never do.
+            if references:
+                service = create_reference_service(
+                    sessions=self._controller.agent.session_manager,
+                    storage=self._chat._storage,
+                    apps=self._agent_app_manager,
+                    llm=self._controller.agent.llm,
+                )
+                snapshots = await service.resolve(references, session_id)
+            if snapshots and not content.strip():
+                content = "Referenced: " + ", ".join(r["label"] for r in snapshots)
             processed_attachments: List[Attachment] = []
             attachment_note = ""
 
@@ -9670,14 +9756,25 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 style="user",
                 timestamp=time.time(),
                 attachments=processed_attachments if processed_attachments else None,
+                references=snapshots or None,
                 session_id=session_id,
                 client_id=client_id,
             )
-            await self._chat.append_message(user_message)
+            if client_id:
+                # Deterministic per client submission, so a retry finds it.
+                from app.references.service import submission_message_id
+
+                user_message.message_id = submission_message_id(session_id, client_id)
+            await self._chat.append_message(
+                user_message, require_persistence=bool(snapshots)
+            )
+            accepted = True
 
             # Combine content with attachment info for agent context
             # (This is what the agent sees in the event stream - includes file paths)
-            agent_context = content + attachment_note
+            agent_context = (
+                content + attachment_note + ReferenceService.render(snapshots)
+            )
 
             if not agent_context.strip():
                 return
@@ -9714,19 +9811,49 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 "session_id": session_id,
             }
 
+            payload["strict_session"] = bool(snapshots)
             await self._controller._agent._handle_chat_message(payload)
 
         except Exception as e:
             import traceback
 
-            print(
-                f"[BROWSER ADAPTER] Error in _handle_chat_message_with_attachments: {e}"
+            from app.references import ReferenceError
+
+            if accepted:
+                # Saved and echoed already: resending the same submission is
+                # deduplicated, so only a new message reaches the agent.
+                error = (
+                    "Your message was saved, but the agent could not start on "
+                    "it. Send it again as a new message."
+                )
+            elif isinstance(e, ReferenceError):
+                error = str(e)
+            else:
+                error = "The message could not be submitted. Please retry."
+            if not accepted:
+                await self._send_to(
+                    ws,
+                    {
+                        "type": "message_rejected",
+                        "data": {
+                            "sessionId": session_id,
+                            "clientId": client_id,
+                            "error": error,
+                        },
+                    },
+                )
+            logger.warning(
+                "[BROWSER ADAPTER] Reference/attachment submission failed: %s",
+                type(e).__name__,
             )
             traceback.print_exc()
-            # Still try to display an error message to the user
+            if client_id and not accepted:
+                return
+            # A failure after acceptance needs a visible error, not a retry of
+            # an already accepted message with potentially changed snapshots.
             error_message = ChatMessage(
                 sender="System",
-                content=f"Error processing attachment: {str(e)}",
+                content=error,
                 style="error",
                 timestamp=time.time(),
                 session_id=session_id,

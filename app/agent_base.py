@@ -2586,6 +2586,8 @@ class AgentBase:
             session_id = payload.get("session_id") or MAIN_SESSION_ID
             session = self.session_manager.get(session_id)
             if session is None:
+                if payload.get("strict_session"):
+                    raise ValueError("The destination session is no longer available.")
                 logger.warning(
                     f"[CHAT] Message for unknown session {session_id} — delivering to main"
                 )
@@ -2719,6 +2721,8 @@ class AgentBase:
 
         except Exception as e:
             logger.error(f"Error handling incoming message: {e}", exc_info=True)
+            if payload.get("strict_session"):
+                raise
 
     async def _handle_external_event(self, payload: Dict) -> None:
         """

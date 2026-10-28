@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react'
-import type { BrowserPanelMode } from '../GenerativeUI/OutputWorkspace'
+import type { BrowserPanelMode } from '../ChatWorkspace/ChatWorkspace'
 import { usePersistedState } from '../../hooks'
 import { useAppSelector } from '../../store/hooks'
 import { RESOURCES, useResource } from '../../store/resources'
@@ -14,7 +14,7 @@ import { SessionBrowserPanel } from './SessionBrowserPanel'
  * itself when the session's agent starts browsing (once per run: the
  * activity's `browsing` turns true), but only for the chat on screen; a
  * chat in the background just shows the activity dot when it comes back.
- * A new Generative UI output takes the panel back (OutputWorkspace).
+ * A new Generative UI output takes the panel back (ChatWorkspace).
  * Returns undefined while there is no session yet (a draft chat).
  */
 export function useChatBrowser(sessionId: string, enabled: boolean): BrowserPanelMode | undefined {

@@ -26,7 +26,7 @@ export type ThemePreference = 'dark' | 'light' | 'system'
 
 /** What a chat's panel shows: 'auto' = its newest Generative UI
  *  output when it has one, else nothing; 'closed' = conversation only. */
-export type ChatPanelMode = 'auto' | 'output' | 'browser' | 'closed'
+export type ChatPanelMode = 'auto' | 'output' | 'browser' | 'apps' | 'closed'
 
 export interface ChatReplyTarget {
   displayName: string
@@ -93,11 +93,14 @@ export const UI_STATE = {
       persistDefault: true,
       writeThrough: true,
     }),
-    /** By session id: what the panel shows (outputs or the chat's
-     *  browser, one at a time). */
+    /** By session id: what the panel shows (outputs, the chat's browser or
+     *  its Agent App, one at a time). */
     panelMode: defineUiStateFamily<ChatPanelMode>('chat.panelMode', 'auto', 'session', {
-      isValid: oneOf(['auto', 'output', 'browser', 'closed']),
+      isValid: oneOf(['auto', 'output', 'browser', 'apps', 'closed']),
     }),
+    /** By session id: the installed app's project id the panel shows ('' =
+     *  none picked). Never app data or runtime URLs. */
+    panelApp: defineUiStateFamily('chat.panelApp', '', 'session'),
     /** By session id: the output revision on show ('' = the newest). */
     outputSelection: defineUiStateFamily('chat.outputSelection', '', 'session'),
     /** The chat's width in px beside its panel. */

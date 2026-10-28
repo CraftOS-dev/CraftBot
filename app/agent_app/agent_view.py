@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import time
+import urllib.parse
 import urllib.request
 from typing import Any, Dict, List, Optional
 
@@ -32,25 +33,49 @@ except Exception:  # pragma: no cover
 _CACHE: Dict[str, tuple] = {}
 _TTL_SECONDS = 300
 _TIMEOUT_SECONDS = 2.0
+# Read at most this much of an answer, whatever the app sends.
+_MAX_DESCRIBE_BYTES = 1 << 20
 
 
-def _describe(base_url: str) -> Optional[Dict[str, Any]]:
-    """Fetch (and cache) the app's data model. None when the app is down."""
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """The answer must come from the registered address itself."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def describe(base_url: str) -> Optional[Dict[str, Any]]:
+    """The app's A2APP describe document, cached for _TTL_SECONDS.
+
+    The one reader of describe for the agent's prompt and for references.
+    `base_url` is the manager-registered address (backend_url, else url),
+    never a user-supplied one. Apps run locally, so no proxy is used. None
+    when the app is down, the address is not http(s), the answer redirects,
+    is larger than _MAX_DESCRIBE_BYTES or is not a JSON object.
+    """
+    base_url = base_url.rstrip("/")
     cached = _CACHE.get(base_url)
     if cached is not None and time.time() - cached[0] < _TTL_SECONDS:
         return cached[1]
-    try:
-        request = urllib.request.Request(
-            f"{base_url}/api/_a2app/describe", headers={"User-Agent": "CraftBot"}
-        )
-        with urllib.request.urlopen(request, timeout=_TIMEOUT_SECONDS) as response:
-            data = json.loads(response.read().decode("utf-8"))
-        _CACHE[base_url] = (time.time(), data)
-        return data
-    except Exception as e:
-        logger.debug(f"[AGENT_VIEW] describe unavailable at {base_url}: {e}")
-        _CACHE[base_url] = (time.time(), None)
-        return None
+    data = None
+    if urllib.parse.urlsplit(base_url).scheme in ("http", "https"):
+        try:
+            opener = urllib.request.build_opener(
+                urllib.request.ProxyHandler({}), _NoRedirect()
+            )
+            request = urllib.request.Request(
+                f"{base_url}/api/_a2app/describe", headers={"User-Agent": "CraftBot"}
+            )
+            with opener.open(request, timeout=_TIMEOUT_SECONDS) as response:
+                raw = response.read(_MAX_DESCRIBE_BYTES + 1)
+            if len(raw) > _MAX_DESCRIBE_BYTES:
+                raise ValueError(f"answer exceeds {_MAX_DESCRIBE_BYTES} bytes")
+            parsed = json.loads(raw.decode("utf-8"))
+            data = parsed if isinstance(parsed, dict) else None
+        except Exception as e:
+            logger.debug(f"[AGENT_VIEW] describe unavailable at {base_url}: {e}")
+    _CACHE[base_url] = (time.time(), data)
+    return data
 
 
 def _type_label(spec: Dict[str, Any]) -> str:
@@ -73,7 +98,7 @@ def schema_block(base_url: str, max_chars: int = 2000) -> Optional[str]:
     Read-only and server-managed fields are omitted: the agent cannot write
     them, so naming them only invites it to try.
     """
-    described = _describe(base_url)
+    described = describe(base_url)
     if not described:
         return None
     entities = described.get("entities") or {}
@@ -117,7 +142,7 @@ def operations_block(base_url: str, max_chars: int = 6000) -> Optional[str]:
     and a trailing `!` when it is destructive, e.g.
         notes: list, get(name), create(title), update(name), delete(name)!
     """
-    described = _describe(base_url)
+    described = describe(base_url)
     if not described:
         return None
     groups: Dict[str, List[tuple]] = {}

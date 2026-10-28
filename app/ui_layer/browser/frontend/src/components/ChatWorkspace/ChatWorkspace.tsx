@@ -1,35 +1,18 @@
-import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react'
 import { flushSync } from 'react-dom'
 import { useTranslation } from 'react-i18next'
-import { ArrowUpRight, Globe, Layers3 } from 'lucide-react'
-import type { ChatMessage, ClosedGenerativeUIArtifact, GenerativeUIArtifact } from '../../types'
+import { Globe, Layers3 } from 'lucide-react'
+import type { ChatMessage, GenerativeUIArtifact } from '../../types'
 import { usePersistedState } from '../../hooks'
 import { useAppDispatch } from '../../store/hooks'
 import { resetUiState } from '../../store/slices/uiSlice'
 import { UI_STATE } from '../../store/uiState'
 import { ChromeTabs } from '../ui/ChromeTabs'
-import { GenerativeUI, type OutputVersion } from './GenerativeUI'
-import styles from './OutputWorkspace.module.css'
-
-const OutputContext = createContext<((artifact: GenerativeUIArtifact) => void) | null>(null)
-
-/** A small reference in the conversation; generated code only runs in the
- *  output pane. A closed output stays listed, without anything to open. */
-export function OutputReference({ artifact }: { artifact: GenerativeUIArtifact | ClosedGenerativeUIArtifact }) {
-  const open = useContext(OutputContext)
-  const { t } = useTranslation('chat')
-  if (artifact.closed) {
-    return <div className={`${styles.reference} ${styles.referenceClosed}`}>
-      <span className={styles.referenceIcon}><Layers3 size={19} /></span>
-      <span className={styles.referenceText}><strong>{artifact.title}</strong><span>{t('generativeUI.closed')}</span></span>
-    </div>
-  }
-  return <button type="button" className={styles.reference} onClick={() => open?.(artifact)} disabled={!open}>
-    <span className={styles.referenceIcon}><Layers3 size={19} /></span>
-    <span className={styles.referenceText}><strong>{artifact.title}</strong><span>{t('generativeUI.openOutput')}</span></span>
-    <ArrowUpRight size={17} />
-  </button>
-}
+import { GenerativeUI, type OutputVersion } from '../GenerativeUI/GenerativeUI'
+import { PanelAppContext } from '../../features/agentApps/PanelAppContext'
+import { AppPickerButton } from './AppPickerButton'
+import { OutputContext } from './OutputReference'
+import styles from './ChatWorkspace.module.css'
 
 /** The chat's own browser as the panel's second mode. */
 export interface BrowserPanelMode {
@@ -41,6 +24,25 @@ export interface BrowserPanelMode {
   render(): ReactNode
 }
 
+/** An installed Agent App as the panel's third mode (usePanelApps). */
+export interface AppsPanelMode {
+  /** Installed apps this chat can show: the apps menu. */
+  choices: { id: string; title: string; icon: ReactNode }[]
+  /** False until the app catalog first arrives. */
+  loaded: boolean
+  /** The app this chat shows, once picked (and while it still exists); its
+   *  icon is the apps button's. */
+  selected: { id: string; title: string; icon: ReactNode } | null
+  /** Make an app this chat's app. */
+  select(projectId: string): void
+  /** The chat no longer has an app. */
+  clear(): void
+  canOpenProject(projectId: string): boolean
+  /** An app's view. By id, so a closed app still slides out of the pane;
+   *  `interactive` is false while it does. */
+  render(projectId: string, moving: boolean, interactive: boolean): ReactNode
+}
+
 /** Where the panel sits: on the chat's left, or above it (an Agent App's
  *  narrow chat panel). A workspace too narrow for both side by side stacks
  *  either way. */
@@ -48,9 +50,8 @@ export type PanelLayout = 'side' | 'stacked'
 
 type Exiting =
   | { sessionId: string; kind: 'output'; artifact: GenerativeUIArtifact }
+  | { sessionId: string; kind: 'apps'; projectId: string }
   | { sessionId: string; kind: 'browser' }
-
-interface Tracks { columns: string; rows: string }
 
 // Side by side, the chat keeps its width (like an Agent App's chat panel)
 // and the panel takes the rest. Dragging the seam to within
@@ -70,29 +71,35 @@ const STACKED_COLLAPSE_SHARE = 0.12
 const DRAG_THRESHOLD = 4
 const KEY_STEP_WIDTH = 32
 const KEY_STEP_SHARE = 0.04
+// Opening and closing use the Agent App page's chat panel transition
+// (AgentAppPage.module.css .chatPanel), here ChatWorkspace.module.css
+// .paneMoving. A size change that animates nothing ends its motion after
+// this long without a transitionrun.
+const NO_TRANSITION_MS = 100
 
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value))
-const readTracks = (element: HTMLElement): Tracks => {
-  const style = getComputedStyle(element)
-  return { columns: style.gridTemplateColumns, rows: style.gridTemplateRows }
-}
 
 /**
  * The chat with its panel. The panel shows one thing at a time: the chat's
- * Generative UI outputs, or (with `browser`) the chat's own browser. The
- * round buttons at the chat's top left switch between them; pressing the
- * one on show closes the panel. A new output opens the panel on it; the
- * chat's browser takes it over when the agent starts browsing (set by the
- * browser's owner through the same per-session panel mode). Opening and
- * closing animate the shared grid tracks. The seam between panel and chat
- * works like an Agent App's: drag it to resize, drag it to the panel's edge
- * or click it to close the panel.
+ * Generative UI outputs, (with `browser`) the chat's own browser, or (with
+ * `apps`) an installed Agent App. The round buttons at the chat's top left
+ * switch between them; pressing the one on show closes the panel, except the
+ * apps button, which always lists the apps to show (and Close, which stops
+ * the chat having one). A new output opens the
+ * panel on it; the chat's browser takes it over when the agent starts
+ * browsing (set by the browser's owner through the same per-session panel
+ * mode). The pane stays mounted and opening and closing animate its width
+ * (stacked: height) with a CSS transition, as the Agent App page's chat panel
+ * does. The seam between panel and chat works like an Agent App's: drag it
+ * to resize, drag it to the panel's edge or click it to close the panel.
  */
-export function OutputWorkspace({ sessionId, messages, browser, layout = 'side', onCloseOutput, children }: {
+export function ChatWorkspace({ sessionId, messages, browser, apps, layout = 'side', onCloseOutput, children }: {
   sessionId: string
   messages: ChatMessage[]
   /** The chat's browser; omitted where there is none (a draft chat). */
   browser?: BrowserPanelMode
+  /** Installed apps; omitted where there are none (a draft chat). */
+  apps?: AppsPanelMode
   layout?: PanelLayout
   /** The user closed an output (its tab's ×): it goes for good (its code
    *  and saved progress). */
@@ -110,18 +117,14 @@ export function OutputWorkspace({ sessionId, messages, browser, layout = 'side',
   const [resizing, setResizing] = useState(false)
   const [dragSize, setDragSize] = useState<number | null>(null)
   const [workspaceWidth, setWorkspaceWidth] = useState(0)
+  const [workspaceHeight, setWorkspaceHeight] = useState(0)
   const [closing, setClosing] = useState<Exiting | null>(null)
   const workspace = useRef<HTMLDivElement>(null)
   const pane = useRef<HTMLElement>(null)
   const seam = useRef<HTMLDivElement>(null)
   const outputsButton = useRef<HTMLButtonElement>(null)
   const browserButton = useRef<HTMLButtonElement>(null)
-  const layoutAnimation = useRef<Animation | null>(null)
-  const previousTracks = useRef<Tracks | null>(null)
-  // The grid as the last commit left it: the starting point when the panel
-  // opens without a user action here (the chat's browser taking the panel
-  // over when its agent starts browsing).
-  const committed = useRef<{ tracks: Tracks | null; isOpen: boolean; stacked: boolean }>({ tracks: null, isOpen: false, stacked: false })
+  const appsButton = useRef<HTMLButtonElement>(null)
   const press = useRef<{ x: number; y: number; moved: boolean } | null>(null)
   // Focus was in the panel or on the seam when it closed: give it to the
   // panel's button once the panel is gone.
@@ -156,16 +159,27 @@ export function OutputWorkspace({ sessionId, messages, browser, layout = 'side',
   const exiting = closing?.sessionId === sessionId ? closing : null
   const selected = (exiting?.kind === 'output' ? exiting.artifact : null)
     ?? outputs.find(artifact => `${artifact.id}:${artifact.revision}` === selection) ?? newest
+  // While closing, the app that is sliding out (Close may already have
+  // cleared the chat's app); otherwise the chat's app.
+  const shownAppId = exiting?.kind === 'apps' ? exiting.projectId : apps?.selected?.id
   const showBrowser = !!browser && (exiting ? exiting.kind === 'browser' : mode === 'browser')
-  const showOutput = !showBrowser && !!selected
+  const showApps = !showBrowser && !!shownAppId && (exiting ? exiting.kind === 'apps' : mode === 'apps')
+  const showOutput = !showBrowser && !showApps && !!selected
     && (exiting ? exiting.kind === 'output' : mode === 'output' || mode === 'auto')
-  const isOpen = showBrowser || showOutput
+  const isOpen = showBrowser || showApps || showOutput
   const stacked = layout === 'stacked' || (workspaceWidth > 0 && workspaceWidth < SIDE_BY_SIDE_MIN_WIDTH)
-  const captureLayout = useCallback(() => {
-    if (workspace.current) previousTracks.current = readTracks(workspace.current)
-    layoutAnimation.current?.cancel()
-    layoutAnimation.current = null
-  }, [])
+  const expanded = isOpen && !exiting
+  // The pane's transition is on only while it opens or closes (whatever
+  // opened it: a button, a new output, the agent starting to browse), so
+  // dragging or keying the seam resizes at once. Set in the render that
+  // flips `expanded`, so the transition applies to that very change; a chat
+  // switch or a layout change only takes the new state.
+  const [motion, setMotion] = useState({ sessionId, stacked, expanded, moving: false, seq: 0 })
+  if (motion.sessionId !== sessionId || motion.stacked !== stacked) {
+    setMotion({ sessionId, stacked, expanded, moving: false, seq: motion.seq })
+  } else if (motion.expanded !== expanded) {
+    setMotion({ sessionId, stacked, expanded, moving: true, seq: motion.seq + 1 })
+  }
 
   // Incoming outputs open automatically (over the browser too). Prepending
   // older history or a language synchronization must not reopen a pane that
@@ -173,7 +187,6 @@ export function OutputWorkspace({ sessionId, messages, browser, layout = 'side',
   useEffect(() => {
     const known = knownOutputs.current
     if (known?.sessionId === sessionId && newestKey && !known.keys.has(newestKey)) {
-      captureLayout()
       setClosing(null)
       setSelection(newestKey)
       setMode('output')
@@ -181,7 +194,7 @@ export function OutputWorkspace({ sessionId, messages, browser, layout = 'side',
     const keys = known?.sessionId === sessionId ? known.keys : new Set<string>()
     for (const artifact of outputs) keys.add(`${artifact.id}:${artifact.revision}`)
     knownOutputs.current = { sessionId, keys }
-  }, [sessionId, outputs, newestKey, setSelection, setMode, captureLayout])
+  }, [sessionId, outputs, newestKey, setSelection, setMode])
   useEffect(() => { setClosing(null) }, [sessionId])
   // A drag never carries over to another chat or layout.
   useEffect(() => {
@@ -193,52 +206,49 @@ export function OutputWorkspace({ sessionId, messages, browser, layout = 'side',
   useLayoutEffect(() => {
     const element = workspace.current
     if (!element) return
-    setWorkspaceWidth(element.getBoundingClientRect().width)
-    const observer = new ResizeObserver(([entry]) => setWorkspaceWidth(entry.contentRect.width))
+    const bounds = element.getBoundingClientRect()
+    setWorkspaceWidth(bounds.width)
+    setWorkspaceHeight(bounds.height)
+    const observer = new ResizeObserver(([entry]) => {
+      setWorkspaceWidth(entry.contentRect.width)
+      setWorkspaceHeight(entry.contentRect.height)
+    })
     observer.observe(element)
     return () => observer.disconnect()
   }, [])
-  useLayoutEffect(() => () => {
-    layoutAnimation.current?.cancel()
-    layoutAnimation.current = null
-    previousTracks.current = null
-    committed.current = { tracks: null, isOpen: false, stacked: false }
-  }, [sessionId])
-  useLayoutEffect(() => {
-    const element = workspace.current
-    const last = committed.current
-    const captured = previousTracks.current
-    previousTracks.current = null
-    if (!element) return
-    // Captured by the action that changed the layout here, else where the
-    // last commit left the grid (an opening from outside: the browser).
-    const previous = captured ?? (last.isOpen !== isOpen && last.stacked === stacked ? last.tracks : null)
-    if (captured === null && previous !== null) {
-      // Read the new layout itself, not a frame of a motion still running.
-      layoutAnimation.current?.cancel()
-      layoutAnimation.current = null
+  // The open/close transition ended, or nothing ran (the size did not change).
+  useEffect(() => {
+    if (!motion.moving) return
+    const element = pane.current
+    let ended = false
+    let idle = 0
+    const end = () => {
+      if (ended) return
+      ended = true
+      setMotion(current => (current.seq === motion.seq ? { ...current, moving: false } : current))
     }
-    const next = readTracks(element)
-    committed.current = { tracks: next, isOpen, stacked }
-    if (!previous) return
-    const from: Keyframe = {}
-    const to: Keyframe = {}
-    if (previous.columns !== next.columns) { from.gridTemplateColumns = previous.columns; to.gridTemplateColumns = next.columns }
-    if (previous.rows !== next.rows) { from.gridTemplateRows = previous.rows; to.gridTemplateRows = next.rows }
-    if (Object.keys(to).length === 0 || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      if (exiting) finishClose()
-      return
+    // A transition announces itself (transitionrun) in the frame it starts.
+    const awaitRun = () => { window.clearTimeout(idle); idle = window.setTimeout(end, NO_TRANSITION_MS) }
+    const onRun = (event: TransitionEvent) => { if (event.target === element) window.clearTimeout(idle) }
+    const onEnd = (event: TransitionEvent) => { if (event.target === element) end() }
+    // Cancelled: a reversal starts its own transition, else the motion is over.
+    const onCancel = (event: TransitionEvent) => { if (event.target === element) awaitRun() }
+    element?.addEventListener('transitionrun', onRun)
+    element?.addEventListener('transitionend', onEnd)
+    element?.addEventListener('transitioncancel', onCancel)
+    awaitRun()
+    return () => {
+      element?.removeEventListener('transitionrun', onRun)
+      element?.removeEventListener('transitionend', onEnd)
+      element?.removeEventListener('transitioncancel', onCancel)
+      window.clearTimeout(idle)
     }
-    // Animate the shared tracks, so chat, seam and pane travel together. No
-    // screenshot overlays, document recreation or text scaling.
-    const animation = element.animate([from, to], { duration: 300, easing: 'cubic-bezier(.22, 1, .36, 1)' })
-    layoutAnimation.current = animation
-    void animation.finished.then(() => {
-      if (layoutAnimation.current !== animation) return
-      layoutAnimation.current = null
-      if (exiting) finishClose()
-    }).catch(() => { /* Reversing direction or switching sessions cancels motion. */ })
-  }, [isOpen, exiting, stacked])
+  }, [motion.moving, motion.seq])
+  // A closing pane lets its content go once it has slid shut.
+  useEffect(() => {
+    if (exiting && !motion.moving) finishClose(exiting.kind)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [exiting, motion.moving])
 
   // Side by side: the chat's width, leaving the panel its minimum.
   const chatMaxWidth = Math.max(CHAT_MIN_WIDTH, workspaceWidth - PANEL_MIN_WIDTH - SEAM_WIDTH)
@@ -263,15 +273,25 @@ export function OutputWorkspace({ sessionId, messages, browser, layout = 'side',
   const commitSize = (size: number) => (stacked ? setStackedShare(size) : setChatWidth(size))
 
   const open = (artifact: GenerativeUIArtifact) => {
-    if (!isOpen) captureLayout()
     setClosing(null)
     setSelection(`${artifact.id}:${artifact.revision}`)
     setMode('output')
   }
   const openBrowser = () => {
-    if (!isOpen) captureLayout()
     setClosing(null)
     setMode('browser')
+  }
+  // Show an installed app as this chat's app. Never launches or stops it.
+  const openApp = (projectId: string) => {
+    if (!apps?.canOpenProject(projectId)) return
+    setClosing(null)
+    apps.select(projectId)
+    setMode('apps')
+  }
+  // The apps list's Close: the chat stops having an app (and its pane goes).
+  const closeApp = () => {
+    if (showApps) close()
+    apps?.clear()
   }
   const selectOutput = (id: string) => {
     const tab = tabs.find(item => item.id === id)
@@ -293,8 +313,8 @@ export function OutputWorkspace({ sessionId, messages, browser, layout = 'side',
     }
     onCloseOutput(id)
   }
-  const finishClose = () => {
-    const opener = closing?.kind === 'browser' ? browserButton : outputsButton
+  const finishClose = (kind: Exiting['kind']) => {
+    const opener = kind === 'browser' ? browserButton : kind === 'apps' ? appsButton : outputsButton
     setClosing(null)
     if (!restoreFocus.current) return
     restoreFocus.current = false
@@ -303,11 +323,13 @@ export function OutputWorkspace({ sessionId, messages, browser, layout = 'side',
   const close = () => {
     if (exiting || !isOpen) return
     const active = document.activeElement
-    restoreFocus.current = !!active && (active === seam.current || !!pane.current?.contains(active))
-    captureLayout()
+    // An app's frame lives outside the pane's DOM.
+    restoreFocus.current = !!active && (active === seam.current || !!pane.current?.contains(active)
+      || (showApps && active instanceof HTMLIFrameElement))
     // Persist intent immediately; only the visible pane waits for the exit.
     // Switching chats during that exit must not discard the close choice.
     if (showBrowser) setClosing({ sessionId, kind: 'browser' })
+    else if (showApps && shownAppId) setClosing({ sessionId, kind: 'apps', projectId: shownAppId })
     else if (selected) setClosing({ sessionId, kind: 'output', artifact: selected })
     setMode('closed')
   }
@@ -319,8 +341,6 @@ export function OutputWorkspace({ sessionId, messages, browser, layout = 'side',
   const onSeamPointerDown = (event: PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return
     event.preventDefault()
-    layoutAnimation.current?.cancel()
-    layoutAnimation.current = null
     event.currentTarget.focus({ preventScroll: true })
     event.currentTarget.setPointerCapture(event.pointerId)
     press.current = { x: event.clientX, y: event.clientY, moved: false }
@@ -334,8 +354,9 @@ export function OutputWorkspace({ sessionId, messages, browser, layout = 'side',
     const size = sizeAt(event.clientX, event.clientY)
     if (size === 'close') {
       // A pointermove is a continuous event: React would render the store's
-      // update (the panel mode) before this component's (the exiting pane),
-      // unmounting the pane before it could animate shut. One render.
+      // update (the panel mode) before this component's (the exiting pane and
+      // the drag's end, which turns the transition back on). One render, so
+      // the pane slides shut from where the drag left it.
       flushSync(() => {
         endPress()
         close()
@@ -383,12 +404,26 @@ export function OutputWorkspace({ sessionId, messages, browser, layout = 'side',
     setChatWidth(clamp(width, CHAT_MIN_WIDTH, chatMaxWidth))
   }
 
-  const sizes = {
-    '--conversation-width': `${conversationWidth}px`,
-    '--panel-share': `${panelShare}fr`,
-    '--chat-share': `${1 - panelShare}fr`,
-  } as CSSProperties
-  const exitingProps = exiting ? { 'aria-hidden': true, inert: '' } : {}
+  const sizes = { '--conversation-width': `${conversationWidth}px` } as CSSProperties
+  // The always-mounted pane: its open size, or 0 (the CSS transition animates
+  // between them while it opens or closes).
+  const paneSize: CSSProperties = stacked
+    ? { height: expanded ? `calc((100% - ${SEAM_WIDTH}px) * ${panelShare})` : '0px' }
+    : { width: expanded ? `calc(100% - var(--conversation-width) - ${SEAM_WIDTH}px)` : '0px' }
+  const paneLabel = !isOpen ? undefined
+    : showBrowser ? t('browserPanel.region') : showApps ? t('apps.region') : t('generativeUI.outputPanel')
+  // Closed, or sliding shut: out of reach. Not a sliding app, though: its
+  // frame lives outside this subtree and an aria-hidden/inert pane would hide
+  // it at once; it takes no input while it slides instead.
+  const paneHidden = !isOpen || (exiting && exiting.kind !== 'apps') ? { 'aria-hidden': true, inert: '' } : {}
+  // The pane's content keeps the open panel's size: opening and closing then
+  // slide it in and out of the clipping pane (anchored on the chat's side)
+  // instead of reflowing it, as the Agent App page's chat panel does.
+  const paneContentSize: CSSProperties | undefined = workspaceWidth > 0
+    ? stacked
+      ? { height: Math.max(0, (workspaceHeight - SEAM_WIDTH) * panelShare) }
+      : { width: Math.max(0, workspaceWidth - conversationWidth - SEAM_WIDTH) }
+    : undefined
   // While a closed output's pane slides away, its tab stays with it.
   const shownTabs = exiting?.kind === 'output' && !tabs.some(tab => tab.id === exiting.artifact.id)
     ? [...tabs, exiting.artifact]
@@ -403,37 +438,43 @@ export function OutputWorkspace({ sessionId, messages, browser, layout = 'side',
         current: artifact.revision === selected.revision,
       }))
     : []
-  return <OutputContext.Provider value={open}>
-    <div ref={workspace} style={sizes} className={`${styles.workspace} ${stacked ? styles.stacked : ''} ${isOpen && !exiting ? styles.open : ''} ${exiting ? styles.closing : ''} ${resizing ? styles.resizing : ''}`}>
-      {isOpen && <>
-        {showBrowser && browser ? <section ref={pane} className={styles.pane} aria-label={t('browserPanel.region')} {...exitingProps}>
-          {browser.render()}
-        </section> : selected && <section ref={pane} className={styles.pane} aria-label={t('generativeUI.outputPanel')} {...exitingProps}>
-          <ChromeTabs
-            label={t('generativeUI.tabsLabel')}
-            tabs={shownTabs.map(artifact => ({
-              id: artifact.id,
-              title: artifact.title,
-              icon: <Layers3 size={13} />,
-              closeLabel: t('generativeUI.closeNamed', { title: artifact.title }),
-            }))}
-            selectedId={selected.id}
-            onSelect={selectOutput}
-            onClose={closeOutput}
-            closeTitle={t('generativeUI.close')}
-            actionsRef={setControlsTarget}
-          />
-          <GenerativeUI key={`${sessionId}:${selected.id}`} artifact={selected} sessionId={sessionId}
-            controlsTarget={controlsTarget} versions={versions} onSelectVersion={setSelection} />
-        </section>}
-        <div ref={seam} className={styles.seam} role="separator" tabIndex={0} aria-label={t('generativeUI.resizePanel')} title={t('panel.close')}
-          aria-orientation={stacked ? 'horizontal' : 'vertical'} aria-valuenow={seamValue.now} aria-valuemin={seamValue.min} aria-valuemax={seamValue.max}
-          onPointerDown={onSeamPointerDown} onPointerMove={onSeamPointerMove} onPointerUp={onSeamPointerUp} onLostPointerCapture={endPress} onKeyDown={onSeamKeyDown}>
-          <span className={styles.grip} aria-hidden="true" />
-        </div>
-      </>}
+  return <OutputContext.Provider value={open}><PanelAppContext.Provider value={apps ? { open: openApp, canOpen: apps.canOpenProject } : null}>
+    <div ref={workspace} style={sizes} className={`${styles.workspace} ${stacked ? styles.stacked : ''} ${resizing ? styles.resizing : ''}`}>
+      <section ref={pane} className={`${styles.pane} ${motion.moving ? styles.paneMoving : ''}`} style={paneSize}
+        aria-label={paneLabel} {...paneHidden}>
+        {isOpen && <div className={styles.paneContent} style={paneContentSize}>
+          {showBrowser && browser ? browser.render()
+            /* No bar: the app fills the pane, as on its own page. The apps
+               button changes or closes it. */
+            : showApps && apps && shownAppId ? apps.render(shownAppId, resizing || motion.moving, !exiting)
+            : selected && <>
+              <ChromeTabs
+                label={t('generativeUI.tabsLabel')}
+                tabs={shownTabs.map(artifact => ({
+                  id: artifact.id,
+                  title: artifact.title,
+                  icon: <Layers3 size={13} />,
+                  closeLabel: t('generativeUI.closeNamed', { title: artifact.title }),
+                }))}
+                selectedId={selected.id}
+                onSelect={selectOutput}
+                onClose={closeOutput}
+                closeTitle={t('generativeUI.close')}
+                actionsRef={setControlsTarget}
+              />
+              <GenerativeUI key={`${sessionId}:${selected.id}`} artifact={selected} sessionId={sessionId}
+                controlsTarget={controlsTarget} versions={versions} onSelectVersion={setSelection} />
+            </>}
+        </div>}
+      </section>
+      {/* Kept, unseen, while the pane slides shut. */}
+      {isOpen && <div ref={seam} className={`${styles.seam}${exiting ? ` ${styles.seamHidden}` : ''}`} role="separator" tabIndex={0} aria-label={t('generativeUI.resizePanel')} title={t('panel.close')}
+        aria-orientation={stacked ? 'horizontal' : 'vertical'} aria-valuenow={seamValue.now} aria-valuemin={seamValue.min} aria-valuemax={seamValue.max}
+        onPointerDown={onSeamPointerDown} onPointerMove={onSeamPointerMove} onPointerUp={onSeamPointerUp} onLostPointerCapture={endPress} onKeyDown={onSeamKeyDown}>
+        <span className={styles.grip} aria-hidden="true" />
+      </div>}
       <div className={styles.conversation}>
-        {(outputs.length > 0 || browser) && <div className={styles.switcher}>
+        {(outputs.length > 0 || browser || apps) && <div className={styles.switcher}>
           {outputs.length > 0 && <button type="button" ref={outputsButton} onClick={() => (showOutput && !exiting ? close() : selected && open(selected))} aria-label={t('generativeUI.showOutputs')} title={t('generativeUI.showOutputs')} aria-expanded={showOutput && !exiting}>
             <Layers3 size={16} />
           </button>}
@@ -441,9 +482,10 @@ export function OutputWorkspace({ sessionId, messages, browser, layout = 'side',
             <Globe size={16} />
             {browser.running && <span className={`${styles.browserDot} ${browser.browsing ? styles.browserDotBusy : ''}`} aria-hidden="true" />}
           </button>}
+          {apps && <AppPickerButton apps={apps} shown={showApps && !exiting} buttonRef={appsButton} onPick={openApp} onClose={closeApp} />}
         </div>}
         <div className={styles.chat}>{children}</div>
       </div>
     </div>
-  </OutputContext.Provider>
+  </PanelAppContext.Provider></OutputContext.Provider>
 }

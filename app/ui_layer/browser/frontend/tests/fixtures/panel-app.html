@@ -1,0 +1,9 @@
+<!doctype html><html><head><meta charset="UTF-8"><title>Installed app fixture</title></head><body>
+<label>App note <input aria-label="App note"></label><output id="theme">Waiting for theme</output>
+<script>
+window.fixtureBoot = Math.random()
+window.addEventListener('message', event => {
+  if (event.data?.type === 'livingui-theme') document.querySelector('#theme').textContent = event.data.themeId + ':' + event.data.mode
+})
+parent.postMessage({ type: 'craftbot-theme-request' }, '*')
+</script></body></html>

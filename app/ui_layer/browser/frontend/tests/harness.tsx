@@ -8,7 +8,7 @@ import ui, { setUiState } from '../src/store/slices/uiSlice'
 import agent from '../src/store/slices/agentSlice'
 import messages from '../src/store/slices/messagesSlice'
 import { UI_STATE, createUiPersistenceMiddleware, loadPersistedUiState } from '../src/store/uiState'
-import { OutputWorkspace, type BrowserPanelMode, type PanelLayout } from '../src/components/GenerativeUI/OutputWorkspace'
+import { ChatWorkspace, type BrowserPanelMode, type PanelLayout } from '../src/components/ChatWorkspace/ChatWorkspace'
 import { QuestionBox } from '../src/components/Chat/QuestionBox'
 import { ChatMessageItem } from '../src/pages/Chat/ChatMessage'
 import type { GenerativeUIArtifact, ChatMessage } from '../src/types'
@@ -83,7 +83,7 @@ function Harness() {
       <button onClick={() => setLayout(value => value === 'side' ? 'stacked' : 'side')}>{layout === 'side' ? 'Stack panel' : 'Panel beside chat'}</button>
     </nav>
     <div style={{ flex: 1, minHeight: 0 }}>
-      {visible && <OutputWorkspace messages={messages} sessionId={sessionId} browser={browser} layout={layout} onCloseOutput={closeOutput}><div style={{ padding: 18 }}>{messageVisible && messages.map(message => <ChatMessageItem key={message.messageId} message={message} onOpenFile={() => {}} onOpenFolder={() => {}} />)}</div></OutputWorkspace>}
+      {visible && <ChatWorkspace messages={messages} sessionId={sessionId} browser={browser} layout={layout} onCloseOutput={closeOutput}><div style={{ padding: 18 }}>{messageVisible && messages.map(message => <ChatMessageItem key={message.messageId} message={message} onOpenFile={() => {}} onOpenFolder={() => {}} />)}</div></ChatWorkspace>}
     </div>
   </main>
 }

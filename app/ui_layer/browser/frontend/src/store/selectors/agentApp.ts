@@ -20,3 +20,5 @@ export const selectActiveAgentAppId = (state: RootState) =>
 
 export const selectAgentAppStates = (state: RootState) =>
   state.agentApp.states
+
+export const selectAgentAppCatalogLoaded = (state: RootState) => state.agentApp.catalogLoaded
