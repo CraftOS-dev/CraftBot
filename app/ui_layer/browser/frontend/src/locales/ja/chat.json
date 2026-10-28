@@ -121,5 +121,40 @@
   },
   "panel": {
     "close": "パネルを閉じる"
+  },
+  "references": {
+    "title": "コンテキストを追加",
+    "search": "チャットとアプリを検索",
+    "session": "チャット",
+    "agent_app": "Agent App",
+    "noMatches": "一致する項目がありません",
+    "done": "完了",
+    "preview": "参照をプレビュー",
+    "remove": "参照を削除: {{name}}",
+    "captured": "取得日時: {{time}}",
+    "truncated": "この抜粋ではソースの一部が省略されています。エージェントは read_reference で続きを読めます。",
+    "captureOnSend": "コンテキストはこのメッセージの送信時に取得されます。",
+    "retention": "取得した抜粋は、ソースが削除されてもこのチャットに残ります。",
+    "unavailable": "ソースを利用できません",
+    "openSource": "ソースを開く",
+    "limit": "参照は最大 8 件まで選択できます。",
+    "retry": "メッセージを再送信",
+    "edit": "メッセージを編集",
+    "pickerTitle": "コンテキストを追加",
+    "emptyHint": "別の名前またはカテゴリで試してください。"
+  },
+  "apps": {
+    "region": "エージェントアプリのパネル",
+    "loading": "インストール済みアプリを読み込み中…",
+    "disconnected": "アプリを読み込む、または起動するには再接続してください。",
+    "loadingView": "アプリの画面を読み込み中…",
+    "viewTimeout": "読み込みに時間がかかっています。再試行するか、アプリ全体を開いてください。",
+    "viewUnavailable": "この画面は利用できないか、別の場所ですでに開かれています。",
+    "retry": "再試行",
+    "openPanel": "パネルで開く",
+    "show": "Agent App を表示",
+    "title": "Agent App",
+    "noInstalled": "インストール済みアプリがありません。",
+    "close": "閉じる"
   }
 }

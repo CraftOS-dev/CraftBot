@@ -3,34 +3,23 @@ import { flushSync } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
-  Play,
   AlertCircle,
-  Loader2,
 } from 'lucide-react'
-import { CraftBotMascot } from '@mascot'
 import { useWebSocket } from '../../contexts/WebSocketContext'
-import { useTheme } from '../../contexts/ThemeContext'
+import { useAgentAppTheme } from '../../features/agentApps/useAgentAppTheme'
+import { AgentAppSurface } from '../../features/agentApps/AgentAppSurface'
 import { Button } from '../../components/ui/Button'
 import { ConfirmModal } from '../../components/ui/ConfirmModal'
 import { Chat } from '../../components/Chat'
-import { getOrCreateIframe, showIframe, hideIframe, removeIframe, postMessageToIframe, ownsProjectWindow, frameUrl } from './iframePool'
-import { ConstructionDock } from './ConstructionDock'
-import { AgentAppThemeModal, DEFAULT_CUSTOM_COLORS } from './AgentAppThemeModal'
-import type { AgentAppThemeId, AgentAppCustomColors } from './AgentAppThemeModal'
+import { removeIframe } from '../../features/agentApps/frameHost'
+import { AgentAppThemeModal } from './AgentAppThemeModal'
 import { usePersistedState } from '../../hooks'
 import { useAppSelector } from '../../store/hooks'
 import {
-  selectAgentAppBuildEvents,
   selectAgentAppProjects,
-  selectAgentAppSnapshots,
-  selectAgentAppTodos,
 } from '../../store/selectors/agentApp'
 import { UI_STATE } from '../../store/uiState'
-import type { AgentAppBuildEvent } from '../../types'
 import styles from './AgentAppPage.module.css'
-
-// Stable empty array so the dock's memoized selectors don't churn per render.
-const EMPTY_EVENTS: AgentAppBuildEvent[] = []
 
 // Chat panel resize bounds (desktop = px width, mobile = height ratio). Dragging
 // the panel narrower than the COLLAPSE threshold snaps it shut instead of
@@ -42,57 +31,18 @@ const MOBILE_MIN_RATIO = 0.15
 const MOBILE_MAX_RATIO = 0.85
 const MOBILE_COLLAPSE_RATIO = 0.07
 
-function loadAgentAppTheme(projectId: string): AgentAppThemeId {
-  try {
-    const stored = localStorage.getItem(`agentapp-theme-${projectId}`)
-    if (stored) return stored as AgentAppThemeId
-  } catch {}
-  return 'craftbot'
-}
-
-function saveAgentAppTheme(projectId: string, themeId: AgentAppThemeId) {
-  try { localStorage.setItem(`agentapp-theme-${projectId}`, themeId) } catch {}
-}
-
-function loadAgentAppCustomColors(projectId: string): AgentAppCustomColors {
-  try {
-    const raw = localStorage.getItem(`agentapp-custom-colors-${projectId}`)
-    if (raw) {
-      const parsed = JSON.parse(raw)
-      if (parsed.bg && parsed.surface && parsed.text && parsed.accent) return parsed
-    }
-  } catch {}
-  return { ...DEFAULT_CUSTOM_COLORS }
-}
-
-function saveAgentAppCustomColors(projectId: string, colors: AgentAppCustomColors) {
-  try { localStorage.setItem(`agentapp-custom-colors-${projectId}`, JSON.stringify(colors)) } catch {}
-}
-
 export function AgentAppPage() {
   const { t } = useTranslation(['agentapp', 'common'])
   const { projectId } = useParams<{ projectId: string }>()
   const navigate = useNavigate()
   const {
-    launchAgentApp,
     deleteAgentApp,
     setActiveAgentApp,
-    updateAgentAppTheme,
   } = useWebSocket()
   const agentAppProjects = useAppSelector(selectAgentAppProjects)
-  const agentAppTodos = useAppSelector(selectAgentAppTodos)
-  const { theme: appTheme } = useTheme()
-  const buildEventsMap = useAppSelector(selectAgentAppBuildEvents)
-  const snapshotMap = useAppSelector(selectAgentAppSnapshots)
 
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [showThemeModal, setShowThemeModal] = useState(false)
-  const [agentAppTheme, setAgentAppTheme] = useState<AgentAppThemeId>(
-    () => (projectId ? loadAgentAppTheme(projectId) : 'craftbot')
-  )
-  const [agentAppCustomColors, setAgentAppCustomColors] = useState<AgentAppCustomColors>(
-    () => (projectId ? loadAgentAppCustomColors(projectId) : { ...DEFAULT_CUSTOM_COLORS })
-  )
   // Chat panel layout: persisted preferences shared by every Agent App, so
   // they survive navigation, switching apps and reloads.
   const [showChat, setShowChat] = usePersistedState(UI_STATE.agentApp.chatPanelOpen)
@@ -102,7 +52,6 @@ export function AgentAppPage() {
     () => typeof window !== 'undefined' && window.innerWidth <= 768
   )
   const [isResizing, setIsResizing] = useState(false)
-  const iframePlaceholderRef = useRef<HTMLDivElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
   // Tracks a pointer interaction on the seam handle so we can tell a click
   // (toggle the panel) from a drag (resize it).
@@ -130,39 +79,7 @@ export function AgentAppPage() {
 
   // Find the current project
   const project = agentAppProjects.find(p => p.id === projectId)
-
-  // The server-persisted theme is authoritative: a pick made in any tab or
-  // browser (or by the wizard) reaches this page when the project list
-  // refetches. localStorage only paints the first frame before the list
-  // arrives. Legacy projects with no saved theme fall back to the
-  // scaffold-time stylePack unless the user picked one locally.
-  useEffect(() => {
-    if (!projectId) return
-    try {
-      const saved = project?.uiTheme
-      if (saved?.themeId) {
-        const themeId = saved.themeId as AgentAppThemeId
-        setAgentAppTheme(themeId)
-        saveAgentAppTheme(projectId, themeId)
-        const colors = saved.customColors
-        if (themeId === 'custom' && colors?.bg && colors?.surface && colors?.text && colors?.accent) {
-          const custom = { bg: colors.bg, surface: colors.surface, text: colors.text, accent: colors.accent }
-          setAgentAppCustomColors(custom)
-          saveAgentAppCustomColors(projectId, custom)
-        }
-        return
-      }
-      if (localStorage.getItem(`agentapp-theme-${projectId}`)) return
-      const stylePack = project?.stylePack
-      if (stylePack && stylePack !== 'craftbot') setAgentAppTheme(stylePack as AgentAppThemeId)
-    } catch { /* cosmetic only */ }
-  }, [projectId, project?.uiTheme, project?.stylePack])
-
-  // Build-event feed + live-activity row for the construction dock (read-only).
-  const buildEvents = projectId
-    ? (buildEventsMap[projectId] ?? EMPTY_EVENTS)
-    : EMPTY_EVENTS
-  const snapshot = projectId ? (snapshotMap[projectId] ?? null) : null
+  const { agentAppTheme, agentAppCustomColors, handleThemeSelect } = useAgentAppTheme(project)
 
   // Set active Agent App when viewing
   useEffect(() => {
@@ -173,103 +90,6 @@ export function AgentAppPage() {
       setActiveAgentApp(null)
     }
   }, [projectId, setActiveAgentApp])
-
-  // Persistent iframe — lives in a pool on document.body, positioned over the placeholder
-  useEffect(() => {
-    if (!projectId || project?.status !== 'running' || !project?.url) {
-      if (projectId) hideIframe(projectId)
-      return
-    }
-
-    // Version-stamped src: a new deploy broadcasts ready → new readyAt →
-    // the pool navigates the frame past the browser's HTTP cache. Without
-    // this, the iframe kept rendering the pre-deploy build.
-    const base = frameUrl(project.url)
-    const versionedSrc = project.readyAt
-      ? `${base}${base.includes('?') ? '&' : '?'}v=${project.readyAt}`
-      : base
-    getOrCreateIframe(projectId, versionedSrc)
-
-    const updatePosition = () => {
-      if (iframePlaceholderRef.current && projectId) {
-        showIframe(projectId, iframePlaceholderRef.current.getBoundingClientRect())
-      }
-    }
-
-    // Track container size/position changes
-    const observer = new ResizeObserver(updatePosition)
-    if (iframePlaceholderRef.current) {
-      observer.observe(iframePlaceholderRef.current)
-    }
-    window.addEventListener('resize', updatePosition)
-
-    // Initial position
-    updatePosition()
-
-    return () => {
-      observer.disconnect()
-      window.removeEventListener('resize', updatePosition)
-      if (projectId) hideIframe(projectId)
-    }
-  }, [projectId, project?.status, project?.url, project?.readyAt])
-
-  // Send the selected Agent App theme + current app mode to the iframe.
-  // NOTE: the postMessage `type` stays 'livingui-theme' — it is the wire
-  // contract with apps already built by their bridge. Renaming it (like the
-  // rest of the Living UI → Agent App rename) would silently break theme
-  // following for every app scaffolded before the rename, so it's kept stable
-  // exactly like the other retained runtime values (trigger/session values).
-  useEffect(() => {
-    if (!projectId || project?.status !== 'running') return
-    postMessageToIframe(projectId, {
-      type: 'livingui-theme',
-      themeId: agentAppTheme,
-      mode: appTheme,
-      // Only for the 'custom' theme — the bridge applies these as inline
-      // overrides that outrank every style-pack rule.
-      customColors: agentAppTheme === 'custom' ? agentAppCustomColors : undefined,
-    })
-  }, [agentAppTheme, agentAppCustomColors, appTheme, projectId, project?.status])
-
-  // When the iframe finishes loading it sends 'craftbot-theme-request'. Reply
-  // with the saved per-project theme so the palette persists across refreshes.
-  useEffect(() => {
-    if (!projectId) return
-    const onIframeReady = (e: MessageEvent) => {
-      if (e.data?.type !== 'craftbot-theme-request' || !e.source) return
-      if (!ownsProjectWindow(projectId, e.source)) return
-      ;(e.source as Window).postMessage({
-        // Stable wire type — see the send effect above.
-        type: 'livingui-theme',
-        themeId: agentAppTheme,
-        mode: appTheme,
-        customColors: agentAppTheme === 'custom' ? agentAppCustomColors : undefined,
-      }, '*')
-    }
-    window.addEventListener('message', onIframeReady)
-    return () => window.removeEventListener('message', onIframeReady)
-  }, [projectId, agentAppTheme, agentAppCustomColors, appTheme])
-
-  const handleThemeSelect = (themeId: AgentAppThemeId, colors?: AgentAppCustomColors) => {
-    if (!projectId) return
-    setAgentAppTheme(themeId)
-    saveAgentAppTheme(projectId, themeId)
-    if (colors) {
-      setAgentAppCustomColors(colors)
-      saveAgentAppCustomColors(projectId, colors)
-    }
-    // Server-side persistence so the pick follows the user across browsers.
-    updateAgentAppTheme(projectId, {
-      themeId,
-      ...(themeId === 'custom' ? { customColors: colors ?? agentAppCustomColors } : {}),
-    })
-  }
-
-  const handleLaunch = () => {
-    if (projectId) {
-      launchAgentApp(projectId)
-    }
-  }
 
   const handleDelete = () => {
     if (projectId) {
@@ -375,44 +195,9 @@ export function AgentAppPage() {
       <div ref={contentRef} className={styles.content}>
         {/* Agent App Iframe */}
         <div className={styles.iframeContainer}>
-          {project.status === 'running' && project.url ? (
-            <div ref={iframePlaceholderRef} className={styles.iframe} />
-          ) : project.status === 'creating' ? (
-            <ConstructionDock
-              project={project}
-              todos={agentAppTodos[project.id]}
-              events={buildEvents}
-              snapshot={snapshot}
-            />
-          ) : project.status === 'launching' ? (
-            <div className={styles.loading}>
-              <CraftBotMascot state="launching" size={96} />
-              <p>{t('agentapp:page.launchingTitle')}</p>
-              <p className={styles.hint}>{t('agentapp:page.launchingHint')}</p>
-            </div>
-          ) : project.status === 'stopping' ? (
-            <div className={styles.loading}>
-              <Loader2 size={48} className={styles.spinner} />
-              <p>{t('agentapp:page.stoppingTitle')}</p>
-            </div>
-          ) : project.status === 'error' ? (
-            <div className={styles.error}>
-              <AlertCircle size={32} />
-              <p>{t('agentapp:page.errorTitle')}</p>
-              <p className={styles.errorMessage}>{project.error || t('common:status.unknownError')}</p>
-              <Button variant="secondary" onClick={() => setShowDeleteModal(true)}>
-                {t('agentapp:page.deleteProject')}
-              </Button>
-            </div>
-          ) : (
-            <div className={styles.stopped}>
-              <CraftBotMascot state="stopped" size={96} />
-              <p>{t('agentapp:page.stoppedTitle')}</p>
-              <Button variant="primary" onClick={handleLaunch}>
-                <Play size={16} /> {t('agentapp:page.launch')}
-              </Button>
-            </div>
-          )}
+          {project && <AgentAppSurface project={project} moving={isResizing}
+            blocked={showThemeModal || showDeleteModal} onDelete={() => setShowDeleteModal(true)}
+            themeManaged />}
         </div>
 
         {/* Seam handle: drag to resize, click to collapse/expand. When
@@ -463,6 +248,8 @@ export function AgentAppPage() {
                 sessionId={project.sessionId}
                 placeholder={t('agentapp:page.chatPlaceholder')}
                 panelLayout="stacked"
+                panelVisible={showChat}
+                showAgentApps={false}
               />
             </div>
           </div>

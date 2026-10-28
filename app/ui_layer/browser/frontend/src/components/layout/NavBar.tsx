@@ -28,7 +28,7 @@ import {
 } from 'lucide-react'
 import { useWebSocket } from '../../contexts/WebSocketContext'
 import { useTheme } from '../../contexts/ThemeContext'
-import { removeIframe } from '../../pages/AgentApp/iframePool'
+import { removeIframe } from '../../features/agentApps/frameHost'
 import { ConfirmModal } from '../ui/ConfirmModal'
 import { tourAnchorProps, useTourEnvAction, type TourAnchorId } from '../../tour'
 import { applySavedOrder, usePersistedState, useSkillCreator, useSortableList } from '../../hooks'

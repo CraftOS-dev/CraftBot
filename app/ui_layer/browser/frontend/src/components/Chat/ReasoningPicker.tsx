@@ -145,6 +145,9 @@ function ContextReadout({ options, choice, lastRequest, live }: ContextReadoutPr
 interface ReasoningPickerProps {
   /** The chat this composer belongs to ('new' for the draft view). */
   sessionId: string
+  /** A narrow composer: the button shows only its icon (the level is its
+   *  tooltip), so the send button keeps its place. */
+  compact?: boolean
 }
 
 /**
@@ -161,7 +164,7 @@ interface ReasoningPickerProps {
  * Below the choices, the chat's context and cache readout (ContextReadout).
  * A model whose reasoning is not adjustable still opens the menu for it.
  */
-export function ReasoningPicker({ sessionId }: ReasoningPickerProps) {
+export function ReasoningPicker({ sessionId, compact = false }: ReasoningPickerProps) {
   const { t } = useTranslation(['chat', 'common'])
   const { setSessionReasoning } = useWebSocket()
   useResource(RESOURCES.reasoningOptions)
@@ -192,10 +195,11 @@ export function ReasoningPicker({ sessionId }: ReasoningPickerProps) {
   // provider deciding the amount itself.
   const levelLabel = (value: string): string =>
     isReasoningChoice(value) ? choiceLabel(value) : t('chat:reasoning.dynamic')
+  const wrapClass = `${styles.wrap}${compact ? ` ${styles.compact}` : ''}`
 
   if (!options) {
     return (
-      <div className={styles.wrap}>
+      <div className={wrapClass}>
         <button type="button" className={styles.button} disabled aria-label={t('chat:reasoning.picker')}>
           <Brain size={14} />
           <span>{t('chat:reasoning.title')}</span>
@@ -206,7 +210,7 @@ export function ReasoningPicker({ sessionId }: ReasoningPickerProps) {
 
   if (!options.configurable) {
     return (
-      <div className={styles.wrap} ref={wrapRef}>
+      <div className={wrapClass} ref={wrapRef}>
         <button
           type="button"
           className={styles.button}
@@ -255,12 +259,12 @@ export function ReasoningPicker({ sessionId }: ReasoningPickerProps) {
   const clamped = !options.choices.includes(requested) && requested !== 'provider_default'
 
   return (
-    <div className={styles.wrap} ref={wrapRef}>
+    <div className={wrapClass} ref={wrapRef}>
       <button
         type="button"
         className={styles.button}
         onClick={() => setOpen(o => !o)}
-        title={t('chat:reasoning.picker')}
+        title={compact ? summary(effective) : t('chat:reasoning.picker')}
         aria-label={t('chat:reasoning.picker')}
         aria-haspopup="menu"
         aria-expanded={open}

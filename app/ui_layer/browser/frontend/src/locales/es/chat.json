@@ -121,5 +121,40 @@
   },
   "panel": {
     "close": "Cerrar panel"
+  },
+  "references": {
+    "title": "Añadir contexto",
+    "search": "Buscar chats y aplicaciones",
+    "session": "Chats",
+    "agent_app": "Agent Apps",
+    "noMatches": "Sin coincidencias",
+    "done": "Listo",
+    "preview": "Previsualizar referencia",
+    "remove": "Quitar referencia: {{name}}",
+    "captured": "Capturado: {{time}}",
+    "truncated": "Este extracto omite parte del contenido de la fuente. El agente puede leer más con read_reference.",
+    "captureOnSend": "El contexto se capturará al enviar este mensaje.",
+    "retention": "Los extractos capturados se conservan en este chat aunque se elimine la fuente.",
+    "unavailable": "Fuente no disponible",
+    "openSource": "Abrir fuente",
+    "limit": "Selecciona como máximo 8 referencias.",
+    "retry": "Reintentar mensaje",
+    "edit": "Editar mensaje",
+    "pickerTitle": "Añadir contexto",
+    "emptyHint": "Prueba con otro nombre o categoría."
+  },
+  "apps": {
+    "region": "Panel de aplicaciones",
+    "loading": "Cargando aplicaciones instaladas…",
+    "disconnected": "Vuelve a conectarte para cargar o iniciar aplicaciones.",
+    "loadingView": "Cargando aplicación…",
+    "viewTimeout": "La aplicación tarda en cargar. Reintenta o abre la aplicación completa.",
+    "viewUnavailable": "Esta vista no está disponible o ya está abierta en otra superficie.",
+    "retry": "Reintentar",
+    "openPanel": "Abrir en el panel",
+    "show": "Mostrar una Agent App",
+    "title": "Agent Apps",
+    "noInstalled": "No hay aplicaciones instaladas.",
+    "close": "Cerrar"
   }
 }

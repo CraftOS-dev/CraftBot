@@ -19,6 +19,28 @@ export interface ChatMessageOption {
   url?: string  // If set, clicking also opens this URL in a new tab (e.g. a billing link)
 }
 
+export interface PendingChatSubmission {
+  replyContext?: { originalMessage: string }
+  sessionId: string
+  content: string
+  attachments: { name: string; type: string; size: number; content: string; serverPath?: string }[]
+  references: (ReferenceInput & { label: string })[]
+}
+
+export interface ReferenceInput {
+  kind: 'session' | 'agent_app'
+  targetId: string
+}
+export interface ReferenceSnapshot extends ReferenceInput {
+  schemaVersion: 1
+  label: string
+  capturedAt: string
+  contentHash: string
+  excerpt: string
+  truncated: boolean
+  nextCursor?: string | null
+}
+
 export interface ChatMessage {
   uiArtifact?: GenerativeUIArtifact | ClosedGenerativeUIArtifact
   sender: string
@@ -27,6 +49,8 @@ export interface ChatMessage {
   timestamp: number
   messageId: string
   sessionId: string
+  references?: ReferenceSnapshot[]
+  submissionError?: string
   attachments?: Attachment[]
   options?: ChatMessageOption[]
   requiresChoice?: boolean  // True when options is a blocking choice (e.g. Continue/Stop) vs. convenience action links; absent/true means show "Please select a response to continue"

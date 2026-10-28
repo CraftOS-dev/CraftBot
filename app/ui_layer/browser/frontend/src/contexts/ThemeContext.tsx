@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react'
-import { broadcastThemeToIframes } from '../pages/AgentApp/iframePool'
+import { broadcastThemeToIframes } from '../features/agentApps/frameHost'
 import { usePersistedState } from '../hooks/usePersistedState'
 import { UI_STATE, type ThemePreference } from '../store/uiState'
 

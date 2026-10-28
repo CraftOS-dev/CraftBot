@@ -127,7 +127,8 @@ test('valid legacy progress replaces malformed durable data', async ({ page }) =
 test('an older buffered write cannot undo a reset from another tab', async ({ page, context }) => {
   await page.clock.install()
   await open(page)
-  await page.clock.pauseAt(new Date())
+  // Pause against the browser clock; the runner clock can lag its installed clock.
+  await page.clock.pauseAt(await page.evaluate(() => new Date(Date.now() + 1000).toISOString()))
   await preview(page).getByLabel('Servings').fill('4')
   await preview(page).getByLabel('Servings').press('Tab')
   await expect(preview(page).getByText('400 g pasta')).toBeVisible()
@@ -156,7 +157,8 @@ for (const action of ['reset', 'close']) test(`durable ${action} cannot resurrec
 test('a new tab sees the latest progress without waiting for a flush timer', async ({ page, context }) => {
   await page.clock.install()
   await open(page)
-  await page.clock.pauseAt(new Date())
+  // Pause against the browser clock; the runner clock can lag its installed clock.
+  await page.clock.pauseAt(await page.evaluate(() => new Date(Date.now() + 1000).toISOString()))
   await preview(page).getByLabel('Servings').fill('8')
   await preview(page).getByLabel('Servings').press('Tab')
   await expect(preview(page).getByText('800 g pasta')).toBeVisible()
@@ -344,7 +346,7 @@ test('the output is the pane on desktop and switches itself to phone width in a 
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   // Wide again: back to desktop, the same running document.
   await page.setViewportSize({ width: 1440, height: 900 })
-  await expect.poll(async () => (await page.locator('iframe').boundingBox())!.width).toBeCloseTo((await pane.boundingBox())!.width, 0)
+  await expect.poll(async () => Math.abs((await page.locator('iframe').boundingBox())!.width - (await pane.boundingBox())!.width)).toBeLessThan(0.5)
   expect(await page.locator('iframe').getAttribute('srcdoc')).toBe(document)
   await expect(preview(page).getByRole('heading', { name: 'Step 2 of 4' })).toBeVisible()
   await outputsButton(page).click()
@@ -383,7 +385,7 @@ test('reopening during an animated close keeps the running document and progress
   await expect(page.locator('iframe')).toHaveCount(0)
 })
 
-test('reduced motion disables panel and preview transitions without changing controls', async ({ page }) => {
+test('reduced motion disables preview transitions; the panel slides like the Agent App chat panel', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await open(page)
   await preview(page).getByRole('button', { name: 'Next step' }).click()
@@ -393,7 +395,9 @@ test('reduced motion disables panel and preview transitions without changing con
   await outputsButton(page).click()
   await expect(page.locator('iframe')).toHaveCount(0)
   await outputsButton(page).click()
-  expect(await seam(page).locator('..').evaluate(element => element.getAnimations().length)).toBe(0)
+  // The panel still slides open: its motion matches the Agent App page's
+  // chat panel, which animates whatever the reduced-motion setting.
+  await expect.poll(() => panel.evaluate(element => element.getAnimations().map(animation => (animation as CSSTransition).transitionProperty))).toContain('width')
   await expect(preview(page).getByRole('heading', { name: 'Step 2 of 4' })).toBeVisible()
   await outputsButton(page).click()
   await expect(page.locator('iframe')).toHaveCount(0)
@@ -404,30 +408,35 @@ test('chat and panel move through intermediate layouts when closing and opening'
   await open(page)
   await preview(page).getByRole('button', { name: 'Next step' }).click()
   const document = await page.locator('iframe').getAttribute('srcdoc')
-  const workspace = page.getByRole('region', { name: 'Output panel', includeHidden: true }).locator('..')
-  const chat = workspace.locator(':scope > div').last()
+  // The conversation element itself: a closed pane has no region name to find it by.
+  const chat = (await page.getByRole('region', { name: 'Output panel', includeHidden: true })
+    .locator('..').locator(':scope > div').last().elementHandle())!
   const splitWidth = (await chat.boundingBox())!.width
 
+  // The pane's width transition: the Agent App page's chat panel motion.
+  await page.evaluate(() => {
+    (window as any).paneTransitions = () => document.getAnimations()
+      .filter(animation => animation instanceof CSSTransition && animation.transitionProperty === 'width')
+  })
   const pauseAtStart = async () => {
     await outputsButton(page).evaluate(element => {
-      element.addEventListener('click', () => requestAnimationFrame(() => {
-        for (const animation of document.getAnimations()) {
-          if (animation.effect instanceof KeyframeEffect && animation.effect.getKeyframes().some(frame => 'gridTemplateColumns' in frame)) {
-            animation.pause()
-            animation.currentTime = 0
-          }
+      // Two frames: the click's render, then the transition it started.
+      element.addEventListener('click', () => requestAnimationFrame(() => requestAnimationFrame(() => {
+        for (const animation of (window as any).paneTransitions() as Animation[]) {
+          animation.pause()
+          animation.currentTime = 0
         }
-      }), { once: true })
+      })), { once: true })
     })
     await outputsButton(page).click()
+    await expect.poll(() => page.evaluate(() => ((window as any).paneTransitions() as Animation[])
+      .some(animation => animation.playState === 'paused'))).toBe(true)
   }
   const seek = async (time: number | 'finish') => {
     await page.evaluate(time => {
-      for (const animation of document.getAnimations()) {
-        if (animation.effect instanceof KeyframeEffect && animation.effect.getKeyframes().some(frame => 'gridTemplateColumns' in frame)) {
-          if (time === 'finish') animation.finish()
-          else animation.currentTime = time
-        }
+      for (const animation of (window as any).paneTransitions() as Animation[]) {
+        if (time === 'finish') animation.finish()
+        else animation.currentTime = time
       }
     }, time)
   }
@@ -442,7 +451,8 @@ test('chat and panel move through intermediate layouts when closing and opening'
   await expect(page.locator('iframe')).toHaveCount(0)
 
   await pauseAtStart()
-  expect((await chat.boundingBox())!.width).toBeCloseTo(1440, 0)
+  // Still the whole width, but for the 1px seam that appears as it opens.
+  expect((await chat.boundingBox())!.width).toBeGreaterThanOrEqual(1439)
   await seek(150)
   const openingWidth = (await chat.boundingBox())!.width
   expect(openingWidth).toBeGreaterThan(splitWidth + 1)
