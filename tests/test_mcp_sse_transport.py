@@ -20,6 +20,7 @@ class _MockSSEServer:
     def __init__(self, post_path, announce=None):
         self.post_path = post_path
         self.announce = announce  # data of the `endpoint` event; None = send none
+        self.data_first = False  # emit `data:` before `event:` in the announcement
         self.posts = []  # (path, method name)
         self._queue: asyncio.Queue = asyncio.Queue()
 
@@ -27,7 +28,9 @@ class _MockSSEServer:
         resp = web.StreamResponse(headers={"Content-Type": "text/event-stream"})
         await resp.prepare(request)
         if self.announce is not None:
-            await resp.write(f"event: endpoint\ndata: {self.announce}\n\n".encode())
+            event, data = "event: endpoint", f"data: {self.announce}"
+            lines = (data, event) if self.data_first else (event, data)
+            await resp.write(("\n".join(lines) + "\n\n").encode())
         try:
             while True:
                 msg = await self._queue.get()
@@ -125,3 +128,21 @@ def test_ignores_an_endpoint_on_a_different_origin():
     assert transport._endpoint is None
     assert connected is True
     assert all(path == "/message" for path, _ in server.posts)
+
+
+def test_accepts_an_endpoint_event_with_data_before_event():
+    server = _MockSSEServer("/messages/", announce="/messages/?session_id=abc")
+    server.data_first = True
+    connected, transport = _connect(server)
+
+    assert connected is True
+    assert transport._endpoint.endswith("/messages/?session_id=abc")
+    assert ("/messages/", "initialize") in server.posts
+
+
+def test_origin_ignores_default_port_and_hostname_case():
+    origin = SSETransport._origin
+    assert origin("https://example.com/sse") == origin("https://EXAMPLE.com:443/m/")
+    assert origin("http://example.com/sse") == origin("http://example.com:80/m/")
+    assert origin("https://example.com/sse") != origin("https://example.com:8443/m/")
+    assert origin("https://example.com/sse") != origin("http://example.com/m/")
