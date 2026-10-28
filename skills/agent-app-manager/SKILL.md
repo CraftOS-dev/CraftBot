@@ -48,6 +48,8 @@ are absolute paths.
    Read freely; write only what the app's own UI offers.
 4. Needs new capability → say so and offer a modification instead of hacking
    around it.
+5. To see the app as the user sees it in the terminal edition:
+   `node <CLI> view <project> --list`, then `node <CLI> view <project> <screen>`.
 
 Fallback only when the shell is unavailable: the `agent_app_http` action
 speaks to the same API.

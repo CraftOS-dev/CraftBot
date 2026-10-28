@@ -30,13 +30,6 @@ class MenuCommand(Command):
         session_id: str | None = None,
     ) -> CommandResult:
         """Execute the menu command."""
-        # Check if we're in CLI mode
-        if adapter_id == "cli":
-            return CommandResult(
-                success=True,
-                message="Menu is not available in CLI mode. Use /help to see commands.",
-            )
-
         # Show menu
         self._controller.state_store.dispatch("SHOW_MENU", True)
 

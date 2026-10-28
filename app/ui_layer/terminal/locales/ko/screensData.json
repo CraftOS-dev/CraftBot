@@ -1,0 +1,285 @@
+{
+  "common": {
+    "back": "뒤로",
+    "close": "닫기",
+    "confirm": "y 확인 · n 취소",
+    "scroll": "스크롤",
+    "refresh": "새로 고침",
+    "move": "이동",
+    "search": "검색",
+    "pane": "창",
+    "save": "저장",
+    "ok": "확인",
+    "cancel": "취소",
+    "edit": "편집",
+    "add": "추가",
+    "delete": "삭제",
+    "open": "열기",
+    "tab": "탭",
+    "notConnected": "CraftBot에 연결되지 않았습니다",
+    "timedOut": "CraftBot의 응답이 없습니다",
+    "unknownError": "알 수 없는 오류",
+    "justNow": "방금 전",
+    "duration": {
+      "dhm": "{{days}}일 {{hours}}시간 {{minutes}}분",
+      "hm": "{{hours}}시간 {{minutes}}분",
+      "m": "{{minutes}}분"
+    }
+  },
+  "dashboard": {
+    "title": "대시보드",
+    "aside": "{{period}} · [ ] 기간",
+    "waiting": "CraftBot의 첫 지표를 기다리는 중...",
+    "period": {
+      "1h": "최근 1시간",
+      "1d": "최근 24시간",
+      "1w": "최근 7일",
+      "1m": "최근 30일",
+      "total": "전체 기간"
+    },
+    "periodShort": {
+      "1h": "1시간",
+      "1d": "1일",
+      "1w": "1주",
+      "1m": "1개월",
+      "total": "전체"
+    },
+    "hint": {
+      "period": "기간"
+    },
+    "status": {
+      "title": "상태",
+      "uptime": "가동 {{value}}",
+      "version": "버전 {{value}}"
+    },
+    "tasks": {
+      "title": "작업",
+      "completed": "{{value}}개 완료",
+      "failed": "{{value}}개 실패",
+      "running": "{{value}}개 실행 중",
+      "total": "총 {{value}}개",
+      "success": "성공"
+    },
+    "tokens": {
+      "title": "토큰",
+      "input": "새 입력",
+      "output": "출력",
+      "cached": "캐시됨",
+      "total": "새 토큰 {{value}}",
+      "live": "10초당",
+      "liveLabel": "{{since}}부터 · 최대 {{max}} · 현재 {{last}}"
+    },
+    "usage": {
+      "title": "시간대별 요청",
+      "summary": "요청 {{requests}}건 · 최대 {{hour}}:00, {{peak}}건",
+      "empty": "이 기간에는 요청이 없습니다"
+    },
+    "system": {
+      "title": "시스템",
+      "cpu": "CPU",
+      "memory": "메모리",
+      "disk": "디스크",
+      "threads": "스레드",
+      "network": "네트워크",
+      "networkValue": "업로드 {{up}} KB/s · 다운로드 {{down}} KB/s",
+      "high": "높음"
+    },
+    "connections": {
+      "title": "도구와 연결",
+      "mcp": "MCP",
+      "skills": "스킬",
+      "integrations": "연동",
+      "mcpValue": "{{connected}}/{{total}} 연결됨 · 도구 {{tools}}개 · 호출 {{calls}}회",
+      "skillsValue": "{{enabled}}/{{total}} 활성화됨 · 사용 {{calls}}회",
+      "integrationsValue": "{{connected}}/{{total}} 연결됨 · 호출 {{calls}}회",
+      "top": "상위 {{list}}"
+    },
+    "model": {
+      "title": "모델",
+      "provider": "공급자",
+      "model": "모델",
+      "id": "ID",
+      "notConfigured": "구성되지 않음"
+    },
+    "apps": {
+      "title": "Agent App",
+      "summary": "{{installed}}개 설치됨 · {{running}}개 실행 중",
+      "empty": "아직 Agent App이 없습니다",
+      "more": "+{{count}}개 더"
+    },
+    "activity": {
+      "title": "최근 활동",
+      "empty": "아직 활동이 없습니다",
+      "reasoning": "추론",
+      "tokens": "{{value}} 토큰",
+      "minutesAgo": "{{count}}분 전",
+      "hoursAgo": "{{count}}시간 전",
+      "daysAgo": "{{count}}일 전"
+    }
+  },
+  "memory": {
+    "title": "메모리",
+    "off": "메모리가 꺼져 있습니다",
+    "tabs": {
+      "nodes": "메모리와 링크",
+      "files": "인덱싱된 파일"
+    },
+    "kind": {
+      "memory": "메모리",
+      "fileMemory": "파일 섹션",
+      "entity": "엔티티",
+      "file": "파일"
+    },
+    "toggle": {
+      "memories": "메모리 {{count}}",
+      "entities": "엔티티 {{count}}",
+      "files": "파일 {{count}}",
+      "hideDefault": "기본 파일 숨기기"
+    },
+    "category": {
+      "fact": "사실",
+      "preference": "선호",
+      "event": "이벤트",
+      "decision": "결정",
+      "learning": "학습",
+      "project": "프로젝트",
+      "contact": "연락처"
+    },
+    "searchPlaceholder": "메모리, 엔티티, 파일 검색",
+    "searchHint": "/ 검색 · 1 2 3 종류 · 4 기본 파일 숨기기",
+    "loading": "메모리를 불러오는 중...",
+    "empty": "아직 메모리가 없습니다. AI 에이전트가 채팅하며 배운 것을 저장합니다. a를 눌러 직접 추가할 수도 있습니다.",
+    "noMatches": "일치하는 항목이 없습니다",
+    "noSelection": "메모리를 선택하면 세부 정보가 표시됩니다",
+    "superseded": "대체됨",
+    "mentions_one": "언급 {{count}}회",
+    "mentions_other": "언급 {{count}}회",
+    "sections_one": "섹션 {{count}}개",
+    "sections_other": "섹션 {{count}}개",
+    "meta": {
+      "category": "카테고리",
+      "saved": "저장 시각",
+      "links": "링크",
+      "file": "파일",
+      "section": "섹션"
+    },
+    "connected": "연결 {{count}}",
+    "noNeighbours": "연결 없음",
+    "moreNeighbours": "+{{count}}개 더",
+    "readOnly": "인덱싱된 파일에서 가져옴 (읽기 전용)",
+    "notEditable": "대화 메모리만 편집할 수 있습니다",
+    "form": {
+      "addTitle": "메모리 추가",
+      "editTitle": "메모리 편집",
+      "category": "카테고리",
+      "content": "내용",
+      "contentPlaceholder": "AI 에이전트가 무엇을 기억해야 하나요?",
+      "superseded": "대체됨 (유지되지만 더 이상 사실이 아님)",
+      "entitiesHint": "[[이름]]을 쓰면 사람, 장소, 프로젝트에 연결됩니다.",
+      "hint": "Tab 다음 필드 · Left/Right 카테고리 변경 · Space 전환 · Enter 저장 · Esc 취소",
+      "empty": "먼저 기억할 내용을 입력하세요"
+    },
+    "confirmDelete": "이 메모리를 삭제할까요?",
+    "saved": "메모리를 저장했습니다",
+    "deleted": "메모리를 삭제했습니다",
+    "failed": "메모리를 업데이트하지 못했습니다: {{error}}",
+    "files": {
+      "hint": "선택한 파일은 인덱싱되어 AI 에이전트가 해당 섹션을 검색할 수 있습니다.",
+      "chunks_one": "섹션 {{count}}개",
+      "chunks_other": "섹션 {{count}}개",
+      "missing": "없음",
+      "size": "{{value}} KB",
+      "always": "항상",
+      "indexing": "처리 중",
+      "empty": "아직 인덱싱할 파일이 없습니다",
+      "skipped": "{{path}} 건너뜀: {{reason}}"
+    },
+    "hints": {
+      "kinds": "종류",
+      "tree": "연결",
+      "expand": "펼치기",
+      "goTo": "이동",
+      "index": "인덱싱",
+      "folder": "폴더 열기"
+    }
+  },
+  "workspace": {
+    "title": "작업 공간",
+    "root": "작업 공간",
+    "loading": "불러오는 중...",
+    "empty": "이 폴더는 비어 있습니다",
+    "noMatches": "일치하는 파일이 없습니다",
+    "searchPlaceholder": "이 폴더 필터",
+    "count_one": "{{count}}개 항목",
+    "count_other": "{{count}}개 항목",
+    "shown": "{{total}}개 중 {{shown}}개",
+    "marked_one": "{{count}}개 표시됨",
+    "marked_other": "{{count}}개 표시됨",
+    "clipboardCopy_one": "{{count}}개 복사됨, p로 붙여넣기",
+    "clipboardCopy_other": "{{count}}개 복사됨, p로 붙여넣기",
+    "clipboardCut_one": "{{count}}개 잘라냄, p로 이동",
+    "clipboardCut_other": "{{count}}개 잘라냄, p로 이동",
+    "folder": "폴더",
+    "name": "이름",
+    "size": "크기",
+    "modified": "수정일",
+    "path": "경로",
+    "binary": "바이너리 파일이라 텍스트 미리 보기가 없습니다. o를 눌러 여세요.",
+    "previewEmpty": "빈 파일",
+    "previewLoading": "읽는 중...",
+    "selectHint": "파일을 선택하면 미리 볼 수 있습니다",
+    "previewFocus": "Tab 목록으로 돌아가기",
+    "prompt": {
+      "rename": "새 이름",
+      "newFile": "새 파일 이름",
+      "newFolder": "새 폴더 이름",
+      "upload": "로컬 경로에서 복사",
+      "download": "로컬 경로에 저장",
+      "uploadPlaceholder": "C:\\Users\\you\\file.txt 또는 ~/file.txt",
+      "submit": "Enter 확인 · Esc 취소"
+    },
+    "confirmDeleteOne": "{{name}}을(를) 삭제할까요?",
+    "confirmDeleteMany_one": "항목 {{count}}개를 삭제할까요?",
+    "confirmDeleteMany_other": "항목 {{count}}개를 삭제할까요?",
+    "confirmOverwrite": "{{path}}이(가) 이미 있습니다. 바꿀까요?",
+    "deleted_one": "항목 {{count}}개를 삭제했습니다",
+    "deleted_other": "항목 {{count}}개를 삭제했습니다",
+    "deletePartial": "{{total}}개 중 {{succeeded}}개 삭제됨, {{failed}}개 실패: {{error}}",
+    "deleteFailed": "삭제하지 못했습니다: {{error}}",
+    "pasted_one": "항목 {{count}}개를 붙여넣었습니다",
+    "pasted_other": "항목 {{count}}개를 붙여넣었습니다",
+    "moved_one": "항목 {{count}}개를 이동했습니다",
+    "moved_other": "항목 {{count}}개를 이동했습니다",
+    "pasteFailed": "{{name}}을(를) 붙여넣지 못했습니다: {{error}}",
+    "renamed": "이름을 {{name}}(으)로 변경했습니다",
+    "renameFailed": "이름을 변경하지 못했습니다: {{error}}",
+    "created": "{{name}}을(를) 만들었습니다",
+    "createFailed": "{{name}}을(를) 만들지 못했습니다: {{error}}",
+    "uploaded": "{{name}}을(를) 작업 공간에 복사했습니다",
+    "uploadFailed": "{{name}}을(를) 복사하지 못했습니다: {{error}}",
+    "notAFile": "{{path}}은(는) 파일이 아닙니다",
+    "tooLarge": "{{name}}의 크기는 {{size}}입니다. 한도는 200MB입니다",
+    "downloaded": "{{path}}에 저장했습니다",
+    "downloadFailed": "{{name}}을(를) 저장하지 못했습니다: {{error}}",
+    "downloadFolder": "폴더는 저장할 수 없습니다. 대신 파일을 표시하세요",
+    "downloadNeedsFolder": "여러 파일은 폴더에 저장됩니다: 기존 폴더를 지정하세요",
+    "opened": "{{name}}을(를) 열었습니다",
+    "openFailed": "{{name}}을(를) 열지 못했습니다: {{error}}",
+    "hints": {
+      "open": "열기",
+      "up": "위로",
+      "mark": "표시",
+      "copy": "복사",
+      "cut": "잘라내기",
+      "paste": "붙여넣기",
+      "rename": "이름 변경",
+      "newFile": "새 파일",
+      "newFolder": "새 폴더",
+      "upload": "업로드",
+      "download": "저장",
+      "osOpen": "앱으로 열기",
+      "reveal": "폴더에서 보기",
+      "preview": "미리 보기"
+    }
+  }
+}

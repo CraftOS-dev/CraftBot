@@ -1006,8 +1006,82 @@ def test_browser_mode_prompt_explains_the_live_view(bare_agent, monkeypatch):
     assert "## File Sharing" in prompt
     assert "## Mini Browser" in prompt
     assert "for_user=true" in prompt and "continue_work=true" in prompt
-    bare_agent._interface_mode = "cli"
-    assert bare_agent._get_interface_capabilities_prompt() == ""
+    assert "## Terminal" not in prompt
+
+
+def test_terminal_mode_prompt_routes_the_user_to_the_browser_screen(
+    bare_agent, monkeypatch
+):
+    _browser_usable(monkeypatch, True)
+    bare_agent._interface_mode = "terminal"
+    prompt = bare_agent._get_interface_capabilities_prompt()
+    assert "## Terminal" in prompt and "## File Sharing" in prompt
+    assert "Browser screen" in prompt and "for_user=true" in prompt
+    # The browser is a real window there (headed, see the test below), and
+    # the user takes control from the Browser screen's key.
+    assert "window on the user's desktop" in prompt and "Ctrl+X b, then t" in prompt
+    # Nothing in it promises a live panel the terminal cannot show.
+    assert "browser panel" not in prompt and "watch your tabs live" not in prompt
+    # The same text every call: the system prompt stays cache-stable.
+    assert prompt == bare_agent._get_interface_capabilities_prompt()
+
+    _browser_usable(monkeypatch, False)
+    prompt = bare_agent._get_interface_capabilities_prompt()
+    assert "## Terminal" in prompt and "Mini Browser" not in prompt
+
+
+@pytest.mark.parametrize(
+    "edition_name, stored, headless",
+    [
+        # The browser edition keeps the plain setting (its panel shows the page).
+        ("browser", {}, True),
+        ("browser", {"headless": True}, True),
+        ("browser", {"headless": "false"}, False),
+        # The terminal edition has no live view: a window, unless the user's
+        # settings.json sets headless itself.
+        ("terminal", {}, False),
+        ("terminal", {"max_fps": 20}, False),
+        ("terminal", {"headless": True}, True),
+        ("terminal", {"headless": "yes"}, True),
+        ("terminal", {"headless": False}, False),
+        ("terminal", {"headless": "maybe"}, False),  # unusable: not a choice
+    ],
+)
+def test_the_terminal_edition_opens_a_browser_window(
+    monkeypatch, tmp_path, edition_name, stored, headless
+):
+    from app import config as app_config
+    from app import edition
+    from app.mini_browser import config as mb_config
+
+    settings_file = tmp_path / "settings.json"
+    settings_file.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(app_config, "SETTINGS_CONFIG_PATH", settings_file)
+    monkeypatch.setattr(
+        app_config, "get_settings", lambda reload=False: {"mini_browser": stored}
+    )
+    monkeypatch.setenv(edition.ENV_VAR, edition_name)
+    assert mb_config.load_settings().headless is headless
+
+
+def test_shipped_defaults_do_not_count_as_a_headless_choice(monkeypatch, tmp_path):
+    """Without a settings.json, app.config falls back to its defaults (which
+    say headless): in the terminal edition that is no choice of the user's."""
+    from app import config as app_config
+    from app import edition
+    from app.mini_browser import config as mb_config
+
+    monkeypatch.setattr(app_config, "SETTINGS_CONFIG_PATH", tmp_path / "missing.json")
+    monkeypatch.setattr(
+        app_config, "get_settings", lambda reload=False: app_config._get_default_settings()
+    )
+    monkeypatch.setenv(edition.ENV_VAR, "terminal")
+    assert mb_config.load_settings().headless is False
+    monkeypatch.setenv(edition.ENV_VAR, "browser")
+    assert mb_config.load_settings().headless is True
+    # A broken edition value never stops the browser from loading its settings.
+    monkeypatch.setenv(edition.ENV_VAR, "cli")
+    assert mb_config.load_settings().headless is True
 
 
 def test_browser_mode_note_is_left_out_while_the_browser_is_unusable(

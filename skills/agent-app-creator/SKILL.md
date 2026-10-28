@@ -35,6 +35,7 @@ Edit ONLY:
 | `pb/pb_migrations/` | schema — one NEW migration per change |
 | `pb/pb_hooks/ops.pb.js` + new `*.pb.js` / `*.js` modules | custom verbs + their helpers |
 | `operations.json` | declarations for those verbs (non-`system` entries) |
+| `views.json` | the terminal screens over those verbs (see "Terminal views") |
 | `AGENT_APP.md` | your plan/context/index — keep current |
 
 NEVER edit `frontend/src/kit/`, `frontend/src/main.tsx`, `frontend/src/config.gen.ts`,
@@ -145,6 +146,13 @@ working `items.clear-done` example). The gate fails ops without routes and
 warns about routes without ops. Mark data-deleting ops `"destructive": true`.
 Plain CRUD needs no verb — the PB API and the kit hooks already cover it.
 
+**Ops are also what people press in the terminal** (CraftBot's terminal edition
+shows an app through its ops, never its web page). Give every op people use a
+short `"label"` ("Add expense"), mark read ops `"readOnly": true`, give
+destructive ops a `"confirm"` question, and give string params a `"format"`
+when they are a `date`, `money`, `secret`, `multiline` text, `json` or a
+`ref:<collection>` id (spec/operations.schema.json).
+
 **Request bodies in hooks: `e.requestInfo().body` ONLY** (a pre-parsed
 object). `toString(e.request.body)` reads a Go stream as EMPTY — your handler
 will 400 on every request and the error will falsely blame the client.
@@ -249,6 +257,18 @@ cronAdd('weatherSync', '*/15 * * * *', () => {
 
 Update `AGENT_APP.md` after each feature (entities table, ops list, checklist).
 
+**Terminal views**: ship a `views.json` at the project root
+(spec/views.schema.json): the screens the terminal edition shows instead of the
+web page. A dense home dashboard first (`metrics`, `bars` or `sparkline`, a
+`table` of what matters now), then one screen per main job. Every block reads
+from a `readOnly` op (`"source": {"op": "summary.month"}`, JSON Pointers into its
+result) and every key runs a declared op (`"actions"`, and `"rowActions"` with
+`"$row.id"` to act on the selected row), so everything the page can do is an op.
+Give every table column a `priority` (0 = always shown; higher drops first on
+narrow terminals) and write titles and labels for people. The gate checks the
+references. Without views.json the terminal generates plain screens from the
+ops, which reads like a database, not an app.
+
 **App→agent triggers** — when a feature needs the AGENT to react to something
 happening in the app (a button that asks the agent to act, backend logic that
 crossed a threshold), declare it in `triggers.json` and fire it via the kit's
@@ -286,6 +306,10 @@ only where agent judgment adds value — plain code handles plain events.
    Reason about ANY mismatch between what you intended and what is stored —
    fix it before verifying. This catches the failure classes no error
    message reports.
+   - Look at the terminal screens: `agent-app view <dev-dir> --list`, then
+     `agent-app view <dev-dir> <screen> --width 80` for each screen. That text
+     is exactly what a terminal user sees; empty blocks, unreadable columns
+     or a missing action are defects like any other.
 3. `agent_app_walk_verify(project_id="<PROJECT_ID>")` — an independent
    sub-agent walks the running app in a real (headless) browser against
    `reference/requirements.md`. **Success announces the app to the user and

@@ -18,6 +18,7 @@ import { join } from 'node:path';
 import { fileMatchesCanon, recordFileHash } from '../lib/hashes.ts';
 import { log } from '../lib/log.ts';
 import { ensurePbBinary } from './pb.ts';
+import { validateViews, type Operation as ViewOperation } from '../../../view/src/index.ts';
 
 interface GateError {
   step: string;
@@ -667,6 +668,65 @@ function runMigrateWatched(
   });
 }
 
+const OP_KEYS = new Set(['name', 'description', 'label', 'system', 'destructive', 'readOnly', 'confirm', 'returns', 'schedule', 'params', 'executor']);
+const PARAM_KEYS = new Set(['type', 'description', 'required', 'default', 'enum', 'label', 'format']);
+const RETURNS = new Set(['record', 'list', 'summary', 'series', 'job', 'none']);
+const PARAM_FORMAT = /^(date|datetime|money|percent|multiline|secret|json|ref:[a-z][a-z0-9_]*)$/;
+
+/**
+ * The keys that tell hosts how to present an op (spec/operations.schema.json):
+ * a wrong type fails the gate. Keys outside the spec only warn, so an app
+ * built before a key existed keeps launching.
+ */
+export function checkOpPresentation(op: Record<string, unknown>): void {
+  const name = String(op['name']);
+  for (const key of Object.keys(op)) {
+    if (!OP_KEYS.has(key)) log.warn(`${name}: "${key}" is not part of the operations spec; hosts ignore it`);
+  }
+  for (const key of ['readOnly', 'destructive', 'system'] as const) {
+    if (op[key] !== undefined && typeof op[key] !== 'boolean') throw new Error(`${name}: ${key} must be true or false`);
+  }
+  for (const key of ['label', 'confirm'] as const) {
+    if (op[key] !== undefined && (typeof op[key] !== 'string' || op[key] === '')) throw new Error(`${name}: ${key} must be a non-empty string`);
+  }
+  if (op['returns'] !== undefined && !RETURNS.has(String(op['returns']))) {
+    throw new Error(`${name}: returns must be one of ${[...RETURNS].join(', ')}`);
+  }
+  if (op['readOnly'] === true && op['destructive'] === true) throw new Error(`${name}: an op cannot be both readOnly and destructive`);
+  const params = (op['params'] ?? {}) as Record<string, Record<string, unknown>>;
+  for (const [pname, param] of Object.entries(params)) {
+    for (const key of Object.keys(param ?? {})) {
+      if (!PARAM_KEYS.has(key)) log.warn(`${name}.${pname}: "${key}" is not part of the operations spec; hosts ignore it`);
+    }
+    if (!['string', 'number', 'boolean'].includes(String(param?.['type']))) {
+      log.warn(`${name}.${pname}: type "${String(param?.['type'])}" is not string|number|boolean; hosts treat it as text (pass lists as JSON text with format "json")`);
+    }
+    if (param?.['label'] !== undefined && (typeof param['label'] !== 'string' || param['label'] === '')) {
+      throw new Error(`${name}.${pname}: label must be a non-empty string`);
+    }
+    if (param?.['format'] !== undefined && !PARAM_FORMAT.test(String(param['format']))) {
+      throw new Error(`${name}.${pname}: format must be date|datetime|money|percent|multiline|secret|json|ref:<collection>`);
+    }
+  }
+}
+
+/**
+ * views.json (spec/views.schema.json): optional, checked whenever present.
+ * Every source must be a read op and every action a declared op.
+ */
+function validateViewsFile(projectDir: string): void {
+  const path = join(projectDir, 'views.json');
+  if (!existsSync(path)) {
+    log.info('no views.json: the terminal shows views generated from operations.json');
+    return;
+  }
+  const ops = (JSON.parse(readFileSync(join(projectDir, 'operations.json'), 'utf8')) as { operations?: ViewOperation[] }).operations ?? [];
+  const problems = validateViews(JSON.parse(readFileSync(path, 'utf8')) as unknown, ops);
+  if (problems.length > 0) {
+    throw new Error(problems.map((p) => `${p.where}: ${p.message}`).join('\n'));
+  }
+}
+
 function validateOps(projectDir: string): void {
   const raw = readFileSync(join(projectDir, 'operations.json'), 'utf8');
   const parsed = JSON.parse(raw) as { opsVersion?: unknown; operations?: unknown };
@@ -686,6 +746,7 @@ function validateOps(projectDir: string): void {
     if (typeof op.description !== 'string' || op.description === '') {
       throw new Error(`${op.name}: description required`);
     }
+    checkOpPresentation(op as unknown as Record<string, unknown>);
 
     const type = op.executor?.type;
     if (type === 'crud') {
@@ -954,6 +1015,8 @@ export async function run(args: string[]): Promise<number> {
   });
 
   runStep(errors, 'operations.json (structure)', () => validateOps(projectDir));
+
+  runStep(errors, 'views.json (structure)', () => validateViewsFile(projectDir));
 
   runStep(errors, 'triggers.json (structure)', () => {
     const problems = validateTriggersManifest(projectDir);

@@ -1,0 +1,223 @@
+{
+  "settings": {
+    "otherTab": "other tab",
+    "tabList": "tab list",
+    "tabs": {
+      "general": "General",
+      "proactive": "Proactive",
+      "memory": "Memory",
+      "model": "Model",
+      "mcp": "MCP servers",
+      "skills": "Skills",
+      "integrations": "Integrations",
+      "credentials": "Credentials",
+      "agentApps": "Agent Apps"
+    }
+  },
+  "actions": {
+    "newChat": "New chat",
+    "enhance": "Improve the draft with AI",
+    "effort": "Reasoning effort",
+    "quit": "Quit"
+  },
+  "screens": {
+    "sessions": "Sessions",
+    "apps": "Agent Apps",
+    "memory": "Memory",
+    "workspace": "Workspace",
+    "dashboard": "Dashboard",
+    "browser": "Browser",
+    "settings": "Settings",
+    "transcript": "Transcript",
+    "help": "Keys",
+    "palette": "Command palette"
+  },
+  "session": {
+    "main": "Main",
+    "newChat": "New chat",
+    "untitled": "Untitled chat"
+  },
+  "composer": {
+    "placeholder": "Ask anything · / commands · ? keys",
+    "moreAbove": "↑ {{count}} more",
+    "moreBelow": "↓ {{count}} more",
+    "leaderHint": "s sessions · a apps · m memory · w workspace · d dashboard · b browser · , settings · n new chat",
+    "invisibleRemoved_one": "Removed {{count}} invisible character from your message",
+    "invisibleRemoved_other": "Removed {{count}} invisible characters from your message",
+    "sendFailed": "Could not send: {{error}}",
+    "enhanceUnavailable": "Type a draft first, then press Ctrl+X e",
+    "enhancing": "Improving your draft...",
+    "folder": "folder",
+    "replyingTo": "Replying to: {{name}} · Esc cancels",
+    "enhanceFailed": "Could not improve the draft",
+    "attached_one": "Attached {{count}} file",
+    "attached_other": "Attached {{count}} files",
+    "attachTooMany": "At most {{count}} files per message",
+    "attachTooLarge": "Attachments are limited to 200 MB in total"
+  },
+  "connect": {
+    "connecting": "Starting CraftBot...",
+    "waiting": "Waiting for CraftBot to finish starting...",
+    "greeting": "Connected, loading your chats...",
+    "unresponsive": "CraftBot is not responding.",
+    "seeLog": "Its log: {{path}}",
+    "stopHint": "Press Ctrl+C to quit, then run: python craftbot.py stop",
+    "legacyConsole": "This is the classic Windows console. CraftBot works better in Windows Terminal (smoother redraws, Shift+Enter, paste).",
+    "wrongEdition": "CraftBot is running as the {{edition}} edition. Restart it for the terminal: python craftbot.py restart --tui"
+  },
+  "working": {
+    "label": "Working",
+    "stopping": "Stopping",
+    "stopHint": "esc stop",
+    "waiting": "Waiting for your answer",
+    "moreDone_one": "{{count}} more done",
+    "moreDone_other": "{{count}} more done",
+    "subagent_one": "Sub-agent {{name}} · {{count}} action",
+    "subagent_other": "Sub-agent {{name}} · {{count}} actions"
+  },
+  "question": {
+    "title": "{{name}} is asking · {{index}} of {{total}}",
+    "choiceTitle": "Choose how to continue",
+    "recommended": "recommended",
+    "hint": "Type an answer, or Tab to choose an option",
+    "choiceHint": "Tab to choose",
+    "focusedHint": "1-9 or arrows pick · Enter send · x dismiss (stops the task) · Esc back to typing",
+    "focusedChoiceHint": "1-9 or arrows pick · Enter confirm · Esc back to typing",
+    "dismissed": "Question dismissed"
+  },
+  "notify": {
+    "question": "{{session}} needs your answer",
+    "done": "{{session}} finished",
+    "needsYou": "{{count}} needs you"
+  },
+  "firstRun": {
+    "keys": "Enter send · Ctrl+J new line · Esc stop · / commands · Ctrl+X screens · Ctrl+P palette · ? keys · Ctrl+C twice quits"
+  },
+  "quit": {
+    "pressAgain": "Press Ctrl+C again to quit"
+  },
+  "status": {
+    "moreSessions_one": "+{{count}} more",
+    "moreSessions_other": "+{{count}} more",
+    "effort": "effort {{value}}",
+    "cache": "cache {{value}}%",
+    "apps_one": "{{count}} app running",
+    "apps_other": "{{count}} apps running",
+    "offline": "reconnecting",
+    "backendBusy": "CraftBot is busy",
+    "help": "? keys"
+  },
+  "todo": {
+    "title": "To-do {{done}}/{{total}}"
+  },
+  "transcript": {
+    "actions_one": "{{count}} action",
+    "actions_other": "{{count}} actions",
+    "failed_one": "{{count}} failed",
+    "failed_other": "{{count}} failed",
+    "stopped": "stopped",
+    "earlier_one": "{{count}} earlier item · Ctrl+O shows everything",
+    "earlier_other": "{{count}} earlier items · Ctrl+O shows everything",
+    "interactiveOutput": "Interactive output · {{title}} · rev {{revision}} · open it in the browser edition",
+    "detailsHint": "Details in the transcript (Ctrl+O)",
+    "error": "Error",
+    "system": "System"
+  },
+  "help": {
+    "chat": "Chat",
+    "send": "Send",
+    "newline": "New line",
+    "stop": "Stop the running task, close a popup",
+    "history": "Earlier inputs (on the first or last line)",
+    "focusQuestion": "Choose an option of a pinned question",
+    "commands": "Commands and skills",
+    "todos": "Show or hide the to-do list",
+    "redraw": "Redraw the screen",
+    "clearOrQuit": "Clear the input; twice to quit",
+    "leader": "Screens (Ctrl+X, then a key)",
+    "screensTitle": "In screens",
+    "move": "Move",
+    "open": "Open",
+    "back": "Back one level",
+    "closeAll": "Back to the chat",
+    "filter": "Filter",
+    "addEditDelete": "Add, edit, delete",
+    "refresh": "Refresh",
+    "panesTabs": "Next pane, previous and next tab",
+    "apps": "Agent Apps list",
+    "appOpen": "Open the app",
+    "appLaunchStop": "Launch, stop",
+    "appAdd": "Add an app (marketplace, create, import)",
+    "appThemeSettings": "Theme, app settings",
+    "appDelete": "Delete a stopped app",
+    "appReorder": "Move the app down, up",
+    "appView": "Inside an app",
+    "appScreens": "Next screen, previous, next",
+    "appRows": "Move between rows, next table",
+    "appRow": "The row's details and actions",
+    "appOps": "Every operation of the app",
+    "appChat": "Chat with your AI agent about the app",
+    "appRefreshRecords": "Refresh, the app's records (read-only)",
+    "editing": "Editing",
+    "lineEnds": "Start and end of the line",
+    "wordMove": "Move by word",
+    "deleteWord": "Delete the previous word",
+    "killLine": "Delete to the start or end of the line"
+  },
+  "hint": {
+    "back": "back",
+    "open": "open",
+    "move": "move",
+    "run": "run",
+    "scroll": "scroll",
+    "filter": "filter",
+    "rename": "rename",
+    "clear": "clear",
+    "delete": "delete",
+    "makeSkill": "make a skill",
+    "confirm": "y confirm · any other key cancels",
+    "help": "help"
+  },
+  "sessions": {
+    "count_one": "{{count}} conversation",
+    "count_other": "{{count}} conversations",
+    "mainNote": "Main gets everything that happens on its own: schedules, integrations, notices.",
+    "confirmClear": "Clear every message of {{title}}?",
+    "confirmDelete": "Delete {{title}} for good?",
+    "skillRequested": "Turning this conversation into a skill..."
+  },
+  "palette": {
+    "placeholder": "Type to search screens, chats, apps, commands",
+    "count_one": "{{count}} match",
+    "count_other": "{{count}} matches",
+    "screen": "screen",
+    "action": "action",
+    "session": "chat",
+    "app": "app",
+    "command": "command",
+    "skill": "skill"
+  },
+  "onboarding": {
+    "title": "Set up CraftBot",
+    "loading": "Loading setup...",
+    "continue": "continue",
+    "next": "next",
+    "nextField": "next field",
+    "skip": "skip",
+    "apiKey": "API key",
+    "ollamaUrl": "Ollama address",
+    "agentNamePlaceholder": "Name your agent",
+    "via": "Connect via {{via}} (Tab switches)",
+    "viaDirect": "the provider directly",
+    "subscriptionHint": "{{label}} instead of a key: available in Settings > Model after setup.",
+    "imageLater": "add a picture later in Settings",
+    "working": "Saving..."
+  },
+  "welcome": {
+    "commands": "commands",
+    "help": "help",
+    "sessions": "sessions",
+    "transcript": "transcript",
+    "tagline": "Ask anything. Type / for commands, @ to attach files."
+  }
+}

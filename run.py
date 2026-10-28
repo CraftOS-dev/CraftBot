@@ -4,10 +4,12 @@ CraftBot Run Script
 
 Usage:
     python run.py             # Run the agent (browser interface - default)
-    python run.py --cli       # Run in CLI mode
+    python run.py --tui       # Run the terminal edition in this console
 
 Options:
-    --cli                     Use CLI (command line) interface
+    --tui                     Use the terminal edition (the Ink client) instead of the browser
+    --backend-only            With --tui: serve the terminal edition's backend without a client
+                              (used by the background service; `craftbot.py tui` attaches one)
     --conda                   Use conda environment (overrides config setting)
     --no-conda                Don't use conda (overrides config setting)
     --frontend-port PORT      Set frontend port (default: 7925)
@@ -1042,17 +1044,35 @@ def wait_for_backend(timeout: int = 60) -> bool:
 
 
 def launch_agent_background(
-    env_name: Optional[str], use_conda: bool, silent: bool = False
+    env_name: Optional[str],
+    use_conda: bool,
+    silent: bool = False,
+    log_path: Optional[str] = None,
 ) -> Optional[subprocess.Popen]:
-    """Launch main.py in the background for browser mode."""
+    """Launch main.py in the background.
+
+    With ``log_path`` (the terminal edition) the backend gets no console of
+    its own input or output: stdin is the null device, stdout and stderr go
+    to the log file, and it runs detached from this console's Ctrl+C. The
+    terminal client owns the console; one stray print would corrupt its
+    frame.
+    """
     main_script = os.path.abspath(MAIN_APP_SCRIPT)
     if not os.path.exists(main_script):
         if not silent:
             print(f"Error: {main_script} not found.")
         return None
 
-    # Filter flags (--browser passes through to agent)
-    skip_flags = {"--gui", "--conda", "--no-conda", "--dev-ui"}
+    # Launcher-only flags never reach the agent
+    skip_flags = {
+        "--gui",
+        "--conda",
+        "--no-conda",
+        "--dev-ui",
+        "--tui",
+        "--backend-only",
+        "--no-open-browser",
+    }
     # Also skip port flags and their values
     pass_args = []
     skip_next = False
@@ -1068,10 +1088,6 @@ def launch_agent_background(
         if a.startswith("--frontend-port=") or a.startswith("--backend-port="):
             continue
         pass_args.append(a)
-
-    # Ensure --browser is in args (for default mode when no flags given)
-    if "--browser" not in pass_args:
-        pass_args.append("--browser")
 
     # Set environment variable for browser startup UI formatting and warning suppression
     agent_env = os.environ.copy()
@@ -1151,13 +1167,31 @@ def launch_agent_background(
             main_script,
         ] + pass_args
 
+    io_kwargs: dict = {"stdout": sys.stdout, "stderr": sys.stderr}
+    if log_path:
+        os.makedirs(os.path.dirname(log_path), exist_ok=True)
+        log_fh = open(log_path, "a", encoding="utf-8", errors="replace")
+        log_fh.write(f"\n{'=' * 60}\nCraftBot backend started at {time.ctime()}\n")
+        log_fh.flush()
+        agent_env["PYTHONIOENCODING"] = "utf-8"
+        io_kwargs = {
+            "stdin": subprocess.DEVNULL,
+            "stdout": log_fh,
+            "stderr": subprocess.STDOUT,
+        }
+        if sys.platform == "win32":
+            # A hidden console of its own: never sees this console's Ctrl+C
+            # and never shares its input mode with the terminal client.
+            io_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+        else:
+            io_kwargs["start_new_session"] = True
+
     try:
         process = subprocess.Popen(
             cmd,
             cwd=os.path.dirname(main_script),
             env=agent_env,
-            stdout=sys.stdout,
-            stderr=sys.stderr,
+            **io_kwargs,
         )
         _background_processes.append(process)
         _record_launched(process, "agent backend")
@@ -1166,6 +1200,9 @@ def launch_agent_background(
         if not silent:
             print(f"Error starting agent: {e}")
         return None
+    finally:
+        if log_path:
+            log_fh.close()  # the child keeps its own handle
 
 
 # ==========================================
@@ -1295,82 +1332,179 @@ def launch_omniparser(use_conda: bool) -> bool:
 
 
 # ==========================================
-# MAIN LAUNCHER
+# TERMINAL EDITION
 # ==========================================
-def launch_agent(env_name: Optional[str], conda_base: Optional[str], use_conda: bool):
-    """Launch main.py in the current terminal."""
-    main_script = os.path.abspath(MAIN_APP_SCRIPT)
-    if not os.path.exists(main_script):
-        print(f"Error: {main_script} not found.")
-        sys.exit(1)
+# Terminal client sources; a change to any of them makes its bundle stale.
+# The client imports the browser frontend's store read-only, so the browser
+# sources count too.
+_TERMINAL_BUILD_INPUTS = (
+    "src",
+    "locales",
+    "package.json",
+    "package-lock.json",
+    "build.mjs",
+    "tsconfig.json",
+)
 
-    # Filter flags (--cli passes through to agent)
-    skip_flags = {"--gui", "--conda", "--no-conda", "--browser"}
-    # Also skip port flags and their values
-    pass_args = []
-    skip_next = False
-    for a in sys.argv[1:]:
-        if skip_next:
-            skip_next = False
-            continue
-        if a in skip_flags:
-            continue
-        if a in ("--frontend-port", "--backend-port"):
-            skip_next = True
-            continue
-        if a.startswith("--frontend-port=") or a.startswith("--backend-port="):
-            continue
-        pass_args.append(a)
+#: How long the backend gets to shut down on its own after the terminal
+#: client sent /exit, before the launcher's hard cleanup.
+TERMINAL_BACKEND_EXIT_GRACE_S = 25
 
-    print("Starting CraftBot...\n")
 
-    # When running as a PyInstaller frozen binary, sys.executable points to
-    # the binary itself, so spawning "python main.py" would re-run run.py
-    # in an infinite loop. Instead, import and call main() directly.
-    if getattr(sys, "frozen", False):
-        try:
-            sys.argv = [sys.argv[0]] + pass_args
-            from main import main as main_entry
+def _ensure_terminal_client(silent: bool = False) -> bool:
+    """Make sure the terminal client's bundle exists and is current.
 
-            main_entry()
-        except KeyboardInterrupt:
-            print("\nInterrupted.")
-            sys.exit(0)
-        return
+    A managed install ships the built bundle, as it ships the browser's
+    dist/. A dev checkout rebuilds it whenever its sources (or the browser
+    store it imports) are newer, the same rule the browser build follows.
+    """
+    from app import edition, paths
+    from app.provision.deps import npm_tree_stale
 
-    # Build command
-    if use_conda and env_name:
-        conda_exe = get_conda_command()
-        cmd = [
-            conda_exe,
-            "run",
-            "--no-capture-output",
-            "-n",
-            env_name,
-            "python",
-            "-u",
-            main_script,
-        ] + pass_args
+    client_dir = str(edition.terminal_client_dir())
+    bundle = str(edition.terminal_client_bundle())
+    if not paths.is_dev_checkout():
+        if os.path.isfile(bundle):
+            return True
+        if not silent:
+            print(f"Error: the terminal client is missing ({bundle}).")
+            print("  Repair the install: python craftbot.py repair")
+        return False
 
-        # On Windows, wrap .bat files with cmd.exe
-        if sys.platform == "win32" and conda_exe.lower().endswith((".bat", ".cmd")):
-            cmd = ["cmd.exe", "/d", "/c"] + cmd
-    else:
-        cmd = [
-            python_runtime.resolve() or sys.executable,
-            "-u",
-            main_script,
-        ] + pass_args
+    inputs = [os.path.join(client_dir, name) for name in _TERMINAL_BUILD_INPUTS]
+    inputs.append(os.path.join(FRONTEND_DIR, "src"))
+    if os.path.isfile(bundle) and os.path.getmtime(bundle) >= _newest_mtime(inputs):
+        return True
 
-    # Run in current terminal with all environment variables.
+    node_exe = node_runtime.node_cmd()
+    npm_cmd = node_runtime.npm_cmd()
+    if not node_exe or not npm_cmd:
+        if not silent:
+            print("Error: Node.js 24 or later is required for the terminal edition.")
+            print("  Run: python install.py   (installs a sidecar Node)")
+        return False
+
+    reason = npm_tree_stale(client_dir)
+    if reason is not None:
+        if not silent:
+            print(f"Terminal client dependencies out of date ({reason}); running npm install...")
+        if sys.platform == "win32" and npm_cmd.lower().endswith((".cmd", ".bat")):
+            install_cmd = ["cmd.exe", "/d", "/c", npm_cmd, "install"]
+        else:
+            install_cmd = [npm_cmd, "install"]
+        result = subprocess.run(
+            install_cmd,
+            cwd=client_dir,
+            stdin=subprocess.DEVNULL,
+            env=node_runtime.child_env(),
+        )
+        if result.returncode != 0:
+            if not silent:
+                print("Error: npm install failed (see output above).")
+                print("  Fix manually: cd app/ui_layer/terminal && npm install")
+            return False
+
+    if not silent:
+        print("Building the terminal client (first start after a change)...")
     try:
         result = subprocess.run(
-            cmd, cwd=os.path.dirname(main_script), env=os.environ.copy()
+            [node_exe, "build.mjs"],
+            cwd=client_dir,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            env=node_runtime.child_env(),
+            timeout=600,
         )
-        sys.exit(result.returncode)
-    except KeyboardInterrupt:
-        print("\nInterrupted.")
+    except (OSError, subprocess.TimeoutExpired) as e:
+        if not silent:
+            print(f"Error building the terminal client: {e}")
+        return False
+    if result.returncode != 0 or not os.path.isfile(bundle):
+        if not silent:
+            print(
+                "Error building the terminal client:\n"
+                + result.stderr.decode("utf-8", errors="replace")[-2000:]
+            )
+        return False
+    return True
+
+
+def run_terminal_edition(
+    env_name: Optional[str], use_conda: bool, backend_only: bool
+) -> None:
+    """Run the terminal edition: its backend, and the client in this console.
+
+    The backend runs hidden with its output in a log file; the client owns the
+    console. When the client quits it sends /exit, the backend shuts down on
+    its own (sessions persisted, Agent Apps stopped), and the launcher only
+    hard-kills what is still alive after a grace period. With
+    ``backend_only`` (the background service) there is no client: the backend
+    runs until stopped and `craftbot.py tui` attaches clients to it.
+    """
+    from app import edition, paths
+
+    if not _ensure_terminal_client():
+        sys.exit(1)
+
+    blockers = _free_ports(BACKEND_PORT)
+    if blockers:
+        print("\nCraftBot cannot start, its port is in use:")
+        for blocker in blockers:
+            print(f"   {blocker}")
+        print(
+            "\n   Close that program, or choose a different port:"
+            "\n     python run.py --tui --backend-port 8926\n"
+        )
+        sys.exit(1)
+
+    log_path = str(paths.STATE_ROOT / "logs" / "backend.log")
+    _clear_agent_ready()
+    agent_process = launch_agent_background(env_name, use_conda, log_path=log_path)
+    if not agent_process:
+        print("Error: failed to start the agent backend.")
+        sys.exit(1)
+
+    if backend_only:
+        # The service: CraftBot is up once the agent finished booting.
+        if _wait_for_agent_ready(agent_process):
+            print(f"\n  CRAFTBOT IS READY (terminal edition, port {BACKEND_PORT})")
+            print("  Open it with: python craftbot.py tui", flush=True)
+        try:
+            agent_process.wait()
+        except KeyboardInterrupt:
+            cleanup_background_processes()
         sys.exit(0)
+
+    node_exe = node_runtime.node_cmd()
+    client_cmd = [
+        node_exe,
+        str(edition.terminal_client_bundle()),
+        "--port",
+        str(BACKEND_PORT),
+        "--owner",
+        "--log",
+        log_path,
+        "--state-dir",
+        str(paths.STATE_ROOT),
+    ]
+    exit_code = 0
+    interrupted = False
+    try:
+        # The client paints at once and connects when the backend is ready.
+        exit_code = subprocess.run(client_cmd, env=node_runtime.child_env()).returncode
+    except KeyboardInterrupt:
+        # Ctrl+C reached the launcher, so the client never sent /exit.
+        exit_code = 130
+        interrupted = True
+    finally:
+        if not interrupted:
+            try:
+                agent_process.wait(timeout=TERMINAL_BACKEND_EXIT_GRACE_S)
+            except (subprocess.TimeoutExpired, KeyboardInterrupt):
+                pass
+        cleanup_background_processes()
+    sys.exit(exit_code)
 
 
 # ==========================================
@@ -1496,7 +1630,11 @@ if __name__ == "__main__":
         print("    Please run without --gui flag.\n")
         sys.exit(1)
     gui_mode = False  # "--gui" in args  # [V1.2.2] disabled
-    cli_mode = "--cli" in args
+    tui_mode = "--tui" in args
+    backend_only = "--backend-only" in args
+    if backend_only and not tui_mode:
+        print("\n[!] --backend-only only applies to the terminal edition (--tui).\n")
+        sys.exit(1)
     conda_flag = "--conda" in args
     no_conda_flag = "--no-conda" in args
 
@@ -1506,8 +1644,8 @@ if __name__ == "__main__":
     FRONTEND_URL = f"http://localhost:{FRONTEND_PORT}"
     BACKEND_URL = f"http://localhost:{BACKEND_PORT}"
 
-    # Browser mode is default (unless --cli specified)
-    browser_mode = not cli_mode
+    # Browser edition is the default (unless --tui is given)
+    browser_mode = not tui_mode
 
     # Load saved config to check what was actually installed
     config = load_config()
@@ -1531,11 +1669,8 @@ if __name__ == "__main__":
     os.environ["VITE_PORT"] = str(FRONTEND_PORT)
     os.environ["VITE_BACKEND_PORT"] = str(BACKEND_PORT)
     os.environ["BROWSER_PORT"] = str(BACKEND_PORT)
-
-    # Determine mode string for display (only print for non-browser modes)
-    if not browser_mode:
-        mode_str = "GUI + CLI" if gui_mode else "CLI"
-        print(f"\nMode: {mode_str}")
+    # Which edition the agent serves (app/edition.py); read once at boot.
+    os.environ["CRAFTBOT_FRONTEND"] = "terminal" if tui_mode else "browser"
 
     # Check conda only if it was installed earlier
     conda_base = None
@@ -1735,5 +1870,4 @@ if __name__ == "__main__":
             cleanup_background_processes()
             sys.exit(0)
     else:
-        # Non-browser mode: launch agent in foreground as before
-        launch_agent(env_name, conda_base, use_conda)
+        run_terminal_edition(env_name, use_conda, backend_only)

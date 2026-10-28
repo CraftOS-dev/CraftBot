@@ -13,12 +13,16 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import Any, Dict
+from typing import Any, Dict, FrozenSet, Iterable
 
 from agent_core.utils.logger import logger
 
 # Queued messages a client may lag behind before it's disconnected.
 DEFAULT_MAX_PENDING = 10_000
+
+# Version of the client_hello handshake and the frames it gates. Bump it when
+# a gated frame changes shape, so a client can tell which shape it gets.
+CLIENT_PROTOCOL = 1
 
 
 class ClientChannel:
@@ -30,6 +34,17 @@ class ClientChannel:
         self._queue: "asyncio.Queue[str]" = asyncio.Queue()
         self._closed = False
         self._writer = asyncio.create_task(self._write_loop())
+        # Declared by the client's ``client_hello`` (the terminal client sends
+        # one; the browser never does). Messages gated on a capability go only
+        # to channels that declared it, so a client that never says hello
+        # receives exactly the frames it always did.
+        self.client: str = ""
+        self.capabilities: FrozenSet[str] = frozenset()
+
+    def declare(self, client: str, capabilities: Iterable[str]) -> None:
+        """Record what the client said it is and which extra frames it reads."""
+        self.client = client
+        self.capabilities = frozenset(c for c in capabilities if isinstance(c, str))
 
     @property
     def closed(self) -> bool:

@@ -100,9 +100,12 @@ class ActionSetManager:
             List of ActionMetadata, in registry order.
         """
         from agent_core import registry_instance, PLATFORM_ALL
+        from app import edition
 
         required_sets = set(set_names)
         current_platform = platform_lib.system().lower()
+        # Actions the running edition cannot show (app/edition.py).
+        excluded = edition.excluded_actions()
         found = []
         for platform_impls in registry_instance._registry.values():
             impl = platform_impls.get(current_platform) or platform_impls.get(
@@ -111,6 +114,8 @@ class ActionSetManager:
             if impl is None:
                 continue
             metadata = impl.metadata
+            if metadata.name in excluded:
+                continue
             # Actions that declare no set are never compiled into a list.
             action_sets = getattr(metadata, "action_sets", [])
             if not self._action_in_sets(action_sets, required_sets):

@@ -1,0 +1,223 @@
+{
+  "settings": {
+    "otherTab": "otra pestaña",
+    "tabList": "lista de pestañas",
+    "tabs": {
+      "general": "General",
+      "proactive": "Proactivo",
+      "memory": "Memoria",
+      "model": "Modelo",
+      "mcp": "Servidores MCP",
+      "skills": "Habilidades",
+      "integrations": "Integraciones",
+      "credentials": "Credenciales",
+      "agentApps": "Agent Apps"
+    }
+  },
+  "actions": {
+    "newChat": "Nuevo chat",
+    "enhance": "Mejorar el borrador con IA",
+    "effort": "Nivel de razonamiento",
+    "quit": "Salir"
+  },
+  "screens": {
+    "sessions": "Sesiones",
+    "apps": "Agent Apps",
+    "memory": "Memoria",
+    "workspace": "Espacio de trabajo",
+    "dashboard": "Panel",
+    "browser": "Navegador",
+    "settings": "Ajustes",
+    "transcript": "Transcripción",
+    "help": "Teclas",
+    "palette": "Paleta de comandos"
+  },
+  "session": {
+    "main": "Principal",
+    "newChat": "Nuevo chat",
+    "untitled": "Chat sin título"
+  },
+  "composer": {
+    "placeholder": "Pregunta lo que quieras · / comandos · ? teclas",
+    "moreAbove": "↑ {{count}} más",
+    "moreBelow": "↓ {{count}} más",
+    "leaderHint": "s sesiones · a apps · m memoria · w espacio de trabajo · d panel · b navegador · , ajustes · n nuevo chat",
+    "invisibleRemoved_one": "Se quitó {{count}} carácter invisible de tu mensaje",
+    "invisibleRemoved_other": "Se quitaron {{count}} caracteres invisibles de tu mensaje",
+    "sendFailed": "No se pudo enviar: {{error}}",
+    "enhanceUnavailable": "Escribe primero un borrador y luego pulsa Ctrl+X e",
+    "enhancing": "Mejorando tu borrador...",
+    "folder": "carpeta",
+    "replyingTo": "Respondiendo a: {{name}} · Esc cancela",
+    "enhanceFailed": "No se pudo mejorar el borrador",
+    "attached_one": "{{count}} archivo adjunto",
+    "attached_other": "{{count}} archivos adjuntos",
+    "attachTooMany": "Como máximo {{count}} archivos por mensaje",
+    "attachTooLarge": "Los adjuntos tienen un límite de 200 MB en total"
+  },
+  "connect": {
+    "connecting": "Iniciando CraftBot...",
+    "waiting": "Esperando a que CraftBot termine de iniciarse...",
+    "greeting": "Conectado, cargando tus chats...",
+    "unresponsive": "CraftBot no responde.",
+    "seeLog": "Su registro: {{path}}",
+    "stopHint": "Pulsa Ctrl+C para salir y luego ejecuta: python craftbot.py stop",
+    "legacyConsole": "Esta es la consola clásica de Windows. CraftBot funciona mejor en Windows Terminal (redibujado más fluido, Shift+Enter, pegar).",
+    "wrongEdition": "CraftBot se está ejecutando en la edición {{edition}}. Reinícialo para la terminal: python craftbot.py restart --tui"
+  },
+  "working": {
+    "label": "Trabajando",
+    "stopping": "Deteniendo",
+    "stopHint": "esc detener",
+    "waiting": "Esperando tu respuesta",
+    "moreDone_one": "{{count}} más terminada",
+    "moreDone_other": "{{count}} más terminadas",
+    "subagent_one": "Subagente {{name}} · {{count}} acción",
+    "subagent_other": "Subagente {{name}} · {{count}} acciones"
+  },
+  "question": {
+    "title": "{{name}} pregunta · {{index}} de {{total}}",
+    "choiceTitle": "Elige cómo continuar",
+    "recommended": "recomendado",
+    "hint": "Escribe una respuesta o pulsa Tab para elegir una opción",
+    "choiceHint": "Tab para elegir",
+    "focusedHint": "1-9 o flechas eligen · Enter envía · x descarta (detiene la tarea) · Esc vuelve a escribir",
+    "focusedChoiceHint": "1-9 o flechas eligen · Enter confirma · Esc vuelve a escribir",
+    "dismissed": "Pregunta descartada"
+  },
+  "notify": {
+    "question": "{{session}} necesita tu respuesta",
+    "done": "{{session}} terminó",
+    "needsYou": "Te necesitan: {{count}}"
+  },
+  "firstRun": {
+    "keys": "Enter enviar · Ctrl+J nueva línea · Esc detener · / comandos · Ctrl+X pantallas · Ctrl+P paleta · ? teclas · Ctrl+C dos veces sale"
+  },
+  "quit": {
+    "pressAgain": "Pulsa Ctrl+C otra vez para salir"
+  },
+  "status": {
+    "moreSessions_one": "+{{count}} más",
+    "moreSessions_other": "+{{count}} más",
+    "effort": "razonamiento {{value}}",
+    "cache": "caché {{value}}%",
+    "apps_one": "{{count}} app en ejecución",
+    "apps_other": "{{count}} apps en ejecución",
+    "offline": "reconectando",
+    "backendBusy": "CraftBot está ocupado",
+    "help": "? teclas"
+  },
+  "todo": {
+    "title": "Pendientes {{done}}/{{total}}"
+  },
+  "transcript": {
+    "actions_one": "{{count}} acción",
+    "actions_other": "{{count}} acciones",
+    "failed_one": "{{count}} falló",
+    "failed_other": "{{count}} fallaron",
+    "stopped": "detenido",
+    "earlier_one": "{{count}} elemento anterior · Ctrl+O muestra todo",
+    "earlier_other": "{{count}} elementos anteriores · Ctrl+O muestra todo",
+    "interactiveOutput": "Salida interactiva · {{title}} · rev {{revision}} · ábrela en la edición de navegador",
+    "detailsHint": "Detalles en la transcripción (Ctrl+O)",
+    "error": "Error",
+    "system": "Sistema"
+  },
+  "help": {
+    "chat": "Chat",
+    "send": "Enviar",
+    "newline": "Nueva línea",
+    "stop": "Detener la tarea en curso, cerrar una ventana emergente",
+    "history": "Entradas anteriores (en la primera o la última línea)",
+    "focusQuestion": "Elegir una opción de una pregunta fijada",
+    "commands": "Comandos y habilidades",
+    "todos": "Mostrar u ocultar la lista de pendientes",
+    "redraw": "Redibujar la pantalla",
+    "clearOrQuit": "Borrar la entrada; dos veces para salir",
+    "leader": "Pantallas (Ctrl+X y luego una tecla)",
+    "screensTitle": "En las pantallas",
+    "move": "Mover",
+    "open": "Abrir",
+    "back": "Volver un nivel",
+    "closeAll": "Volver al chat",
+    "filter": "Filtrar",
+    "addEditDelete": "Añadir, editar, eliminar",
+    "refresh": "Actualizar",
+    "panesTabs": "Panel siguiente, pestaña anterior y siguiente",
+    "apps": "Lista de Agent Apps",
+    "appOpen": "Abrir la app",
+    "appLaunchStop": "Iniciar, detener",
+    "appAdd": "Añadir una app (marketplace, crear, importar)",
+    "appThemeSettings": "Tema, ajustes de la app",
+    "appDelete": "Eliminar una app detenida",
+    "appReorder": "Mover la app abajo, arriba",
+    "appView": "Dentro de una app",
+    "appScreens": "Pantalla siguiente, anterior, siguiente",
+    "appRows": "Moverse entre filas, tabla siguiente",
+    "appRow": "Detalles y acciones de la fila",
+    "appOps": "Todas las operaciones de la app",
+    "appChat": "Chatear con tu agente de IA sobre la app",
+    "appRefreshRecords": "Actualizar, registros de la app (solo lectura)",
+    "editing": "Edición",
+    "lineEnds": "Inicio y final de la línea",
+    "wordMove": "Moverse por palabras",
+    "deleteWord": "Borrar la palabra anterior",
+    "killLine": "Borrar hasta el inicio o el final de la línea"
+  },
+  "hint": {
+    "back": "volver",
+    "open": "abrir",
+    "move": "mover",
+    "run": "ejecutar",
+    "scroll": "desplazar",
+    "filter": "filtrar",
+    "rename": "renombrar",
+    "clear": "borrar",
+    "delete": "eliminar",
+    "makeSkill": "crear habilidad",
+    "confirm": "y confirma · cualquier otra tecla cancela",
+    "help": "ayuda"
+  },
+  "sessions": {
+    "count_one": "{{count}} conversación",
+    "count_other": "{{count}} conversaciones",
+    "mainNote": "Principal recibe todo lo que ocurre por sí solo: programaciones, integraciones, avisos.",
+    "confirmClear": "¿Borrar todos los mensajes de {{title}}?",
+    "confirmDelete": "¿Eliminar {{title}} para siempre?",
+    "skillRequested": "Convirtiendo esta conversación en una habilidad..."
+  },
+  "palette": {
+    "placeholder": "Escribe para buscar pantallas, chats, apps, comandos",
+    "count_one": "{{count}} coincidencia",
+    "count_other": "{{count}} coincidencias",
+    "screen": "pantalla",
+    "action": "acción",
+    "session": "chat",
+    "app": "app",
+    "command": "comando",
+    "skill": "habilidad"
+  },
+  "onboarding": {
+    "title": "Configurar CraftBot",
+    "loading": "Cargando la configuración...",
+    "continue": "continuar",
+    "next": "siguiente",
+    "nextField": "campo siguiente",
+    "skip": "omitir",
+    "apiKey": "Clave de API",
+    "ollamaUrl": "Dirección de Ollama",
+    "agentNamePlaceholder": "Ponle nombre a tu agente",
+    "via": "Conectar mediante {{via}} (Tab cambia)",
+    "viaDirect": "el proveedor directamente",
+    "subscriptionHint": "{{label}} en lugar de una clave: disponible en Ajustes > Modelo después de la configuración.",
+    "imageLater": "añade una imagen más tarde en Ajustes",
+    "working": "Guardando..."
+  },
+  "welcome": {
+    "commands": "comandos",
+    "help": "ayuda",
+    "sessions": "sesiones",
+    "transcript": "transcripción",
+    "tagline": "Pregunta lo que quieras. Escribe / para comandos, @ para adjuntar archivos."
+  }
+}

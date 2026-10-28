@@ -45,6 +45,8 @@ BUILD_OUTPUTS = [
     # The compiled browser UI. Users have no Node toolchain at install time
     # and must not need one to see a working interface.
     "app/ui_layer/browser/frontend/dist",
+    # The terminal edition's client, one bundled ES module run by Node.
+    "app/ui_layer/terminal/dist",
 ]
 
 # Tracked paths that are pure development weight. Excluded to keep the
@@ -138,6 +140,7 @@ def build(output: Path) -> int:
         "app/paths.py",
         "app/provision/__init__.py",
         "app/ui_layer/browser/frontend/dist/index.html",
+        "app/ui_layer/terminal/dist/craftbot-tui.mjs",
         "craftos_integrations/providers/whatsapp_web/bridge.js",
         # craftbot.py imports these at module scope; without them every
         # command fails before parsing its arguments.

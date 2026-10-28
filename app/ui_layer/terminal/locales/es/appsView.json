@@ -1,0 +1,63 @@
+{
+  "title": "Agent App",
+  "notFound": "Esta app ya no existe.",
+  "loading": "Cargando...",
+  "stopped": "La app está detenida. Pulsa l para iniciarla.",
+  "asOwner": "como propietario",
+  "agent": "tu agente de IA",
+  "agentIdle": "inactivo",
+  "agentWorking": "trabajando",
+  "status": {
+    "running": "en ejecución",
+    "ready": "en ejecución",
+    "stopped": "detenida",
+    "creating": "en construcción",
+    "launching": "iniciando",
+    "stopping": "deteniendo",
+    "error": "error",
+    "created": "sin iniciar"
+  },
+  "tabs": {
+    "ops": "Operaciones",
+    "records": "Registros",
+    "requests": "Solicitudes",
+    "settings": "Ajustes"
+  },
+  "hint": {
+    "back": "volver",
+    "cancel": "cancelar",
+    "confirm": "confirmar",
+    "anyKey": "cualquier otra tecla",
+    "anyKeyBack": "Cualquier tecla vuelve",
+    "nextOrRun": "campo siguiente, ejecuta en el último",
+    "nextField": "campo siguiente",
+    "open": "abrir",
+    "send": "enviar",
+    "closeChat": "cerrar el chat",
+    "allOps": "todas las operaciones",
+    "chat": "chat",
+    "screens": "pantallas",
+    "stop": "detener",
+    "launch": "iniciar"
+  },
+  "fieldError": {
+    "required": "obligatorio",
+    "number": "debe ser un número"
+  },
+  "noParams": "No hacen falta datos. Pulsa Enter para ejecutar.",
+  "confirmDestructive": "{{label}} cambia o elimina datos para siempre. ¿Ejecutar?",
+  "confirmHint": "y ejecuta · cualquier otra tecla vuelve",
+  "destructive": "destructiva",
+  "noActions": "No hay acciones para esta fila.",
+  "paletteHint": "Escribe para buscar una operación",
+  "recordCount_one": "{{count}} registro",
+  "recordCount_other": "{{count}} registros",
+  "readOnly": "solo lectura (los cambios se hacen con operaciones)",
+  "recordsHint": "Los datos de la app, en solo lectura. Enter abre una colección.",
+  "requestsHint": "Solicitudes que la app envió a tu agente de IA. Enter las muestra.",
+  "viewsInvalid": "views.json tiene un problema, se muestran pantallas generadas: {{problem}}",
+  "actionsOnly": "Esta área no muestra nada por sí sola; usa sus acciones de abajo.",
+  "you": "Tú",
+  "chatEmpty": "Aún no se ha dicho nada.",
+  "chatPlaceholder": "Pregunta a tu agente de IA sobre esta app"
+}

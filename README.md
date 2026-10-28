@@ -49,7 +49,7 @@ Aside from being an AI agent that can create and operate its own SaaS tools, Cra
 - **Proactive Agent.** Learn your preferences, habits, and life goals. Then, perform planning and initiate tasks (with approval, of course) to help you improve in life.
 - **External Tools Integration.** Connect to your apps like Google Workspace, Slack, Notion, Zoom, LinkedIn, Discord, Telegram and more (more to come!) with OAuth support or your own key. You can connect multiple accounts to each integration.
 - **Skills and MCP.** 150+ MCP and 170+ Skills ready. Quick installation of new Skills and MCPs. Create/improve Skills from completed tasks with one click.
-- **Browser interface and CLI support.** Use CraftBot the way it fits: through a simple browser UI for everyday interaction, or via the CLI for scripting and headless environments.
+- **Browser or terminal.** Use CraftBot the way it fits: a simple browser UI for everyday interaction, or the full terminal edition (`python run.py --tui`) with the same chats, settings and Agent Apps.
 
 ---
 
@@ -143,9 +143,9 @@ If you see **"npm not found in PATH"** when running `python run.py`:
 2. Install and restart your terminal
 3. Run `python run.py` again
 
-**Alternative:** Use CLI mode instead (no Node.js needed):
+**Terminal edition:** prefer the terminal? Run CraftBot there instead (it needs the same Node.js):
 ```bash
-python run.py --cli
+python run.py --tui
 ```
 
 ### Installation Fails with Dependencies
