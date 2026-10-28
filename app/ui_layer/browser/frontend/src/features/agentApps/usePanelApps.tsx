@@ -1,51 +1,46 @@
-import { useCallback, useEffect } from 'react'
+import { useEffect } from 'react'
 import { usePersistedState } from '../../hooks'
 import { useAppSelector } from '../../store/hooks'
 import { RESOURCES, useResource } from '../../store/resources'
 import { selectAgentAppCatalogLoaded, selectAgentAppProjects } from '../../store/selectors/agentApp'
 import { UI_STATE } from '../../store/uiState'
-import { attachPanelApp, retainPanelApps } from './panelAppsState'
-import { AgentAppSurface } from './AgentAppSurface'
 import { AgentAppIcon } from '../../components/ui/AgentAppIcon'
-import { IconButton } from '../../components/ui/IconButton'
-import { ArrowUpRight } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
-import { useTranslation } from 'react-i18next'
 import type { AppsPanelMode } from '../../components/ChatWorkspace/ChatWorkspace'
+import { AgentAppSurface } from './AgentAppSurface'
 
-/** Per-chat presentation state; attaching an app does not reference it for the agent. */
-export function usePanelApps(sessionId: string, enabled: boolean, excludedId?: string, visible = true): AppsPanelMode | undefined {
-  const { t } = useTranslation('chat')
-  const navigate = useNavigate()
+/**
+ * The installed app a chat shows in its panel. Presentation only: showing an
+ * app never references it for the agent, launches, stops or deletes it.
+ */
+export function usePanelApps(sessionId: string, enabled: boolean, visible = true): AppsPanelMode | undefined {
   useResource(enabled ? RESOURCES.agentAppsList : null)
   const projects = useAppSelector(selectAgentAppProjects)
   const loaded = useAppSelector(selectAgentAppCatalogLoaded)
-  const [state, setState] = usePersistedState(UI_STATE.chat.panelApps(sessionId))
+  const [selectedId, setSelectedId] = usePersistedState(UI_STATE.chat.panelApp(sessionId))
+  const selected = projects.find(project => project.id === selectedId)
+  // Forget an app that is gone, but only on a catalog that actually arrived:
+  // a failed or disconnected list says nothing about it.
   useEffect(() => {
-    if (!loaded || !enabled) return
-    const ids = new Set(projects.filter(p => p.id !== excludedId).map(p => p.id))
-    const next = retainPanelApps(state, id => ids.has(id))
-    if (next !== state) setState(next)
-  }, [loaded, enabled, projects, excludedId, state, setState])
-  const openProject = useCallback((id: string) => {
-    if (id !== excludedId && projects.some(project => project.id === id)) setState(previous => attachPanelApp(previous, id))
-  }, [excludedId, projects, setState])
-  const eligible = projects.filter(p => p.id !== excludedId)
-  const attached = state.projectIds.flatMap(id => eligible.find(p => p.id === id) ?? [])
-  const selected = attached.find(p => p.id === state.selectedProjectId) ?? attached[0]
-  return enabled ? {
-    openProject,
-    canOpenProject: (id: string) => id !== excludedId && projects.some(p => p.id === id),
-    attached: attached.map(project => ({ projectId: project.id, title: project.name,
-      icon: <AgentAppIcon projectId={project.id} icon={project.icon} size={13} />,
-      closeLabel: t('apps.remove', { name: project.name }) })),
-    selectedProjectId: selected?.id ?? null,
-    removeProject: (id: string) => setState(previous => retainPanelApps(previous, key => key !== id)),
+    if (enabled && loaded && selectedId && !selected) setSelectedId('')
+  }, [enabled, loaded, selectedId, selected, setSelectedId])
+  if (!enabled) return undefined
+  const canOpenProject = (id: string) => projects.some(project => project.id === id)
+  return {
+    choices: projects.map(project => ({
+      id: project.id, title: project.name, icon: <AgentAppIcon projectId={project.id} icon={project.icon} size={14} />,
+    })),
     loaded,
-    choices: eligible.map(project => ({ id: project.id, title: project.name, icon: <AgentAppIcon projectId={project.id} icon={project.icon} size={19} /> })),
-    actions: selected && <IconButton type="button" size="sm" icon={<ArrowUpRight size={17} />} onClick={() => navigate(`/agent-app/${encodeURIComponent(selected.id)}`)} aria-label={t('apps.openFull')} tooltip={t('apps.openFull')} />,
-    render: (moving: boolean, active: boolean) => selected
-      ? <AgentAppSurface key={selected.id} project={selected} active={active && visible} moving={moving} />
+    selected: selected
+      ? { id: selected.id, title: selected.name, icon: <AgentAppIcon projectId={selected.id} icon={selected.icon} size={16} /> }
       : null,
-  } : undefined
+    select: id => { if (canOpenProject(id)) setSelectedId(id) },
+    clear: () => setSelectedId(''),
+    canOpenProject,
+    render: (projectId, moving, interactive) => {
+      const project = projects.find(item => item.id === projectId)
+      return project
+        ? <AgentAppSurface key={project.id} project={project} active={visible} moving={moving} blocked={!interactive} />
+        : null
+    },
+  }
 }

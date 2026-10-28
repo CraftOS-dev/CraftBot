@@ -249,7 +249,7 @@ export function AgentAppPage() {
                 placeholder={t('agentapp:page.chatPlaceholder')}
                 panelLayout="stacked"
                 panelVisible={showChat}
-                excludedPanelAppId={project.id}
+                showAgentApps={false}
               />
             </div>
           </div>

@@ -1,8 +1,0 @@
-.switcher { position: absolute; top: 10px; left: 12px; z-index: 3; }
-.trigger { position: relative; display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 1px solid transparent; border-radius: 6px; background: var(--bg-secondary); color: var(--text-secondary); cursor: pointer; }
-.trigger:hover { background: var(--bg-tertiary); color: var(--text-primary); }
-.trigger[data-panel-open=true] { background: var(--bg-tertiary); color: var(--text-primary); }
-.dot { position: absolute; top: 1px; right: 1px; width: 8px; height: 8px; border-radius: 6px; background: var(--text-tertiary); box-shadow: 0 0 0 2px var(--bg-primary); }
-.busy { background: var(--color-success); animation: pulse 1.6s ease-in-out infinite; }
-@keyframes pulse { 50% { opacity: .35; } }
-@media (prefers-reduced-motion: reduce) { .busy { animation: none; } }

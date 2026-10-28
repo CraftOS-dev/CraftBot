@@ -120,15 +120,7 @@
     "region": "브라우저 패널"
   },
   "panel": {
-    "close": "패널 닫기",
-    "toggle": "패널 열기/닫기",
-    "tabs": "패널 탭",
-    "browser": "브라우저",
-    "open": "패널에서 열기",
-    "search": "앱 및 출력 검색",
-    "apps": "설치된 앱",
-    "outputs": "출력",
-    "noMatches": "일치하는 항목이 없습니다."
+    "close": "패널 닫기"
   },
   "references": {
     "title": "컨텍스트 추가",
@@ -153,14 +145,16 @@
   },
   "apps": {
     "region": "에이전트 앱 패널",
-    "remove": "패널에서 {{name}} 제거",
-    "openFull": "전체 앱 열기",
     "loading": "설치된 앱을 불러오는 중…",
     "disconnected": "앱을 불러오거나 실행하려면 다시 연결하세요.",
     "loadingView": "앱 화면을 불러오는 중…",
     "viewTimeout": "앱을 불러오는 데 시간이 걸립니다. 다시 시도하거나 전체 앱을 여세요.",
     "viewUnavailable": "앱 화면을 사용할 수 없거나 다른 화면에 이미 열려 있습니다.",
     "retry": "다시 시도",
-    "openPanel": "패널에서 열기"
+    "openPanel": "패널에서 열기",
+    "show": "Agent App 표시",
+    "title": "Agent App",
+    "noInstalled": "설치된 앱이 없습니다.",
+    "close": "닫기"
   }
 }

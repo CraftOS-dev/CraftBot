@@ -120,15 +120,7 @@
     "region": "Panel peramban"
   },
   "panel": {
-    "close": "Tutup panel",
-    "toggle": "Buka/tutup panel",
-    "tabs": "Tab panel",
-    "browser": "Peramban",
-    "open": "Buka di panel",
-    "search": "Cari aplikasi dan keluaran",
-    "apps": "Aplikasi terpasang",
-    "outputs": "Keluaran",
-    "noMatches": "Tidak ada hasil yang cocok."
+    "close": "Tutup panel"
   },
   "references": {
     "title": "Tambah konteks",
@@ -153,14 +145,16 @@
   },
   "apps": {
     "region": "Panel aplikasi agen",
-    "remove": "Hapus {{name}} dari panel",
-    "openFull": "Buka aplikasi penuh",
     "loading": "Memuat aplikasi terpasang…",
     "disconnected": "Hubungkan kembali untuk memuat atau menjalankan aplikasi.",
     "loadingView": "Memuat tampilan aplikasi…",
     "viewTimeout": "Aplikasi memerlukan waktu lebih lama untuk dimuat. Coba lagi atau buka aplikasi penuh.",
     "viewUnavailable": "Tampilan aplikasi tidak tersedia atau sudah terbuka di tempat lain.",
     "retry": "Coba lagi",
-    "openPanel": "Buka di panel"
+    "openPanel": "Buka di panel",
+    "show": "Tampilkan Agent App",
+    "title": "Agent App",
+    "noInstalled": "Tidak ada aplikasi terpasang.",
+    "close": "Tutup"
   }
 }

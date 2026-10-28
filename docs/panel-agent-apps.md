@@ -1,82 +1,79 @@
 # Agent Apps in the chat panel
 
-An established chat can show installed Agent Apps beside its conversation, in the
-same workspace used by Browser and Outputs. The single split-panel icon opens a
-searchable **Open in panel** page with Browser, installed apps, and existing
-outputs. Selecting content opens its tab. Browser is not pre-opened or pinned.
-The **+** button returns to the same chooser; it is not limited to adding apps.
-Closing an app tab detaches it; closing Browser removes its tab without stopping
-its session's browser process. Opening the panel from the chat returns to the
-chooser, while existing content tabs remain available above it.
+A chat's panel, on its left, shows one thing at a time: its Generative UI
+outputs, its browser, or an installed Agent App. The round buttons at the chat's
+top left choose: **Outputs** (once the chat has one), **Browser**, and
+**Agent Apps**. Pressing the Outputs or Browser button while it is on show
+closes the panel, as before.
+
+The Agent Apps button shows the sidebar's Agent Apps cube until the chat has an
+app, then that app's icon. If the chat's app is hidden, pressing the button
+shows it again directly. Otherwise it opens a menu of the installed apps, styled like the sidebar's Agent Apps flyout, with the chat's current app
+highlighted; once the chat has an app the menu ends with **Close**. Picking an app shows it in the
+panel and picking another replaces it. **Close** stops the chat having an app
+and hides its pane. The list works with the keyboard (Arrow keys, Enter,
+Escape). The app fills the pane with no bar above it, as on its own page; the
+seam still resizes or closes the panel.
+
+Opening and closing the panel (any content: outputs, browser or app) slide its
+content in and out at the panel's open size, with the Agent App page's chat
+panel motion (260 ms), whatever the OS reduced-motion setting, as that panel
+does; an app keeps showing, without taking input, while it
+slides out.
 
 A running app displays its existing interactive view. A stopped app offers
-**Launch**. Adding a tab, restoring a chat, hiding the panel, or removing a tab
-never launches, stops or deletes the app. Use existing app management controls to
-stop or delete it. **Open full app** navigates to the existing app page and reuses
-the same frame where it remains in the bounded cache.
+**Launch**. Showing, switching, hiding or closing never launches, stops or
+deletes an app; use the app's own management controls for that. The app's own
+page reuses the same frame while it remains in the bounded cache.
 
-An Agent App reference's preview also offers **Open in panel**. This only opens
-the view: it does not submit a message, add another reference, grant the agent
-access, or switch the conversation to the app's backing chat. The reference
-system's captured context and read permissions remain unchanged.
+An Agent App reference's preview also offers **Open in panel**. This only shows
+the app: it does not submit a message, add another reference, grant the agent
+access, or switch the conversation to the app's backing chat.
 
 ## State and lifecycle
 
-App tabs and selection belong to the chat and persist in this browser tab's
-session storage, using `UI_STATE.chat.panelApps(sessionId)`. `chat.panelBrowserOpen` tracks whether Browser was explicitly opened;
-`chat.panelLastMode` retains selection intent for output-only hosts. They survive normal
-navigation and reload. They do not synchronize to another device or browser tab.
-The record contains project IDs only; names, status, URL, deployment version,
-icons and theme come from the existing app catalog. Browser, app and output tabs have close actions. Closing a background output
-does not change the active app view.
+Each chat remembers its app in this browser tab's session storage,
+`UI_STATE.chat.panelApp(sessionId)` (a project id; '' before one is picked),
+and what its panel shows in `UI_STATE.chat.panelMode(sessionId)` ('apps' for the
+app). Both survive navigation and reload, but not another device or browser tab.
+Names, status, URL, deployment version, icon and theme come from the app
+catalog, never from this record.
 
-Missing IDs are pruned after a successful catalog response, never because the
-initial catalog is empty or a connection/request fails. Deleting the chat clears
-its panel-app record. Removing a selected app chooses a neighboring tab. Removing
-the final app returns the panel to its **Open in panel** chooser.
-
-New generated outputs and a browser-start transition retain their existing
-automatic activation behavior. They can replace the app on screen without
-removing its tabs. Selecting Apps restores the selected app. Draft chats have no
-Apps picker. An app's backing chat excludes that same app from its nested panel,
-and collapsing the backing chat releases its nested app view.
+A deleted app is forgotten after a catalog response that actually arrives, never
+because a request failed or the connection dropped; deleting the chat clears it.
+New generated outputs and the agent starting to browse take the panel over as
+before; picking the app again brings it back with its state. Draft chats have no
+Agent Apps button, and neither does an Agent App's own chat: its panel holds
+only outputs and the browser.
 
 ## Code structure
 
 Paths are relative to `app/ui_layer/browser/frontend/src/`:
 
-- `components/ChatWorkspace/ChatWorkspace.tsx` owns the common layout, shared tab strip, resizing, animations and focus restoration. `PanelSwitcher.tsx`
-  supplies the single direct toggle. Browser and Apps supply
-  narrow rendering contracts (`BrowserPanelMode`, `AppsPanelMode`); generated
-  output rendering stays in its feature. Each tab in the strip carries its own
-  select and close actions; tab ids are only unique keys and are never parsed.
+- `components/ChatWorkspace/ChatWorkspace.tsx` owns the layout, the round panel
+  buttons, resizing, animations and focus restoration. Browser and apps supply
+  narrow contracts (`BrowserPanelMode`, `AppsPanelMode`); generated output
+  rendering stays in its feature.
+- `components/ChatWorkspace/AppPickerButton.tsx` is the Agent Apps button and
+  its menu. Chat's `showAgentApps={false}` (the Agent App page) removes it.
 - `components/ChatWorkspace/OutputReference.tsx` owns generated-output references
-  and their context. The former `GenerativeUI/OutputWorkspace` has moved here.
-- `features/agentApps/usePanelApps.tsx` reads the existing project selectors,
-  subscribes to catalog freshness and manages per-chat app identities.
-- `components/ChatWorkspace/PanelChooser.tsx` is the inline content chooser for
-  Browser, apps and outputs. `usePanelApps` supplies installed-app choices, open
-  tab metadata and the selected app surface; it has no modal picker or nested
-  tab strip.
-- `features/agentApps/panelAppsState.ts` contains validated, pure add/select/prune
-  operations. A chat holds at most 100 attached apps; attaching more is ignored.
+  and their context.
+- `features/agentApps/usePanelApps.tsx` reads the project catalog and keeps the
+  chat's app id.
 - `features/agentApps/AgentAppSurface.tsx` renders app status, construction or the
-  running view, shared by the panel and full app page. It has no backing chat or
-  route ownership. Existing construction UI and theme catalog are reused.
-- `features/agentApps/useAgentAppTheme.ts` preserves saved themes and existing
+  running view, shared by the panel and the full app page.
+- `features/agentApps/useAgentAppTheme.ts` preserves saved themes and the existing
   `livingui-theme` / `craftbot-theme-request` wire contracts.
-- `features/agentApps/frameHost.ts` is the extracted persistent iframe pool. DOM
-  resources stay private to this module, outside Redux. A surface acquires an
-  exclusive lease; stale releases cannot hide another owner's frame.
+- `features/agentApps/frameHost.ts` is the persistent iframe pool. A surface
+  acquires an exclusive lease; stale releases cannot hide another owner's frame.
 - `features/agentApps/useAgentAppFrame.ts` places a leased frame over its React
-  placeholder and cleans up observers, timers, event listeners and animation work.
-- `features/agentApps/PanelAppContext.ts` exposes only the presentation action
-  needed by reference chips, including eligibility for the current surface.
+  placeholder and cleans up observers, timers, listeners and animation work.
+- `features/agentApps/PanelAppContext.ts` exposes the "show this app" action to
+  reference chips.
 
-The app page retains navigation, its backing chat, the theme picker and destructive
-management UI. The backend's existing project manager, launch locking, port
-allocation and WebSocket launch/list messages are unchanged. No new protocol,
-dependency, plugin registry or app process is introduced.
+The app page keeps navigation, its backing chat, the theme picker and the
+destructive management UI. The backend's project manager, launch locking, port
+allocation and WebSocket launch/list messages are unchanged.
 
 ## Frame host contract
 
@@ -111,12 +108,9 @@ existing local runtime addressing model rather than introducing a remote proxy.
 
 ## Verification
 
-Verified on 2026-10-26: TypeScript checking and the production build passed. The
-full 88-test browser regression run passed; after adding stalled-navigation
-coverage and final visual fixes, all 11 panel tests passed again. The frame-host
-and existing cross-origin media checks also passed. Build output retains Vite's
-large-chunk advisory. No live app processes, production app data or model calls
-were used for these checks.
+Verified on 2026-10-27: TypeScript checking passed and the full 92-test browser
+suite passed, including 14 panel tests and the frame-host and cross-origin media
+checks. No live app processes, production app data or model calls were used.
 
 From the frontend directory:
 
@@ -133,14 +127,13 @@ value automatically. A bare Vite production build omits the direct-backend
 WebSocket address and cannot connect through the static server's `/ws` route.
 
 `tests/panel-agent-apps.*` mounts the real chat, app page, Redux store and frame
-host against an offline transport and cross-origin fixture apps. Coverage includes
-state retention, page handoff, explicit launch, independent chats, reload, failed
-catalogs, deletion, inline chooser search and explicit Browser opening, reference opening, browser/output takeover,
-deployment refresh, narrow layout and hidden backing chats. Host tests cover
-exclusive ownership, stale cleanup, bounded cache eviction, message origins and
-persisted-record validation. Existing output, reference and media tests remain
-part of the suite. Two output test clock pauses use browser time with a future
-margin to avoid attempting to pause an installed clock in its past.
+host against an offline transport and cross-origin fixture apps. Coverage
+includes the round buttons and the app list (mouse and keyboard), state
+retention, page handoff, explicit launch, process states, independent chats,
+reload, failed catalogs, deletion, reference opening, browser/output takeover,
+deployment refresh, stalled and background loads, narrow layout and hidden
+backing chats. Frame-host tests cover exclusive ownership, stale cleanup,
+bounded cache eviction, load tracking and message origins.
 
 Manual checks against a real installed native and supported external app are still
 useful for their own authentication, responsive layout, permission prompts and

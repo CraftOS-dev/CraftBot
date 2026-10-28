@@ -36,7 +36,7 @@ Object.assign(window, { panelRequests: requests, panelReceive: receive, panelPro
 function Fixture() {
   const navigate = useNavigate()
   return <>
-    <nav style={{ height: 40 }}><button onClick={() => navigate('/session/dest')}>Back to chat</button><button onClick={() => navigate('/session/other')}>Other chat</button></nav>
+    <nav style={{ height: 40 }}><button onClick={() => navigate('/session/dest')}>Back to chat</button><button onClick={() => navigate('/session/other')}>Other chat</button><button onClick={() => navigate('/agent-app/notes')}>Notes app page</button></nav>
     <div style={{ height: 'calc(100dvh - 40px)' }}><Routes>
       <Route path="/session/dest" element={<Chat sessionId="dest" />} />
       <Route path="/session/other" element={<Chat sessionId="other" />} />

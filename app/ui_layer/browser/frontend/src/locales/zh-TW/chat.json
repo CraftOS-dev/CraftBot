@@ -120,15 +120,7 @@
     "region": "瀏覽器面板"
   },
   "panel": {
-    "close": "關閉面板",
-    "toggle": "切換面板",
-    "tabs": "面板分頁",
-    "browser": "瀏覽器",
-    "open": "在面板中開啟",
-    "search": "搜尋應用程式與輸出",
-    "apps": "已安裝應用程式",
-    "outputs": "輸出",
-    "noMatches": "沒有符合的項目。"
+    "close": "關閉面板"
   },
   "references": {
     "title": "新增上下文",
@@ -153,14 +145,16 @@
   },
   "apps": {
     "region": "智慧代理應用程式面板",
-    "remove": "從面板移除{{name}}",
-    "openFull": "開啟完整應用程式",
     "loading": "正在載入已安裝的應用程式…",
     "disconnected": "請重新連線以載入或啟動應用程式。",
     "loadingView": "正在載入應用程式畫面…",
     "viewTimeout": "載入時間較長。請重試或開啟完整應用程式。",
     "viewUnavailable": "此應用程式畫面無法使用，或已在其他位置開啟。",
     "retry": "重試",
-    "openPanel": "在面板中開啟"
+    "openPanel": "在面板中開啟",
+    "show": "顯示 Agent App",
+    "title": "Agent App",
+    "noInstalled": "沒有已安裝的應用程式。",
+    "close": "關閉"
   }
 }

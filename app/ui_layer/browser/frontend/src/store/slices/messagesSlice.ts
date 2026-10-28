@@ -283,7 +283,7 @@ register('session_deleted', (data, dispatch, getState) => {
   const d = data as { sessionId?: string } | undefined
   if (d?.sessionId) {
     resetArtifactProgress(d.sessionId, dispatch, getState())
-    dispatch(resetUiState(UI_STATE.chat.panelApps(d.sessionId)))
+    dispatch(resetUiState(UI_STATE.chat.panelApp(d.sessionId)))
     dispatch(dropSession({ sessionId: d.sessionId }))
   }
 })

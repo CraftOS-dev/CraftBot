@@ -1,11 +1,3 @@
-async function openBrowserTab(page: Page) {
-  const tab = page.getByRole('tab', { name: 'Browser', exact: true })
-  if (await tab.count()) await tab.click()
-  else {
-    await page.getByRole('button', { name: 'Open in panel', exact: true }).click()
-    await page.getByRole('region', { name: 'Open in panel', exact: true }).getByRole('button', { name: 'Browser', exact: true }).click()
-  }
-}
 import { test, expect, type Page } from '@playwright/test'
 
 const preview = (page: Page) => page.frameLocator('iframe')
@@ -393,7 +385,7 @@ test('reopening during an animated close keeps the running document and progress
   await expect(page.locator('iframe')).toHaveCount(0)
 })
 
-test('reduced motion disables panel and preview transitions without changing controls', async ({ page }) => {
+test('reduced motion disables preview transitions; the panel slides like the Agent App chat panel', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await open(page)
   await preview(page).getByRole('button', { name: 'Next step' }).click()
@@ -403,7 +395,9 @@ test('reduced motion disables panel and preview transitions without changing con
   await outputsButton(page).click()
   await expect(page.locator('iframe')).toHaveCount(0)
   await outputsButton(page).click()
-  expect(await seam(page).locator('..').evaluate(element => element.getAnimations().length)).toBe(0)
+  // The panel still slides open: its motion matches the Agent App page's
+  // chat panel, which animates whatever the reduced-motion setting.
+  await expect.poll(() => panel.evaluate(element => element.getAnimations().map(animation => (animation as CSSTransition).transitionProperty))).toContain('width')
   await expect(preview(page).getByRole('heading', { name: 'Step 2 of 4' })).toBeVisible()
   await outputsButton(page).click()
   await expect(page.locator('iframe')).toHaveCount(0)
@@ -414,30 +408,35 @@ test('chat and panel move through intermediate layouts when closing and opening'
   await open(page)
   await preview(page).getByRole('button', { name: 'Next step' }).click()
   const document = await page.locator('iframe').getAttribute('srcdoc')
-  const workspace = page.getByRole('region', { name: 'Output panel', includeHidden: true }).locator('..')
-  const chat = workspace.locator(':scope > div').last()
+  // The conversation element itself: a closed pane has no region name to find it by.
+  const chat = (await page.getByRole('region', { name: 'Output panel', includeHidden: true })
+    .locator('..').locator(':scope > div').last().elementHandle())!
   const splitWidth = (await chat.boundingBox())!.width
 
+  // The pane's width transition: the Agent App page's chat panel motion.
+  await page.evaluate(() => {
+    (window as any).paneTransitions = () => document.getAnimations()
+      .filter(animation => animation instanceof CSSTransition && animation.transitionProperty === 'width')
+  })
   const pauseAtStart = async () => {
     await outputsButton(page).evaluate(element => {
-      element.addEventListener('click', () => requestAnimationFrame(() => {
-        for (const animation of document.getAnimations()) {
-          if (animation.effect instanceof KeyframeEffect && animation.effect.getKeyframes().some(frame => 'gridTemplateColumns' in frame)) {
-            animation.pause()
-            animation.currentTime = 0
-          }
+      // Two frames: the click's render, then the transition it started.
+      element.addEventListener('click', () => requestAnimationFrame(() => requestAnimationFrame(() => {
+        for (const animation of (window as any).paneTransitions() as Animation[]) {
+          animation.pause()
+          animation.currentTime = 0
         }
-      }), { once: true })
+      })), { once: true })
     })
     await outputsButton(page).click()
+    await expect.poll(() => page.evaluate(() => ((window as any).paneTransitions() as Animation[])
+      .some(animation => animation.playState === 'paused'))).toBe(true)
   }
   const seek = async (time: number | 'finish') => {
     await page.evaluate(time => {
-      for (const animation of document.getAnimations()) {
-        if (animation.effect instanceof KeyframeEffect && animation.effect.getKeyframes().some(frame => 'gridTemplateColumns' in frame)) {
-          if (time === 'finish') animation.finish()
-          else animation.currentTime = time
-        }
+      for (const animation of (window as any).paneTransitions() as Animation[]) {
+        if (time === 'finish') animation.finish()
+        else animation.currentTime = time
       }
     }, time)
   }
@@ -452,7 +451,8 @@ test('chat and panel move through intermediate layouts when closing and opening'
   await expect(page.locator('iframe')).toHaveCount(0)
 
   await pauseAtStart()
-  expect((await chat.boundingBox())!.width).toBeCloseTo(1440, 0)
+  // Still the whole width, but for the 1px seam that appears as it opens.
+  expect((await chat.boundingBox())!.width).toBeGreaterThanOrEqual(1439)
   await seek(150)
   const openingWidth = (await chat.boundingBox())!.width
   expect(openingWidth).toBeGreaterThan(splitWidth + 1)
@@ -497,24 +497,35 @@ test('resize supports dragging and keyboard, persists, and preserves the running
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
 })
 
-test("the panel has one round toggle button at the chat's top left", async ({ page }) => {
+test("the panel sits on the chat's left; its buttons are round icons at the chat's top left", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
   await open(page)
   await page.getByRole('button', { name: 'Add browser' }).click()
   const panel = (await page.getByRole('region', { name: 'Output panel' }).boundingBox())!
-  const trigger = page.getByRole('button', { name: 'Toggle panel', exact: true })
-  const button = (await trigger.boundingBox())!
+  const outputs = (await outputsButton(page).boundingBox())!
+  const browser = page.getByRole('button', { name: "Show this chat's browser", exact: true })
+  // Panel, seam, then the chat with its buttons in the top left corner.
   const workspace = (await seam(page).locator('..').boundingBox())!
   expect(panel.x).toBe(workspace.x)
-  expect(button.x).toBeGreaterThan(panel.x + panel.width)
-  expect(button.x - (panel.x + panel.width)).toBeLessThan(24)
-  expect(button.y - workspace.y).toBeLessThan(24)
-  await expect(trigger).toHaveCSS('border-radius', '6px')
-  await expect(outputsButton(page)).toHaveCount(0)
-  await expect(page.getByRole('button', { name: "Show this chat's browser", exact: true })).toHaveCount(0)
-  await expect(page.getByRole('tab', { name: 'Cooking guide', exact: true })).toHaveAttribute('aria-selected', 'true')
-  await openBrowserTab(page)
-  await expect(page.getByRole('menu')).toHaveCount(0)
+  expect(outputs.x).toBeGreaterThan(panel.x + panel.width)
+  expect(outputs.x - (panel.x + panel.width)).toBeLessThan(24)
+  expect(outputs.y - workspace.y).toBeLessThan(24)
+  expect((await browser.boundingBox())!.x).toBeGreaterThan(outputs.x)
+  // Icons only, round; no conversation bar, and the output's own bar shows its name.
+  for (const button of [outputsButton(page), browser]) {
+    expect((await button.innerText()).trim()).toBe('')
+    await expect(button).toHaveCSS('border-radius', '50%')
+  }
+  await expect(page.getByText('Conversation', { exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Fullscreen output' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Back to conversation' })).toHaveCount(0)
+  await expect(page.getByRole('region', { name: 'Output panel' }).getByRole('tab', { name: 'Cooking guide', exact: true })).toBeVisible()
+  // The one on show is pressed.
+  await expect(outputsButton(page)).toHaveAttribute('aria-expanded', 'true')
+  await expect(browser).toHaveAttribute('aria-expanded', 'false')
+  await browser.click()
+  await expect(outputsButton(page)).toHaveAttribute('aria-expanded', 'false')
+  await expect(browser).toHaveAttribute('aria-expanded', 'true')
   expect((await page.getByRole('region', { name: 'Browser panel' }).boundingBox())!.x).toBe(workspace.x)
 })
 
@@ -840,23 +851,23 @@ for (const panel of ['browser', 'closed'] as const) {
 test('the browser shares the panel with outputs, one at a time', async ({ page }) => {
   await open(page)
   await page.getByRole('button', { name: 'Add browser' }).click()
-  // The shared menu opens the browser in place of the output.
-  await openBrowserTab(page)
+  // The panel's browser button opens the browser in place of the output.
+  await page.getByRole('button', { name: "Show this chat's browser", exact: true }).click()
   await expect(page.getByRole('region', { name: 'Browser panel' })).toBeVisible()
   await expect(page.getByText('Fake browser')).toBeVisible()
   await expect(page.locator('iframe')).toHaveCount(0)
   // Outputs take it back; the output kept its place.
-  await page.getByRole('tab', { name: 'Cooking guide', exact: true }).click()
+  await outputsButton(page).click()
   await expect(preview(page).getByRole('heading', { name: 'Weeknight tomato pasta' })).toBeVisible()
   await expect(page.getByRole('region', { name: 'Browser panel' })).toHaveCount(0)
   // A new output switches the panel from the browser to it.
-  await openBrowserTab(page)
+  await page.getByRole('button', { name: "Show this chat's browser", exact: true }).click()
   await page.getByRole('button', { name: 'Revise interface' }).click()
   await expect(page.getByRole('region', { name: 'Output panel' })).toBeVisible()
   await expect(page.getByRole('region', { name: 'Browser panel' })).toHaveCount(0)
-  // Closing is a separate action in the shared menu.
-  await openBrowserTab(page)
-  await page.getByRole('button', { name: 'Toggle panel', exact: true }).click()
+  // The browser button toggles: a second press closes the panel.
+  await page.getByRole('button', { name: "Show this chat's browser", exact: true }).click()
+  await page.getByRole('button', { name: "Show this chat's browser", exact: true }).click()
   await expect(page.getByRole('region', { name: 'Browser panel' })).toHaveCount(0)
   await expect(page.locator('iframe')).toHaveCount(0)
 })
@@ -864,7 +875,7 @@ test('the browser shares the panel with outputs, one at a time', async ({ page }
 test('the browser opens by itself when the agent starts browsing, per session', async ({ page }) => {
   await open(page)
   await page.getByRole('button', { name: 'Add browser' }).click()
-  await page.getByRole('button', { name: 'Toggle panel', exact: true }).click()
+  await outputsButton(page).click()
   await expect(page.locator('iframe')).toHaveCount(0)
   await page.getByRole('button', { name: 'Agent starts browsing' }).click()
   await expect(page.getByRole('region', { name: 'Browser panel' })).toBeVisible()

@@ -1,18 +1,51 @@
 /* The panel sits on the chat's left (stacked: above it), the seam between
-   them. Closed, the panel and seam tracks are zero and the chat fills the
-   workspace; opening and closing animate these tracks. */
-.workspace { display: grid; grid-template-areas: "pane seam chat"; grid-template-columns: 0px 0px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); height: 100%; width: 100%; min-width: 0; min-height: 0; overflow: hidden; }
-.open { grid-template-columns: minmax(0, 1fr) 1px minmax(0, var(--conversation-width)); }
-.stacked { grid-template-areas: "pane" "seam" "chat"; grid-template-columns: minmax(0, 1fr); grid-template-rows: 0px 0px minmax(0, 1fr); }
-.stacked.open { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, var(--panel-share)) 1px minmax(0, var(--chat-share)); }
-.conversation { grid-area: chat; position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
+   them, the chat taking the rest. The pane stays mounted; its width (stacked:
+   height) is set inline, 0 when closed. */
+.workspace { display: flex; height: 100%; width: 100%; min-width: 0; min-height: 0; overflow: hidden; }
+.stacked { flex-direction: column; }
+.conversation { flex: 1 1 0; position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
 .chat { flex: 1; min-height: 0; }
-.pane { grid-area: pane; container: output-pane / inline-size; display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; background: var(--bg-primary); }
+/* The pane clips its content, which keeps the open panel's size (set inline)
+   and sits against the chat: opening and closing slide it in and out, as the
+   Agent App page's chat panel does (AgentAppPage.module.css .chatPanelInner). */
+.pane { flex: 0 0 auto; display: flex; justify-content: flex-end; min-width: 0; min-height: 0; overflow: hidden; background: var(--bg-primary); }
+.stacked .pane { flex-direction: column; }
+/* Opening and closing: the Agent App page's chat panel transition
+   (AgentAppPage.module.css .chatPanel). On only while the pane opens or
+   closes (ChatWorkspace.tsx sets it), so dragging or keying the seam
+   resizes at once. */
+.paneMoving { transition: width 260ms cubic-bezier(0.22, 1, 0.36, 1), height 260ms cubic-bezier(0.22, 1, 0.36, 1); }
+.paneContent { container: output-pane / inline-size; display: flex; flex-direction: column; flex-shrink: 0; width: 100%; height: 100%; min-width: 0; min-height: 0; }
+
+/* The panel's buttons: round icons floating at the chat's top left. */
+.switcher { position: absolute; top: 10px; left: 12px; z-index: 3; display: flex; gap: 6px; }
+/* Same look as the chat's scroll-to-latest button (Chat.module.css), without its shadow. */
+.switcher > button, .appPicker > button { position: relative; display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 1px solid var(--border-primary); border-radius: 50%; background: var(--bg-secondary); color: var(--text-secondary); cursor: pointer; transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease; }
+.switcher > button:hover, .appPicker > button:hover { background: var(--bg-tertiary); color: var(--text-primary); }
+/* The one on show (the apps button also while its menu is open). */
+.switcher > button[aria-expanded=true], .appPicker > button[aria-expanded=true], .appPicker > button[data-shown=true] { border-color: var(--text-primary); background: var(--text-primary); color: var(--bg-primary); }
+/* The chat's browser runs; it pulses while an agent is browsing in it. */
+.browserDot { position: absolute; top: 1px; right: 1px; width: 8px; height: 8px; border-radius: 50%; background: var(--text-tertiary); box-shadow: 0 0 0 2px var(--bg-primary); }
+.browserDotBusy { background: var(--color-success); animation: browserDotPulse 1.6s ease-in-out infinite; }
+@keyframes browserDotPulse { 50% { opacity: .35; } }
+/* The apps button's menu, below it. Same look as the sidebar's Agent Apps
+   flyout (NavBar.module.css .flyout). */
+.appPicker { position: relative; display: flex; }
+.appMenu { position: absolute; top: calc(100% + 6px); left: 0; z-index: 60; min-width: 220px; max-width: 300px; padding: var(--space-1); display: flex; flex-direction: column; gap: 2px; background: var(--bg-secondary); border: 1px solid var(--border-primary); border-radius: var(--radius-md); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35); }
+.appMenuList { display: flex; flex-direction: column; gap: 2px; max-height: 360px; overflow-y: auto; overflow-x: hidden; }
+.appMenuItem { display: flex; align-items: center; gap: var(--space-2); width: 100%; padding: var(--space-2); border: none; border-radius: var(--radius-sm); background: transparent; color: var(--text-secondary); font: inherit; font-size: var(--text-sm); text-align: left; cursor: pointer; user-select: none; }
+.appMenuItem:hover, .appMenuItem:focus-visible { color: var(--text-primary); background: var(--bg-hover); }
+.workspace .appMenuItem:focus-visible { outline: none; }
+.appMenuItem[aria-checked=true] { color: var(--text-primary); background: var(--bg-selected); }
+.appMenuIcon { display: inline-flex; flex-shrink: 0; align-items: center; }
+.appMenuLabel { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.appMenuDivider { height: 1px; margin: 2px var(--space-1); background: var(--border-primary); }
+.appMenuEmpty { margin: 0; padding: var(--space-2); color: var(--text-muted); font-size: var(--text-xs); user-select: none; }
 
 /* The seam, as on an Agent App: a hairline divider with a pill grip on it.
    Drag to resize, click to close. A transparent ::after widens the grab
    zone; the pill is purely visual. */
-.seam { grid-area: seam; position: relative; z-index: 2; background: var(--border-primary); cursor: col-resize; touch-action: none; outline: none; }
+.seam { flex: 0 0 1px; position: relative; z-index: 2; background: var(--border-primary); cursor: col-resize; touch-action: none; outline: none; }
 .seam::after { content: ''; position: absolute; top: 0; bottom: 0; left: -4px; width: 9px; }
 .grip { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 5px; height: 58px; border-radius: var(--radius-full); background: var(--text-muted); pointer-events: none; transition: background var(--transition-fast), height var(--transition-fast), width var(--transition-fast); }
 .seam:hover .grip, .seam:focus-visible .grip, .resizing .grip { background: var(--text-secondary); width: 7px; }
@@ -22,9 +55,9 @@
 .stacked .grip { width: 42px; height: 4px; }
 .stacked .seam:hover .grip, .stacked .seam:focus-visible .grip, .stacked.resizing .grip { width: 60px; height: 5px; }
 .resizing { cursor: col-resize; user-select: none; }
+.seamHidden { visibility: hidden; }
 .stacked.resizing { cursor: row-resize; }
 .resizing iframe { pointer-events: none; }
-.closing .seam { visibility: hidden; }
 
 .reference { display: flex; align-items: center; gap: 12px; width: 100%; min-width: 0; padding: 14px; border: 1px solid var(--border-primary); border-radius: 12px; color: var(--text-primary); background: var(--bg-secondary); text-align: left; cursor: pointer; transition: border-color .15s, background .15s; }
 .reference:hover { border-color: var(--border-hover); background: var(--bg-hover); }
@@ -41,5 +74,6 @@
 .reference:hover > svg { transform: translate(2px, -2px); }
 @media (prefers-reduced-motion: reduce) {
   .workspace button, .workspace select, .grip, .reference > svg { transition: none; }
+  .browserDotBusy { animation: none; }
   .reference:hover > svg { transform: none; }
 }

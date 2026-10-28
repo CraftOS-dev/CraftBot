@@ -120,15 +120,7 @@
     "region": "Panel del navegador"
   },
   "panel": {
-    "close": "Cerrar panel",
-    "toggle": "Alternar panel",
-    "tabs": "Pestañas del panel",
-    "browser": "Navegador",
-    "open": "Abrir en el panel",
-    "search": "Buscar aplicaciones y resultados",
-    "apps": "Aplicaciones instaladas",
-    "outputs": "Resultados",
-    "noMatches": "No hay coincidencias."
+    "close": "Cerrar panel"
   },
   "references": {
     "title": "Añadir contexto",
@@ -153,14 +145,16 @@
   },
   "apps": {
     "region": "Panel de aplicaciones",
-    "remove": "Quitar {{name}} del panel",
-    "openFull": "Abrir aplicación completa",
     "loading": "Cargando aplicaciones instaladas…",
     "disconnected": "Vuelve a conectarte para cargar o iniciar aplicaciones.",
     "loadingView": "Cargando aplicación…",
     "viewTimeout": "La aplicación tarda en cargar. Reintenta o abre la aplicación completa.",
     "viewUnavailable": "Esta vista no está disponible o ya está abierta en otra superficie.",
     "retry": "Reintentar",
-    "openPanel": "Abrir en el panel"
+    "openPanel": "Abrir en el panel",
+    "show": "Mostrar una Agent App",
+    "title": "Agent Apps",
+    "noInstalled": "No hay aplicaciones instaladas.",
+    "close": "Cerrar"
   }
 }

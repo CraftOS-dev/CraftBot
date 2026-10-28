@@ -2,7 +2,6 @@ import type { MetricsTimePeriod, ReasoningChoice } from '../../types'
 import { REASONING_CHOICES } from '../../types'
 import type { DashboardLayoutsStorage } from '../../pages/Dashboard/layout/types'
 import type { SettingsCategory } from '../../pages/Settings/types'
-import { emptyPanelApps, isPanelAppsState, type PanelAppsState } from '../../features/agentApps/panelAppsState'
 import { defineUiState, defineUiStateFamily, oneOf } from './defineUiState'
 
 /**
@@ -27,7 +26,7 @@ export type ThemePreference = 'dark' | 'light' | 'system'
 
 /** What a chat's panel shows: 'auto' = its newest Generative UI
  *  output when it has one, else nothing; 'closed' = conversation only. */
-export type ChatPanelMode = 'auto' | 'output' | 'browser' | 'apps' | 'chooser' | 'closed'
+export type ChatPanelMode = 'auto' | 'output' | 'browser' | 'apps' | 'closed'
 
 export interface ChatReplyTarget {
   displayName: string
@@ -94,14 +93,14 @@ export const UI_STATE = {
       persistDefault: true,
       writeThrough: true,
     }),
-    /** By session id: outputs, the chat's browser, or installed apps, one mode at a time. */
+    /** By session id: what the panel shows (outputs, the chat's browser or
+     *  its Agent App, one at a time). */
     panelMode: defineUiStateFamily<ChatPanelMode>('chat.panelMode', 'auto', 'session', {
-      isValid: oneOf(['auto', 'output', 'browser', 'apps', 'chooser', 'closed']),
+      isValid: oneOf(['auto', 'output', 'browser', 'apps', 'closed']),
     }),
-    panelLastMode: defineUiStateFamily<ChatPanelMode>('chat.panelLastMode', 'auto', 'session', { isValid: oneOf(['auto', 'output', 'browser', 'apps', 'chooser']) }),
-    panelBrowserOpen: defineUiStateFamily('chat.panelBrowserOpen', false, 'session'),
-    /** Installed project IDs attached to this chat; never app data or runtime URLs. */
-    panelApps: defineUiStateFamily<PanelAppsState>('chat.panelApps', emptyPanelApps, 'session', { isValid: isPanelAppsState }),
+    /** By session id: the installed app's project id the panel shows ('' =
+     *  none picked). Never app data or runtime URLs. */
+    panelApp: defineUiStateFamily('chat.panelApp', '', 'session'),
     /** By session id: the output revision on show ('' = the newest). */
     outputSelection: defineUiStateFamily('chat.outputSelection', '', 'session'),
     /** The chat's width in px beside its panel. */

@@ -120,15 +120,7 @@
     "region": "浏览器面板"
   },
   "panel": {
-    "close": "关闭面板",
-    "toggle": "切换面板",
-    "tabs": "面板标签页",
-    "browser": "浏览器",
-    "open": "在面板中打开",
-    "search": "搜索应用和输出",
-    "apps": "已安装应用",
-    "outputs": "输出",
-    "noMatches": "没有匹配的项目。"
+    "close": "关闭面板"
   },
   "references": {
     "title": "添加上下文",
@@ -153,14 +145,16 @@
   },
   "apps": {
     "region": "智能体应用面板",
-    "remove": "从面板移除{{name}}",
-    "openFull": "打开完整应用",
     "loading": "正在加载已安装应用…",
     "disconnected": "请重新连接以加载或启动应用。",
     "loadingView": "正在加载应用视图…",
     "viewTimeout": "应用加载时间较长。请重试或打开完整应用。",
     "viewUnavailable": "此应用视图不可用，或已在其他位置打开。",
     "retry": "重试",
-    "openPanel": "在面板中打开"
+    "openPanel": "在面板中打开",
+    "show": "显示 Agent App",
+    "title": "Agent App",
+    "noInstalled": "没有已安装的应用。",
+    "close": "关闭"
   }
 }

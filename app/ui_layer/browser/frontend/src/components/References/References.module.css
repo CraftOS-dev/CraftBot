@@ -1,11 +1,5 @@
 .picker { padding: 16px; display: flex; flex-direction: column; gap: 12px; }
 .picker input, .picker select, .picker button { font: inherit; color: var(--text-primary); background: var(--bg-secondary); border: 1px solid var(--border-primary); border-radius: 6px; padding: 8px; }
-.list { max-height: 280px; overflow-y: auto; }
-.list { list-style: none; padding: 0; margin: 0; }
-.option { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px; width: 100%; cursor: pointer; text-align: left; overflow-wrap: anywhere; }
-.option small { color: var(--text-secondary); flex-shrink: 0; }
-.active, .option:hover, .option[aria-pressed=true] { background: var(--bg-tertiary); }
-.suggestions { position: absolute; bottom: 100%; left: 0; right: 0; z-index: 20; padding: 6px; background: var(--bg-primary); color: var(--text-primary); border: 1px solid var(--border-primary); border-radius: 8px; box-shadow: 0 4px 16px #0003; }
 .chip { display: inline-flex; align-items: center; height: 28px; max-width: 220px; margin: 0 6px 6px 0; padding: 0 3px 0 0; border: 1px solid var(--border-primary); border-radius: 7px; background: var(--bg-tertiary); vertical-align: middle; transition: border-color .15s; }
 .chip:hover { border-color: var(--border-hover); }
 .chip button { display: inline-flex; align-items: center; background: transparent; border: 0; cursor: pointer; font: inherit; }
@@ -14,7 +8,7 @@
 .chipText { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chipRemove { flex-shrink: 0; width: 20px; height: 20px; padding: 3px; justify-content: center; border-radius: 4px; color: var(--text-tertiary); }
 .chipRemove:hover { color: var(--text-primary); background: var(--bg-hover); }
-.chip button:focus-visible, .option:focus-visible { outline: 2px solid var(--text-primary); outline-offset: 2px; }
+.chip button:focus-visible { outline: 2px solid var(--text-primary); outline-offset: 2px; }
 .excerpt { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 350px; overflow-y: auto; font-size: 12px; }
 
 

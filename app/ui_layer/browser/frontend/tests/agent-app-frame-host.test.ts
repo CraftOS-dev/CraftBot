@@ -42,20 +42,3 @@ test('a frame that loads while no surface holds it is reported as loaded', async
   })
   expect(result).toEqual({ beforeLoad: false, afterLoad: true })
 })
-
-test('persisted panel references validate and removing the selected app chooses a neighbor', async ({ page }) => {
-  await page.goto('/tests/panel-agent-apps.html')
-  const result = await page.evaluate(async () => {
-    const state = await import('/src/features/agentApps/panelAppsState.ts')
-    const first = state.attachPanelApp(state.emptyPanelApps, 'one')
-    const second = state.attachPanelApp(first, 'two')
-    return {
-      duplicate: state.attachPanelApp(second, 'one').projectIds,
-      remaining: state.retainPanelApps(second, id => id !== 'two'),
-      invalid: [{}, null, { projectIds: ['a', 'a'], selectedProjectId: 'a' }, { projectIds: ['a'], selectedProjectId: 'b' }, { projectIds: [5], selectedProjectId: null }].map(state.isPanelAppsState),
-    }
-  })
-  expect(result.duplicate).toEqual(['one', 'two'])
-  expect(result.remaining).toEqual({ projectIds: ['one'], selectedProjectId: 'one' })
-  expect(result.invalid).toEqual([false, false, false, false, false])
-})

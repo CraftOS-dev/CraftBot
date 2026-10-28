@@ -11,8 +11,12 @@ async function respond(page: Page, type: string, data: unknown) {
 test('typing @ searches both source types and selection attaches without sending', async ({ page }) => {
   await page.goto('/tests/references.html')
   await input(page).fill('@')
-  await expect(page.getByRole('option', { name: /Pricing discussion/ })).toBeVisible()
+  await expect(page.getByRole('option', { name: 'Pricing discussion', exact: true })).toBeVisible()
   await expect(page.getByRole('option', { name: /Weather dashboard/ })).toHaveCount(1)
+  // The same list as "/" commands: its stylesheet, grouped under icon headers.
+  await expect(page.getByRole('listbox')).toHaveClass(/autocomplete/)
+  await expect(page.getByText('Sessions', { exact: true })).toBeVisible()
+  await expect(page.getByText('Agent apps', { exact: true })).toBeVisible()
   await expect(page.getByRole('option', { name: /Current session/ })).toHaveCount(0)
   await input(page).fill('Compare @pric')
   await expect(page.getByRole('option')).toHaveCount(1)
@@ -31,23 +35,24 @@ test('email, a bare @ and an escaped mention preserve ordinary input', async ({ 
   await expect(page.getByRole('listbox')).toHaveCount(0)
   await input(page).fill('see you @ 5pm')
   await expect(page.getByRole('listbox')).toHaveCount(0)
-  await input(page).fill('@does-not-exist')
-  await expect(page.getByText('No matches')).toBeVisible()
+  await input(page).fill('@pric')
+  await expect(page.getByRole('listbox')).toBeVisible()
   await input(page).press('Escape')
   await expect(page.getByRole('listbox')).toHaveCount(0)
   // Typing on does not reopen a mention the user dismissed.
-  await input(page).pressSequentially('-really')
+  await input(page).pressSequentially('ing')
   await expect(page.getByRole('listbox')).toHaveCount(0)
   expect(await requests(page)).toHaveLength(0)
   await input(page).press('Enter')
   await expect.poll(() => requests(page)).toHaveLength(1)
-  expect((await requests(page))[0].content).toBe('@does-not-exist-really')
+  expect((await requests(page))[0].content).toBe('@pricing')
 })
 
 test('a mention that matches nothing never blocks Enter', async ({ page }) => {
   await page.goto('/tests/references.html')
+  // Like "/" with no matching command, nothing is shown.
   await input(page).fill('@nobody')
-  await expect(page.getByText('No matches')).toBeVisible()
+  await expect(page.getByRole('listbox')).toHaveCount(0)
   await input(page).press('Enter')
   await expect.poll(() => requests(page)).toHaveLength(1)
   expect((await requests(page))[0].content).toBe('@nobody')
