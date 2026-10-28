@@ -1,0 +1,63 @@
+{
+  "title": "Agent App",
+  "notFound": "This app no longer exists.",
+  "loading": "Loading...",
+  "stopped": "The app is stopped. Press l to launch it.",
+  "asOwner": "as owner",
+  "agent": "your AI agent",
+  "agentIdle": "idle",
+  "agentWorking": "working",
+  "status": {
+    "running": "running",
+    "ready": "running",
+    "stopped": "stopped",
+    "creating": "being built",
+    "launching": "starting",
+    "stopping": "stopping",
+    "error": "error",
+    "created": "not started"
+  },
+  "tabs": {
+    "ops": "Ops",
+    "records": "Records",
+    "requests": "Requests",
+    "settings": "Settings"
+  },
+  "hint": {
+    "back": "back",
+    "cancel": "cancel",
+    "confirm": "confirm",
+    "anyKey": "any other key",
+    "anyKeyBack": "Any key goes back",
+    "nextOrRun": "next field, runs on the last",
+    "nextField": "next field",
+    "open": "open",
+    "send": "send",
+    "closeChat": "close the chat",
+    "allOps": "all ops",
+    "chat": "chat",
+    "screens": "screens",
+    "stop": "stop",
+    "launch": "launch"
+  },
+  "fieldError": {
+    "required": "required",
+    "number": "must be a number"
+  },
+  "noParams": "No details needed. Press Enter to run.",
+  "confirmDestructive": "{{label}} changes or deletes data for good. Run it?",
+  "confirmHint": "y runs it · any other key goes back",
+  "destructive": "destructive",
+  "noActions": "No actions for this row.",
+  "paletteHint": "Type to find an operation",
+  "recordCount_one": "{{count}} record",
+  "recordCount_other": "{{count}} records",
+  "readOnly": "read-only (changes go through ops)",
+  "recordsHint": "The app's data, read-only. Enter opens a collection.",
+  "requestsHint": "Requests the app fired at your AI agent. Enter lists them.",
+  "viewsInvalid": "views.json has a problem, showing generated screens: {{problem}}",
+  "actionsOnly": "This area has nothing to show on its own; use its actions below.",
+  "you": "You",
+  "chatEmpty": "Nothing said yet.",
+  "chatPlaceholder": "Ask your AI agent about this app"
+}

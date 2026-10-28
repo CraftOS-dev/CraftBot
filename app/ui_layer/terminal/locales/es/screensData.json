@@ -1,0 +1,285 @@
+{
+  "common": {
+    "back": "volver",
+    "close": "cerrar",
+    "confirm": "y confirmar · n cancelar",
+    "scroll": "desplazar",
+    "refresh": "actualizar",
+    "move": "mover",
+    "search": "buscar",
+    "pane": "panel",
+    "save": "guardar",
+    "ok": "confirmar",
+    "cancel": "cancelar",
+    "edit": "editar",
+    "add": "añadir",
+    "delete": "eliminar",
+    "open": "abrir",
+    "tab": "pestaña",
+    "notConnected": "No hay conexión con CraftBot",
+    "timedOut": "CraftBot no responde",
+    "unknownError": "Error desconocido",
+    "justNow": "justo ahora",
+    "duration": {
+      "dhm": "{{days}} d {{hours}} h {{minutes}} min",
+      "hm": "{{hours}} h {{minutes}} min",
+      "m": "{{minutes}} min"
+    }
+  },
+  "dashboard": {
+    "title": "Panel",
+    "aside": "{{period}} · [ ] periodo",
+    "waiting": "Esperando las primeras métricas de CraftBot...",
+    "period": {
+      "1h": "Última hora",
+      "1d": "Últimas 24 horas",
+      "1w": "Últimos 7 días",
+      "1m": "Últimos 30 días",
+      "total": "Todo el tiempo"
+    },
+    "periodShort": {
+      "1h": "1 h",
+      "1d": "1 d",
+      "1w": "1 sem",
+      "1m": "1 mes",
+      "total": "Todo"
+    },
+    "hint": {
+      "period": "periodo"
+    },
+    "status": {
+      "title": "Estado",
+      "uptime": "Activo {{value}}",
+      "version": "versión {{value}}"
+    },
+    "tasks": {
+      "title": "Tareas",
+      "completed": "{{value}} completadas",
+      "failed": "{{value}} fallidas",
+      "running": "{{value}} en ejecución",
+      "total": "{{value}} en total",
+      "success": "Éxito"
+    },
+    "tokens": {
+      "title": "Tokens",
+      "input": "Entrada nueva",
+      "output": "Salida",
+      "cached": "En caché",
+      "total": "{{value}} nuevos",
+      "live": "Cada 10 s",
+      "liveLabel": "desde {{since}} · máx. {{max}} · ahora {{last}}"
+    },
+    "usage": {
+      "title": "Solicitudes por hora",
+      "summary": "{{requests}} solicitudes · pico a las {{hour}}:00 con {{peak}}",
+      "empty": "No hay solicitudes en este periodo"
+    },
+    "system": {
+      "title": "Sistema",
+      "cpu": "CPU",
+      "memory": "Memoria",
+      "disk": "Disco",
+      "threads": "Hilos",
+      "network": "Red",
+      "networkValue": "subida {{up}} KB/s · bajada {{down}} KB/s",
+      "high": "alto"
+    },
+    "connections": {
+      "title": "Herramientas y conexiones",
+      "mcp": "MCP",
+      "skills": "Habilidades",
+      "integrations": "Integraciones",
+      "mcpValue": "{{connected}}/{{total}} conectados · {{tools}} herramientas · {{calls}} llamadas",
+      "skillsValue": "{{enabled}}/{{total}} activadas · {{calls}} usos",
+      "integrationsValue": "{{connected}}/{{total}} conectadas · {{calls}} llamadas",
+      "top": "principales: {{list}}"
+    },
+    "model": {
+      "title": "Modelo",
+      "provider": "Proveedor",
+      "model": "Modelo",
+      "id": "ID",
+      "notConfigured": "Sin configurar"
+    },
+    "apps": {
+      "title": "Agent Apps",
+      "summary": "{{installed}} instaladas · {{running}} en ejecución",
+      "empty": "Aún no hay Agent Apps",
+      "more": "+{{count}} más"
+    },
+    "activity": {
+      "title": "Actividad reciente",
+      "empty": "Aún no hay actividad",
+      "reasoning": "Razonamiento",
+      "tokens": "{{value}} tok",
+      "minutesAgo": "hace {{count}} min",
+      "hoursAgo": "hace {{count}} h",
+      "daysAgo": "hace {{count}} d"
+    }
+  },
+  "memory": {
+    "title": "Memoria",
+    "off": "la memoria está desactivada",
+    "tabs": {
+      "nodes": "Recuerdos y enlaces",
+      "files": "Archivos indexados"
+    },
+    "kind": {
+      "memory": "Recuerdo",
+      "fileMemory": "Sección de archivo",
+      "entity": "Entidad",
+      "file": "Archivo"
+    },
+    "toggle": {
+      "memories": "recuerdos {{count}}",
+      "entities": "entidades {{count}}",
+      "files": "archivos {{count}}",
+      "hideDefault": "ocultar archivos predeterminados"
+    },
+    "category": {
+      "fact": "hecho",
+      "preference": "preferencia",
+      "event": "evento",
+      "decision": "decisión",
+      "learning": "aprendizaje",
+      "project": "proyecto",
+      "contact": "contacto"
+    },
+    "searchPlaceholder": "Buscar recuerdos, entidades y archivos",
+    "searchHint": "/ buscar · 1 2 3 tipos · 4 ocultar archivos predeterminados",
+    "loading": "Cargando la memoria...",
+    "empty": "Aún no hay recuerdos. Tu agente de IA guarda lo que aprende mientras chateas, o pulsa a para añadir uno.",
+    "noMatches": "Sin coincidencias",
+    "noSelection": "Selecciona un recuerdo para ver sus detalles",
+    "superseded": "reemplazado",
+    "mentions_one": "{{count}} mención",
+    "mentions_other": "{{count}} menciones",
+    "sections_one": "{{count}} sección",
+    "sections_other": "{{count}} secciones",
+    "meta": {
+      "category": "Categoría",
+      "saved": "Guardado",
+      "links": "Enlaces",
+      "file": "Archivo",
+      "section": "Sección"
+    },
+    "connected": "Conexiones {{count}}",
+    "noNeighbours": "Sin conexiones",
+    "moreNeighbours": "+{{count}} más",
+    "readOnly": "De un archivo indexado (solo lectura)",
+    "notEditable": "Solo se pueden editar los recuerdos de conversaciones",
+    "form": {
+      "addTitle": "Añadir recuerdo",
+      "editTitle": "Editar recuerdo",
+      "category": "Categoría",
+      "content": "Contenido",
+      "contentPlaceholder": "¿Qué debería recordar tu agente de IA?",
+      "superseded": "Reemplazado (se conserva, pero ya no es cierto)",
+      "entitiesHint": "Escribe [[Nombre]] para enlazar una persona, un lugar o un proyecto.",
+      "hint": "Tab campo siguiente · Left/Right cambiar categoría · Space alternar · Enter guardar · Esc cancelar",
+      "empty": "Escribe primero algo que recordar"
+    },
+    "confirmDelete": "¿Eliminar este recuerdo?",
+    "saved": "Recuerdo guardado",
+    "deleted": "Recuerdo eliminado",
+    "failed": "No se pudo actualizar la memoria: {{error}}",
+    "files": {
+      "hint": "Los archivos marcados se indexan: tu agente de IA puede buscar en sus secciones.",
+      "chunks_one": "{{count}} sección",
+      "chunks_other": "{{count}} secciones",
+      "missing": "falta",
+      "size": "{{value}} KB",
+      "always": "siempre",
+      "indexing": "procesando",
+      "empty": "Aún no hay archivos para indexar",
+      "skipped": "Se omitió {{path}}: {{reason}}"
+    },
+    "hints": {
+      "kinds": "tipos",
+      "tree": "conexiones",
+      "expand": "expandir",
+      "goTo": "ir a",
+      "index": "indexar",
+      "folder": "abrir carpeta"
+    }
+  },
+  "workspace": {
+    "title": "Espacio de trabajo",
+    "root": "espacio de trabajo",
+    "loading": "Cargando...",
+    "empty": "Esta carpeta está vacía",
+    "noMatches": "Ningún archivo coincide",
+    "searchPlaceholder": "Filtrar esta carpeta",
+    "count_one": "{{count}} elemento",
+    "count_other": "{{count}} elementos",
+    "shown": "{{shown}} de {{total}}",
+    "marked_one": "{{count}} marcado",
+    "marked_other": "{{count}} marcados",
+    "clipboardCopy_one": "{{count}} copiado, p pega",
+    "clipboardCopy_other": "{{count}} copiados, p pega",
+    "clipboardCut_one": "{{count}} cortado, p mueve",
+    "clipboardCut_other": "{{count}} cortados, p mueve",
+    "folder": "Carpeta",
+    "name": "Nombre",
+    "size": "Tamaño",
+    "modified": "Modificado",
+    "path": "Ruta",
+    "binary": "Archivo binario, sin vista previa de texto. Pulsa o para abrirlo.",
+    "previewEmpty": "Archivo vacío",
+    "previewLoading": "Leyendo...",
+    "selectHint": "Selecciona un archivo para previsualizarlo",
+    "previewFocus": "Tab vuelve a la lista",
+    "prompt": {
+      "rename": "Cambiar nombre a",
+      "newFile": "Nombre del archivo nuevo",
+      "newFolder": "Nombre de la carpeta nueva",
+      "upload": "Copiar desde una ruta local",
+      "download": "Guardar en una ruta local",
+      "uploadPlaceholder": "C:\\Users\\you\\file.txt o ~/file.txt",
+      "submit": "Enter confirmar · Esc cancelar"
+    },
+    "confirmDeleteOne": "¿Eliminar {{name}}?",
+    "confirmDeleteMany_one": "¿Eliminar {{count}} elementos?",
+    "confirmDeleteMany_other": "¿Eliminar {{count}} elementos?",
+    "confirmOverwrite": "{{path}} ya existe. ¿Reemplazarlo?",
+    "deleted_one": "Se eliminó {{count}} elemento",
+    "deleted_other": "Se eliminaron {{count}} elementos",
+    "deletePartial": "Se eliminaron {{succeeded}} de {{total}}; {{failed}} fallaron: {{error}}",
+    "deleteFailed": "No se pudo eliminar: {{error}}",
+    "pasted_one": "Se pegó {{count}} elemento",
+    "pasted_other": "Se pegaron {{count}} elementos",
+    "moved_one": "Se movió {{count}} elemento",
+    "moved_other": "Se movieron {{count}} elementos",
+    "pasteFailed": "No se pudo pegar {{name}}: {{error}}",
+    "renamed": "Nombre cambiado a {{name}}",
+    "renameFailed": "No se pudo cambiar el nombre: {{error}}",
+    "created": "Se creó {{name}}",
+    "createFailed": "No se pudo crear {{name}}: {{error}}",
+    "uploaded": "Se copió {{name}} al espacio de trabajo",
+    "uploadFailed": "No se pudo copiar {{name}}: {{error}}",
+    "notAFile": "{{path}} no es un archivo",
+    "tooLarge": "{{name}} ocupa {{size}}; el límite es 200 MB",
+    "downloaded": "Se guardó {{path}}",
+    "downloadFailed": "No se pudo guardar {{name}}: {{error}}",
+    "downloadFolder": "Las carpetas no se pueden guardar; marca archivos en su lugar",
+    "downloadNeedsFolder": "Varios archivos van a una carpeta: indica una carpeta existente",
+    "opened": "Se abrió {{name}}",
+    "openFailed": "No se pudo abrir {{name}}: {{error}}",
+    "hints": {
+      "open": "abrir",
+      "up": "arriba",
+      "mark": "marcar",
+      "copy": "copiar",
+      "cut": "cortar",
+      "paste": "pegar",
+      "rename": "renombrar",
+      "newFile": "archivo nuevo",
+      "newFolder": "carpeta nueva",
+      "upload": "subir",
+      "download": "guardar",
+      "osOpen": "abrir en una app",
+      "reveal": "mostrar en la carpeta",
+      "preview": "vista previa"
+    }
+  }
+}

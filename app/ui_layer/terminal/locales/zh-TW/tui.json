@@ -1,0 +1,223 @@
+{
+  "settings": {
+    "otherTab": "其他分頁",
+    "tabList": "分頁列表",
+    "tabs": {
+      "general": "一般",
+      "proactive": "主動",
+      "memory": "記憶",
+      "model": "模型",
+      "mcp": "MCP 伺服器",
+      "skills": "技能",
+      "integrations": "整合",
+      "credentials": "認證資料",
+      "agentApps": "Agent App"
+    }
+  },
+  "actions": {
+    "newChat": "新對話",
+    "enhance": "用 AI 潤飾草稿",
+    "effort": "推理強度",
+    "quit": "結束"
+  },
+  "screens": {
+    "sessions": "工作階段",
+    "apps": "Agent App",
+    "memory": "記憶",
+    "workspace": "工作區",
+    "dashboard": "儀表板",
+    "browser": "瀏覽器",
+    "settings": "設定",
+    "transcript": "對話記錄",
+    "help": "快速鍵",
+    "palette": "指令面板"
+  },
+  "session": {
+    "main": "主要",
+    "newChat": "新對話",
+    "untitled": "未命名對話"
+  },
+  "composer": {
+    "placeholder": "問我任何事 · / 指令 · ? 快速鍵",
+    "moreAbove": "↑ 還有 {{count}} 行",
+    "moreBelow": "↓ 還有 {{count}} 行",
+    "leaderHint": "s 工作階段 · a 應用程式 · m 記憶 · w 工作區 · d 儀表板 · b 瀏覽器 · , 設定 · n 新對話",
+    "invisibleRemoved_one": "已從你的訊息中移除 {{count}} 個不可見字元",
+    "invisibleRemoved_other": "已從你的訊息中移除 {{count}} 個不可見字元",
+    "sendFailed": "無法傳送：{{error}}",
+    "enhanceUnavailable": "請先輸入草稿，再按 Ctrl+X e",
+    "enhancing": "正在潤飾你的草稿...",
+    "folder": "資料夾",
+    "replyingTo": "正在回覆：{{name}} · Esc 取消",
+    "enhanceFailed": "無法潤飾草稿",
+    "attached_one": "已附加 {{count}} 個檔案",
+    "attached_other": "已附加 {{count}} 個檔案",
+    "attachTooMany": "每則訊息最多 {{count}} 個檔案",
+    "attachTooLarge": "附件總大小不能超過 200 MB"
+  },
+  "connect": {
+    "connecting": "正在啟動 CraftBot...",
+    "waiting": "正在等待 CraftBot 完成啟動...",
+    "greeting": "已連線，正在載入你的對話...",
+    "unresponsive": "CraftBot 沒有回應。",
+    "seeLog": "記錄檔：{{path}}",
+    "stopHint": "按 Ctrl+C 結束，然後執行：python craftbot.py stop",
+    "legacyConsole": "這是傳統的 Windows 主控台。CraftBot 在 Windows Terminal 中運作得更好（重繪更流暢，支援 Shift+Enter 與貼上）。",
+    "wrongEdition": "CraftBot 正以 {{edition}} 版本執行。請重新啟動為終端機版：python craftbot.py restart --tui"
+  },
+  "working": {
+    "label": "處理中",
+    "stopping": "正在停止",
+    "stopHint": "esc 停止",
+    "waiting": "等待你的回答",
+    "moreDone_one": "另有 {{count}} 個已完成",
+    "moreDone_other": "另有 {{count}} 個已完成",
+    "subagent_one": "子代理 {{name}} · {{count}} 個操作",
+    "subagent_other": "子代理 {{name}} · {{count}} 個操作"
+  },
+  "question": {
+    "title": "{{name}} 正在詢問 · 第 {{index}} 個，共 {{total}} 個",
+    "choiceTitle": "選擇如何繼續",
+    "recommended": "建議",
+    "hint": "輸入回答，或按 Tab 選擇選項",
+    "choiceHint": "按 Tab 選擇",
+    "focusedHint": "1-9 或方向鍵選擇 · Enter 傳送 · x 關閉（停止任務） · Esc 返回輸入",
+    "focusedChoiceHint": "1-9 或方向鍵選擇 · Enter 確認 · Esc 返回輸入",
+    "dismissed": "已關閉問題"
+  },
+  "notify": {
+    "question": "{{session}} 需要你回答",
+    "done": "{{session}} 已完成",
+    "needsYou": "{{count}} 個待你處理"
+  },
+  "firstRun": {
+    "keys": "Enter 傳送 · Ctrl+J 換行 · Esc 停止 · / 指令 · Ctrl+X 畫面 · Ctrl+P 指令面板 · ? 快速鍵 · 按兩次 Ctrl+C 結束"
+  },
+  "quit": {
+    "pressAgain": "再按一次 Ctrl+C 結束"
+  },
+  "status": {
+    "moreSessions_one": "+{{count}} 個",
+    "moreSessions_other": "+{{count}} 個",
+    "effort": "推理 {{value}}",
+    "cache": "快取 {{value}}%",
+    "apps_one": "{{count}} 個應用程式執行中",
+    "apps_other": "{{count}} 個應用程式執行中",
+    "offline": "正在重新連線",
+    "backendBusy": "CraftBot 忙碌中",
+    "help": "? 快速鍵"
+  },
+  "todo": {
+    "title": "待辦 {{done}}/{{total}}"
+  },
+  "transcript": {
+    "actions_one": "{{count}} 個操作",
+    "actions_other": "{{count}} 個操作",
+    "failed_one": "{{count}} 個失敗",
+    "failed_other": "{{count}} 個失敗",
+    "stopped": "已停止",
+    "earlier_one": "{{count}} 個較早的項目 · Ctrl+O 顯示全部",
+    "earlier_other": "{{count}} 個較早的項目 · Ctrl+O 顯示全部",
+    "interactiveOutput": "互動式輸出 · {{title}} · rev {{revision}} · 請在瀏覽器版中開啟",
+    "detailsHint": "詳細資料請見對話記錄（Ctrl+O）",
+    "error": "錯誤",
+    "system": "系統"
+  },
+  "help": {
+    "chat": "對話",
+    "send": "傳送",
+    "newline": "換行",
+    "stop": "停止執行中的任務，關閉彈出視窗",
+    "history": "先前的輸入（在第一行或最後一行時）",
+    "focusQuestion": "選擇釘選問題的選項",
+    "commands": "指令與技能",
+    "todos": "顯示或隱藏待辦清單",
+    "redraw": "重繪畫面",
+    "clearOrQuit": "清除輸入；按兩次結束",
+    "leader": "畫面（先按 Ctrl+X，再按一個鍵）",
+    "screensTitle": "在畫面中",
+    "move": "移動",
+    "open": "開啟",
+    "back": "返回上一層",
+    "closeAll": "返回對話",
+    "filter": "篩選",
+    "addEditDelete": "新增、編輯、刪除",
+    "refresh": "重新整理",
+    "panesTabs": "下一個窗格，上一個與下一個分頁",
+    "apps": "Agent App 清單",
+    "appOpen": "開啟應用程式",
+    "appLaunchStop": "啟動、停止",
+    "appAdd": "新增應用程式（市集、建立、匯入）",
+    "appThemeSettings": "主題、應用程式設定",
+    "appDelete": "刪除已停止的應用程式",
+    "appReorder": "將應用程式下移、上移",
+    "appView": "在應用程式內",
+    "appScreens": "下一個畫面，上一個、下一個",
+    "appRows": "在列之間移動，下一個表格",
+    "appRow": "該列的詳細資料與操作",
+    "appOps": "應用程式的所有操作",
+    "appChat": "與你的 AI 代理討論這個應用程式",
+    "appRefreshRecords": "重新整理，應用程式的記錄（唯讀）",
+    "editing": "編輯",
+    "lineEnds": "行首與行尾",
+    "wordMove": "以單字為單位移動",
+    "deleteWord": "刪除前一個單字",
+    "killLine": "刪除至行首或行尾"
+  },
+  "hint": {
+    "back": "返回",
+    "open": "開啟",
+    "move": "移動",
+    "run": "執行",
+    "scroll": "捲動",
+    "filter": "篩選",
+    "rename": "重新命名",
+    "clear": "清除",
+    "delete": "刪除",
+    "makeSkill": "建立技能",
+    "confirm": "y 確認 · 其他任意鍵取消",
+    "help": "說明"
+  },
+  "sessions": {
+    "count_one": "{{count}} 個對話",
+    "count_other": "{{count}} 個對話",
+    "mainNote": "主要對話會收到所有自動發生的事：排程、整合、通知。",
+    "confirmClear": "清除 {{title}} 的所有訊息？",
+    "confirmDelete": "永久刪除 {{title}}？",
+    "skillRequested": "正在將此對話轉為技能..."
+  },
+  "palette": {
+    "placeholder": "輸入以搜尋畫面、對話、應用程式、指令",
+    "count_one": "{{count}} 個符合",
+    "count_other": "{{count}} 個符合",
+    "screen": "畫面",
+    "action": "操作",
+    "session": "對話",
+    "app": "應用程式",
+    "command": "指令",
+    "skill": "技能"
+  },
+  "onboarding": {
+    "title": "設定 CraftBot",
+    "loading": "正在載入設定...",
+    "continue": "繼續",
+    "next": "下一步",
+    "nextField": "下一個欄位",
+    "skip": "略過",
+    "apiKey": "API 金鑰",
+    "ollamaUrl": "Ollama 位址",
+    "agentNamePlaceholder": "為你的代理命名",
+    "via": "連線方式：{{via}}（按 Tab 切換）",
+    "viaDirect": "直接連線供應商",
+    "subscriptionHint": "可用 {{label}} 取代金鑰：設定完成後可在 設定 > 模型 中使用。",
+    "imageLater": "稍後可在設定中新增圖片",
+    "working": "正在儲存..."
+  },
+  "welcome": {
+    "commands": "指令",
+    "help": "說明",
+    "sessions": "對話",
+    "transcript": "紀錄",
+    "tagline": "有問題儘管問。輸入 / 使用指令，輸入 @ 附加檔案。"
+  }
+}

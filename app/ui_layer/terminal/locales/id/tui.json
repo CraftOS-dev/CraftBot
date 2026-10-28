@@ -1,0 +1,223 @@
+{
+  "settings": {
+    "otherTab": "tab lain",
+    "tabList": "daftar tab",
+    "tabs": {
+      "general": "Umum",
+      "proactive": "Proaktif",
+      "memory": "Memori",
+      "model": "Model",
+      "mcp": "Server MCP",
+      "skills": "Keahlian",
+      "integrations": "Integrasi",
+      "credentials": "Kredensial",
+      "agentApps": "Agent App"
+    }
+  },
+  "actions": {
+    "newChat": "Obrolan baru",
+    "enhance": "Sempurnakan draf dengan AI",
+    "effort": "Tingkat penalaran",
+    "quit": "Keluar"
+  },
+  "screens": {
+    "sessions": "Sesi",
+    "apps": "Agent App",
+    "memory": "Memori",
+    "workspace": "Ruang Kerja",
+    "dashboard": "Dasbor",
+    "browser": "Peramban",
+    "settings": "Pengaturan",
+    "transcript": "Transkrip",
+    "help": "Tombol",
+    "palette": "Palet perintah"
+  },
+  "session": {
+    "main": "Utama",
+    "newChat": "Obrolan baru",
+    "untitled": "Obrolan tanpa judul"
+  },
+  "composer": {
+    "placeholder": "Tanyakan apa saja · / perintah · ? tombol",
+    "moreAbove": "↑ {{count}} lagi",
+    "moreBelow": "↓ {{count}} lagi",
+    "leaderHint": "s sesi · a aplikasi · m memori · w ruang kerja · d dasbor · b peramban · , pengaturan · n obrolan baru",
+    "invisibleRemoved_one": "Menghapus {{count}} karakter tak terlihat dari pesan Anda",
+    "invisibleRemoved_other": "Menghapus {{count}} karakter tak terlihat dari pesan Anda",
+    "sendFailed": "Tidak dapat mengirim: {{error}}",
+    "enhanceUnavailable": "Ketik draf dulu, lalu tekan Ctrl+X e",
+    "enhancing": "Menyempurnakan draf Anda...",
+    "folder": "folder",
+    "replyingTo": "Membalas: {{name}} · Esc membatalkan",
+    "enhanceFailed": "Tidak dapat menyempurnakan draf",
+    "attached_one": "{{count}} berkas terlampir",
+    "attached_other": "{{count}} berkas terlampir",
+    "attachTooMany": "Maksimal {{count}} berkas per pesan",
+    "attachTooLarge": "Total lampiran dibatasi 200 MB"
+  },
+  "connect": {
+    "connecting": "Memulai CraftBot...",
+    "waiting": "Menunggu CraftBot selesai dimulai...",
+    "greeting": "Tersambung, memuat obrolan Anda...",
+    "unresponsive": "CraftBot tidak merespons.",
+    "seeLog": "Log-nya: {{path}}",
+    "stopHint": "Tekan Ctrl+C untuk keluar, lalu jalankan: python craftbot.py stop",
+    "legacyConsole": "Ini konsol Windows klasik. CraftBot bekerja lebih baik di Windows Terminal (gambar ulang lebih mulus, Shift+Enter, tempel).",
+    "wrongEdition": "CraftBot berjalan sebagai edisi {{edition}}. Mulai ulang untuk terminal: python craftbot.py restart --tui"
+  },
+  "working": {
+    "label": "Bekerja",
+    "stopping": "Menghentikan",
+    "stopHint": "esc hentikan",
+    "waiting": "Menunggu jawabanmu",
+    "moreDone_one": "{{count}} lagi selesai",
+    "moreDone_other": "{{count}} lagi selesai",
+    "subagent_one": "Subagen {{name}} · {{count}} tindakan",
+    "subagent_other": "Subagen {{name}} · {{count}} tindakan"
+  },
+  "question": {
+    "title": "{{name}} bertanya · {{index}} dari {{total}}",
+    "choiceTitle": "Pilih cara melanjutkan",
+    "recommended": "disarankan",
+    "hint": "Ketik jawaban, atau tekan Tab untuk memilih opsi",
+    "choiceHint": "Tab untuk memilih",
+    "focusedHint": "1-9 atau panah memilih · Enter kirim · x tutup (menghentikan tugas) · Esc kembali mengetik",
+    "focusedChoiceHint": "1-9 atau panah memilih · Enter konfirmasi · Esc kembali mengetik",
+    "dismissed": "Pertanyaan ditutup"
+  },
+  "notify": {
+    "question": "{{session}} menunggu jawaban Anda",
+    "done": "{{session}} selesai",
+    "needsYou": "{{count}} menunggu Anda"
+  },
+  "firstRun": {
+    "keys": "Enter kirim · Ctrl+J baris baru · Esc hentikan · / perintah · Ctrl+X layar · Ctrl+P palet · ? tombol · Ctrl+C dua kali keluar"
+  },
+  "quit": {
+    "pressAgain": "Tekan Ctrl+C sekali lagi untuk keluar"
+  },
+  "status": {
+    "moreSessions_one": "+{{count}} lagi",
+    "moreSessions_other": "+{{count}} lagi",
+    "effort": "penalaran {{value}}",
+    "cache": "cache {{value}}%",
+    "apps_one": "{{count}} aplikasi berjalan",
+    "apps_other": "{{count}} aplikasi berjalan",
+    "offline": "menyambung ulang",
+    "backendBusy": "CraftBot sedang sibuk",
+    "help": "? tombol"
+  },
+  "todo": {
+    "title": "Daftar tugas {{done}}/{{total}}"
+  },
+  "transcript": {
+    "actions_one": "{{count}} tindakan",
+    "actions_other": "{{count}} tindakan",
+    "failed_one": "{{count}} gagal",
+    "failed_other": "{{count}} gagal",
+    "stopped": "dihentikan",
+    "earlier_one": "{{count}} item sebelumnya · Ctrl+O menampilkan semua",
+    "earlier_other": "{{count}} item sebelumnya · Ctrl+O menampilkan semua",
+    "interactiveOutput": "Output interaktif · {{title}} · rev {{revision}} · buka di edisi peramban",
+    "detailsHint": "Detail ada di transkrip (Ctrl+O)",
+    "error": "Kesalahan",
+    "system": "Sistem"
+  },
+  "help": {
+    "chat": "Obrolan",
+    "send": "Kirim",
+    "newline": "Baris baru",
+    "stop": "Hentikan tugas yang berjalan, tutup popup",
+    "history": "Input sebelumnya (di baris pertama atau terakhir)",
+    "focusQuestion": "Pilih opsi dari pertanyaan yang disematkan",
+    "commands": "Perintah dan keahlian",
+    "todos": "Tampilkan atau sembunyikan daftar tugas",
+    "redraw": "Gambar ulang layar",
+    "clearOrQuit": "Bersihkan input; dua kali untuk keluar",
+    "leader": "Layar (Ctrl+X, lalu satu tombol)",
+    "screensTitle": "Di layar",
+    "move": "Pindah",
+    "open": "Buka",
+    "back": "Mundur satu tingkat",
+    "closeAll": "Kembali ke obrolan",
+    "filter": "Saring",
+    "addEditDelete": "Tambah, edit, hapus",
+    "refresh": "Segarkan",
+    "panesTabs": "Panel berikutnya, tab sebelumnya dan berikutnya",
+    "apps": "Daftar Agent App",
+    "appOpen": "Buka aplikasi",
+    "appLaunchStop": "Luncurkan, hentikan",
+    "appAdd": "Tambah aplikasi (pasar, buat, impor)",
+    "appThemeSettings": "Tema, pengaturan aplikasi",
+    "appDelete": "Hapus aplikasi yang berhenti",
+    "appReorder": "Pindahkan aplikasi ke bawah, ke atas",
+    "appView": "Di dalam aplikasi",
+    "appScreens": "Layar berikutnya, sebelumnya, berikutnya",
+    "appRows": "Pindah antarbaris, tabel berikutnya",
+    "appRow": "Detail dan tindakan baris",
+    "appOps": "Semua operasi aplikasi",
+    "appChat": "Mengobrol dengan agen AI Anda tentang aplikasi",
+    "appRefreshRecords": "Segarkan, entri aplikasi (hanya baca)",
+    "editing": "Pengeditan",
+    "lineEnds": "Awal dan akhir baris",
+    "wordMove": "Pindah per kata",
+    "deleteWord": "Hapus kata sebelumnya",
+    "killLine": "Hapus sampai awal atau akhir baris"
+  },
+  "hint": {
+    "back": "kembali",
+    "open": "buka",
+    "move": "pindah",
+    "run": "jalankan",
+    "scroll": "gulir",
+    "filter": "saring",
+    "rename": "ganti nama",
+    "clear": "bersihkan",
+    "delete": "hapus",
+    "makeSkill": "buat keahlian",
+    "confirm": "y konfirmasi · tombol lain membatalkan",
+    "help": "bantuan"
+  },
+  "sessions": {
+    "count_one": "{{count}} percakapan",
+    "count_other": "{{count}} percakapan",
+    "mainNote": "Utama menerima semua yang terjadi dengan sendirinya: jadwal, integrasi, pemberitahuan.",
+    "confirmClear": "Bersihkan semua pesan di {{title}}?",
+    "confirmDelete": "Hapus {{title}} secara permanen?",
+    "skillRequested": "Mengubah percakapan ini menjadi keahlian..."
+  },
+  "palette": {
+    "placeholder": "Ketik untuk mencari layar, obrolan, aplikasi, perintah",
+    "count_one": "{{count}} cocok",
+    "count_other": "{{count}} cocok",
+    "screen": "layar",
+    "action": "tindakan",
+    "session": "obrolan",
+    "app": "aplikasi",
+    "command": "perintah",
+    "skill": "keahlian"
+  },
+  "onboarding": {
+    "title": "Siapkan CraftBot",
+    "loading": "Memuat penyiapan...",
+    "continue": "lanjutkan",
+    "next": "berikutnya",
+    "nextField": "kolom berikutnya",
+    "skip": "lewati",
+    "apiKey": "Kunci API",
+    "ollamaUrl": "Alamat Ollama",
+    "agentNamePlaceholder": "Beri nama agen Anda",
+    "via": "Sambungkan melalui {{via}} (Tab untuk beralih)",
+    "viaDirect": "penyedia secara langsung",
+    "subscriptionHint": "{{label}} sebagai ganti kunci: tersedia di Pengaturan > Model setelah penyiapan.",
+    "imageLater": "tambahkan gambar nanti di Pengaturan",
+    "working": "Menyimpan..."
+  },
+  "welcome": {
+    "commands": "perintah",
+    "help": "bantuan",
+    "sessions": "sesi",
+    "transcript": "transkrip",
+    "tagline": "Tanyakan apa saja. Ketik / untuk perintah, @ untuk melampirkan file."
+  }
+}

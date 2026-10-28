@@ -49,7 +49,7 @@ Além de ser um agente de IA capaz de criar e operar suas próprias ferramentas 
 - **Agente proativo.** Aprende suas preferências, hábitos e objetivos de vida. Em seguida, planeja e inicia tarefas (com sua aprovação, claro) para te ajudar a evoluir.
 - **Integração com ferramentas externas.** Conecte-se aos seus apps como Google Workspace, Slack, Notion, Zoom, LinkedIn, Discord, Telegram e mais (e muito mais por vir!), com suporte a OAuth ou usando sua própria chave. Você pode conectar várias contas a cada integração.
 - **Skills e MCP.** Mais de 150 MCPs e 170 Skills prontos para uso. Instalação rápida de novos Skills e MCPs. Crie ou melhore Skills a partir de tarefas concluídas com um clique.
-- **Interface de navegador e suporte a CLI.** Use o CraftBot do jeito que melhor te servir: pela UI simples no navegador para o dia a dia, ou via CLI para scripts e ambientes headless.
+- **Navegador ou terminal.** Use o CraftBot do jeito que melhor te servir: pela UI simples no navegador para o dia a dia, ou pela edição completa para terminal (`python run.py --tui`), com os mesmos chats, configurações e Agent Apps.
 
 ---
 
@@ -155,9 +155,9 @@ Se ao rodar `python run.py` você vir **"npm not found in PATH"**:
 2. Instale e reinicie o terminal
 3. Rode `python run.py` novamente
 
-**Alternativa:** Use o modo CLI (sem necessidade de Node.js):
+**Edição para terminal:** prefere o terminal? Rode o CraftBot nele (também precisa do Node.js):
 ```bash
-python run.py --cli
+python run.py --tui
 ```
 
 ### A instalação falha por dependências

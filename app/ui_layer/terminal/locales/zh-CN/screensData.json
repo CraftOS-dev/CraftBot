@@ -1,0 +1,285 @@
+{
+  "common": {
+    "back": "返回",
+    "close": "关闭",
+    "confirm": "y 确认 · n 取消",
+    "scroll": "滚动",
+    "refresh": "刷新",
+    "move": "移动",
+    "search": "搜索",
+    "pane": "窗格",
+    "save": "保存",
+    "ok": "确认",
+    "cancel": "取消",
+    "edit": "编辑",
+    "add": "添加",
+    "delete": "删除",
+    "open": "打开",
+    "tab": "标签页",
+    "notConnected": "未连接到 CraftBot",
+    "timedOut": "CraftBot 没有回应",
+    "unknownError": "未知错误",
+    "justNow": "刚刚",
+    "duration": {
+      "dhm": "{{days}} 天 {{hours}} 小时 {{minutes}} 分",
+      "hm": "{{hours}} 小时 {{minutes}} 分",
+      "m": "{{minutes}} 分"
+    }
+  },
+  "dashboard": {
+    "title": "仪表盘",
+    "aside": "{{period}} · [ ] 时段",
+    "waiting": "正在等待 CraftBot 的首批指标...",
+    "period": {
+      "1h": "最近一小时",
+      "1d": "最近 24 小时",
+      "1w": "最近 7 天",
+      "1m": "最近 30 天",
+      "total": "全部时间"
+    },
+    "periodShort": {
+      "1h": "1小时",
+      "1d": "1天",
+      "1w": "1周",
+      "1m": "1月",
+      "total": "全部"
+    },
+    "hint": {
+      "period": "时段"
+    },
+    "status": {
+      "title": "状态",
+      "uptime": "已运行 {{value}}",
+      "version": "版本 {{value}}"
+    },
+    "tasks": {
+      "title": "任务",
+      "completed": "已完成 {{value}}",
+      "failed": "失败 {{value}}",
+      "running": "运行中 {{value}}",
+      "total": "共 {{value}}",
+      "success": "成功"
+    },
+    "tokens": {
+      "title": "Token",
+      "input": "新输入",
+      "output": "输出",
+      "cached": "缓存",
+      "total": "新增 {{value}}",
+      "live": "每 10 秒",
+      "liveLabel": "自 {{since}} · 最高 {{max}} · 当前 {{last}}"
+    },
+    "usage": {
+      "title": "每小时请求数",
+      "summary": "{{requests}} 个请求 · 高峰 {{hour}}:00，共 {{peak}} 个",
+      "empty": "此时段内没有请求"
+    },
+    "system": {
+      "title": "系统",
+      "cpu": "CPU",
+      "memory": "内存",
+      "disk": "磁盘",
+      "threads": "线程",
+      "network": "网络",
+      "networkValue": "上传 {{up}} KB/s · 下载 {{down}} KB/s",
+      "high": "偏高"
+    },
+    "connections": {
+      "title": "工具和连接",
+      "mcp": "MCP",
+      "skills": "技能",
+      "integrations": "集成",
+      "mcpValue": "已连接 {{connected}}/{{total}} · {{tools}} 个工具 · {{calls}} 次调用",
+      "skillsValue": "已启用 {{enabled}}/{{total}} · {{calls}} 次使用",
+      "integrationsValue": "已连接 {{connected}}/{{total}} · {{calls}} 次调用",
+      "top": "常用 {{list}}"
+    },
+    "model": {
+      "title": "模型",
+      "provider": "供应商",
+      "model": "模型",
+      "id": "ID",
+      "notConfigured": "未配置"
+    },
+    "apps": {
+      "title": "Agent App",
+      "summary": "已安装 {{installed}} · 运行中 {{running}}",
+      "empty": "还没有 Agent App",
+      "more": "还有 {{count}} 个"
+    },
+    "activity": {
+      "title": "近期活动",
+      "empty": "暂无活动",
+      "reasoning": "推理",
+      "tokens": "{{value}} token",
+      "minutesAgo": "{{count}} 分钟前",
+      "hoursAgo": "{{count}} 小时前",
+      "daysAgo": "{{count}} 天前"
+    }
+  },
+  "memory": {
+    "title": "记忆",
+    "off": "记忆已关闭",
+    "tabs": {
+      "nodes": "记忆和链接",
+      "files": "已索引文件"
+    },
+    "kind": {
+      "memory": "记忆",
+      "fileMemory": "文件章节",
+      "entity": "实体",
+      "file": "文件"
+    },
+    "toggle": {
+      "memories": "记忆 {{count}}",
+      "entities": "实体 {{count}}",
+      "files": "文件 {{count}}",
+      "hideDefault": "隐藏默认文件"
+    },
+    "category": {
+      "fact": "事实",
+      "preference": "偏好",
+      "event": "事件",
+      "decision": "决策",
+      "learning": "习得",
+      "project": "项目",
+      "contact": "联系人"
+    },
+    "searchPlaceholder": "搜索记忆、实体和文件",
+    "searchHint": "/ 搜索 · 1 2 3 类型 · 4 隐藏默认文件",
+    "loading": "正在加载记忆...",
+    "empty": "还没有记忆。你的 AI 智能体会在对话中保存它学到的内容，你也可以按 a 添加。",
+    "noMatches": "无匹配项",
+    "noSelection": "选择一条记忆以查看详情",
+    "superseded": "已被取代",
+    "mentions_one": "{{count}} 次提及",
+    "mentions_other": "{{count}} 次提及",
+    "sections_one": "{{count}} 个章节",
+    "sections_other": "{{count}} 个章节",
+    "meta": {
+      "category": "类别",
+      "saved": "保存时间",
+      "links": "链接",
+      "file": "文件",
+      "section": "章节"
+    },
+    "connected": "关联 {{count}}",
+    "noNeighbours": "无关联",
+    "moreNeighbours": "还有 {{count}} 个",
+    "readOnly": "来自已索引文件（只读）",
+    "notEditable": "只能编辑对话记忆",
+    "form": {
+      "addTitle": "添加记忆",
+      "editTitle": "编辑记忆",
+      "category": "类别",
+      "content": "内容",
+      "contentPlaceholder": "你的 AI 智能体应该记住什么？",
+      "superseded": "已被取代（保留，但不再成立）",
+      "entitiesHint": "输入 [[名称]] 可链接人物、地点或项目。",
+      "hint": "Tab 下一个字段 · Left/Right 切换类别 · Space 切换 · Enter 保存 · Esc 取消",
+      "empty": "请先写下要记住的内容"
+    },
+    "confirmDelete": "删除这条记忆？",
+    "saved": "记忆已保存",
+    "deleted": "记忆已删除",
+    "failed": "无法更新记忆：{{error}}",
+    "files": {
+      "hint": "勾选的文件会被索引：你的 AI 智能体可以搜索其中的章节。",
+      "chunks_one": "{{count}} 个章节",
+      "chunks_other": "{{count}} 个章节",
+      "missing": "缺失",
+      "size": "{{value}} KB",
+      "always": "始终",
+      "indexing": "处理中",
+      "empty": "还没有可索引的文件",
+      "skipped": "已跳过 {{path}}：{{reason}}"
+    },
+    "hints": {
+      "kinds": "类型",
+      "tree": "关联",
+      "expand": "展开",
+      "goTo": "前往",
+      "index": "索引",
+      "folder": "打开文件夹"
+    }
+  },
+  "workspace": {
+    "title": "工作区",
+    "root": "工作区",
+    "loading": "正在加载...",
+    "empty": "此文件夹为空",
+    "noMatches": "没有匹配的文件",
+    "searchPlaceholder": "筛选此文件夹",
+    "count_one": "{{count}} 项",
+    "count_other": "{{count}} 项",
+    "shown": "{{shown}} / {{total}}",
+    "marked_one": "已标记 {{count}} 项",
+    "marked_other": "已标记 {{count}} 项",
+    "clipboardCopy_one": "已复制 {{count}} 项，按 p 粘贴",
+    "clipboardCopy_other": "已复制 {{count}} 项，按 p 粘贴",
+    "clipboardCut_one": "已剪切 {{count}} 项，按 p 移动",
+    "clipboardCut_other": "已剪切 {{count}} 项，按 p 移动",
+    "folder": "文件夹",
+    "name": "名称",
+    "size": "大小",
+    "modified": "修改时间",
+    "path": "路径",
+    "binary": "二进制文件，无文本预览。按 o 打开。",
+    "previewEmpty": "空文件",
+    "previewLoading": "正在读取...",
+    "selectHint": "选择文件以预览",
+    "previewFocus": "Tab 返回列表",
+    "prompt": {
+      "rename": "重命名为",
+      "newFile": "新文件名",
+      "newFolder": "新文件夹名",
+      "upload": "从本地路径复制",
+      "download": "保存到本地路径",
+      "uploadPlaceholder": "C:\\Users\\you\\file.txt 或 ~/file.txt",
+      "submit": "Enter 确认 · Esc 取消"
+    },
+    "confirmDeleteOne": "删除 {{name}}？",
+    "confirmDeleteMany_one": "删除 {{count}} 项？",
+    "confirmDeleteMany_other": "删除 {{count}} 项？",
+    "confirmOverwrite": "{{path}} 已存在。要替换吗？",
+    "deleted_one": "已删除 {{count}} 项",
+    "deleted_other": "已删除 {{count}} 项",
+    "deletePartial": "已删除 {{succeeded}}/{{total}} 项；{{failed}} 项失败：{{error}}",
+    "deleteFailed": "无法删除：{{error}}",
+    "pasted_one": "已粘贴 {{count}} 项",
+    "pasted_other": "已粘贴 {{count}} 项",
+    "moved_one": "已移动 {{count}} 项",
+    "moved_other": "已移动 {{count}} 项",
+    "pasteFailed": "无法粘贴 {{name}}：{{error}}",
+    "renamed": "已重命名为 {{name}}",
+    "renameFailed": "无法重命名：{{error}}",
+    "created": "已创建 {{name}}",
+    "createFailed": "无法创建 {{name}}：{{error}}",
+    "uploaded": "已将 {{name}} 复制到工作区",
+    "uploadFailed": "无法复制 {{name}}：{{error}}",
+    "notAFile": "{{path}} 不是文件",
+    "tooLarge": "{{name}} 大小为 {{size}}，上限为 200 MB",
+    "downloaded": "已保存 {{path}}",
+    "downloadFailed": "无法保存 {{name}}：{{error}}",
+    "downloadFolder": "无法保存文件夹，请改为标记文件",
+    "downloadNeedsFolder": "多个文件需保存到文件夹中：请提供一个已存在的文件夹",
+    "opened": "已打开 {{name}}",
+    "openFailed": "无法打开 {{name}}：{{error}}",
+    "hints": {
+      "open": "打开",
+      "up": "上一级",
+      "mark": "标记",
+      "copy": "复制",
+      "cut": "剪切",
+      "paste": "粘贴",
+      "rename": "重命名",
+      "newFile": "新建文件",
+      "newFolder": "新建文件夹",
+      "upload": "上传",
+      "download": "保存",
+      "osOpen": "用应用打开",
+      "reveal": "在文件夹中显示",
+      "preview": "预览"
+    }
+  }
+}

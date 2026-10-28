@@ -1,0 +1,63 @@
+{
+  "title": "Agent App",
+  "notFound": "이 앱은 더 이상 존재하지 않습니다.",
+  "loading": "불러오는 중...",
+  "stopped": "앱이 중지되었습니다. l을 눌러 실행하세요.",
+  "asOwner": "소유자로",
+  "agent": "AI 에이전트",
+  "agentIdle": "대기 중",
+  "agentWorking": "작업 중",
+  "status": {
+    "running": "실행 중",
+    "ready": "실행 중",
+    "stopped": "중지됨",
+    "creating": "빌드 중",
+    "launching": "시작 중",
+    "stopping": "중지 중",
+    "error": "오류",
+    "created": "시작 안 함"
+  },
+  "tabs": {
+    "ops": "작업",
+    "records": "레코드",
+    "requests": "요청",
+    "settings": "설정"
+  },
+  "hint": {
+    "back": "뒤로",
+    "cancel": "취소",
+    "confirm": "확인",
+    "anyKey": "다른 키",
+    "anyKeyBack": "아무 키나 누르면 돌아갑니다",
+    "nextOrRun": "다음 필드, 마지막에서 실행",
+    "nextField": "다음 필드",
+    "open": "열기",
+    "send": "보내기",
+    "closeChat": "채팅 닫기",
+    "allOps": "모든 작업",
+    "chat": "채팅",
+    "screens": "화면",
+    "stop": "중지",
+    "launch": "실행"
+  },
+  "fieldError": {
+    "required": "필수",
+    "number": "숫자여야 합니다"
+  },
+  "noParams": "입력할 내용이 없습니다. Enter를 눌러 실행하세요.",
+  "confirmDestructive": "{{label}}은(는) 데이터를 영구적으로 변경하거나 삭제합니다. 실행할까요?",
+  "confirmHint": "y 실행 · 다른 키는 돌아가기",
+  "destructive": "파괴적",
+  "noActions": "이 행에는 작업이 없습니다.",
+  "paletteHint": "입력하여 작업 찾기",
+  "recordCount_one": "레코드 {{count}}개",
+  "recordCount_other": "레코드 {{count}}개",
+  "readOnly": "읽기 전용(변경은 작업으로 합니다)",
+  "recordsHint": "앱의 데이터(읽기 전용)입니다. Enter로 컬렉션을 엽니다.",
+  "requestsHint": "앱이 AI 에이전트에게 보낸 요청입니다. Enter로 목록을 봅니다.",
+  "viewsInvalid": "views.json에 문제가 있어 생성된 화면을 표시합니다: {{problem}}",
+  "actionsOnly": "이 영역은 자체적으로 표시할 내용이 없습니다. 아래 작업을 사용하세요.",
+  "you": "나",
+  "chatEmpty": "아직 나눈 대화가 없습니다.",
+  "chatPlaceholder": "이 앱에 대해 AI 에이전트에게 물어보세요"
+}

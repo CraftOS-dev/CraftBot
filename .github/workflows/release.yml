@@ -101,6 +101,18 @@ jobs:
           npm install
           npx vite build
 
+      - name: Set up Node.js for the terminal client
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Build terminal client
+        run: |
+          # The terminal edition's client ships built, like the browser UI.
+          cd app/ui_layer/terminal
+          npm ci
+          node build.mjs
+
       - name: Write VERSION file from git tag
         run: |
           REF="${{ github.ref_name }}"

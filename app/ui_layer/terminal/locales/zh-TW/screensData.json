@@ -1,0 +1,285 @@
+{
+  "common": {
+    "back": "返回",
+    "close": "關閉",
+    "confirm": "y 確認 · n 取消",
+    "scroll": "捲動",
+    "refresh": "重新整理",
+    "move": "移動",
+    "search": "搜尋",
+    "pane": "窗格",
+    "save": "儲存",
+    "ok": "確認",
+    "cancel": "取消",
+    "edit": "編輯",
+    "add": "新增",
+    "delete": "刪除",
+    "open": "開啟",
+    "tab": "分頁",
+    "notConnected": "未連線到 CraftBot",
+    "timedOut": "CraftBot 沒有回應",
+    "unknownError": "未知的錯誤",
+    "justNow": "剛剛",
+    "duration": {
+      "dhm": "{{days}} 天 {{hours}} 小時 {{minutes}} 分",
+      "hm": "{{hours}} 小時 {{minutes}} 分",
+      "m": "{{minutes}} 分"
+    }
+  },
+  "dashboard": {
+    "title": "儀表板",
+    "aside": "{{period}} · [ ] 期間",
+    "waiting": "正在等待 CraftBot 的第一批指標...",
+    "period": {
+      "1h": "最近 1 小時",
+      "1d": "最近 24 小時",
+      "1w": "最近 7 天",
+      "1m": "最近 30 天",
+      "total": "所有時間"
+    },
+    "periodShort": {
+      "1h": "1小時",
+      "1d": "1天",
+      "1w": "1週",
+      "1m": "1月",
+      "total": "全部"
+    },
+    "hint": {
+      "period": "期間"
+    },
+    "status": {
+      "title": "狀態",
+      "uptime": "已運作 {{value}}",
+      "version": "版本 {{value}}"
+    },
+    "tasks": {
+      "title": "任務",
+      "completed": "已完成 {{value}}",
+      "failed": "失敗 {{value}}",
+      "running": "執行中 {{value}}",
+      "total": "共 {{value}}",
+      "success": "成功"
+    },
+    "tokens": {
+      "title": "Token",
+      "input": "新輸入",
+      "output": "輸出",
+      "cached": "快取",
+      "total": "新增 {{value}}",
+      "live": "每 10 秒",
+      "liveLabel": "自 {{since}} · 最高 {{max}} · 目前 {{last}}"
+    },
+    "usage": {
+      "title": "每小時請求數",
+      "summary": "{{requests}} 個請求 · 尖峰 {{hour}}:00，共 {{peak}} 個",
+      "empty": "此期間沒有請求"
+    },
+    "system": {
+      "title": "系統",
+      "cpu": "CPU",
+      "memory": "記憶體",
+      "disk": "磁碟",
+      "threads": "執行緒",
+      "network": "網路",
+      "networkValue": "上傳 {{up}} KB/s · 下載 {{down}} KB/s",
+      "high": "偏高"
+    },
+    "connections": {
+      "title": "工具與連線",
+      "mcp": "MCP",
+      "skills": "技能",
+      "integrations": "整合",
+      "mcpValue": "已連線 {{connected}}/{{total}} · {{tools}} 個工具 · {{calls}} 次呼叫",
+      "skillsValue": "已啟用 {{enabled}}/{{total}} · {{calls}} 次使用",
+      "integrationsValue": "已連線 {{connected}}/{{total}} · {{calls}} 次呼叫",
+      "top": "最常用 {{list}}"
+    },
+    "model": {
+      "title": "模型",
+      "provider": "供應商",
+      "model": "模型",
+      "id": "ID",
+      "notConfigured": "未設定"
+    },
+    "apps": {
+      "title": "Agent App",
+      "summary": "已安裝 {{installed}} · 執行中 {{running}}",
+      "empty": "還沒有 Agent App",
+      "more": "還有 {{count}} 個"
+    },
+    "activity": {
+      "title": "近期活動",
+      "empty": "尚無活動",
+      "reasoning": "推理",
+      "tokens": "{{value}} Token",
+      "minutesAgo": "{{count}} 分鐘前",
+      "hoursAgo": "{{count}} 小時前",
+      "daysAgo": "{{count}} 天前"
+    }
+  },
+  "memory": {
+    "title": "記憶",
+    "off": "記憶已關閉",
+    "tabs": {
+      "nodes": "記憶與連結",
+      "files": "已建立索引的檔案"
+    },
+    "kind": {
+      "memory": "記憶",
+      "fileMemory": "檔案區段",
+      "entity": "實體",
+      "file": "檔案"
+    },
+    "toggle": {
+      "memories": "記憶 {{count}}",
+      "entities": "實體 {{count}}",
+      "files": "檔案 {{count}}",
+      "hideDefault": "隱藏預設檔案"
+    },
+    "category": {
+      "fact": "事實",
+      "preference": "偏好",
+      "event": "事件",
+      "decision": "決策",
+      "learning": "學習心得",
+      "project": "專案",
+      "contact": "聯絡人"
+    },
+    "searchPlaceholder": "搜尋記憶、實體與檔案",
+    "searchHint": "/ 搜尋 · 1 2 3 類型 · 4 隱藏預設檔案",
+    "loading": "正在載入記憶...",
+    "empty": "還沒有記憶。你的 AI 代理會在對話中儲存它學到的內容，你也可以按 a 新增。",
+    "noMatches": "沒有符合的項目",
+    "noSelection": "選取一則記憶以檢視詳細資料",
+    "superseded": "已取代",
+    "mentions_one": "{{count}} 次提及",
+    "mentions_other": "{{count}} 次提及",
+    "sections_one": "{{count}} 個區段",
+    "sections_other": "{{count}} 個區段",
+    "meta": {
+      "category": "類別",
+      "saved": "儲存時間",
+      "links": "連結",
+      "file": "檔案",
+      "section": "區段"
+    },
+    "connected": "關聯 {{count}}",
+    "noNeighbours": "沒有關聯",
+    "moreNeighbours": "還有 {{count}} 個",
+    "readOnly": "來自已建立索引的檔案（唯讀）",
+    "notEditable": "只有對話記憶可以編輯",
+    "form": {
+      "addTitle": "新增記憶",
+      "editTitle": "編輯記憶",
+      "category": "類別",
+      "content": "內容",
+      "contentPlaceholder": "你的 AI 代理應該記住什麼？",
+      "superseded": "已取代（保留，但已不再成立）",
+      "entitiesHint": "輸入 [[名稱]] 即可連結人員、地點或專案。",
+      "hint": "Tab 下一個欄位 · Left/Right 切換類別 · Space 切換 · Enter 儲存 · Esc 取消",
+      "empty": "請先寫下要記住的內容"
+    },
+    "confirmDelete": "刪除這則記憶？",
+    "saved": "已儲存記憶",
+    "deleted": "已刪除記憶",
+    "failed": "無法更新記憶：{{error}}",
+    "files": {
+      "hint": "勾選的檔案會建立索引：你的 AI 代理可以搜尋其中的區段。",
+      "chunks_one": "{{count}} 個區段",
+      "chunks_other": "{{count}} 個區段",
+      "missing": "遺失",
+      "size": "{{value}} KB",
+      "always": "一律",
+      "indexing": "處理中",
+      "empty": "還沒有可建立索引的檔案",
+      "skipped": "已略過 {{path}}：{{reason}}"
+    },
+    "hints": {
+      "kinds": "類型",
+      "tree": "關聯",
+      "expand": "展開",
+      "goTo": "前往",
+      "index": "建立索引",
+      "folder": "開啟資料夾"
+    }
+  },
+  "workspace": {
+    "title": "工作區",
+    "root": "工作區",
+    "loading": "正在載入...",
+    "empty": "此資料夾是空的",
+    "noMatches": "沒有符合的檔案",
+    "searchPlaceholder": "篩選此資料夾",
+    "count_one": "{{count}} 個項目",
+    "count_other": "{{count}} 個項目",
+    "shown": "{{shown}} / {{total}}",
+    "marked_one": "已標記 {{count}} 個",
+    "marked_other": "已標記 {{count}} 個",
+    "clipboardCopy_one": "已複製 {{count}} 個，按 p 貼上",
+    "clipboardCopy_other": "已複製 {{count}} 個，按 p 貼上",
+    "clipboardCut_one": "已剪下 {{count}} 個，按 p 移動",
+    "clipboardCut_other": "已剪下 {{count}} 個，按 p 移動",
+    "folder": "資料夾",
+    "name": "名稱",
+    "size": "大小",
+    "modified": "修改日期",
+    "path": "路徑",
+    "binary": "二進位檔案，無法預覽文字。按 o 開啟。",
+    "previewEmpty": "空白檔案",
+    "previewLoading": "正在讀取...",
+    "selectHint": "選取檔案以預覽",
+    "previewFocus": "Tab 返回清單",
+    "prompt": {
+      "rename": "重新命名為",
+      "newFile": "新檔案名稱",
+      "newFolder": "新資料夾名稱",
+      "upload": "從本機路徑複製",
+      "download": "儲存至本機路徑",
+      "uploadPlaceholder": "C:\\Users\\you\\file.txt 或 ~/file.txt",
+      "submit": "Enter 確認 · Esc 取消"
+    },
+    "confirmDeleteOne": "刪除 {{name}}？",
+    "confirmDeleteMany_one": "刪除 {{count}} 個項目？",
+    "confirmDeleteMany_other": "刪除 {{count}} 個項目？",
+    "confirmOverwrite": "{{path}} 已存在。要取代嗎？",
+    "deleted_one": "已刪除 {{count}} 個項目",
+    "deleted_other": "已刪除 {{count}} 個項目",
+    "deletePartial": "已刪除 {{succeeded}} / {{total}}；{{failed}} 個失敗：{{error}}",
+    "deleteFailed": "無法刪除：{{error}}",
+    "pasted_one": "已貼上 {{count}} 個項目",
+    "pasted_other": "已貼上 {{count}} 個項目",
+    "moved_one": "已移動 {{count}} 個項目",
+    "moved_other": "已移動 {{count}} 個項目",
+    "pasteFailed": "無法貼上 {{name}}：{{error}}",
+    "renamed": "已重新命名為 {{name}}",
+    "renameFailed": "無法重新命名：{{error}}",
+    "created": "已建立 {{name}}",
+    "createFailed": "無法建立 {{name}}：{{error}}",
+    "uploaded": "已將 {{name}} 複製到工作區",
+    "uploadFailed": "無法複製 {{name}}：{{error}}",
+    "notAFile": "{{path}} 不是檔案",
+    "tooLarge": "{{name}} 大小為 {{size}}，上限為 200 MB",
+    "downloaded": "已儲存 {{path}}",
+    "downloadFailed": "無法儲存 {{name}}：{{error}}",
+    "downloadFolder": "無法儲存資料夾，請改為標記檔案",
+    "downloadNeedsFolder": "多個檔案需儲存到資料夾：請提供一個已存在的資料夾",
+    "opened": "已開啟 {{name}}",
+    "openFailed": "無法開啟 {{name}}：{{error}}",
+    "hints": {
+      "open": "開啟",
+      "up": "上一層",
+      "mark": "標記",
+      "copy": "複製",
+      "cut": "剪下",
+      "paste": "貼上",
+      "rename": "重新命名",
+      "newFile": "新增檔案",
+      "newFolder": "新增資料夾",
+      "upload": "上傳",
+      "download": "儲存",
+      "osOpen": "用應用程式開啟",
+      "reveal": "在資料夾中顯示",
+      "preview": "預覽"
+    }
+  }
+}

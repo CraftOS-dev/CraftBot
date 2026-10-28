@@ -49,7 +49,7 @@
 - **主動型 Agent.** 學習你的偏好、習慣與人生目標,然後主動規劃並發起任務(當然會徵求你的同意),協助你在生活中變得更好。
 - **外部工具整合.** 連接你的應用,例如 Google Workspace、Slack、Notion、Zoom、LinkedIn、Discord、Telegram 等(更多正在路上),支援 OAuth 或使用你自己的金鑰。每個整合都可以連接多個帳號。
 - **Skills 與 MCP.** 已備好 150+ MCP 與 170+ Skills,支援快速安裝新的 Skills 與 MCP,也能從已完成的任務一鍵建立或改進 Skills。
-- **瀏覽器介面與 CLI 支援.** 選擇最適合你的方式使用 CraftBot:日常使用走簡潔的瀏覽器 UI,腳本與無介面環境則走 CLI。
+- **瀏覽器或終端機.** 選擇最適合你的方式使用 CraftBot:日常使用走簡潔的瀏覽器 UI,也可以使用完整的終端機版(`python run.py --tui`),聊天、設定和 Agent App 都一樣。
 
 ---
 
@@ -155,9 +155,9 @@ CraftBot 嵌入在每一個 Agent App 中,並且**對其狀態保持感知**:
 2. 安裝完成後重啟終端機
 3. 再次執行 `python run.py`
 
-**替代方案:** 改用 CLI 模式(不需 Node.js):
+**終端機版:** 更喜歡終端機?也可以在終端機裡執行 CraftBot(同樣需要 Node.js):
 ```bash
-python run.py --cli
+python run.py --tui
 ```
 
 ### 安裝時相依套件失敗

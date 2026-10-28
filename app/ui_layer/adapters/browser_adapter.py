@@ -129,7 +129,7 @@ from app.ui_layer.commands.executor import CommandExecutor
 from app.ui_layer.onboarding import OnboardingFlowController
 from app.ui_layer.metrics import MetricsCollector
 from app.ui_layer.diagnostics import LoopStallMonitor
-from app.ui_layer.adapters.ws_channel import ClientChannel
+from app.ui_layer.adapters.ws_channel import CLIENT_PROTOCOL, ClientChannel
 from app.ui_layer.adapters.ws_lanes import message_lane
 from app.ui_layer.adapters.ws_auth import WS_PROTOCOL, WsAuth
 from app.ui_layer.adapters.session_buffer import (
@@ -147,10 +147,8 @@ from app.ui_layer.events.resource_changes import (
     resource_changes_for_message,
 )
 from app.agent_app import (
-    AgentAppManager,
-    set_agent_app_manager,
+    get_agent_app_manager,
     register_broadcast_callbacks,
-    make_todo_broadcast_hook,
 )
 from app.agent_app.sharing import ShareError
 
@@ -951,28 +949,19 @@ class BrowserAdapter(InterfaceAdapter):
         # Staged bundle bytes keyed by short-lived token (inspect → import flow)
         self._staged_bundles: Dict[str, bytes] = {}
 
-        # Agent App manager
-        self._agent_app_manager = AgentAppManager(workspace_root=AGENT_WORKSPACE_ROOT)
+        # Agent App manager, started by the Agent App host before any
+        # interface comes up (app/agent_app/host.py).
+        manager = get_agent_app_manager()
+        if manager is None:
+            raise RuntimeError(
+                "The Agent App host must start before the browser adapter"
+            )
+        self._agent_app_manager = manager
         # Wizard: reference-image VLM notes cached between interview and
         # finalize (keyed by wizardId) so images are described only once.
         self._wizard_image_notes: Dict[str, List[str]] = {}
-        # Bind session manager and trigger service for project sessions
-        agent = self._controller.agent
-        self._agent_app_manager.bind_session_manager(
-            agent.session_manager, agent.trigger_service
-        )
 
-        # Clean up orphan processes and folders from previous sessions
-        self._agent_app_manager.cleanup_on_startup()
-
-        # Start watchdog to monitor running Agent App processes
-        self._agent_app_manager.start_watchdog()
-
-        # Auto-launch projects that have auto_launch enabled
-        asyncio.create_task(self._agent_app_manager.auto_launch_projects())
-
-        # Register global accessor and callbacks for Agent App actions
-        set_agent_app_manager(self._agent_app_manager)
+        # Broadcast callbacks for Agent App actions
         register_broadcast_callbacks(
             broadcast_ready=self.broadcast_agent_app_ready,
             broadcast_progress=self.broadcast_agent_app_progress,
@@ -982,24 +971,29 @@ class BrowserAdapter(InterfaceAdapter):
             broadcast_wizard_open=self.broadcast_agent_app_wizard_open,
         )
 
-        # Subscribe the Agent App module to SessionManager todo updates so
-        # that the agent's build breakdown streams to the browser automatically.
-        agent.session_manager.add_post_update_todos_hook(make_todo_broadcast_hook())
+        # Sub-agent activity arrives under its own stream id (sub_*); clients
+        # that read subagent_link learn which session it belongs to.
+        from app.subagent.manager import add_lifecycle_observer
 
-        # READ-ONLY build observer: derive construction-dock build events from
-        # the actions the agent already performs (write_file / stream_edit /
-        # agent_app_scaffold / agent_app_notify_ready). These hooks are
-        # single-callback and currently unset; the executor wraps them in
-        # try/except and the observer swallows all exceptions, so this can
-        # never affect a build. It reads inputs/outputs only, mutates nothing.
-        try:
-            from app.agent_app import construction_events
+        add_lifecycle_observer(self._on_subagent_lifecycle)
 
-            on_start, on_end = construction_events.make_action_hooks()
-            agent.action_manager._on_action_start = on_start
-            agent.action_manager._on_action_end = on_end
-        except Exception as e:
-            logger.warning(f"[AGENT_APP] build-event observer not attached: {e}")
+    def _on_subagent_lifecycle(self, event: str, sub: Any) -> None:
+        """Tell capable clients a sub-agent started or ended (any thread)."""
+        from app.state.agent_state import STATE
+
+        loop = getattr(STATE, "main_loop", None)
+        if loop is None or loop.is_closed():
+            return
+        message = {
+            "type": "subagent_link",
+            "data": {
+                "subId": sub.id,
+                "parentId": sub.parent_task_id,
+                "agentType": sub.agent_type,
+                "state": "running" if event == "spawn" else str(sub.status),
+            },
+        }
+        loop.call_soon_threadsafe(self._broadcast_capable, "subagent_link", message)
 
     @property
     def theme_adapter(self) -> ThemeAdapter:
@@ -1206,9 +1200,13 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         self._integration_bridge = IntegrationBridge(self._agent_app_manager)
         self._integration_bridge.register_routes(self._app)
 
-        # Serve Vite-built frontend (production)
+        # Serve Vite-built frontend (production). The terminal edition has no
+        # web UI: its client is the Ink app, which only needs /ws and /api.
+        from app import edition
+
+        serve_web_ui = not edition.is_terminal()
         frontend_dist = Path(__file__).parent.parent / "browser" / "frontend" / "dist"
-        if frontend_dist.exists():
+        if serve_web_ui and frontend_dist.exists():
             # Serve static assets from /assets/
             assets_path = frontend_dist / "assets"
             if assets_path.exists():
@@ -1218,14 +1216,14 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             # This must come before the SPA catch-all so images, fonts, etc. are served directly
             self._app.router.add_get("/", self._spa_handler)
             self._app.router.add_get("/{path:.*}", _make_static_or_spa(frontend_dist))
-        else:
+        elif serve_web_ui:
             # Fallback to inline HTML for development without build
             self._app.router.add_get("/", self._index_handler)
             self._app.router.add_get("/{path:.*}", self._index_handler)
 
         # Serve static files if they exist (legacy)
         static_path = Path(__file__).parent.parent / "browser" / "static"
-        if static_path.exists():
+        if serve_web_ui and static_path.exists():
             self._app.router.add_static("/static/", static_path)
 
         self._runner = web.AppRunner(self._app)
@@ -1436,6 +1434,8 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                             # Liveness probe, answered by the reader itself: the
                             # reply only fails to arrive when the loop is blocked.
                             channel.send_json({"type": "pong"})
+                        elif data.get("type") == "client_hello":
+                            self._handle_client_hello(channel, data)
                         else:
                             self._dispatch_in_lane(ws, data)
                     elif msg.type == WSMsgType.ERROR:
@@ -1481,6 +1481,41 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 del self._lane_locks[key]
 
         return ws
+
+    def _handle_client_hello(self, channel: ClientChannel, data: Dict[str, Any]) -> None:
+        """A client introduces itself and declares the extra frames it reads.
+
+        Only the terminal client says hello; the browser never does, so it
+        never receives a capability-gated frame (``_broadcast_capable``).
+        """
+        from app import edition
+        from app.config import get_app_version
+
+        client = data.get("client")
+        capabilities = data.get("capabilities")
+        channel.declare(
+            client if isinstance(client, str) else "",
+            capabilities if isinstance(capabilities, list) else [],
+        )
+        channel.send_json(
+            {
+                "type": "client_hello",
+                "data": {
+                    "protocol": CLIENT_PROTOCOL,
+                    "edition": edition.current(),
+                    "version": get_app_version(),
+                    "capabilities": sorted(channel.capabilities),
+                },
+            }
+        )
+
+    def _broadcast_capable(self, capability: str, message: Dict[str, Any]) -> None:
+        """Queue a message for every client that declared ``capability``."""
+        text = None
+        for channel in list(self._channels.values()):
+            if capability in channel.capabilities:
+                text = text or json.dumps(message)
+                channel.send_text(text)
 
     def _dispatch_in_lane(self, ws: Any, data: Dict[str, Any]) -> None:
         """Handle a browser message as its own task, serialized only with

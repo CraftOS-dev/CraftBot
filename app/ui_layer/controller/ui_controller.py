@@ -66,11 +66,11 @@ class UIController:
         await controller.start()
 
         # Register an adapter
-        adapter = CLIAdapter(controller, "cli")
+        adapter = BrowserAdapter(controller)
         await adapter.start()
 
         # Submit a message
-        await controller.submit_message("Hello!", "cli")
+        await controller.submit_message("Hello!", "browser")
 
         # Stop
         await adapter.stop()

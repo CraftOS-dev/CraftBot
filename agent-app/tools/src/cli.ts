@@ -15,6 +15,7 @@ const COMMANDS: Record<string, { summary: string }> = {
   verify: { summary: 'Headless smoke verification of a RUNNING project (mount, console, screenshot)' },
   ops: { summary: "List a project's declared operations (its agent-facing verbs)" },
   run: { summary: 'Execute a declared operation against the RUNNING app' },
+  view: { summary: 'Print an app screen as text, as the terminal edition shows it (views.json or generated)' },
   data: { summary: 'Read/write collection records of the RUNNING app (list/get/create/update/delete)' },
   trigger: { summary: 'Fire a declared trigger of the RUNNING app (tests the app→agent plane)' },
   requests: { summary: "Inspect the RUNNING app's agent_requests queue (fires and their outcomes)" },

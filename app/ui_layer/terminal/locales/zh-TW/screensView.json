@@ -1,0 +1,120 @@
+{
+  "transcript": {
+    "title": "對話記錄 · {{session}}",
+    "count_one": "{{count}} 則訊息",
+    "count_other": "{{count}} 則訊息",
+    "match": "第 {{index}} 個符合，共 {{count}} 個",
+    "noMatch": "沒有符合 {{query}} 的內容",
+    "loadingOlder": "正在載入較舊的訊息...",
+    "olderAbove": "捲動到頂端時會載入較舊的訊息",
+    "start": "對話開始",
+    "empty": "此對話還沒有內容。",
+    "reasoning": "推理",
+    "thinking": "思考中...",
+    "details": "詳細資料",
+    "detailsHidden_one": "詳細資料已隱藏（{{count}} 行） · Enter 顯示",
+    "detailsHidden_other": "詳細資料已隱藏（{{count}} 行） · Enter 顯示",
+    "replyingTo": "正在回覆",
+    "you": "你",
+    "waiting": "等待你的回答",
+    "status": {
+      "running": "執行中",
+      "waiting": "等待中",
+      "paused": "已暫停",
+      "pending": "排隊中",
+      "cancelled": "已取消"
+    },
+    "copied": "已複製為 Markdown",
+    "copiedTerminal": "已傳送到終端機剪貼簿（OSC 52）",
+    "copyFailed": "無法複製：{{error}}",
+    "replyOnlyAgent": "只能回覆代理的訊息",
+    "replyChoose": "請在對話中透過選項回答此問題",
+    "editorSaved": "已儲存至 {{path}}",
+    "editorFailed": "無法開啟 {{editor}}：{{error}}",
+    "searchPlaceholder": "搜尋對話記錄",
+    "dumpEnd": "對話記錄結束",
+    "hint": {
+      "fold": "摺疊",
+      "search": "搜尋",
+      "match": "下一個符合",
+      "copy": "複製",
+      "reply": "回覆",
+      "scrollback": "輸出到終端機",
+      "editor": "編輯器",
+      "back": "返回",
+      "keep": "保留",
+      "clear": "清除"
+    }
+  },
+  "browser": {
+    "title": "瀏覽器 · {{session}}",
+    "newChat": "新對話會在傳送第一則訊息時取得自己的瀏覽器。",
+    "off": "已關閉。代理瀏覽網頁時會自動開啟；按 s 立即啟動。",
+    "starting": "正在啟動瀏覽器...",
+    "installing": "正在安裝 Chromium...",
+    "installDone": "已安裝 Chromium。按 s 啟動瀏覽器。",
+    "installFailed": "安裝失敗：{{error}}",
+    "installHint": "按 i 安裝 Chromium（只需下載一次）。",
+    "status": {
+      "starting": "啟動中",
+      "ready": "就緒",
+      "stopped": "已關閉",
+      "installing": "安裝中",
+      "error": "錯誤"
+    },
+    "browsing": "代理瀏覽中",
+    "tabs_one": "{{count}} 個分頁",
+    "tabs_other": "{{count}} 個分頁",
+    "col": {
+      "owner": "使用者",
+      "title": "標題",
+      "address": "網址",
+      "state": "狀態"
+    },
+    "owner": {
+      "you": "你",
+      "agent": "代理",
+      "subagent": "子代理",
+      "main": "主要",
+      "session": "對話"
+    },
+    "state": {
+      "crashed": "已當掉",
+      "control": "由你操作",
+      "working": "代理處理中",
+      "loading": "載入中",
+      "idle": "閒置"
+    },
+    "untitled": "新分頁",
+    "noTabs": "沒有開啟的分頁。",
+    "controlNote": "瀏覽器會以桌面視窗的形式執行。接手代理的分頁後即可在那裡使用。",
+    "controlTaken": "你已接手操作：請使用瀏覽器視窗，完成後在此按 t 將分頁交還。",
+    "controlReturned": "已將分頁交還給代理。",
+    "linkCopied": "已複製連結",
+    "linkCopiedTerminal": "連結已傳送到終端機剪貼簿（OSC 52）",
+    "copyFailed": "無法複製：{{error}}",
+    "confirmClose": "{{owner}} 正在 {{title}} 中處理。仍要關閉嗎？",
+    "stopping": "正在停止代理的執行...",
+    "notBrowsing": "沒有代理執行在控制此分頁",
+    "event": {
+      "download": "已下載 {{name}}",
+      "crash": "有分頁當掉了",
+      "blocked": "有頁面遭到封鎖",
+      "dialog": "頁面顯示了對話方塊",
+      "popup": "頁面開啟了彈出視窗",
+      "notice": "通知",
+      "problem": "問題"
+    },
+    "hint": {
+      "control": "接手操作",
+      "handBack": "交還給代理",
+      "show": "顯示",
+      "close": "關閉分頁",
+      "copy": "複製連結",
+      "stop": "停止代理",
+      "start": "啟動",
+      "install": "安裝 Chromium",
+      "back": "返回"
+    }
+  }
+}

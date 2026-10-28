@@ -1,0 +1,285 @@
+{
+  "common": {
+    "back": "back",
+    "close": "close",
+    "confirm": "y confirm · n cancel",
+    "scroll": "scroll",
+    "refresh": "refresh",
+    "move": "move",
+    "search": "search",
+    "pane": "pane",
+    "save": "save",
+    "ok": "confirm",
+    "cancel": "cancel",
+    "edit": "edit",
+    "add": "add",
+    "delete": "delete",
+    "open": "open",
+    "tab": "tab",
+    "notConnected": "Not connected to CraftBot",
+    "timedOut": "No reply from CraftBot",
+    "unknownError": "Unknown error",
+    "justNow": "just now",
+    "duration": {
+      "dhm": "{{days}}d {{hours}}h {{minutes}}m",
+      "hm": "{{hours}}h {{minutes}}m",
+      "m": "{{minutes}}m"
+    }
+  },
+  "dashboard": {
+    "title": "Dashboard",
+    "aside": "{{period}} · [ ] period",
+    "waiting": "Waiting for the first metrics from CraftBot...",
+    "period": {
+      "1h": "Last hour",
+      "1d": "Last 24 hours",
+      "1w": "Last 7 days",
+      "1m": "Last 30 days",
+      "total": "All time"
+    },
+    "periodShort": {
+      "1h": "1H",
+      "1d": "1D",
+      "1w": "1W",
+      "1m": "1M",
+      "total": "All"
+    },
+    "hint": {
+      "period": "period"
+    },
+    "status": {
+      "title": "Status",
+      "uptime": "Up {{value}}",
+      "version": "version {{value}}"
+    },
+    "tasks": {
+      "title": "Tasks",
+      "completed": "{{value}} completed",
+      "failed": "{{value}} failed",
+      "running": "{{value}} running",
+      "total": "{{value}} total",
+      "success": "Success"
+    },
+    "tokens": {
+      "title": "Tokens",
+      "input": "New input",
+      "output": "Output",
+      "cached": "Cached",
+      "total": "{{value}} new",
+      "live": "Per 10 s",
+      "liveLabel": "since {{since}} · max {{max}} · now {{last}}"
+    },
+    "usage": {
+      "title": "Requests by hour",
+      "summary": "{{requests}} requests · peak {{hour}}:00 with {{peak}}",
+      "empty": "No requests in this period"
+    },
+    "system": {
+      "title": "System",
+      "cpu": "CPU",
+      "memory": "Memory",
+      "disk": "Disk",
+      "threads": "Threads",
+      "network": "Network",
+      "networkValue": "up {{up}} KB/s · down {{down}} KB/s",
+      "high": "high"
+    },
+    "connections": {
+      "title": "Tools and connections",
+      "mcp": "MCP",
+      "skills": "Skills",
+      "integrations": "Integrations",
+      "mcpValue": "{{connected}}/{{total}} connected · {{tools}} tools · {{calls}} calls",
+      "skillsValue": "{{enabled}}/{{total}} enabled · {{calls}} uses",
+      "integrationsValue": "{{connected}}/{{total}} connected · {{calls}} calls",
+      "top": "top {{list}}"
+    },
+    "model": {
+      "title": "Model",
+      "provider": "Provider",
+      "model": "Model",
+      "id": "Id",
+      "notConfigured": "Not configured"
+    },
+    "apps": {
+      "title": "Agent Apps",
+      "summary": "{{installed}} installed · {{running}} running",
+      "empty": "No Agent Apps yet",
+      "more": "+{{count}} more"
+    },
+    "activity": {
+      "title": "Recent activity",
+      "empty": "No activity yet",
+      "reasoning": "Reasoning",
+      "tokens": "{{value}} tok",
+      "minutesAgo": "{{count}}m ago",
+      "hoursAgo": "{{count}}h ago",
+      "daysAgo": "{{count}}d ago"
+    }
+  },
+  "memory": {
+    "title": "Memory",
+    "off": "memory is off",
+    "tabs": {
+      "nodes": "Memories and links",
+      "files": "Indexed files"
+    },
+    "kind": {
+      "memory": "Memory",
+      "fileMemory": "File section",
+      "entity": "Entity",
+      "file": "File"
+    },
+    "toggle": {
+      "memories": "memories {{count}}",
+      "entities": "entities {{count}}",
+      "files": "files {{count}}",
+      "hideDefault": "hide default files"
+    },
+    "category": {
+      "fact": "fact",
+      "preference": "preference",
+      "event": "event",
+      "decision": "decision",
+      "learning": "learning",
+      "project": "project",
+      "contact": "contact"
+    },
+    "searchPlaceholder": "Search memories, entities and files",
+    "searchHint": "/ search · 1 2 3 kinds · 4 hide default files",
+    "loading": "Loading memory...",
+    "empty": "No memories yet. Your AI agent saves what it learns as you chat, or press a to add one.",
+    "noMatches": "Nothing matches",
+    "noSelection": "Select a memory to see its details",
+    "superseded": "superseded",
+    "mentions_one": "{{count}} mention",
+    "mentions_other": "{{count}} mentions",
+    "sections_one": "{{count}} section",
+    "sections_other": "{{count}} sections",
+    "meta": {
+      "category": "Category",
+      "saved": "Saved",
+      "links": "Links",
+      "file": "File",
+      "section": "Section"
+    },
+    "connected": "Connected {{count}}",
+    "noNeighbours": "No connections",
+    "moreNeighbours": "+{{count}} more",
+    "readOnly": "From an indexed file (read only)",
+    "notEditable": "Only conversation memories can be edited",
+    "form": {
+      "addTitle": "Add memory",
+      "editTitle": "Edit memory",
+      "category": "Category",
+      "content": "Content",
+      "contentPlaceholder": "What should your AI agent remember?",
+      "superseded": "Superseded (kept, but no longer true)",
+      "entitiesHint": "Write [[Name]] to link a person, place or project.",
+      "hint": "Tab next field · Left/Right change category · Space toggle · Enter save · Esc cancel",
+      "empty": "Write something to remember first"
+    },
+    "confirmDelete": "Delete this memory?",
+    "saved": "Memory saved",
+    "deleted": "Memory deleted",
+    "failed": "Could not update memory: {{error}}",
+    "files": {
+      "hint": "Checked files are indexed: your AI agent can search their sections.",
+      "chunks_one": "{{count}} section",
+      "chunks_other": "{{count}} sections",
+      "missing": "missing",
+      "size": "{{value}} KB",
+      "always": "always",
+      "indexing": "working",
+      "empty": "No files to index yet",
+      "skipped": "Skipped {{path}}: {{reason}}"
+    },
+    "hints": {
+      "kinds": "kinds",
+      "tree": "neighbours",
+      "expand": "expand",
+      "goTo": "go to",
+      "index": "index",
+      "folder": "open folder"
+    }
+  },
+  "workspace": {
+    "title": "Workspace",
+    "root": "workspace",
+    "loading": "Loading...",
+    "empty": "This folder is empty",
+    "noMatches": "No files match",
+    "searchPlaceholder": "Filter this folder",
+    "count_one": "{{count}} item",
+    "count_other": "{{count}} items",
+    "shown": "{{shown}} of {{total}}",
+    "marked_one": "{{count}} marked",
+    "marked_other": "{{count}} marked",
+    "clipboardCopy_one": "{{count}} copied, p pastes",
+    "clipboardCopy_other": "{{count}} copied, p pastes",
+    "clipboardCut_one": "{{count}} cut, p moves",
+    "clipboardCut_other": "{{count}} cut, p moves",
+    "folder": "Folder",
+    "name": "Name",
+    "size": "Size",
+    "modified": "Modified",
+    "path": "Path",
+    "binary": "Binary file, no text preview. Press o to open it.",
+    "previewEmpty": "Empty file",
+    "previewLoading": "Reading...",
+    "selectHint": "Select a file to preview it",
+    "previewFocus": "Tab back to the list",
+    "prompt": {
+      "rename": "Rename to",
+      "newFile": "New file name",
+      "newFolder": "New folder name",
+      "upload": "Copy from local path",
+      "download": "Save to local path",
+      "uploadPlaceholder": "C:\\Users\\you\\file.txt or ~/file.txt",
+      "submit": "Enter confirm · Esc cancel"
+    },
+    "confirmDeleteOne": "Delete {{name}}?",
+    "confirmDeleteMany_one": "Delete {{count}} items?",
+    "confirmDeleteMany_other": "Delete {{count}} items?",
+    "confirmOverwrite": "{{path}} exists. Replace it?",
+    "deleted_one": "Deleted {{count}} item",
+    "deleted_other": "Deleted {{count}} items",
+    "deletePartial": "Deleted {{succeeded}} of {{total}}; {{failed}} failed: {{error}}",
+    "deleteFailed": "Could not delete: {{error}}",
+    "pasted_one": "Pasted {{count}} item",
+    "pasted_other": "Pasted {{count}} items",
+    "moved_one": "Moved {{count}} item",
+    "moved_other": "Moved {{count}} items",
+    "pasteFailed": "Could not paste {{name}}: {{error}}",
+    "renamed": "Renamed to {{name}}",
+    "renameFailed": "Could not rename: {{error}}",
+    "created": "Created {{name}}",
+    "createFailed": "Could not create {{name}}: {{error}}",
+    "uploaded": "Copied {{name}} into the workspace",
+    "uploadFailed": "Could not copy {{name}}: {{error}}",
+    "notAFile": "{{path}} is not a file",
+    "tooLarge": "{{name}} is {{size}}; the limit is 200 MB",
+    "downloaded": "Saved {{path}}",
+    "downloadFailed": "Could not save {{name}}: {{error}}",
+    "downloadFolder": "Folders cannot be saved; mark files instead",
+    "downloadNeedsFolder": "Several files go into a folder: give an existing folder",
+    "opened": "Opened {{name}}",
+    "openFailed": "Could not open {{name}}: {{error}}",
+    "hints": {
+      "open": "open",
+      "up": "up",
+      "mark": "mark",
+      "copy": "copy",
+      "cut": "cut",
+      "paste": "paste",
+      "rename": "rename",
+      "newFile": "new file",
+      "newFolder": "new folder",
+      "upload": "upload",
+      "download": "save",
+      "osOpen": "open in app",
+      "reveal": "show in folder",
+      "preview": "preview"
+    }
+  }
+}

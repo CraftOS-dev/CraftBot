@@ -1,0 +1,285 @@
+{
+  "common": {
+    "back": "戻る",
+    "close": "閉じる",
+    "confirm": "y 確定 · n キャンセル",
+    "scroll": "スクロール",
+    "refresh": "更新",
+    "move": "移動",
+    "search": "検索",
+    "pane": "ペイン",
+    "save": "保存",
+    "ok": "確定",
+    "cancel": "キャンセル",
+    "edit": "編集",
+    "add": "追加",
+    "delete": "削除",
+    "open": "開く",
+    "tab": "タブ",
+    "notConnected": "CraftBot に接続されていません",
+    "timedOut": "CraftBot から応答がありません",
+    "unknownError": "不明なエラー",
+    "justNow": "たった今",
+    "duration": {
+      "dhm": "{{days}}日 {{hours}}時間 {{minutes}}分",
+      "hm": "{{hours}}時間 {{minutes}}分",
+      "m": "{{minutes}}分"
+    }
+  },
+  "dashboard": {
+    "title": "ダッシュボード",
+    "aside": "{{period}} · [ ] 期間",
+    "waiting": "CraftBot から最初のメトリクスを待っています...",
+    "period": {
+      "1h": "直近 1 時間",
+      "1d": "直近 24 時間",
+      "1w": "直近 7 日間",
+      "1m": "直近 30 日間",
+      "total": "全期間"
+    },
+    "periodShort": {
+      "1h": "1時間",
+      "1d": "1日",
+      "1w": "1週間",
+      "1m": "1か月",
+      "total": "全期間"
+    },
+    "hint": {
+      "period": "期間"
+    },
+    "status": {
+      "title": "状態",
+      "uptime": "稼働 {{value}}",
+      "version": "バージョン {{value}}"
+    },
+    "tasks": {
+      "title": "タスク",
+      "completed": "{{value}} 件完了",
+      "failed": "{{value}} 件失敗",
+      "running": "{{value}} 件実行中",
+      "total": "合計 {{value}} 件",
+      "success": "成功"
+    },
+    "tokens": {
+      "title": "トークン",
+      "input": "新規入力",
+      "output": "出力",
+      "cached": "キャッシュ",
+      "total": "新規 {{value}}",
+      "live": "10 秒ごと",
+      "liveLabel": "{{since}} から · 最大 {{max}} · 現在 {{last}}"
+    },
+    "usage": {
+      "title": "時間帯別リクエスト",
+      "summary": "{{requests}} 件のリクエスト · ピーク {{hour}}:00（{{peak}} 件）",
+      "empty": "この期間のリクエストはありません"
+    },
+    "system": {
+      "title": "システム",
+      "cpu": "CPU",
+      "memory": "メモリ",
+      "disk": "ディスク",
+      "threads": "スレッド",
+      "network": "ネットワーク",
+      "networkValue": "上り {{up}} KB/s · 下り {{down}} KB/s",
+      "high": "高負荷"
+    },
+    "connections": {
+      "title": "ツールと接続",
+      "mcp": "MCP",
+      "skills": "スキル",
+      "integrations": "連携",
+      "mcpValue": "{{connected}}/{{total}} 接続済み · {{tools}} ツール · {{calls}} 回呼び出し",
+      "skillsValue": "{{enabled}}/{{total}} 有効 · {{calls}} 回使用",
+      "integrationsValue": "{{connected}}/{{total}} 接続済み · {{calls}} 回呼び出し",
+      "top": "上位 {{list}}"
+    },
+    "model": {
+      "title": "モデル",
+      "provider": "プロバイダー",
+      "model": "モデル",
+      "id": "ID",
+      "notConfigured": "未設定"
+    },
+    "apps": {
+      "title": "Agent App",
+      "summary": "{{installed}} 個インストール済み · {{running}} 個実行中",
+      "empty": "Agent App はまだありません",
+      "more": "+{{count}} 件"
+    },
+    "activity": {
+      "title": "最近のアクティビティ",
+      "empty": "まだアクティビティがありません",
+      "reasoning": "推論",
+      "tokens": "{{value}} トークン",
+      "minutesAgo": "{{count}} 分前",
+      "hoursAgo": "{{count}} 時間前",
+      "daysAgo": "{{count}} 日前"
+    }
+  },
+  "memory": {
+    "title": "メモリー",
+    "off": "メモリーは無効です",
+    "tabs": {
+      "nodes": "メモリーとリンク",
+      "files": "インデックス済みファイル"
+    },
+    "kind": {
+      "memory": "メモリー",
+      "fileMemory": "ファイルのセクション",
+      "entity": "エンティティ",
+      "file": "ファイル"
+    },
+    "toggle": {
+      "memories": "メモリー {{count}}",
+      "entities": "エンティティ {{count}}",
+      "files": "ファイル {{count}}",
+      "hideDefault": "デフォルトファイルを非表示"
+    },
+    "category": {
+      "fact": "事実",
+      "preference": "好み",
+      "event": "イベント",
+      "decision": "決定",
+      "learning": "学習",
+      "project": "プロジェクト",
+      "contact": "連絡先"
+    },
+    "searchPlaceholder": "メモリー、エンティティ、ファイルを検索",
+    "searchHint": "/ 検索 · 1 2 3 種類 · 4 デフォルトファイルを非表示",
+    "loading": "メモリーを読み込み中...",
+    "empty": "メモリーはまだありません。AI エージェントがチャットから学んだことを保存します。a で追加することもできます。",
+    "noMatches": "一致するものがありません",
+    "noSelection": "メモリーを選択すると詳細が表示されます",
+    "superseded": "置き換え済み",
+    "mentions_one": "{{count}} 件の言及",
+    "mentions_other": "{{count}} 件の言及",
+    "sections_one": "{{count}} 個のセクション",
+    "sections_other": "{{count}} 個のセクション",
+    "meta": {
+      "category": "カテゴリー",
+      "saved": "保存日時",
+      "links": "リンク",
+      "file": "ファイル",
+      "section": "セクション"
+    },
+    "connected": "つながり {{count}}",
+    "noNeighbours": "つながりはありません",
+    "moreNeighbours": "+{{count}} 件",
+    "readOnly": "インデックス済みファイル由来（読み取り専用）",
+    "notEditable": "編集できるのは会話のメモリーだけです",
+    "form": {
+      "addTitle": "メモリーを追加",
+      "editTitle": "メモリーを編集",
+      "category": "カテゴリー",
+      "content": "内容",
+      "contentPlaceholder": "AI エージェントに何を覚えてほしいですか？",
+      "superseded": "置き換え済み（保持されますが、もう正しくありません）",
+      "entitiesHint": "[[名前]] と書くと、人物、場所、プロジェクトにリンクします。",
+      "hint": "Tab 次の項目 · Left/Right カテゴリー変更 · Space 切り替え · Enter 保存 · Esc キャンセル",
+      "empty": "先に覚える内容を書いてください"
+    },
+    "confirmDelete": "このメモリーを削除しますか？",
+    "saved": "メモリーを保存しました",
+    "deleted": "メモリーを削除しました",
+    "failed": "メモリーを更新できませんでした: {{error}}",
+    "files": {
+      "hint": "チェックしたファイルはインデックスされ、AI エージェントがそのセクションを検索できます。",
+      "chunks_one": "{{count}} 個のセクション",
+      "chunks_other": "{{count}} 個のセクション",
+      "missing": "見つかりません",
+      "size": "{{value}} KB",
+      "always": "常時",
+      "indexing": "処理中",
+      "empty": "インデックスするファイルはまだありません",
+      "skipped": "{{path}} をスキップしました: {{reason}}"
+    },
+    "hints": {
+      "kinds": "種類",
+      "tree": "つながり",
+      "expand": "展開",
+      "goTo": "移動",
+      "index": "インデックス",
+      "folder": "フォルダーを開く"
+    }
+  },
+  "workspace": {
+    "title": "ワークスペース",
+    "root": "ワークスペース",
+    "loading": "読み込み中...",
+    "empty": "このフォルダーは空です",
+    "noMatches": "一致するファイルがありません",
+    "searchPlaceholder": "このフォルダーを絞り込み",
+    "count_one": "{{count}} 件",
+    "count_other": "{{count}} 件",
+    "shown": "{{total}} 件中 {{shown}} 件",
+    "marked_one": "{{count}} 件選択中",
+    "marked_other": "{{count}} 件選択中",
+    "clipboardCopy_one": "{{count}} 件コピー、p で貼り付け",
+    "clipboardCopy_other": "{{count}} 件コピー、p で貼り付け",
+    "clipboardCut_one": "{{count}} 件切り取り、p で移動",
+    "clipboardCut_other": "{{count}} 件切り取り、p で移動",
+    "folder": "フォルダー",
+    "name": "名前",
+    "size": "サイズ",
+    "modified": "更新日時",
+    "path": "パス",
+    "binary": "バイナリファイルのため、テキストのプレビューはありません。o で開きます。",
+    "previewEmpty": "空のファイル",
+    "previewLoading": "読み込み中...",
+    "selectHint": "ファイルを選択するとプレビューが表示されます",
+    "previewFocus": "Tab で一覧に戻る",
+    "prompt": {
+      "rename": "新しい名前",
+      "newFile": "新しいファイル名",
+      "newFolder": "新しいフォルダー名",
+      "upload": "ローカルパスからコピー",
+      "download": "ローカルパスに保存",
+      "uploadPlaceholder": "C:\\Users\\you\\file.txt または ~/file.txt",
+      "submit": "Enter 確定 · Esc キャンセル"
+    },
+    "confirmDeleteOne": "{{name}} を削除しますか？",
+    "confirmDeleteMany_one": "{{count}} 件を削除しますか？",
+    "confirmDeleteMany_other": "{{count}} 件を削除しますか？",
+    "confirmOverwrite": "{{path}} はすでに存在します。置き換えますか？",
+    "deleted_one": "{{count}} 件を削除しました",
+    "deleted_other": "{{count}} 件を削除しました",
+    "deletePartial": "{{total}} 件中 {{succeeded}} 件を削除しました。{{failed}} 件失敗: {{error}}",
+    "deleteFailed": "削除できませんでした: {{error}}",
+    "pasted_one": "{{count}} 件を貼り付けました",
+    "pasted_other": "{{count}} 件を貼り付けました",
+    "moved_one": "{{count}} 件を移動しました",
+    "moved_other": "{{count}} 件を移動しました",
+    "pasteFailed": "{{name}} を貼り付けできませんでした: {{error}}",
+    "renamed": "{{name}} に名前を変更しました",
+    "renameFailed": "名前を変更できませんでした: {{error}}",
+    "created": "{{name}} を作成しました",
+    "createFailed": "{{name}} を作成できませんでした: {{error}}",
+    "uploaded": "{{name}} をワークスペースにコピーしました",
+    "uploadFailed": "{{name}} をコピーできませんでした: {{error}}",
+    "notAFile": "{{path}} はファイルではありません",
+    "tooLarge": "{{name}} は {{size}} です。上限は 200 MB です",
+    "downloaded": "{{path}} を保存しました",
+    "downloadFailed": "{{name}} を保存できませんでした: {{error}}",
+    "downloadFolder": "フォルダーは保存できません。代わりにファイルを選択してください",
+    "downloadNeedsFolder": "複数のファイルはフォルダーに保存されます。既存のフォルダーを指定してください",
+    "opened": "{{name}} を開きました",
+    "openFailed": "{{name}} を開けませんでした: {{error}}",
+    "hints": {
+      "open": "開く",
+      "up": "上へ",
+      "mark": "選択",
+      "copy": "コピー",
+      "cut": "切り取り",
+      "paste": "貼り付け",
+      "rename": "名前を変更",
+      "newFile": "新規ファイル",
+      "newFolder": "新規フォルダー",
+      "upload": "アップロード",
+      "download": "保存",
+      "osOpen": "アプリで開く",
+      "reveal": "フォルダーに表示",
+      "preview": "プレビュー"
+    }
+  }
+}

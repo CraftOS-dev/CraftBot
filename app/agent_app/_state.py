@@ -17,6 +17,6 @@ def get_agent_app_manager() -> Optional[AgentAppManager]:
 
 
 def set_agent_app_manager(manager: AgentAppManager) -> None:
-    """Set the global AgentAppManager instance (called by browser_adapter)."""
+    """Set the global AgentAppManager instance (called by host.py)."""
     global _manager
     _manager = manager
