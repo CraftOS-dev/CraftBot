@@ -1335,8 +1335,6 @@ with tempfile.TemporaryDirectory() as tmp:
     stub.import_project_source = _imp_source
     stub.start_development_run = _sdr
     stub.post_import_brief = AgentAppManager.post_import_brief.__get__(stub)
-    # post_import_brief now appends the trigger-consent ask (TRIGGERS-PLAN).
-    stub.declared_triggers_brief = AgentAppManager.declared_triggers_brief.__get__(stub)
 
     out = _run_action(LA.agent_app_import, {"source": "/tmp/whatever.zip"})
     assert out["status"] == "success" and out["project_id"] == "impact0001"

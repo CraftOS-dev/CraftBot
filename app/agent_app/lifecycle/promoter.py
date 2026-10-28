@@ -114,17 +114,6 @@ class Promoter:
                 ensure_baseline(project.path, verify_store_dir(project))
             except Exception as e:
                 logger.warning(f"[AGENT_APP:PROMOTE] verify baseline not written: {e}")
-        # Trigger consent (spec TRIGGERS-PLAN): a supervised build or modify
-        # that delivered is first-party work the user asked for in chat —
-        # approve its declared triggers. This is also how apps built BEFORE
-        # the consent feature get approved (observed live 2026-08-06: a
-        # kanban board gained a user-requested trigger via modify and every
-        # fire was then consent-blocked, silently).
-        try:
-            host.set_triggers_approved(project.id)
-        except Exception as e:
-            logger.warning(f"[AGENT_APP:PROMOTE] trigger approval failed: {e}")
-
         logger.info(
             f"[AGENT_APP:PROMOTE] {project.id} promoted "
             f"({'first delivery' if first else 'update'})"
