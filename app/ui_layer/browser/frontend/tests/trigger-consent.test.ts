@@ -22,6 +22,59 @@ const reviewed = {
   triggers: [{ name: 'summarize', description: 'Summarize a recording', instruction: 'Prepare a summary.', change: 'approved' }],
 }
 
+for (const width of [1280, 390]) {
+  test(`parameter defaults are visible before approval and after a default-only change at ${width}px`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height: 844 })
+    await page.goto('/tests/trigger-consent.html?no-requests')
+    const trigger = {
+      name: 'email_summary', description: 'Email a summary', instruction: 'Email the summary to recipient.', change: 'new',
+      params: {
+        recipient: { type: 'string', description: 'Who receives the summary', required: true, default: 'original@example.test' },
+        enabled: { type: 'boolean', default: false },
+        count: { type: 'number', default: 0 },
+        suffix: { type: 'string', default: '' },
+        mode: { type: 'string', enum: ['draft', 'final'] },
+      },
+    }
+    const consent = { revision: 'params-v1', required: true, needsReview: true, triggers: [trigger] }
+    await response(page, { projectId: 'notes', triggerConsent: consent }, 'agent_app_ready')
+    const dialog = page.getByRole('dialog')
+    const inputs = dialog.getByRole('region', { name: 'Request inputs' })
+    const recipient = inputs.locator('dl > div').filter({ has: page.locator('dt', { hasText: 'recipient' }) })
+    await expect(recipient).toContainText('Who receives the summary')
+    await expect(recipient).toContainText('Text · Required')
+    await expect(recipient).toContainText('Default if omitted: original@example.test')
+    await expect(inputs.locator('dl > div').filter({ hasText: 'enabled' })).toContainText('Default if omitted: false')
+    await expect(inputs.locator('dl > div').filter({ hasText: 'count' })).toContainText('Default if omitted: 0')
+    await expect(inputs.locator('dl > div').filter({ hasText: 'suffix' })).toContainText('Default if omitted: Empty text')
+    const mode = inputs.locator('dl > div').filter({ hasText: 'mode' })
+    await expect(mode).toContainText('Text · Optional')
+    await expect(mode).toContainText('Allowed values: "draft", "final"')
+    await expect(mode).not.toContainText('Default if omitted:')
+    await expect(dialog.locator('details')).not.toHaveAttribute('open', '')
+    await dialog.getByRole('button', { name: 'Allow requests', exact: true }).click()
+    expect((await requests(page))[0].data.revision).toBe('params-v1')
+    await response(page, { projectId: 'notes', success: true,
+      consent: { ...consent, required: false, needsReview: false, triggers: [{ ...trigger, change: 'approved' }] } })
+    await expect(dialog).toHaveCount(0)
+
+    await response(page, { projectId: 'notes', triggerConsent: { ...consent, revision: 'params-v2',
+      triggers: [{ ...trigger, change: 'changed', params: { ...trigger.params,
+        recipient: { ...trigger.params.recipient, default: 'changed@example.test' } } }] } }, 'agent_app_ready')
+    await expect(dialog.getByText('Changed request', { exact: true })).toBeVisible()
+    await expect(recipient).toContainText('Default if omitted: changed@example.test')
+    await expect(inputs).not.toContainText('original@example.test')
+    expect(await inputs.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
+    await expect(dialog.getByRole('button', { name: 'Allow requests', exact: true })).toBeInViewport()
+    await expect(dialog.locator('..')).toHaveCSS('opacity', '1')
+    const screenshot = testInfo.outputPath('request-inputs.png')
+    await page.screenshot({ path: screenshot })
+    await testInfo.attach('Changed request inputs', { path: screenshot, contentType: 'image/png' })
+    await dialog.getByRole('button', { name: 'Allow requests', exact: true }).click()
+    expect((await requests(page))[1].data.revision).toBe('params-v2')
+  })
+}
+
 test('first launch shows request review before any trigger fires; explicit allowance carries its revision', async ({ page }) => {
   await page.goto('/tests/trigger-consent.html')
   await expect(page.getByText('The app is running in the background.')).toBeVisible()

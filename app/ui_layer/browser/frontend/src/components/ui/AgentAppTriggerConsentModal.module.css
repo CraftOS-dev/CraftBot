@@ -6,3 +6,11 @@
 .badge { color: var(--text-secondary); font-size: var(--text-xs); white-space: nowrap; }
 .request summary { cursor: pointer; color: var(--text-secondary); font-size: var(--text-sm); }
 .instruction { white-space: pre-wrap; overflow-wrap: anywhere; font-size: var(--text-sm); color: var(--text-primary); line-height: 1.6; }
+.inputs { margin-top: var(--space-3); overflow-wrap: anywhere; font-size: var(--text-sm); }
+.inputs h4 { margin: 0; font-size: inherit; }
+.parameters { margin: 0; }
+.parameters > div { margin-top: var(--space-3); }
+.parameters dt { font-weight: 600; }
+.parameters dd { margin: 0; }
+.parameters p { margin: var(--space-1) 0; line-height: 1.6; }
+.value { white-space: pre-wrap; }
