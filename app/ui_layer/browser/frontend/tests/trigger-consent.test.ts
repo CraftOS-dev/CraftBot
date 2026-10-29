@@ -244,6 +244,45 @@ test('failed consent save can be dismissed without a second write or renewed pro
   await expect(page.getByRole('dialog')).toHaveCount(0)
 })
 
+const unreadableConsent = { revision: '', required: true, needsReview: false, triggers: [],
+  error: "This app's agent requests could not be read." }
+
+test('keeping requests off saves revocation despite a read error and repair requires fresh approval', async ({ page }) => {
+  await page.goto('/tests/trigger-consent.html?no-requests')
+  await response(page, { projectId: 'notes', triggerConsent: reviewed }, 'agent_app_ready')
+  await response(page, { projectId: 'notes', triggerConsent: unreadableConsent }, 'agent_app_ready')
+  await page.getByRole('button', { name: 'Review requests again' }).click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.getByRole('alert')).toContainText('could not be read')
+  await expect(dialog.getByRole('button', { name: 'Allow requests', exact: true })).toBeDisabled()
+  await dialog.getByRole('button', { name: 'Keep requests off' }).click()
+  expect((await requests(page))[0].data).toEqual({ projectId: 'notes', revision: '', allow: false, requestId: expect.any(String) })
+  await expect(dialog).toBeVisible()
+  await expect(dialog.getByRole('button', { name: 'Close', exact: true })).toBeDisabled()
+  await response(page, { projectId: 'notes', success: true, consent: unreadableConsent })
+  await expect(dialog).toHaveCount(0)
+  await response(page, { projectId: 'notes', triggerConsent: { ...reviewed, required: true, needsReview: true,
+    triggers: [{ ...reviewed.triggers[0], change: 'new' }] } }, 'agent_app_ready')
+  await expect(dialog.getByText('New request')).toBeVisible()
+  expect(await requests(page)).toHaveLength(1)
+})
+
+test('a failed revocation with unreadable definitions shows the save error and can retry', async ({ page }) => {
+  await page.goto('/tests/trigger-consent.html?no-requests')
+  await response(page, { projectId: 'notes', triggerConsent: unreadableConsent }, 'agent_app_ready')
+  await page.getByRole('button', { name: 'Review requests again' }).click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByRole('button', { name: 'Keep requests off' }).click()
+  expect(await requests(page)).toHaveLength(1)
+  await response(page, { projectId: 'notes', success: false, error: 'Consent storage is read-only', consent: unreadableConsent })
+  await expect(dialog.getByRole('alert')).toContainText('read-only')
+  await expect(dialog.getByRole('button', { name: 'Allow requests', exact: true })).toBeDisabled()
+  await dialog.getByRole('button', { name: 'Keep requests off' }).click()
+  expect(await requests(page)).toHaveLength(2)
+  await response(page, { projectId: 'notes', success: true, consent: unreadableConsent })
+  await expect(dialog).toHaveCount(0)
+})
+
 test('unrelated client responses update grants without closing or poisoning the current review', async ({ page }) => {
   await page.goto('/tests/trigger-consent.html?two-apps&no-requests')
   await page.getByRole('button', { name: 'Review requests again' }).click()

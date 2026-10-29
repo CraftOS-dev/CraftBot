@@ -82,6 +82,112 @@ def test_stale_dialog_cannot_approve_new_instructions(project):
     assert consent.status(project)["needsReview"]
 
 
+@pytest.mark.parametrize(
+    "failure", ["invalid-json", "invalid-definition", "unreadable"]
+)
+def test_revocation_survives_broken_definitions_and_repair(
+    project, monkeypatch, failure
+):
+    from pathlib import Path
+
+    file = Path(project.path) / "triggers.json"
+    original = file.read_text(encoding="utf-8")
+    consent.decide(project, consent.status(project)["revision"], True)
+    adapter = BrowserAdapter.__new__(BrowserAdapter)
+    adapter._agent_app_manager = SimpleNamespace(get_project=lambda pid: project)
+    adapter._broadcast = AsyncMock()
+    adapter._handle_agent_app_list = AsyncMock()
+
+    with monkeypatch.context() as patch:
+        if failure == "invalid-json":
+            file.write_text("bad json", encoding="utf-8")
+        elif failure == "invalid-definition":
+            write_triggers(project, {"summarize": {"instruction": ""}})
+        else:
+            read_text = Path.read_text
+
+            def fail_read(path, *args, **kwargs):
+                if path == file:
+                    raise PermissionError("Definitions are unreadable")
+                return read_text(path, *args, **kwargs)
+
+            patch.setattr(Path, "read_text", fail_read)
+
+        broken = consent.status(project)
+        assert broken["error"]
+        with pytest.raises(consent.TriggerConsentError):
+            consent.decide(project, broken["revision"], True)
+        asyncio.run(
+            adapter._handle_agent_app_trigger_consent(
+                {
+                    "projectId": project.id,
+                    "revision": broken["revision"],
+                    "allow": False,
+                    "requestId": "revoke-broken-definition",
+                }
+            )
+        )
+        result = adapter._broadcast.call_args.args[0]["data"]
+        assert result["success"] and result["error"] is None
+        assert result["requestId"] == "revoke-broken-definition"
+        assert result["consent"]["error"]  # Definitions still need repairing.
+        saved = json.loads(
+            (Path(project.path) / ".factory/trigger-consent.json").read_text()
+        )
+        assert saved["approved"] == {}
+        adapter._handle_agent_app_list.assert_awaited_once()
+
+    file.write_text(original, encoding="utf-8")
+    restarted = SimpleNamespace(id=project.id, path=project.path)
+    assert consent.approved_trigger(restarted, "summarize") is None
+    assert consent.status(restarted)["needsReview"]
+
+
+def test_revocation_does_not_require_a_current_review(project):
+    consent.decide(project, consent.status(project)["revision"], True)
+    write_triggers(project, {"summarize": {"instruction": "Email the notes."}})
+    current = consent.status(project)
+    consent.decide(project, current["revision"], True)
+    denied = consent.decide(project, "stale-or-unreadable-review", False)
+    assert denied["required"] and not denied["needsReview"]
+    assert consent.approved_trigger(project, "summarize") is None
+
+
+def test_failed_revocation_reports_error_and_preserves_previous_decision(
+    project, monkeypatch
+):
+    from pathlib import Path
+
+    consent.decide(project, consent.status(project)["revision"], True)
+    path = Path(project.path) / ".factory/trigger-consent.json"
+    saved = path.read_bytes()
+    (Path(project.path) / "triggers.json").write_text("bad json", encoding="utf-8")
+
+    def fail_replace(*args):
+        raise PermissionError("Consent storage is read-only")
+
+    monkeypatch.setattr(consent.os, "replace", fail_replace)
+    adapter = BrowserAdapter.__new__(BrowserAdapter)
+    adapter._agent_app_manager = SimpleNamespace(get_project=lambda pid: project)
+    adapter._broadcast = AsyncMock()
+    adapter._handle_agent_app_list = AsyncMock()
+    asyncio.run(
+        adapter._handle_agent_app_trigger_consent(
+            {
+                "projectId": project.id,
+                "revision": "",
+                "allow": False,
+                "requestId": "failed-revoke",
+            }
+        )
+    )
+    result = adapter._broadcast.call_args.args[0]["data"]
+    assert not result["success"] and "read-only" in result["error"]
+    assert result["requestId"] == "failed-revoke"
+    assert path.read_bytes() == saved
+    adapter._handle_agent_app_list.assert_not_awaited()
+
+
 def test_review_discloses_parameter_definitions_and_changed_defaults(project):
     definition = {
         "description": "Email a summary",

@@ -121,13 +121,22 @@ def approved_trigger(project, name: str):
 
 
 def decide(project, revision: str, allow: bool) -> dict:
-    """Persist a UI decision only if the displayed definitions are still current."""
+    """Require a current review to grant access; always permit revocation."""
     with _LOCK:
-        declared = _declarations(project)
-        if not revision or revision != _fingerprint(declared):
+        try:
+            declared = _declarations(project)
+        except TriggerConsentError:
+            if allow:
+                raise
+            declared = None
+        if allow and (not revision or revision != _fingerprint(declared)):
             raise TriggerConsentError(
                 "The app's requests changed. Review the updated list before choosing."
             )
+        if not allow:
+            # Denial applies to the whole app, including definitions the UI
+            # could not read. A repaired definition must need a fresh review.
+            revision = _fingerprint(declared) if declared is not None else ""
         decision = {
             "project_id": project.id,
             "reviewed_revision": revision,
@@ -154,7 +163,7 @@ def decide(project, revision: str, allow: bool) -> dict:
         finally:
             if temporary is not None:
                 temporary.unlink(missing_ok=True)
-        return _status(declared, decision)
+        return _status(declared, decision) if declared is not None else status(project)
 
 
 def reset(project) -> None:
