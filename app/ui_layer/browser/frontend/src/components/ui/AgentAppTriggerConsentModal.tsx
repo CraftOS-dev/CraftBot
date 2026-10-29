@@ -68,7 +68,7 @@ export function AgentAppTriggerConsentModal() {
   const dismiss = () => dispatch(dismissTriggerReview({ projectId: project.id, revision: consent.revision }))
 
   const choose = (allow: boolean) => {
-    if (consent.error) { dismiss(); return }
+    if (allow && consent.error) return
     const requestId = typeof crypto?.randomUUID === 'function'
       ? crypto.randomUUID()
       : `trigger-consent-${Date.now()}-${Math.random().toString(36).slice(2)}`
