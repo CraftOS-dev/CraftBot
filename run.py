@@ -1068,11 +1068,20 @@ def wait_for_backend_silent(timeout: int = 60) -> bool:
 
 
 def wait_for_frontend_silent(timeout: int = 30) -> bool:
-    """Wait for the frontend server to be ready (silent)."""
+    """Wait for a successful response containing the frontend's React root."""
     start = time.time()
     while time.time() - start < timeout:
-        if _instance.http_answers(_local_url(FRONTEND_PORT)):
-            return True
+        try:
+            # Probe the local listener directly, bypassing corporate proxies.
+            with _instance.loopback_opener().open(
+                _local_url(FRONTEND_PORT), timeout=2
+            ) as response:
+                if 200 <= response.status < 300 and b'id="root"' in response.read(
+                    65536
+                ):
+                    return True
+        except Exception:
+            pass
         time.sleep(0.5)
     return False
 
@@ -2156,22 +2165,29 @@ if __name__ == "__main__":
                 print("   Try running: cd app/ui_layer/browser/frontend && npm run dev")
                 sys.exit(1)
 
-            # The UI answers: tell craftbot.py, the launcher and the desktop
-            # shortcut where it is (the ports may not be the defaults).
-            try:
-                _instance.write_ui(FRONTEND_PORT, BACKEND_PORT)
-            except OSError as e:
-                print(f"Warning: could not write {_instance.UI_FILE}: {e}")
-            print_ready_banner(FRONTEND_URL)
-            if BIND_HOST not in ("localhost", "127.0.0.1", "::1", "[::1]"):
+            if not frontend_ready:
                 print(
-                    f"  Listening on {BIND_HOST} (ports {FRONTEND_PORT} and "
-                    f"{BACKEND_PORT}). Open {FRONTEND_URL} on this machine, or "
-                    "the same ports where they are published.\n",
+                    f"\nWarning: the browser interface is not responding at {FRONTEND_URL}",
                     flush=True,
                 )
-            if not no_open_browser:
-                webbrowser.open(FRONTEND_URL)
+                print("   Check the error messages above, then reload the page")
+            else:
+                # The UI answers: tell craftbot.py, the launcher and the desktop
+                # shortcut where it is (the ports may not be the defaults).
+                try:
+                    _instance.write_ui(FRONTEND_PORT, BACKEND_PORT)
+                except OSError as e:
+                    print(f"Warning: could not write {_instance.UI_FILE}: {e}")
+                print_ready_banner(FRONTEND_URL)
+                if BIND_HOST not in ("localhost", "127.0.0.1", "::1", "[::1]"):
+                    print(
+                        f"  Listening on {BIND_HOST} (ports {FRONTEND_PORT} and "
+                        f"{BACKEND_PORT}). Open {FRONTEND_URL} on this machine, or "
+                        "the same ports where they are published.\n",
+                        flush=True,
+                    )
+                if not no_open_browser:
+                    webbrowser.open(FRONTEND_URL)
 
             # Wait for the agent to finish (keeps script running). Updates
             # are handled by the external updater script (scripts/updater.bat)
