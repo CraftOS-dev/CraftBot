@@ -772,6 +772,8 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
     lastActiveAt: '',
     reasoningEffort: null,
     lastRequest: null,
+    lastFold: null,
+    folding: false,
   }
 
   return (

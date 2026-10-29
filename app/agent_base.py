@@ -467,6 +467,9 @@ class AgentBase:
         # Mirrors the RUN_STATE_CHANGED events so the UI can seed its
         # per-session busy state on connect.
         self.busy_sessions: set[str] = set()
+        # Sessions whose event stream a user-requested fold is summarizing
+        # (fold_session); the chat input's context button shows it.
+        self.folding_sessions: set[str] = set()
         self._extra_system_prompt: str = self._load_extra_system_prompt()
 
         # Scheduler for periodic tasks (memory processing, proactive checks, etc.)
@@ -565,6 +568,33 @@ class AgentBase:
             return False
         self._persist_llm_session(session_id)
         return True
+
+    async def fold_session(self, session_id: str) -> Optional[int]:
+        """Summarize a session's event stream now (/fold, the chat input's
+        context menu): the fold a request that would not fit gets, early.
+
+        Waits for a decision in flight (ActionRouter.fold_session), and the
+        session's next request starts afresh from the folded stream, so it is
+        safe mid-run too. Returns how many tokens the stream shrank by (0:
+        nothing to fold yet), or None when a fold of it is already running.
+        A failed summary call raises and leaves the stream as it was.
+        """
+        if session_id in self.folding_sessions:
+            return None
+        self.folding_sessions.add(session_id)
+        await self._notify_session_updated(session_id)
+        try:
+            freed = await self.action_router.fold_session(session_id)
+            if freed:
+                self._persist_session_stream(session_id)
+            return freed
+        finally:
+            self.folding_sessions.discard(session_id)
+            await self._notify_session_updated(session_id)
+
+    async def _notify_session_updated(self, session_id: str) -> None:
+        if self.ui_controller:
+            await self.ui_controller.notify_session_updated(session_id)
 
     def close_ui_artifact(self, session_id: str, artifact_id: str) -> int:
         """The user closed a Generative UI output: the session's events keep

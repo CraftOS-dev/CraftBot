@@ -8,11 +8,13 @@ based on user queries using LLM reasoning.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import ast
 from typing import Callable, Optional, List, Dict, Any, Tuple
 
-from agent_core.core.state import get_state, get_session_or_none
+from agent_core.core.hooks.usage import to_thread_with_usage
+from agent_core.core.state import StateSession, get_state, get_session_or_none
 from agent_core.decorators import profile, OperationCategory
 from agent_core.core.protocols.action import ActionLibraryProtocol
 from agent_core.core.protocols.context import ContextEngineProtocol
@@ -75,6 +77,9 @@ class ActionRouter:
         self.llm_interface = llm_interface
         self.context_engine = context_engine
         self.prompt_filter = prompt_filter
+        # Per session: held while a decision is made, so a fold the user asks
+        # for (fold_session) never lands while a request is in flight.
+        self._decision_locks: Dict[str, asyncio.Lock] = {}
 
     def _filter_prompt(self, prompt: str) -> str:
         """``prompt`` through the host's prompt_filter (unchanged on failure)."""
@@ -108,6 +113,53 @@ class ActionRouter:
         Raises:
             ValueError: If LLM returns invalid format 3 times consecutively.
         """
+        async with self._decision_lock(session_id):
+            return await self._select_action(query, session_id)
+
+    async def fold_session(self, session_id: str) -> int:
+        """Fold a session's event stream now, at the user's request (/fold).
+
+        The same fold a request that would not fit gets (see _fold), made
+        between decisions: it waits for one in flight, and the session's next
+        request starts afresh from the folded stream. Unlike a budget fold it
+        never drops events without a summary; a failed summary call raises.
+
+        Returns how many tokens the stream shrank by (0: nothing to fold).
+        """
+        async with self._decision_lock(session_id):
+            manager = get_event_stream_manager()
+            if manager is None or not manager.has_stream(session_id):
+                return 0
+            stream = manager.get_stream_by_id(session_id)
+            # The session's reasoning choice sets the input budget the fold
+            # keeps half the room of; its turns run bound the same way.
+            with StateSession.bind(session_id):
+                system_prompt, _ = self.context_engine.make_prompt(
+                    user_flags={"query": False, "expected_output": False},
+                    system_flags={"agent_info": True},
+                )
+                # The prompt around the stream as the session's decisions
+                # render it (the next turn's query is unknown here). A session
+                # without a turn since boot has no state to render it from.
+                static_prompt = None
+                if get_session_or_none(session_id) is not None:
+                    session_state, candidates_text = self._decision_inputs(
+                        session_id
+                    )
+                    static_prompt = self._decision_prompt(
+                        session_state, "", candidates_text
+                    )
+                # The summary call blocks: off the event loop.
+                return await to_thread_with_usage(
+                    self._fold, stream, system_prompt, static_prompt, prune=False
+                )
+
+    def _decision_lock(self, session_id: Optional[str]) -> asyncio.Lock:
+        return self._decision_locks.setdefault(session_id or "", asyncio.Lock())
+
+    def _decision_inputs(self, session_id: Optional[str]) -> Tuple[str, str]:
+        """The session state block and the formatted action candidates of a
+        session's decision prompt."""
         # The session's <actions> list (fixed by its type)
         compiled_actions = self._get_session_compiled_actions(session_id=session_id)
 
@@ -118,33 +170,46 @@ class ActionRouter:
         logger.info(
             f"ActionRouter using compiled action list: {len(action_candidates)} actions"
         )
+        return (
+            self.context_engine.get_session_state(session_id=session_id),
+            self._format_candidates(action_candidates),
+        )
 
-        # Build the instruction prompt for the LLM
-        session_state = self.context_engine.get_session_state(session_id=session_id)
-
-        decision_prompt_name = "SELECT_ACTION"
-        static_prompt = self._filter_prompt(
+    def _decision_prompt(
+        self,
+        session_state: str,
+        query: str,
+        candidates_text: str,
+        event_stream: str = "",
+    ) -> str:
+        """A decision prompt; without ``event_stream``, its static part."""
+        return self._filter_prompt(
             SELECT_ACTION_PROMPT.format(
                 session_state=session_state,
-                event_stream="",  # Empty for static prompt
+                event_stream=event_stream,
                 query=query,
-                action_candidates=self._format_candidates(action_candidates),
+                action_candidates=candidates_text,
             )
         )
-        candidates_text = self._format_candidates(action_candidates)
+
+    async def _select_action(
+        self, query: str, session_id: Optional[str]
+    ) -> List[Dict[str, Any]]:
+        """select_action_in_session, holding the session's decision lock."""
+        # Build the instruction prompt for the LLM
+        session_state, candidates_text = self._decision_inputs(session_id)
+
+        decision_prompt_name = "SELECT_ACTION"
+        static_prompt = self._decision_prompt(session_state, query, candidates_text)
 
         def render_prompt() -> str:
             # Rendered from the CURRENT stream, so a fold made while deciding
             # (see _prompt_for_decision) is reflected in what is sent.
-            return self._filter_prompt(
-                SELECT_ACTION_PROMPT.format(
-                    session_state=session_state,
-                    event_stream=self.context_engine.get_event_stream(
-                        session_id=session_id
-                    ),
-                    query=query,
-                    action_candidates=candidates_text,
-                )
+            return self._decision_prompt(
+                session_state,
+                query,
+                candidates_text,
+                self.context_engine.get_event_stream(session_id=session_id),
             )
 
         full_prompt = render_prompt()
@@ -213,7 +278,14 @@ class ActionRouter:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _fold(self, stream, system_prompt: str, static_prompt: Optional[str]) -> None:
+    def _fold(
+        self,
+        stream,
+        system_prompt: str,
+        static_prompt: Optional[str],
+        *,
+        prune: bool = True,
+    ) -> int:
         """Fold ``stream``, keeping as much recent history as the budget allows.
 
         A fold keeps context.keep_recent_tokens of recent events, but never
@@ -221,7 +293,9 @@ class ActionRouter:
         what a fold does not shrink: the system prompt, the prompt around
         the event stream (``static_prompt``) and the running summary. So
         every fold frees at least half of that room for new events, whatever
-        the model's window.
+        the model's window. ``prune``: see EventStream.summarize_by_LLM.
+
+        Returns how many tokens the stream shrank by.
         """
         from app.config import get_keep_recent_tokens
 
@@ -231,8 +305,9 @@ class ActionRouter:
             - count_tokens(static_prompt or "")
             - count_tokens(stream.head_summary or "")
         )
-        stream.summarize_by_LLM(
-            keep_tokens=min(get_keep_recent_tokens(), max(room, 0) // 2)
+        return stream.summarize_by_LLM(
+            keep_tokens=min(get_keep_recent_tokens(), max(room, 0) // 2),
+            prune=prune,
         )
 
     def _checkpoint(self, stream, task_id: str, call_type: str) -> None:

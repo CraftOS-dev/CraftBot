@@ -130,9 +130,14 @@ export interface SessionInfo {
   /** The session's last decision request as the provider reported it; null
    *  until its first request (also after a restart). */
   lastRequest: LastRequest | null
+  /** The event stream's latest fold; null when it has none since it was
+   *  created, restored or cleared. */
+  lastFold: LastFold | null
+  /** A fold the user asked for (/fold) is summarizing the event stream. */
+  folding: boolean
 }
 
-/** One LLM request's context size and cache use (the reasoning menu readout). */
+/** One LLM request's context size and cache use (the context menu readout). */
 export interface LastRequest {
   /** Input tokens the request carried, cached ones included. */
   inputTokens: number
@@ -143,6 +148,15 @@ export interface LastRequest {
   /** Where it was served and by which model: its cache belongs to them. */
   surface: string
   model: string
+}
+
+/** A fold that shrank a session's event stream. Until a request after it
+ *  reports its size, the context readout takes it off the last request's. */
+export interface LastFold {
+  /** Epoch ms when it was made. */
+  at: number
+  /** How many tokens the stream shrank by (the summary's growth subtracted). */
+  freedTokens: number
 }
 
 // ─────────────────────────────────────────────────────────────────────
