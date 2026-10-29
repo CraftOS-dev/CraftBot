@@ -980,6 +980,42 @@ def print_ready_banner(url: str):
     sys.stdout.flush()
 
 
+def _announce_startup(
+    frontend_ready: bool,
+    backend_ready: bool,
+    frontend_alive: bool,
+    backend_alive: bool,
+    open_browser: bool,
+    conda_env: Optional[str] = None,
+) -> None:
+    """Print the ready banner and open the browser, or say why not."""
+    if frontend_ready and backend_ready:
+        print_ready_banner(FRONTEND_URL)
+        if open_browser:
+            webbrowser.open(FRONTEND_URL)
+    elif not frontend_alive:
+        print("\n⚠ Error: Frontend server crashed")
+        print("   Check if Node.js and npm are properly installed")
+        print("   Try running: cd app/ui_layer/browser/frontend && npm run dev")
+    elif not backend_alive:
+        print("\n⚠ Error: Agent backend crashed")
+        print("   Check the error messages above for details")
+        if conda_env:
+            print(
+                f"   Try running: conda activate {conda_env} && python main.py --browser"
+            )
+    elif not frontend_ready:
+        # Not the ready banner: it is a ready signal (craftbot.py watches
+        # the log for it), and the UI is not being served.
+        print(f"\n⚠ Warning: the browser interface is not responding at {FRONTEND_URL}")
+        print("   Check the error messages above, then reload the page")
+    else:
+        # The backend may still be starting, but proceed anyway
+        print_ready_banner(FRONTEND_URL)
+        if open_browser:
+            webbrowser.open(FRONTEND_URL)
+
+
 def wait_for_backend_silent(timeout: int = 60) -> bool:
     """Wait for the agent backend WebSocket server to be ready (silent)."""
     start = time.time()
@@ -1000,16 +1036,17 @@ def wait_for_backend_silent(timeout: int = 60) -> bool:
 
 
 def wait_for_frontend_silent(timeout: int = 30) -> bool:
-    """Wait for the frontend dev server to be ready (silent)."""
+    """Wait for the frontend to serve the UI (silent).
+
+    Unlike the backend waits, any HTTP error (urlopen raises on 4xx/5xx)
+    means the UI cannot be served yet — a 404 is not "ready".
+    """
     start = time.time()
     while time.time() - start < timeout:
         try:
             with urllib.request.urlopen(FRONTEND_URL, timeout=2) as r:
                 if r.status < 400:
                     return True
-        except urllib.error.HTTPError as e:
-            if e.code < 500:
-                return True
         except Exception:
             pass
         time.sleep(0.5)
@@ -1640,40 +1677,8 @@ if __name__ == "__main__":
         print_step_done()
 
         # Wait for services silently (agent prints steps 3-8)
-        frontend_ready = False
-        backend_ready = False
-
-        # Wait for frontend
-        frontend_start = time.time()
-        while time.time() - frontend_start < 30:
-            try:
-                with urllib.request.urlopen(FRONTEND_URL, timeout=2) as r:
-                    if r.status < 400:
-                        frontend_ready = True
-                        break
-            except urllib.error.HTTPError as e:
-                if e.code < 500:
-                    frontend_ready = True
-                    break
-            except Exception:
-                pass
-            time.sleep(0.5)
-
-        # Wait for backend
-        backend_start = time.time()
-        while time.time() - backend_start < 60:
-            try:
-                with urllib.request.urlopen(BACKEND_URL, timeout=2) as r:
-                    if r.status < 400:
-                        backend_ready = True
-                        break
-            except urllib.error.HTTPError as e:
-                if e.code < 500:
-                    backend_ready = True
-                    break
-            except Exception:
-                pass
-            time.sleep(0.5)
+        frontend_ready = wait_for_frontend_silent(timeout=30)
+        backend_ready = wait_for_backend_silent(timeout=60)
 
         # Record the listeners into the owned-process ledger BEFORE waiting on
         # agent readiness: a port that answered is a process we spawned, and
@@ -1701,26 +1706,14 @@ if __name__ == "__main__":
         backend_alive = agent_process and agent_process.poll() is None
 
         # Print ready banner and open browser
-        if frontend_ready and backend_ready:
-            print_ready_banner(FRONTEND_URL)
-            if not no_open_browser:
-                webbrowser.open(FRONTEND_URL)
-        elif not frontend_alive:
-            print("\n⚠ Error: Frontend server crashed")
-            print("   Check if Node.js and npm are properly installed")
-            print("   Try running: cd app/ui_layer/browser/frontend && npm run dev")
-        elif not backend_alive:
-            print("\n⚠ Error: Agent backend crashed")
-            print("   Check the error messages above for details")
-            if use_conda:
-                print(
-                    f"   Try running: conda activate {env_name} && python main.py --browser"
-                )
-        else:
-            # Frontend or backend may still be starting, but proceed anyway
-            print_ready_banner(FRONTEND_URL)
-            if not no_open_browser:
-                webbrowser.open(FRONTEND_URL)
+        _announce_startup(
+            frontend_ready,
+            backend_ready,
+            frontend_alive,
+            backend_alive,
+            open_browser=not no_open_browser,
+            conda_env=env_name if use_conda else None,
+        )
 
         # Wait for agent to finish (keeps script running)
         # If the agent exits with code 42, it means an update was applied
