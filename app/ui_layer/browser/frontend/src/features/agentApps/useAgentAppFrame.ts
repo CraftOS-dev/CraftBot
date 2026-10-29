@@ -1,10 +1,12 @@
 import { useLayoutEffect, useRef, useState } from 'react'
 import { acquireIframe, frameUrl, isIframeLoaded, subscribeFrameHost } from './frameHost'
 import type { AgentAppProject } from '../../types'
+import { useAppSelector } from '../../store/hooks'
+import { selectNeedsTriggerReview } from '../../store/selectors/agentApp'
 
 /** Bind a persistent frame to a React surface without moving its DOM node. */
 export function useAgentAppFrame(project: AgentAppProject, active: boolean, moving: boolean, blocked: boolean) {
-  const needsReview = !!project.triggerConsent?.needsReview
+  const needsReview = useAppSelector(state => selectNeedsTriggerReview(state, project))
   const placeholder = useRef<HTMLDivElement>(null)
   const [status, setStatus] = useState<'loading' | 'ready' | 'timeout' | 'unavailable'>('loading')
   const [retry, setRetry] = useState(0)
