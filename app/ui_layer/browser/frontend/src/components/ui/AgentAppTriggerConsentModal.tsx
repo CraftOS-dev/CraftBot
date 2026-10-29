@@ -1,4 +1,6 @@
+import { useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useToast } from '../../contexts/ToastContext'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { dismissTriggerReview, savingTriggerConsent } from '../../store/slices/agentAppSlice'
 import { selectTriggerReviewProject } from '../../store/selectors/agentApp'
@@ -58,7 +60,18 @@ function RequestInputs({ params }: { params?: Record<string, unknown> }) {
 export function AgentAppTriggerConsentModal() {
   const { t } = useTranslation('agentapp')
   const dispatch = useAppDispatch()
-  const { triggerConsentRequest, triggerConsentError } = useAppSelector(s => s.agentApp)
+  const { triggerConsentRequest, triggerConsentError, triggerConsentApproval } = useAppSelector(s => s.agentApp)
+  const { showToast, dismissToastKey } = useToast()
+  const announcedApproval = useRef<string | null>(null)
+  useEffect(() => {
+    if (!triggerConsentApproval) {
+      dismissToastKey('agent-app-trigger-approved')
+      return
+    }
+    if (announcedApproval.current === triggerConsentApproval.requestId) return
+    announcedApproval.current = triggerConsentApproval.requestId
+    showToast('success', t('triggerConsent.approvalSaved'), undefined, { key: 'agent-app-trigger-approved' })
+  }, [triggerConsentApproval, showToast, dismissToastKey, t])
   const connected = useAppSelector(s => s.connection.connected)
   const project = useAppSelector(selectTriggerReviewProject)
   const consent = project?.triggerConsent
@@ -72,7 +85,7 @@ export function AgentAppTriggerConsentModal() {
     const requestId = typeof crypto?.randomUUID === 'function'
       ? crypto.randomUUID()
       : `trigger-consent-${Date.now()}-${Math.random().toString(36).slice(2)}`
-    dispatch(savingTriggerConsent({ projectId: project.id, requestId }))
+    dispatch(savingTriggerConsent({ projectId: project.id, requestId, allow }))
     getSocketClient().send('agent_app_trigger_consent', {
       projectId: project.id, revision: consent.revision, allow, requestId,
     })

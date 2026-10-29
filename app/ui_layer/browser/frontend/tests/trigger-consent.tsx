@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { Provider } from 'react-redux'
+import { ToastProvider } from '../src/contexts/ToastContext'
 import { getSocketClient } from '../src/store/socket/socketInstance'
 import { dispatchInbound } from '../src/store/socket/messageRegistry'
 import { setConnected } from '../src/store/slices/connectionSlice'
@@ -67,9 +68,11 @@ function ModalFixture() {
 
 createRoot(document.getElementById('root')!).render(new URLSearchParams(location.search).has('modal-test') ? <ModalFixture /> :
   <Provider store={store}>
+    <ToastProvider>
     <p>The app is running in the background.</p>
     <button onClick={() => store.dispatch(openTriggerReview(project.id))}>Review requests again</button>
     <button onClick={() => store.dispatch(openTriggerReview(otherProject.id))}>Review other app</button>
     <AgentAppTriggerConsentModal />
+    </ToastProvider>
   </Provider>,
 )
