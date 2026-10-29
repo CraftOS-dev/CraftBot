@@ -108,18 +108,30 @@ def test_authenticated_ui_handler_rejects_stale_review_and_broadcasts_decision(p
     revision = consent.status(project)["revision"]
     asyncio.run(
         adapter._handle_agent_app_trigger_consent(
-            {"projectId": project.id, "revision": "stale", "allow": True}
+            {
+                "projectId": project.id,
+                "revision": "stale",
+                "allow": True,
+                "requestId": "stale-request",
+            }
         )
     )
     assert adapter._broadcast.call_args.args[0]["data"]["success"] is False
+    assert adapter._broadcast.call_args.args[0]["data"]["requestId"] == "stale-request"
     assert consent.approved_trigger(project, "summarize") is None
     asyncio.run(
         adapter._handle_agent_app_trigger_consent(
-            {"projectId": project.id, "revision": revision, "allow": True}
+            {
+                "projectId": project.id,
+                "revision": revision,
+                "allow": True,
+                "requestId": "allow-request",
+            }
         )
     )
     result = adapter._broadcast.call_args.args[0]["data"]
     assert result["success"] and not result["consent"]["required"]
+    assert result["requestId"] == "allow-request"
     adapter._handle_agent_app_list.assert_awaited_once()
 
 
@@ -128,6 +140,35 @@ def test_copied_publisher_approval_does_not_authorize_another_app(project):
     imported = SimpleNamespace(id="different-import", path=project.path)
     assert consent.approved_trigger(imported, "summarize") is None
     assert consent.status(imported)["needsReview"]
+
+
+def test_failed_ui_save_preserves_correlation_and_does_not_grant(project, monkeypatch):
+    adapter = BrowserAdapter.__new__(BrowserAdapter)
+    adapter._agent_app_manager = SimpleNamespace(get_project=lambda pid: project)
+    adapter._broadcast = AsyncMock()
+    adapter._handle_agent_app_list = AsyncMock()
+
+    def fail_save(*args):
+        raise OSError("Consent storage is read-only")
+
+    monkeypatch.setattr(consent, "decide", fail_save)
+    asyncio.run(
+        adapter._handle_agent_app_trigger_consent(
+            {
+                "projectId": project.id,
+                "revision": consent.status(project)["revision"],
+                "allow": True,
+                "requestId": "failed-save-request",
+            }
+        )
+    )
+    result = adapter._broadcast.call_args.args[0]["data"]
+    assert result["success"] is False
+    assert result["requestId"] == "failed-save-request"
+    assert "read-only" in result["error"]
+    assert result["consent"]["needsReview"]
+    assert consent.approved_trigger(project, "summarize") is None
+    adapter._handle_agent_app_list.assert_not_awaited()
 
 
 def test_acquiring_an_app_clears_any_shipped_approval(project):

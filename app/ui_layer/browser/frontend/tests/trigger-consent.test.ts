@@ -1,6 +1,11 @@
 import { test, expect, type Page } from '@playwright/test'
 
 async function response(page: Page, data: Record<string, unknown>, type = 'agent_app_trigger_consent') {
+  await expect(page.getByText('The app is running in the background.')).toBeVisible()
+  if (type === 'agent_app_trigger_consent' && !('requestId' in data)) {
+    const sent = await requests(page)
+    data = { ...data, requestId: sent.filter(request => request.data.projectId === data.projectId).at(-1)?.data.requestId }
+  }
   await page.evaluate(({ type, data }) => {
     window.dispatchEvent(new CustomEvent('fixture-response', { detail: { type, data } }))
   }, { type, data })
@@ -26,10 +31,19 @@ test('first launch shows request review before any trigger fires; explicit allow
   await page.getByText('View instructions for CraftBot').click()
   await expect(page.getByText('Read the selected recording and prepare a summary.')).toBeVisible()
   await page.getByRole('button', { name: 'Allow requests', exact: true }).click()
-  expect(await requests(page)).toEqual([{ type: 'agent_app_trigger_consent', data: { projectId: 'notes', revision: 'review-v1', allow: true } }])
+  expect(await requests(page)).toEqual([{ type: 'agent_app_trigger_consent', data: { projectId: 'notes', revision: 'review-v1', allow: true, requestId: expect.any(String) } }])
   await expect(page.getByRole('button', { name: 'Keep requests off' })).toBeDisabled()
   await response(page, { projectId: 'notes', success: true, consent: reviewed })
   await expect(page.getByText('Allow requests from Audio Notes?')).toHaveCount(0)
+})
+
+test('approval correlation works when randomUUID is unavailable on an HTTP origin', async ({ page }) => {
+  await page.addInitScript(() => Object.defineProperty(crypto, 'randomUUID', { value: undefined }))
+  await page.goto('/tests/trigger-consent.html')
+  await page.getByRole('button', { name: 'Allow requests', exact: true }).click()
+  expect((await requests(page))[0].data.requestId).toBeTruthy()
+  await response(page, { projectId: 'notes', success: true, consent: reviewed })
+  await expect(page.getByRole('dialog')).toHaveCount(0)
 })
 
 test('declining keeps requests off and reopening remains available without repeated prompts', async ({ page }) => {
@@ -99,11 +113,125 @@ test('review has modal semantics, contains keyboard focus and restores its opene
   await page.keyboard.press('Tab')
   await expect(dialog.getByRole('button', { name: 'Close', exact: true })).toBeFocused()
   await page.keyboard.press('Escape')
-  expect((await requests(page))[0].data.allow).toBe(false)
-  await response(page, { projectId: 'notes', success: true, consent: { ...reviewed, required: true } })
+  expect(await requests(page)).toEqual([])
   await expect(dialog).toHaveCount(0)
   await expect(opener).toBeFocused()
   await expect(page.locator('#root')).not.toHaveAttribute('inert', '')
+})
+
+for (const close of ['button', 'Escape', 'backdrop']) {
+  test(`dismissing an approved review via ${close} preserves its permissions`, async ({ page }) => {
+    await page.goto('/tests/trigger-consent.html?no-requests')
+    await response(page, { projectId: 'notes', triggerConsent: reviewed }, 'agent_app_ready')
+    await page.getByRole('button', { name: 'Review requests again' }).click()
+    const dialog = page.getByRole('dialog')
+    await expect(dialog.getByText('Already allowed')).toBeVisible()
+    if (close === 'button') await dialog.getByRole('button', { name: 'Close', exact: true }).click()
+    else if (close === 'Escape') await page.keyboard.press('Escape')
+    else await page.mouse.click(5, 5)
+    await expect(dialog).toHaveCount(0)
+    expect(await requests(page)).toEqual([])
+    await page.getByRole('button', { name: 'Review requests again' }).click()
+    await expect(dialog.getByText('Already allowed')).toBeVisible()
+  })
+}
+
+test('dismissing an unapproved revision survives refresh events but a new revision prompts', async ({ page }) => {
+  await page.goto('/tests/trigger-consent.html')
+  await page.getByRole('button', { name: 'Close', exact: true }).click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  expect(await requests(page)).toEqual([])
+  const unapproved = { ...reviewed, required: true, needsReview: true }
+  await response(page, { projectId: 'notes', triggerConsent: unapproved }, 'agent_app_ready')
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await response(page, { projectId: 'notes', triggerConsent: { ...unapproved, revision: 'review-v2' } }, 'agent_app_ready')
+  await expect(page.getByRole('dialog')).toBeVisible()
+})
+
+test('dismissing queued reviews advances to the next app without changing permissions', async ({ page }) => {
+  await page.goto('/tests/trigger-consent.html?two-apps&queued-apps')
+  await expect(page.getByRole('dialog', { name: 'Allow requests from Audio Notes?' })).toBeVisible()
+  await page.keyboard.press('Escape')
+  const next = page.getByRole('dialog', { name: 'Allow requests from Calendar?' })
+  await expect(next).toBeFocused()
+  await next.getByRole('button', { name: 'Close', exact: true }).click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  expect(await requests(page)).toEqual([])
+})
+
+test('explicitly keeping an approved app off still revokes its permissions', async ({ page }) => {
+  await page.goto('/tests/trigger-consent.html?no-requests')
+  await response(page, { projectId: 'notes', triggerConsent: reviewed }, 'agent_app_ready')
+  await page.getByRole('button', { name: 'Review requests again' }).click()
+  await page.getByRole('button', { name: 'Keep requests off' }).click()
+  expect((await requests(page))[0].data.allow).toBe(false)
+  await response(page, { projectId: 'notes', success: true, consent: { ...reviewed, required: true,
+    triggers: [{ ...reviewed.triggers[0], change: 'new' }] } })
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Review requests again' }).click()
+  await expect(page.getByRole('dialog').getByText('New request')).toBeVisible()
+})
+
+test('failed consent save can be dismissed without a second write or renewed prompt', async ({ page }) => {
+  await page.goto('/tests/trigger-consent.html')
+  await page.getByRole('button', { name: 'Keep requests off' }).click()
+  await response(page, { projectId: 'notes', success: false, error: 'Could not save: access denied.',
+    consent: { ...reviewed, required: true, needsReview: true, triggers: [{ ...reviewed.triggers[0], change: 'new' }] } })
+  await expect(page.getByRole('alert')).toContainText('access denied')
+  await page.getByRole('button', { name: 'Close', exact: true }).click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  expect(await requests(page)).toHaveLength(1)
+  await response(page, { projectId: 'notes', triggerConsent: { ...reviewed, required: true, needsReview: true } }, 'agent_app_ready')
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Review requests again' }).click()
+  await expect(page.getByRole('dialog')).toBeVisible()
+  await page.getByRole('button', { name: 'Keep requests off' }).click()
+  expect(await requests(page)).toHaveLength(2)
+  await response(page, { projectId: 'notes', success: true, consent: { ...reviewed, required: true } })
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+})
+
+test('unrelated client responses update grants without closing or poisoning the current review', async ({ page }) => {
+  await page.goto('/tests/trigger-consent.html?two-apps&no-requests')
+  await page.getByRole('button', { name: 'Review requests again' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Allow requests from Audio Notes?' })
+  await response(page, { projectId: 'calendar', requestId: 'another-client', success: true, consent: reviewed })
+  await expect(dialog).toBeVisible()
+  await response(page, { projectId: 'notes', requestId: 'another-client', success: true, consent: reviewed })
+  await expect(dialog.getByText('Already allowed')).toBeVisible()
+  await response(page, { projectId: 'calendar', requestId: 'another-client', success: false, error: 'Foreign error' })
+  await expect(dialog.getByRole('alert')).toHaveCount(0)
+  await dialog.getByRole('button', { name: 'Close', exact: true }).click()
+  await page.getByRole('button', { name: 'Review other app' }).click()
+  await expect(page.getByRole('dialog', { name: 'Allow requests from Calendar?' }).getByText('Already allowed')).toBeVisible()
+})
+
+test('only the matching request settles a pending choice, including another client on the same app', async ({ page }) => {
+  await page.goto('/tests/trigger-consent.html?two-apps')
+  const dialog = page.getByRole('dialog', { name: 'Allow requests from Audio Notes?' })
+  await dialog.getByRole('button', { name: 'Allow requests', exact: true }).click()
+  const allow = dialog.getByRole('button', { name: 'Allow requests', exact: true })
+  for (const projectId of ['calendar', 'notes']) {
+    await response(page, { projectId, requestId: 'another-client', success: true, consent: reviewed })
+    await expect(dialog).toBeVisible()
+    await expect(allow).toBeDisabled()
+    await response(page, { projectId, requestId: 'another-client', success: false, error: 'Foreign error' })
+    await expect(dialog.getByRole('alert')).toHaveCount(0)
+    await expect(allow).toBeDisabled()
+  }
+  await response(page, { projectId: 'notes', requestId: null, success: true, consent: reviewed })
+  await expect(allow).toBeDisabled()
+  await response(page, { projectId: 'notes', success: false, error: 'Our save failed.', consent: reviewed })
+  await expect(dialog.getByRole('alert')).toContainText('Our save failed')
+  await response(page, { projectId: 'calendar', requestId: 'another-client', success: true, consent: reviewed })
+  await expect(dialog.getByRole('alert')).toContainText('Our save failed')
+  await allow.click()
+  const sent = await requests(page)
+  expect(sent[0].data.requestId).not.toBe(sent[1].data.requestId)
+  await response(page, { projectId: 'notes', requestId: sent[0].data.requestId, success: true, consent: reviewed })
+  await expect(allow).toBeDisabled()
+  await response(page, { projectId: 'notes', success: true, consent: reviewed })
+  await expect(dialog).toHaveCount(0)
 })
 
 for (const viewport of [{ width: 1280, height: 720 }, { width: 390, height: 844 }]) {

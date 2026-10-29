@@ -3527,6 +3527,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 "data": {
                     "success": error is None,
                     "projectId": project_id,
+                    "requestId": data.get("requestId"),
                     "consent": consent,
                     "error": error,
                 },

@@ -43,8 +43,9 @@ export interface AgentAppSnapshot {
 
 interface AgentAppState {
   triggerReviewId: string | null
-  triggerConsentSaving: boolean
-  triggerConsentError: string | null
+  dismissedTriggerReviews: Record<string, string>
+  triggerConsentRequest: { projectId: string; requestId: string } | null
+  triggerConsentError: { projectId: string; message: string } | null
   projects: AgentAppProject[]
   creating: AgentAppStatusUpdate | null
   todos: Record<string, AgentAppTodo[]>
@@ -69,7 +70,8 @@ function settlesInFlight(inFlight: AgentAppStatus, server: AgentAppStatus): bool
 
 const initialState: AgentAppState = {
   triggerReviewId: null,
-  triggerConsentSaving: false,
+  dismissedTriggerReviews: {},
+  triggerConsentRequest: null,
   triggerConsentError: null,
   listIsAuthoritative: true,
   catalogLoaded: false,
@@ -90,17 +92,33 @@ const agentAppSlice = createSlice({
       state.triggerReviewId = action.payload
       state.triggerConsentError = null
     },
-    savingTriggerConsent(state) {
-      state.triggerConsentSaving = true
+    dismissTriggerReview(state, action: PayloadAction<{ projectId: string; revision: string }>) {
+      const { projectId, revision } = action.payload
+      // Session-only suppression: no permission changes, and a new revision
+      // still prompts. This also lets the app open after a failed save.
+      state.dismissedTriggerReviews[projectId] = revision
+      if (state.triggerReviewId === projectId) state.triggerReviewId = null
+      if (state.triggerConsentError?.projectId === projectId) state.triggerConsentError = null
+    },
+    savingTriggerConsent(state, action: PayloadAction<{ projectId: string; requestId: string }>) {
+      state.triggerReviewId = action.payload.projectId
+      state.triggerConsentRequest = action.payload
       state.triggerConsentError = null
     },
-    receiveTriggerConsent(state, action: PayloadAction<{ projectId: string; consent?: AgentAppTriggerConsent; success: boolean; error?: string }>) {
+    receiveTriggerConsent(state, action: PayloadAction<{ projectId: string; requestId?: string; consent?: AgentAppTriggerConsent; success: boolean; error?: string }>) {
       const result = action.payload
-      state.triggerConsentSaving = false
-      state.triggerConsentError = result.error || null
-      if (result.success) state.triggerReviewId = null
+      const pending = state.triggerConsentRequest
+      // Snapshots are shared across clients; completion/error state belongs
+      // only to the browser decision that produced this response.
       if (result.consent) {
         state.projects = state.projects.map(p => p.id === result.projectId ? { ...p, triggerConsent: result.consent } : p)
+      }
+      if (!pending || pending.projectId !== result.projectId || pending.requestId !== result.requestId) return
+      state.triggerConsentRequest = null
+      state.triggerConsentError = result.error ? { projectId: result.projectId, message: result.error } : null
+      if (result.success) {
+        if (state.triggerReviewId === result.projectId) state.triggerReviewId = null
+        delete state.dismissedTriggerReviews[result.projectId]
       }
     },
     setProjects(state, action: PayloadAction<AgentAppProject[]>) {
@@ -292,7 +310,7 @@ const agentAppSlice = createSlice({
       if (!action.payload) {
         state.listIsAuthoritative = true
         state.catalogLoaded = false
-        state.triggerConsentSaving = false
+        state.triggerConsentRequest = null
       }
     })
   },
@@ -300,6 +318,7 @@ const agentAppSlice = createSlice({
 
 export const {
   openTriggerReview,
+  dismissTriggerReview,
   savingTriggerConsent,
   receiveTriggerConsent,
   setProjects,
@@ -420,5 +439,5 @@ register('agent_app_error', (data, dispatch) => {
 
 
 register('agent_app_trigger_consent', (data, dispatch) => {
-  dispatch(receiveTriggerConsent(data as { projectId: string; consent?: AgentAppTriggerConsent; success: boolean; error?: string }))
+  dispatch(receiveTriggerConsent(data as { projectId: string; requestId?: string; consent?: AgentAppTriggerConsent; success: boolean; error?: string }))
 })

@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
-import { openTriggerReview, savingTriggerConsent } from '../../store/slices/agentAppSlice'
+import { dismissTriggerReview, savingTriggerConsent } from '../../store/slices/agentAppSlice'
+import { selectTriggerReviewProject } from '../../store/selectors/agentApp'
 import { getSocketClient } from '../../store/socket/socketInstance'
 import { Button } from './Button'
 import { Modal, ModalBody, ModalFooter } from './Modal'
@@ -11,24 +12,29 @@ import styles from './AgentAppTriggerConsentModal.module.css'
 export function AgentAppTriggerConsentModal() {
   const { t } = useTranslation('agentapp')
   const dispatch = useAppDispatch()
-  const { projects, triggerReviewId, triggerConsentSaving, triggerConsentError } = useAppSelector(s => s.agentApp)
+  const { triggerConsentRequest, triggerConsentError } = useAppSelector(s => s.agentApp)
   const connected = useAppSelector(s => s.connection.connected)
-  const project = projects.find(p => p.id === triggerReviewId)
-    || projects.find(p => p.status === 'running' && p.triggerConsent?.needsReview)
+  const project = useAppSelector(selectTriggerReviewProject)
   const consent = project?.triggerConsent
   if (!project || !consent) return null
+  const saving = triggerConsentRequest?.projectId === project.id
+  const error = triggerConsentError?.projectId === project.id ? triggerConsentError.message : null
+  const dismiss = () => dispatch(dismissTriggerReview({ projectId: project.id, revision: consent.revision }))
 
   const choose = (allow: boolean) => {
-    if (consent.error) { dispatch(openTriggerReview(null)); return }
-    dispatch(savingTriggerConsent())
+    if (consent.error) { dismiss(); return }
+    const requestId = typeof crypto?.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `trigger-consent-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    dispatch(savingTriggerConsent({ projectId: project.id, requestId }))
     getSocketClient().send('agent_app_trigger_consent', {
-      projectId: project.id, revision: consent.revision, allow,
+      projectId: project.id, revision: consent.revision, allow, requestId,
     })
   }
 
   return (
     <Modal key={project.id} isOpen title={t('triggerConsent.title', { name: project.name })} size="md"
-      onClose={() => choose(false)} closeDisabled={triggerConsentSaving || !connected}>
+      onClose={dismiss} closeDisabled={saving}>
       <ModalBody>
         <p className={styles.intro}>{t('triggerConsent.intro', { name: project.name })}</p>
         <p className={styles.note}>{t('triggerConsent.scope')}</p>
@@ -47,14 +53,14 @@ export function AgentAppTriggerConsentModal() {
           ))}
         </ul>
         <p className={styles.note}>{t('triggerConsent.later')}</p>
-        {(triggerConsentError || consent.error) && <p role="alert">{triggerConsentError || consent.error}</p>}
+        {(error || consent.error) && <p role="alert">{error || consent.error}</p>}
         {!connected && <p role="alert">{t('triggerConsent.disconnected')}</p>}
       </ModalBody>
       <ModalFooter>
-        <Button variant="secondary" disabled={triggerConsentSaving || !connected} onClick={() => choose(false)}>
+        <Button variant="secondary" disabled={saving || !connected} onClick={() => choose(false)}>
           {t('triggerConsent.decline')}
         </Button>
-        <Button variant="primary" loading={triggerConsentSaving} disabled={!connected || !!consent.error} onClick={() => choose(true)}>
+        <Button variant="primary" loading={saving} disabled={!connected || !!consent.error} onClick={() => choose(true)}>
           {t('triggerConsent.allow')}
         </Button>
       </ModalFooter>

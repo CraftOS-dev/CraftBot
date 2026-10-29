@@ -37,7 +37,10 @@ if (new URLSearchParams(location.search).has('many-requests')) {
     instruction: `Instructions for request ${index + 1}. `.repeat(20), change: 'new',
   }))
 }
-store.dispatch(setProjects([project]))
+const otherProject: AgentAppProject = { ...project, id: 'calendar', name: 'Calendar',
+  triggerConsent: { ...project.triggerConsent!, revision: 'calendar-v1', required: true,
+    needsReview: new URLSearchParams(location.search).has('queued-apps') } }
+store.dispatch(setProjects(new URLSearchParams(location.search).has('two-apps') ? [project, otherProject] : [project]))
 window.addEventListener('fixture-response', event => {
   dispatchInbound((event as CustomEvent).detail, store.dispatch, store.getState)
 })
@@ -66,6 +69,7 @@ createRoot(document.getElementById('root')!).render(new URLSearchParams(location
   <Provider store={store}>
     <p>The app is running in the background.</p>
     <button onClick={() => store.dispatch(openTriggerReview(project.id))}>Review requests again</button>
+    <button onClick={() => store.dispatch(openTriggerReview(otherProject.id))}>Review other app</button>
     <AgentAppTriggerConsentModal />
   </Provider>,
 )

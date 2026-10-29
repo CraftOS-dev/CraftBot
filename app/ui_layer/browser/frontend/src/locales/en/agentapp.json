@@ -7,7 +7,7 @@
     "new": "New request",
     "changed": "Changed request",
     "approved": "Already allowed",
-    "later": "Keeping requests off leaves the app usable. You can review them again on the app page. New or changed requests will ask again. Earlier blocked requests will not run automatically.",
+    "later": "Keeping requests off leaves the app usable. Closing this review leaves your current permissions unchanged. You can review them again on the app page. New or changed requests will ask again. Earlier blocked requests will not run automatically.",
     "allow": "Allow requests",
     "decline": "Keep requests off",
     "on": "This app can send approved requests to CraftBot.",
