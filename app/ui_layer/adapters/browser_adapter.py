@@ -4450,8 +4450,13 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         """SessionInfo wire shape for a Session."""
         from agent_core.core.impl.llm import LLMCallType
 
-        usage = self._controller.agent.llm.last_request(
-            session.id, LLMCallType.ACTION_SELECTION
+        agent = self._controller.agent
+        usage = agent.llm.last_request(session.id, LLMCallType.ACTION_SELECTION)
+        streams = agent.event_stream_manager
+        fold = (
+            streams.get_stream_by_id(session.id).last_fold
+            if streams.has_stream(session.id)
+            else None
         )
         return {
             "id": session.id,
@@ -4461,7 +4466,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             "lastActiveAt": session.last_active_at,
             "agentAppProjectId": session.agent_app_project_id,
             "reasoningEffort": session.reasoning_effort,
-            # The last decision request, for the reasoning menu's context and
+            # The last decision request, for the context menu's context and
             # cache readout; null until the session's first request.
             "lastRequest": (
                 {
@@ -4474,6 +4479,15 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 if usage is not None
                 else None
             ),
+            # The stream's latest fold: until a request after it reports its
+            # size, the readout takes it off the last request's.
+            "lastFold": (
+                {"at": round(fold.at * 1000), "freedTokens": fold.freed_tokens}
+                if fold is not None
+                else None
+            ),
+            # A fold the user asked for (/fold) is summarizing the stream.
+            "folding": session.id in agent.folding_sessions,
         }
 
     @staticmethod

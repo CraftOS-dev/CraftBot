@@ -92,3 +92,38 @@ hf-cache/
 # signed-in sessions), and their cross-process lock files. Its password
 # vault lives in .credentials/ (ignored above). Never commit.
 **/mini_browser_profile*
+
+# cloudflared, downloaded on first use by app/agent_app/sharing.py for
+# public share links. Platform binary, regenerable.
+app/bin/
+
+# Runtime state: the mascot pet, the terminal UI's view state, and the
+# session transcript the skill creator writes when it builds a skill.
+app/data/mascot/
+terminal_ui_state.json
+agent_file_system/SKILL_SOURCE_*.md
+agent_file_system/*.local-backup
+
+# Local scratch, not source: pages, screenshots, logs and files saved into
+# the repo root by browsing and debugging runs, plus personal research,
+# reports and data backups. The root logo and requirements.txt stay tracked.
+/*.html
+/*.js
+/*.pdf
+/*.pt
+/*.png
+!/craftbot_logo_1.png
+/*.txt
+!/requirements.txt
+/flights_*.md
+/diag_load.py
+/%ERR%
+/%OUT%
+/_agentapp_migration_backup/
+/_livingui_samples/
+/demo_video/
+/downloads/
+/reports/
+/research/
+/research_notes/
+/workspace/

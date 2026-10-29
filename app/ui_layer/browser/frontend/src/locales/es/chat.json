@@ -40,9 +40,28 @@
     "defaultTag": "Predeterminado",
     "notConfigurable": "El razonamiento no es ajustable en {{model}}",
     "clamped": "{{requested}} no está disponible en este modelo, así que se usa {{effective}}.",
+    "choice": {
+      "provider_default": "Predeterminado del proveedor",
+      "off": "Desactivado",
+      "minimal": "Mínimo",
+      "low": "Bajo",
+      "medium": "Medio",
+      "high": "Alto",
+      "xhigh": "Muy alto",
+      "max": "Máximo"
+    }
+  },
+  "contextWindow": {
+    "title": "Ventana de contexto",
+    "tooltip": "Contexto {{used}} / {{max}} ({{percent}})",
+    "header": "Contexto · {{model}}",
+    "fold": "Resumir ahora",
+    "folding": "Resumiendo…",
+    "foldHint": "Resume ahora los eventos anteriores para liberar contexto",
     "context": {
       "label": "Contexto",
-      "summarizesAt": "Se resume al llegar a {{max}}"
+      "summarizesAt": "Se resume al llegar a {{max}}",
+      "estimate": "~{{value}}"
     },
     "cache": {
       "label": "Caché",
@@ -53,16 +72,6 @@
       "about": "~{{time}}",
       "expired": "Caducada",
       "noExpiry": "Sin caducidad fija"
-    },
-    "choice": {
-      "provider_default": "Predeterminado del proveedor",
-      "off": "Desactivado",
-      "minimal": "Mínimo",
-      "low": "Bajo",
-      "medium": "Medio",
-      "high": "Alto",
-      "xhigh": "Muy alto",
-      "max": "Máximo"
     }
   },
   "reply": {

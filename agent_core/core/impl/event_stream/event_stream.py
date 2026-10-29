@@ -14,6 +14,7 @@ APIs:
 """
 
 from __future__ import annotations
+from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
 import re
@@ -62,6 +63,15 @@ PROTECTED_SUMMARY_KINDS = frozenset({"requirements"})
 # prefix, so we refresh at most every 30 min (plus once right after every
 # summarization, which already invalidates the cache) rather than per minute.
 DATETIME_REFRESH_SECONDS = 30 * 60
+
+
+@dataclass(frozen=True)
+class FoldRecord:
+    """A fold that shrank the stream: when (epoch seconds), and by how many
+    tokens, the running summary's growth already subtracted."""
+
+    at: float
+    freed_tokens: int
 
 
 def get_cached_token_count(rec: "EventRecord") -> int:
@@ -116,6 +126,11 @@ class EventStream:
         # Session cache tracking: maps call_type -> event_index of last synced event
         # Used to track which events have been sent to each session cache
         self._session_sync_points: dict[str, int] = {}
+
+        # The latest fold that shrank the stream (None: none since it was
+        # created, restored or cleared). Until the next request reports its
+        # size, the chat input's context readout subtracts it.
+        self.last_fold: Optional[FoldRecord] = None
 
     # ───────────────────────────── datetime tag ──────────────────────────
     def _append_datetime_event(self) -> None:
@@ -522,15 +537,33 @@ class EventStream:
                 )
             return reclaimed
 
-    def summarize_by_LLM(self, keep_tokens: int) -> None:
+    def summarize_by_LLM(self, keep_tokens: int, *, prune: bool = True) -> int:
         """
         Summarize the oldest tail events using the language model, keeping
         about ``keep_tokens`` of the most recent events verbatim.
 
+        ``prune``: when the oldest events cannot be summarized (too few tokens
+        to be worth an LLM call, or the call fails), drop them without a
+        summary anyway. A fold the context budget requires must free room; a
+        fold the user asks for passes False, and then a failed summary call
+        raises and leaves the stream as it was.
+
         This is a SYNCHRONOUS blocking call that holds the lock for the entire
         duration, including the LLM call. This ensures no events can be added
         while summarization is in progress.
+
+        Returns how many tokens the stream shrank by (0: unchanged).
         """
+        with self._lock:
+            before = self._total_tokens + count_tokens(self.head_summary or "")
+            self._summarize(keep_tokens, prune)
+            freed = before - self._total_tokens - count_tokens(self.head_summary or "")
+            if freed:
+                self.last_fold = FoldRecord(at=time.time(), freed_tokens=freed)
+            return freed
+
+    def _summarize(self, keep_tokens: int, prune: bool) -> None:
+        """summarize_by_LLM's fold. Caller holds the lock."""
         if not self.tail_events:
             return
 
@@ -591,6 +624,9 @@ class EventStream:
 
         chunk_tokens = sum(get_cached_token_count(r) for r in chunk)
         if chunk_tokens < MIN_FOLD_TOKENS:
+            if not prune:
+                # Too little to summarize, and this fold may not drop it.
+                return
             # The foldable region is smaller than the LLM call is worth — the tail
             # is dominated by events we're required to keep (protected kinds, the
             # recent-event pin, or events the model has not received yet). Prune
@@ -661,6 +697,8 @@ class EventStream:
                 logger.warning(
                     "[EVENT STREAM SUMMARIZATION] LLM returned empty summary; not updating."
                 )
+                if not prune:
+                    raise RuntimeError("The model returned an empty summary.")
                 return
 
             # Apply summary and prune events
@@ -686,6 +724,8 @@ class EventStream:
             )
 
         except Exception:
+            if not prune:
+                raise
             logger.exception(
                 "[EventStream] LLM summarization failed. "
                 "Pruning oldest events without a summary to prevent retry spam."
@@ -787,6 +827,7 @@ class EventStream:
         self.tail_events.clear()
         self._total_tokens = 0
         self._session_sync_points.clear()
+        self.last_fold = None
         # A new stream: its first event gets a fresh datetime marker.
         self._last_datetime_ts = None
 

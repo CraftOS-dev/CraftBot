@@ -40,9 +40,28 @@
     "defaultTag": "기본값",
     "notConfigurable": "{{model}}에서는 추론을 조정할 수 없습니다",
     "clamped": "이 모델에서는 {{requested}}을(를) 사용할 수 없어 {{effective}}을(를) 사용합니다.",
+    "choice": {
+      "provider_default": "제공자 기본값",
+      "off": "끄기",
+      "minimal": "최소",
+      "low": "낮음",
+      "medium": "보통",
+      "high": "높음",
+      "xhigh": "매우 높음",
+      "max": "최대"
+    }
+  },
+  "contextWindow": {
+    "title": "컨텍스트 창",
+    "tooltip": "컨텍스트 {{used}} / {{max}} ({{percent}})",
+    "header": "컨텍스트 · {{model}}",
+    "fold": "지금 요약",
+    "folding": "요약 중…",
+    "foldHint": "이전 이벤트를 지금 요약해 컨텍스트 확보",
     "context": {
       "label": "컨텍스트",
-      "summarizesAt": "{{max}}에서 요약"
+      "summarizesAt": "{{max}}에서 요약",
+      "estimate": "~{{value}}"
     },
     "cache": {
       "label": "캐시",
@@ -53,16 +72,6 @@
       "about": "~{{time}}",
       "expired": "만료됨",
       "noExpiry": "고정 만료 없음"
-    },
-    "choice": {
-      "provider_default": "제공자 기본값",
-      "off": "끄기",
-      "minimal": "최소",
-      "low": "낮음",
-      "medium": "보통",
-      "high": "높음",
-      "xhigh": "매우 높음",
-      "max": "최대"
     }
   },
   "reply": {

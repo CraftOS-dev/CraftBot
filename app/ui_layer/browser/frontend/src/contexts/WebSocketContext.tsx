@@ -134,6 +134,8 @@ interface WebSocketContextType extends WebSocketState {
   // Reasoning picker: a session's choice (the draft view keeps it locally
   // until its first message creates the session)
   setSessionReasoning: (sessionId: string, choice: ReasoningChoice) => void
+  /** Summarize a session's event stream now (/fold; the context button). */
+  foldSession: (sessionId: string) => void
   requestChatHistory: (sessionId: string, beforeTimestamp?: number, limit?: number) => void
   // Per-session unread tracking (read with UI_STATE.chat.lastSeenMessageIds)
   markSessionSeen: (sessionId: string) => void
@@ -516,6 +518,14 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     sendOrQueue(JSON.stringify({ type: 'session_reasoning_set', sessionId, reasoningEffort: choice }))
   }, [sendOrQueue, dispatch, store])
 
+  // The same /fold a typed command sends. Optimistic: the context button
+  // spins at once; the server's session_updated broadcasts are authoritative.
+  const foldSession = useCallback((sessionId: string) => {
+    const session = selectSessionById(store.getState(), sessionId)
+    if (session) dispatch(upsertSession({ ...session, folding: true }))
+    sendCommand('/fold', sessionId)
+  }, [sendCommand, dispatch, store])
+
   const requestChatHistory = useCallback((
     sessionId: string,
     beforeTimestamp?: number,
@@ -766,6 +776,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     clearSession,
     closeGenerativeUI,
     setSessionReasoning,
+    foldSession,
     requestChatHistory,
     markSessionSeen,
     openFile,
@@ -798,7 +809,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     updateAgentAppTheme,
   }), [
     state, sendMessage, retryMessage, editMessage, sendCommand, stopSession, deleteSession, renameSession, clearSession, closeGenerativeUI,
-    setSessionReasoning, requestChatHistory, markSessionSeen, openFile, openFolder, requestFilteredMetrics,
+    setSessionReasoning, foldSession, requestChatHistory, markSessionSeen, openFile, openFolder, requestFilteredMetrics,
     subscribeDashboardMetrics, unsubscribeDashboardMetrics, requestOnboardingStep,
     submitOnboardingStep, skipOnboardingStep, goBackOnboardingStep, checkLocalLLM,
     testLocalLLMConnection, installLocalLLM, startLocalLLM, requestSuggestedModels, pullOllamaModel,
