@@ -893,6 +893,14 @@ export interface AgentAppTriggerConsent {
   }>
 }
 
+export interface AgentAppTriggerBlocked {
+  projectId: string
+  projectName: string
+  trigger: string
+  requestId: string
+  consent: AgentAppTriggerConsent
+}
+
 export interface AgentAppProject {
   triggerConsent?: AgentAppTriggerConsent
   id: string
