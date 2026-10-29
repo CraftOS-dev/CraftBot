@@ -1212,7 +1212,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         # Integration bridge routes (Agent App → external APIs)
         from app.agent_app.integration_bridge import IntegrationBridge
 
-        self._integration_bridge = IntegrationBridge(self._agent_app_manager)
+        self._integration_bridge = IntegrationBridge(
+            self._agent_app_manager,
+            on_trigger_blocked=self._broadcast_agent_app_trigger_blocked,
+        )
         self._integration_bridge.register_routes(self._app)
 
         # Serve Vite-built frontend (production)
@@ -2244,6 +2247,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
         elif msg_type == "agent_app_list":
             await self._handle_agent_app_list()
+
+        elif msg_type == "agent_app_trigger_consent":
+            await self._handle_agent_app_trigger_consent(data)
 
         elif msg_type == "agent_app_launch":
             project_id = data.get("projectId", "")
@@ -3500,6 +3506,60 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
             )
 
+    async def _broadcast_agent_app_trigger_blocked(
+        self, project_id: str, trigger: str, request_id: str
+    ) -> None:
+        from app.agent_app.trigger_consent import status
+
+        project = self._agent_app_manager.get_project(project_id)
+        if project is None:
+            return
+        await self._broadcast(
+            {
+                "type": "agent_app_trigger_blocked",
+                "data": {
+                    "projectId": project_id,
+                    "projectName": project.name,
+                    "trigger": trigger,
+                    "requestId": request_id,
+                    "consent": status(project),
+                },
+            }
+        )
+
+    async def _handle_agent_app_trigger_consent(self, data: dict) -> None:
+        """An authenticated UI decision about the definitions actually displayed."""
+        from app.agent_app.trigger_consent import decide, status
+
+        project_id = data.get("projectId", "")
+        project = self._agent_app_manager.get_project(project_id)
+        error = None
+        consent = None
+        try:
+            if project is None:
+                raise ValueError("App not found.")
+            if not isinstance(data.get("allow"), bool):
+                raise ValueError("Choose whether to allow agent requests.")
+            consent = decide(project, data.get("revision", ""), data["allow"])
+        except Exception as exc:
+            error = str(exc)
+            if project is not None:
+                consent = status(project)
+        await self._broadcast(
+            {
+                "type": "agent_app_trigger_consent",
+                "data": {
+                    "success": error is None,
+                    "projectId": project_id,
+                    "requestId": data.get("requestId"),
+                    "consent": consent,
+                    "error": error,
+                },
+            }
+        )
+        if error is None:
+            await self._handle_agent_app_list()
+
     async def _handle_agent_app_launch(self, project_id: str) -> None:
         """Launch a Agent App project."""
         try:
@@ -3515,6 +3575,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                             "projectId": project_id,
                             "url": project.url,
                             "port": project.port,
+                            "triggerConsent": project.trigger_consent_status(),
                         },
                     }
                 )
@@ -4200,6 +4261,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         "url": project.url if project else url,
                         "port": project.port if project else port,
                         "sessionId": project.session_id if project else None,
+                        "triggerConsent": project.trigger_consent_status()
+                        if project
+                        else None,
                     },
                 }
             )
@@ -8769,6 +8833,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         "url": result.get("url"),
                         "port": result["project"].get("port"),
                         "sessionId": result["project"].get("sessionId"),
+                        "triggerConsent": result["project"].get("triggerConsent"),
                     },
                 }
             )

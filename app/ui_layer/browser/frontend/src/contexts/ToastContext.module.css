@@ -20,7 +20,7 @@
   cursor: pointer;
   pointer-events: auto;
   animation: slideIn 0.2s ease-out;
-  max-width: 360px;
+  max-width: min(360px, calc(100vw - 2 * var(--space-4)));
 }
 
 @keyframes slideIn {

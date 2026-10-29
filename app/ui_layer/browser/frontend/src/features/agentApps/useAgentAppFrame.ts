@@ -1,9 +1,12 @@
 import { useLayoutEffect, useRef, useState } from 'react'
 import { acquireIframe, frameUrl, isIframeLoaded, subscribeFrameHost } from './frameHost'
 import type { AgentAppProject } from '../../types'
+import { useAppSelector } from '../../store/hooks'
+import { selectNeedsTriggerReview } from '../../store/selectors/agentApp'
 
 /** Bind a persistent frame to a React surface without moving its DOM node. */
 export function useAgentAppFrame(project: AgentAppProject, active: boolean, moving: boolean, blocked: boolean) {
+  const needsReview = useAppSelector(state => selectNeedsTriggerReview(state, project))
   const placeholder = useRef<HTMLDivElement>(null)
   const [status, setStatus] = useState<'loading' | 'ready' | 'timeout' | 'unavailable'>('loading')
   const [retry, setRetry] = useState(0)
@@ -18,7 +21,7 @@ export function useAgentAppFrame(project: AgentAppProject, active: boolean, movi
 
   useLayoutEffect(() => {
     const element = placeholder.current
-    if (!active || project.status !== 'running' || !project.url || !element) return
+    if (!active || needsReview || project.status !== 'running' || !project.url || !element) return
     const base = frameUrl(project.url)
     let lease: ReturnType<typeof acquireIframe>
     try {
@@ -94,7 +97,7 @@ export function useAgentAppFrame(project: AgentAppProject, active: boolean, movi
     }
     // Ownership changes wake only a surface that failed to acquire. Successful
     // leases must not release/reacquire in response to their own release event.
-  }, [project.id, project.status, project.url, project.readyAt, active, retry, hostVersion])
+  }, [project.id, project.status, project.url, project.readyAt, active, needsReview, retry, hostVersion])
 
   useLayoutEffect(() => {
     refresh.current()

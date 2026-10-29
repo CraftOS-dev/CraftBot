@@ -10,6 +10,7 @@ import { ConstructionDock } from '../../pages/AgentApp/ConstructionDock'
 import type { AgentAppBuildEvent, AgentAppProject } from '../../types'
 import { useAgentAppFrame } from './useAgentAppFrame'
 import { useAgentAppTheme } from './useAgentAppTheme'
+import { AgentAppTriggerConsentBanner } from './AgentAppTriggerConsentBanner'
 import styles from './AgentAppSurface.module.css'
 
 const EMPTY_EVENTS: AgentAppBuildEvent[] = []
@@ -39,6 +40,8 @@ export function AgentAppSurface({ project, active = true, moving = false, blocke
   const errorText = project.error || (project.status === 'error' ? t('common:status.unknownError') : '')
   return <div className={styles.surface}>
     {!themeManaged && <ThemeBridge key={project.id} project={project} />}
+    <AgentAppTriggerConsentBanner project={project} />
+    <div className={styles.view}>
     {project.status === 'running' && project.url ? <>
       <div ref={frame.placeholder} className={styles.placeholder} />
       {frame.status !== 'ready' && <div className={styles.notice} role="status">
@@ -59,5 +62,6 @@ export function AgentAppSurface({ project, active = true, moving = false, blocke
         {project.status === 'error' && onDelete && <Button variant="secondary" onClick={onDelete}>{t('agentapp:page.deleteProject')}</Button>}
         {!connected && <p>{t('chat:apps.disconnected')}</p>}
       </div>}
+    </div>
   </div>
 }
