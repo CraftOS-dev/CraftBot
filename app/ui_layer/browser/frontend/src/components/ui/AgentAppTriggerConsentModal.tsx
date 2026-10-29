@@ -27,7 +27,7 @@ export function AgentAppTriggerConsentModal() {
   }
 
   return (
-    <Modal isOpen title={t('triggerConsent.title', { name: project.name })} size="md"
+    <Modal key={project.id} isOpen title={t('triggerConsent.title', { name: project.name })} size="md"
       onClose={() => choose(false)} closeDisabled={triggerConsentSaving || !connected}>
       <ModalBody>
         <p className={styles.intro}>{t('triggerConsent.intro', { name: project.name })}</p>
