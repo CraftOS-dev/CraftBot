@@ -4,6 +4,7 @@
 
   "model_no_model_specified": "Tidak ada model yang ditentukan",
   "model_test_failed": "Pengujian gagal",
+  "model_api_key_in_use": "Kunci ini adalah satu-satunya kredensial untuk {provider}, penyedia model aktif Anda. Pilih penyedia lain sebelum menghapusnya.",
 
   "agentapp_name_desc_required": "Nama dan deskripsi wajib diisi",
   "agentapp_project_created": "Proyek dibuat, memulai pengembangan...",

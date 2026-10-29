@@ -4,6 +4,7 @@
 
   "model_no_model_specified": "未指定模型",
   "model_test_failed": "测试失败",
+  "model_api_key_in_use": "此密钥是当前模型供应商 {provider} 的唯一凭据。请先选择其他供应商，再移除它。",
 
   "agentapp_name_desc_required": "名称和描述为必填项",
   "agentapp_project_created": "项目已创建，正在开始开发…",

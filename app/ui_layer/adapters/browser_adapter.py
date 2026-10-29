@@ -74,6 +74,7 @@ from app.ui_layer.settings import (
     get_available_providers,
     get_model_settings,
     update_model_settings,
+    remove_api_key,
     test_connection,
     validate_can_save,
     get_ollama_models,
@@ -1892,6 +1893,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
         elif msg_type == "model_settings_update":
             await self._handle_model_settings_update(data)
+
+        elif msg_type == "model_api_key_remove":
+            await self._handle_model_api_key_remove(data.get("provider", ""))
 
         elif msg_type == "model_connection_test":
             provider = data.get("provider", "")
@@ -6520,6 +6524,56 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         "success": False,
                         "error": str(e),
                     },
+                }
+            )
+
+    async def _handle_model_api_key_remove(self, provider: str) -> None:
+        """Delete a provider's stored API key.
+
+        The LLM/VLM needs no reinit: remove_api_key refuses the active
+        provider's only credential, so the active model is either another
+        provider or signed in with a subscription, which the factory prefers
+        over the key. Fallback providers re-check their key on every walk.
+        Image and video generation hold the key in their live client, so they
+        are rebuilt from the updated settings even when that leaves them
+        without a credential.
+        """
+        try:
+            async with self._model_change_lock():
+                result = await asyncio.to_thread(remove_api_key, provider)
+                if result.get("success"):
+                    agent = self._controller.agent
+                    if result.get("image_gen_provider") == provider:
+                        try:
+                            agent.reinitialize_image_gen(
+                                provider, keep_live_on_failure=False
+                            )
+                        except Exception as e:
+                            logger.warning(
+                                f"[BROWSER] Image gen rebuild after {provider} "
+                                f"API key removal failed: {e}"
+                            )
+                    if result.get("video_gen_provider") == provider:
+                        try:
+                            agent.reinitialize_video_gen(
+                                provider, keep_live_on_failure=False
+                            )
+                        except Exception as e:
+                            logger.warning(
+                                f"[BROWSER] Video gen rebuild after {provider} "
+                                f"API key removal failed: {e}"
+                            )
+            await self._broadcast(
+                {
+                    "type": "model_api_key_remove",
+                    "data": {**result, "provider": provider},
+                }
+            )
+        except Exception as e:
+            await self._broadcast(
+                {
+                    "type": "model_api_key_remove",
+                    "data": {"success": False, "provider": provider, "error": str(e)},
                 }
             )
 

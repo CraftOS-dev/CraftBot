@@ -3626,7 +3626,9 @@ class AgentBase:
 
         return llm_ok and vlm_ok
 
-    def reinitialize_image_gen(self, provider: str | None = None) -> bool:
+    def reinitialize_image_gen(
+        self, provider: str | None = None, *, keep_live_on_failure: bool = True
+    ) -> bool:
         """Reinitialize the image generation interface with updated configuration.
 
         Creates a fresh ImageGenInterface instance rather than mutating the
@@ -3635,6 +3637,10 @@ class AgentBase:
 
         Args:
             provider: Optional provider to switch to. If None, reads from settings.
+            keep_live_on_failure: Keep the current interface when the new one
+                cannot initialize, so a failed Save can roll its settings
+                back. False swaps in the uninitialized interface (as at
+                startup), so a removed API key stops being used at once.
 
         Returns:
             True if reinitialization was successful.
@@ -3651,10 +3657,10 @@ class AgentBase:
             provider=target_provider,
             model=model,
             api_key=api_key,
-            deferred=False,
+            deferred=not keep_live_on_failure,
         )
         ok = new_interface.is_initialized
-        if ok:
+        if ok or not keep_live_on_failure:
             self.image_gen = new_interface
             InternalActionInterface.image_gen_interface = new_interface
         logger.info(
@@ -3662,7 +3668,9 @@ class AgentBase:
         )
         return ok
 
-    def reinitialize_video_gen(self, provider: str | None = None) -> bool:
+    def reinitialize_video_gen(
+        self, provider: str | None = None, *, keep_live_on_failure: bool = True
+    ) -> bool:
         """Reinitialize the video generation interface with updated configuration.
 
         Creates a fresh VideoGenInterface instance rather than mutating the
@@ -3671,6 +3679,10 @@ class AgentBase:
 
         Args:
             provider: Optional provider to switch to. If None, reads from settings.
+            keep_live_on_failure: Keep the current interface when the new one
+                cannot initialize, so a failed Save can roll its settings
+                back. False swaps in the uninitialized interface (as at
+                startup), so a removed API key stops being used at once.
 
         Returns:
             True if reinitialization was successful.
@@ -3687,10 +3699,10 @@ class AgentBase:
             provider=target_provider,
             model=model,
             api_key=api_key,
-            deferred=False,
+            deferred=not keep_live_on_failure,
         )
         ok = new_interface.is_initialized
-        if ok:
+        if ok or not keep_live_on_failure:
             self.video_gen = new_interface
             InternalActionInterface.video_gen_interface = new_interface
         logger.info(

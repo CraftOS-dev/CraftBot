@@ -126,7 +126,9 @@
       "slowModeDisabled": "느린 모드가 비활성화되었습니다",
       "slowModeFailed": "느린 모드를 업데이트하지 못했습니다",
       "installFailed": "설치 실패",
-      "openingBrowser": "{{provider}}(으)로 로그인하기 위해 브라우저를 여는 중…"
+      "openingBrowser": "{{provider}}(으)로 로그인하기 위해 브라우저를 여는 중…",
+      "apiKeyRemoved": "API 키를 제거했습니다",
+      "apiKeyRemoveFailed": "API 키를 제거하지 못했습니다"
     },
     "ollama": {
       "notDetected": "Ollama가 감지되지 않음",
@@ -162,7 +164,10 @@
       "replacePlaceholder": "교체할 새 키를 입력하세요...",
       "enterPlaceholder": "API 키를 입력하세요...",
       "proxyConfigured": "OpenRouter가 구성되어 있으며, 해당 지역에서 직접 API를 사용할 수 없는 경우 자동으로 사용됩니다.",
-      "proxyFallback": "이 공급자는 지역 제한이 있을 수 있습니다. 직접 API가 실패하면 OpenRouter를 대체 수단으로 구성하세요 — 자동으로 사용됩니다."
+      "proxyFallback": "이 공급자는 지역 제한이 있을 수 있습니다. 직접 API가 실패하면 OpenRouter를 대체 수단으로 구성하세요 — 자동으로 사용됩니다.",
+      "removeLocked": "현재 모델이 이 키를 사용하고 있습니다. 제거하기 전에 다른 공급자로 전환하세요.",
+      "removeTitle": "API 키 제거",
+      "removeConfirm": "저장된 {{provider}} API 키를 삭제할까요? 다시 사용하려면 키를 다시 입력해야 합니다."
     },
     "bedrock": {
       "accessKeyId": "AWS 액세스 키 ID",
@@ -235,7 +240,9 @@
       "priceUnit": "/M",
       "seeOpenRouter": "openrouter.ai 참조",
       "pasteSlug": "또는 슬러그를 붙여넣으세요:"
-    }
+    },
+    "inUse": "사용 중",
+    "notInUse": "사용 안 함"
   },
   "proactive": {
     "title": "능동적 동작",

@@ -4,6 +4,7 @@
 
   "model_no_model_specified": "モデルが指定されていません",
   "model_test_failed": "テストに失敗しました",
+  "model_api_key_in_use": "このキーは、使用中のモデルプロバイダー {provider} の唯一の認証情報です。削除する前に別のプロバイダーを選択してください。",
 
   "agentapp_name_desc_required": "名前と説明は必須です",
   "agentapp_project_created": "プロジェクトを作成しました。開発を開始しています...",

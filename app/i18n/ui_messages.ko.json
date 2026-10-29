@@ -4,6 +4,7 @@
 
   "model_no_model_specified": "지정된 모델이 없습니다",
   "model_test_failed": "테스트 실패",
+  "model_api_key_in_use": "이 키는 현재 사용 중인 모델 공급자 {provider}의 유일한 자격 증명입니다. 제거하기 전에 다른 공급자를 선택하세요.",
 
   "agentapp_name_desc_required": "이름과 설명은 필수입니다",
   "agentapp_project_created": "프로젝트가 생성되었습니다. 개발을 시작하는 중...",

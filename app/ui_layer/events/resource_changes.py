@@ -183,6 +183,7 @@ _RESOURCE_BY_MESSAGE_TYPE: Dict[str, Resource] = {
     **dict.fromkeys(
         (
             "model_settings_update",
+            "model_api_key_remove",
             "slow_mode_set",
             # Subscription sign-in/out also switches the active provider.
             "model_subscription_connect",
