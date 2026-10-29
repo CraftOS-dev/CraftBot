@@ -888,6 +888,7 @@ export interface AgentAppTriggerConsent {
     name: string
     description: string
     instruction: string
+    params?: Record<string, unknown>
     change: 'new' | 'changed' | 'approved'
   }>
 }

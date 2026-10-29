@@ -82,6 +82,49 @@ def test_stale_dialog_cannot_approve_new_instructions(project):
     assert consent.status(project)["needsReview"]
 
 
+def test_review_discloses_parameter_definitions_and_changed_defaults(project):
+    definition = {
+        "description": "Email a summary",
+        "instruction": "Email the summary to recipient.",
+        "params": {
+            "recipient": {
+                "type": "string",
+                "description": "Who receives the summary",
+                "required": True,
+                "default": "original@example.test",
+            },
+            "enabled": {"type": "boolean", "default": False},
+            "count": {"type": "number", "default": 0},
+            "suffix": {"type": "string", "default": ""},
+            "mode": {"type": "string", "enum": ["draft", "final"]},
+        },
+    }
+    write_triggers(project, {"send": definition})
+    initial = consent.status(project)
+    assert initial["triggers"][0]["params"] == definition["params"]
+    consent.decide(project, initial["revision"], True)
+
+    definition["params"]["recipient"]["default"] = "changed@example.test"
+    write_triggers(project, {"send": definition})
+    changed = consent.status(project)
+    assert changed["needsReview"]
+    assert changed["triggers"][0]["change"] == "changed"
+    assert (
+        changed["triggers"][0]["instruction"] == initial["triggers"][0]["instruction"]
+    )
+    assert changed["triggers"][0]["params"] == definition["params"]
+    assert (
+        initial["triggers"][0]["params"]["recipient"]["default"]
+        == "original@example.test"
+    )
+    assert consent.approved_trigger(project, "send") is None
+    with pytest.raises(consent.TriggerConsentError, match="changed"):
+        consent.decide(project, initial["revision"], True)
+    allowed = consent.decide(project, changed["revision"], True)
+    assert allowed["triggers"][0]["params"] == definition["params"]
+    assert consent.approved_trigger(project, "send")["params"] == definition["params"]
+
+
 def test_corrupt_definitions_and_consent_fail_closed(project):
     from pathlib import Path
 

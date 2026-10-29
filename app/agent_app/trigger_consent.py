@@ -71,6 +71,7 @@ def _status(declared: dict, decision: dict) -> dict:
             "name": name,
             "description": str(definition.get("description") or ""),
             "instruction": definition["instruction"],
+            "params": definition.get("params") or {},
             "change": (
                 "approved"
                 if approved.get(name) == _fingerprint(definition)
