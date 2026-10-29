@@ -4,6 +4,7 @@ import { setConnected } from './connectionSlice'
 import type {
   AgentAppProject,
   AgentAppTriggerConsent,
+  AgentAppTriggerBlocked,
   AgentAppStatus,
   AgentAppStatusUpdate,
   AgentAppStateUpdate,
@@ -42,6 +43,7 @@ export interface AgentAppSnapshot {
 }
 
 interface AgentAppState {
+  blockedTriggerRequests: Record<string, AgentAppTriggerBlocked>
   triggerReviewId: string | null
   dismissedTriggerReviews: Record<string, string>
   triggerConsentRequest: { projectId: string; requestId: string } | null
@@ -69,6 +71,7 @@ function settlesInFlight(inFlight: AgentAppStatus, server: AgentAppStatus): bool
 }
 
 const initialState: AgentAppState = {
+  blockedTriggerRequests: {},
   triggerReviewId: null,
   dismissedTriggerReviews: {},
   triggerConsentRequest: null,
@@ -84,10 +87,28 @@ const initialState: AgentAppState = {
   states: {},
 }
 
+function clearResolvedTriggerBlock(state: AgentAppState, projectId: string, consent: AgentAppTriggerConsent) {
+  const blocked = state.blockedTriggerRequests[projectId]
+  if (blocked && (blocked.consent.revision !== consent.revision || !consent.required
+    || consent.triggers.some(trigger => trigger.name === blocked.trigger && trigger.change === 'approved'))) {
+    delete state.blockedTriggerRequests[projectId]
+  }
+}
+
 const agentAppSlice = createSlice({
   name: 'agentApp',
   initialState,
   reducers: {
+    receiveTriggerBlocked(state, action: PayloadAction<AgentAppTriggerBlocked>) {
+      const blocked = action.payload
+      state.projects = state.projects.map(p => p.id === blocked.projectId ? { ...p, triggerConsent: blocked.consent } : p)
+      // One notification per app/review revision, even after its toast is
+      // dismissed. A successful allowance or a new revision starts a new group.
+      if (state.blockedTriggerRequests[blocked.projectId]?.consent.revision !== blocked.consent.revision) {
+        state.blockedTriggerRequests[blocked.projectId] = blocked
+      }
+      clearResolvedTriggerBlock(state, blocked.projectId, blocked.consent)
+    },
     openTriggerReview(state, action: PayloadAction<string | null>) {
       state.triggerReviewId = action.payload
       state.triggerConsentError = null
@@ -112,6 +133,7 @@ const agentAppSlice = createSlice({
       // only to the browser decision that produced this response.
       if (result.consent) {
         state.projects = state.projects.map(p => p.id === result.projectId ? { ...p, triggerConsent: result.consent } : p)
+        clearResolvedTriggerBlock(state, result.projectId, result.consent)
       }
       if (!pending || pending.projectId !== result.projectId || pending.requestId !== result.requestId) return
       state.triggerConsentRequest = null
@@ -122,6 +144,11 @@ const agentAppSlice = createSlice({
       }
     },
     setProjects(state, action: PayloadAction<AgentAppProject[]>) {
+      for (const projectId of Object.keys(state.blockedTriggerRequests)) {
+        const project = action.payload.find(p => p.id === projectId)
+        if (!project) delete state.blockedTriggerRequests[projectId]
+        else if (project.triggerConsent) clearResolvedTriggerBlock(state, projectId, project.triggerConsent)
+      }
       state.catalogLoaded = true
       // The list is the server's saved state, which says "stopped" until a
       // build or launch actually finishes; the in-flight state is only known
@@ -150,6 +177,7 @@ const agentAppSlice = createSlice({
       // project keeps its live status and address (never downgraded by a late
       // event) but still takes renames, icon changes and other fields.
       const incoming = action.payload
+      if (incoming.triggerConsent) clearResolvedTriggerBlock(state, incoming.id, incoming.triggerConsent)
       const idx = findIndexInDraft(state.projects, p => p.id === incoming.id)
       if (idx === -1) {
         state.projects.push(incoming)
@@ -173,6 +201,7 @@ const agentAppSlice = createSlice({
     },
     markReady(state, action: PayloadAction<{ projectId: string; url: string; port: number; sessionId?: string; triggerConsent?: AgentAppTriggerConsent }>) {
       const { projectId, url, port, sessionId, triggerConsent } = action.payload
+      if (triggerConsent) clearResolvedTriggerBlock(state, projectId, triggerConsent)
       state.creating = null
       delete state.buildEvents[projectId]
       delete state.snapshots[projectId]
@@ -196,6 +225,7 @@ const agentAppSlice = createSlice({
     },
     markRunning(state, action: PayloadAction<{ projectId: string; url?: string; port?: number; triggerConsent?: AgentAppTriggerConsent }>) {
       const { projectId, url, port, triggerConsent } = action.payload
+      if (triggerConsent) clearResolvedTriggerBlock(state, projectId, triggerConsent)
       delete state.buildEvents[projectId]
       delete state.snapshots[projectId]
       state.projects = state.projects.map(p =>
@@ -245,6 +275,7 @@ const agentAppSlice = createSlice({
     },
     removeProject(state, action: PayloadAction<{ projectId: string }>) {
       const id = action.payload.projectId
+      delete state.blockedTriggerRequests[id]
       state.projects = state.projects.filter(p => p.id !== id)
       delete state.todos[id]
       delete state.buildEvents[id]
@@ -317,6 +348,7 @@ const agentAppSlice = createSlice({
 })
 
 export const {
+  receiveTriggerBlocked,
   openTriggerReview,
   dismissTriggerReview,
   savingTriggerConsent,
@@ -440,4 +472,8 @@ register('agent_app_error', (data, dispatch) => {
 
 register('agent_app_trigger_consent', (data, dispatch) => {
   dispatch(receiveTriggerConsent(data as { projectId: string; requestId?: string; consent?: AgentAppTriggerConsent; success: boolean; error?: string }))
+})
+
+register('agent_app_trigger_blocked', (data, dispatch) => {
+  dispatch(receiveTriggerBlocked(data as AgentAppTriggerBlocked))
 })

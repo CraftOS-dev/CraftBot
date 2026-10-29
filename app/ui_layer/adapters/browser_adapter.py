@@ -1212,7 +1212,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         # Integration bridge routes (Agent App → external APIs)
         from app.agent_app.integration_bridge import IntegrationBridge
 
-        self._integration_bridge = IntegrationBridge(self._agent_app_manager)
+        self._integration_bridge = IntegrationBridge(
+            self._agent_app_manager,
+            on_trigger_blocked=self._broadcast_agent_app_trigger_blocked,
+        )
         self._integration_bridge.register_routes(self._app)
 
         # Serve Vite-built frontend (production)
@@ -3502,6 +3505,27 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     },
                 }
             )
+
+    async def _broadcast_agent_app_trigger_blocked(
+        self, project_id: str, trigger: str, request_id: str
+    ) -> None:
+        from app.agent_app.trigger_consent import status
+
+        project = self._agent_app_manager.get_project(project_id)
+        if project is None:
+            return
+        await self._broadcast(
+            {
+                "type": "agent_app_trigger_blocked",
+                "data": {
+                    "projectId": project_id,
+                    "projectName": project.name,
+                    "trigger": trigger,
+                    "requestId": request_id,
+                    "consent": status(project),
+                },
+            }
+        )
 
     async def _handle_agent_app_trigger_consent(self, data: dict) -> None:
         """An authenticated UI decision about the definitions actually displayed."""

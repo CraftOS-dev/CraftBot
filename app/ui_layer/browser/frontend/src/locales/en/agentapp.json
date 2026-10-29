@@ -22,6 +22,9 @@
     "pendingChanges": "New or changed agent requests are off until you review them.",
     "off": "Agent requests are off until you review and allow them.",
     "review": "Review requests",
+    "permissions": "Agent request permissions",
+    "blocked": "{{name}} couldn't run a request because permission is required.",
+    "blockedHint": "Review and allow the app's requests, then try again. Blocked requests won't run automatically.",
     "disconnected": "Connection lost. Reconnect before choosing."
   },
   "page": {

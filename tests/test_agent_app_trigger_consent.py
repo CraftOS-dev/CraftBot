@@ -332,3 +332,22 @@ def test_acquiring_an_app_clears_any_shipped_approval(project):
     manager._register_acquired(project, delivered=False)
     assert consent.approved_trigger(project, "summarize") is None
     assert consent.status(project)["needsReview"]
+
+
+def test_blocked_request_broadcast_has_app_identity_and_current_permissions(project):
+    project.name = "Audio Notes"
+    adapter = BrowserAdapter.__new__(BrowserAdapter)
+    adapter._agent_app_manager = SimpleNamespace(get_project=lambda pid: project)
+    adapter._broadcast = AsyncMock()
+    asyncio.run(
+        adapter._broadcast_agent_app_trigger_blocked(project.id, "summarize", "row-1")
+    )
+    event = adapter._broadcast.call_args.args[0]
+    assert event["type"] == "agent_app_trigger_blocked"
+    assert event["data"] == {
+        "projectId": project.id,
+        "projectName": "Audio Notes",
+        "trigger": "summarize",
+        "requestId": "row-1",
+        "consent": consent.status(project),
+    }

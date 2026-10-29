@@ -13,8 +13,9 @@ from app.agent_app import trigger_consent as consent
 
 @pytest.mark.parametrize("legacy_approval", [None, False, True])
 @pytest.mark.parametrize("dev_active", [False, True])
+@pytest.mark.parametrize("notice_fails", [False, True])
 def test_ui_consent_required_even_for_legacy_approved_apps(
-    tmp_path, monkeypatch, legacy_approval, dev_active
+    tmp_path, monkeypatch, legacy_approval, dev_active, notice_fails
 ):
     project = SimpleNamespace(id="trigger-app", path=str(tmp_path))
     (tmp_path / "manifest.json").write_text(
@@ -48,6 +49,10 @@ def test_ui_consent_required_even_for_legacy_approved_apps(
     )
     bridge = IntegrationBridge.__new__(IntegrationBridge)
     bridge._manager = manager
+    blocked = AsyncMock()
+    if notice_fails:
+        blocked.side_effect = RuntimeError("Notification unavailable")
+    bridge._on_trigger_blocked = blocked
     body = {"trigger": "restock_needed", "request_id": "row1"}
 
     def fire(token="good", **overrides):
@@ -61,21 +66,25 @@ def test_ui_consent_required_even_for_legacy_approved_apps(
     assert fire(token="bad").status == 401
     assert fire(trigger="undeclared").status == 403
     notify.assert_not_awaited()
+    blocked.assert_not_awaited()
 
     response = fire()
     if dev_active:
         assert response.status == 200
         assert json.loads(response.body)["status"] == "deferred"
         notify.assert_not_awaited()
+        blocked.assert_not_awaited()
         return
     assert response.status == 403
     assert json.loads(response.body)["code"] == "trigger_approval_required"
+    blocked.assert_awaited_once_with(project.id, "restock_needed", "row1")
     notify.assert_not_awaited()  # No agent run, including no consent-question run.
     review = consent.status(project)
     assert review["needsReview"] is True
     consent.decide(project, review["revision"], True)
     assert fire().status == 200
     notify.assert_awaited_once_with(project.id, "restock_needed", "row1")
+    assert blocked.await_count == 1  # Allowed requests don't raise warnings.
     if legacy_approval is None:
         assert not sidecar.exists()
     else:

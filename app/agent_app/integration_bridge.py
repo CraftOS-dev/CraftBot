@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, Optional
+from typing import TYPE_CHECKING, Awaitable, Callable, Dict, Optional
 
 from aiohttp import web
 import httpx
@@ -79,8 +79,14 @@ class IntegrationBridge:
         CraftBot validates token, injects auth, forwards to external API.
     """
 
-    def __init__(self, manager: "AgentAppManager"):
+    def __init__(
+        self,
+        manager: "AgentAppManager",
+        *,
+        on_trigger_blocked: Optional[Callable[[str, str, str], Awaitable[None]]] = None,
+    ):
         self._manager = manager
+        self._on_trigger_blocked = on_trigger_blocked
         # follow_redirects is OFF for the proxy: an allowed host could 302 to an
         # attacker-controlled host and the injected credentials would follow it.
         self._http_client = httpx.AsyncClient(timeout=30, follow_redirects=False)
@@ -495,6 +501,16 @@ class IntegrationBridge:
 
             project = self._manager.get_project(project_id)
             if approved_trigger(project, trigger) is None:
+                # Notify through the host UI, without starting an agent run.
+                # A notification failure must never change the refusal.
+                callback = getattr(self, "_on_trigger_blocked", None)
+                if callback is not None:
+                    try:
+                        await callback(project_id, trigger, request_id)
+                    except Exception as exc:
+                        logger.warning(
+                            f"[INTEGRATION_BRIDGE] blocked notice failed: {exc}"
+                        )
                 return web.json_response(
                     {
                         "error": "Agent requests are off. Review and allow them in CraftBot.",
