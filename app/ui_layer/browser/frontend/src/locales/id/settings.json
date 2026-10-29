@@ -126,7 +126,9 @@
       "slowModeDisabled": "Mode lambat dinonaktifkan",
       "slowModeFailed": "Gagal memperbarui mode lambat",
       "installFailed": "Instalasi gagal",
-      "openingBrowser": "Membuka peramban untuk masuk dengan {{provider}}…"
+      "openingBrowser": "Membuka peramban untuk masuk dengan {{provider}}…",
+      "apiKeyRemoved": "Kunci API dihapus",
+      "apiKeyRemoveFailed": "Tidak dapat menghapus kunci API"
     },
     "ollama": {
       "notDetected": "Ollama tidak terdeteksi",
@@ -162,7 +164,10 @@
       "replacePlaceholder": "Masukkan kunci baru untuk mengganti...",
       "enterPlaceholder": "Masukkan kunci API...",
       "proxyConfigured": "OpenRouter telah dikonfigurasi dan akan digunakan secara otomatis jika API langsung tidak tersedia di wilayah Anda.",
-      "proxyFallback": "Penyedia ini mungkin dibatasi secara geografis. Jika API langsung gagal, konfigurasikan OpenRouter sebagai cadangan — ia akan digunakan secara otomatis."
+      "proxyFallback": "Penyedia ini mungkin dibatasi secara geografis. Jika API langsung gagal, konfigurasikan OpenRouter sebagai cadangan — ia akan digunakan secara otomatis.",
+      "removeLocked": "Model aktif Anda menggunakan kunci ini. Beralihlah ke penyedia lain sebelum menghapusnya.",
+      "removeTitle": "Hapus kunci API",
+      "removeConfirm": "Hapus kunci API {{provider}} yang tersimpan? Anda perlu memasukkannya lagi untuk menggunakannya."
     },
     "bedrock": {
       "accessKeyId": "AWS Access Key ID",
@@ -235,7 +240,9 @@
       "priceUnit": "/M",
       "seeOpenRouter": "lihat openrouter.ai",
       "pasteSlug": "Atau tempel slug:"
-    }
+    },
+    "inUse": "Digunakan",
+    "notInUse": "Tidak digunakan"
   },
   "proactive": {
     "title": "Perilaku Proaktif",
