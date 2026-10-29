@@ -80,3 +80,85 @@ def test_ui_consent_required_even_for_legacy_approved_apps(
         assert not sidecar.exists()
     else:
         assert json.loads(sidecar.read_text()) == {"triggers_approved": legacy_approval}
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        None,
+        {},
+        {
+            "label": {"type": "string", "default": "QA_REVIEWED_VALUE"},
+            "enabled": {"type": "boolean", "default": False},
+            "count": {"type": "number", "default": 0},
+            "suffix": {"type": "string", "default": ""},
+            "mode": {"type": "string", "enum": ["draft", "final"], "default": "draft"},
+        },
+    ],
+    ids=["omitted-params", "empty-params", "declared-defaults"],
+)
+def test_queued_request_retains_reviewed_defaults_after_definition_changes(
+    tmp_path, params
+):
+    from app.agent_app.manager import AgentAppManager
+
+    definition = {
+        "description": "Report a sample label",
+        "instruction": "Report the supplied label or its reviewed default.",
+    }
+    if params is not None:
+        definition["params"] = params
+    file = tmp_path / "triggers.json"
+    file.write_text(json.dumps({"triggers": {"label_check": definition}}))
+    project = SimpleNamespace(id="queued-app", name="Queued app", path=str(tmp_path))
+    consent.decide(project, consent.status(project)["revision"], True)
+    manager = AgentAppManager.__new__(AgentAppManager)
+    manager.projects = {project.id: project}
+    manager._session_manager = object()
+    manager.ensure_project_session = lambda item: SimpleNamespace(
+        id="queued-app-session"
+    )
+    emitted = AsyncMock()
+    manager._trigger_service = SimpleNamespace(emit=emitted)
+
+    result = asyncio.run(
+        manager.notify_app_trigger(project.id, "label_check", "queued-row")
+    )
+    assert result["status"] == "success"
+    queued = emitted.call_args.args[0]
+    reviewed_definition = json.loads(json.dumps(definition))
+
+    # The worker has not started yet. A later edit is not user-approved.
+    definition["instruction"] = "QA_CHANGED_INSTRUCTION"
+    definition["params"] = {
+        "label": {"type": "string", "default": "QA_UNREVIEWED_VALUE"}
+    }
+    file.write_text(json.dumps({"triggers": {"label_check": definition}}))
+    assert consent.approved_trigger(project, "label_check") is None
+    assert queued.payload["trigger_definition"] == reviewed_definition
+    assert (
+        json.dumps(params or {}, ensure_ascii=False, sort_keys=True)
+        in queued.description
+    )
+    assert reviewed_definition["instruction"] in queued.description
+    assert "QA_UNREVIEWED_VALUE" not in queued.description
+    assert "QA_CHANGED_INSTRUCTION" not in queued.description
+    assert "Do not reread triggers.json" in queued.description
+
+    # New fires stay blocked; after an explicit review only a new queue entry
+    # may use the changed default. The original entry keeps its snapshot.
+    blocked = asyncio.run(
+        manager.notify_app_trigger(project.id, "label_check", "blocked-row")
+    )
+    assert blocked["status"] == "error"
+    assert emitted.await_count == 1
+    consent.decide(project, consent.status(project)["revision"], True)
+    result = asyncio.run(
+        manager.notify_app_trigger(project.id, "label_check", "new-row")
+    )
+    assert result["status"] == "success"
+    latest = emitted.call_args.args[0]
+    assert latest.payload["trigger_definition"] == definition
+    assert "QA_UNREVIEWED_VALUE" in latest.description
+    assert queued.payload["trigger_definition"] == reviewed_definition
+    assert "QA_UNREVIEWED_VALUE" not in queued.description
