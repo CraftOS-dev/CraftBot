@@ -46,8 +46,9 @@ interface AgentAppState {
   blockedTriggerRequests: Record<string, AgentAppTriggerBlocked>
   triggerReviewId: string | null
   dismissedTriggerReviews: Record<string, string>
-  triggerConsentRequest: { projectId: string; requestId: string } | null
+  triggerConsentRequest: { projectId: string; requestId: string; allow: boolean } | null
   triggerConsentError: { projectId: string; message: string } | null
+  triggerConsentApproval: { projectId: string; requestId: string } | null
   projects: AgentAppProject[]
   creating: AgentAppStatusUpdate | null
   todos: Record<string, AgentAppTodo[]>
@@ -76,6 +77,7 @@ const initialState: AgentAppState = {
   dismissedTriggerReviews: {},
   triggerConsentRequest: null,
   triggerConsentError: null,
+  triggerConsentApproval: null,
   listIsAuthoritative: true,
   catalogLoaded: false,
   projects: [],
@@ -121,10 +123,11 @@ const agentAppSlice = createSlice({
       if (state.triggerReviewId === projectId) state.triggerReviewId = null
       if (state.triggerConsentError?.projectId === projectId) state.triggerConsentError = null
     },
-    savingTriggerConsent(state, action: PayloadAction<{ projectId: string; requestId: string }>) {
+    savingTriggerConsent(state, action: PayloadAction<{ projectId: string; requestId: string; allow: boolean }>) {
       state.triggerReviewId = action.payload.projectId
       state.triggerConsentRequest = action.payload
       state.triggerConsentError = null
+      state.triggerConsentApproval = null
     },
     receiveTriggerConsent(state, action: PayloadAction<{ projectId: string; requestId?: string; consent?: AgentAppTriggerConsent; success: boolean; error?: string }>) {
       const result = action.payload
@@ -136,6 +139,9 @@ const agentAppSlice = createSlice({
         clearResolvedTriggerBlock(state, result.projectId, result.consent)
       }
       if (!pending || pending.projectId !== result.projectId || pending.requestId !== result.requestId) return
+      if (pending.allow && result.success && !result.error && result.consent && !result.consent.required) {
+        state.triggerConsentApproval = { projectId: pending.projectId, requestId: pending.requestId }
+      }
       state.triggerConsentRequest = null
       state.triggerConsentError = result.error ? { projectId: result.projectId, message: result.error } : null
       if (result.success) {
@@ -342,6 +348,7 @@ const agentAppSlice = createSlice({
         state.listIsAuthoritative = true
         state.catalogLoaded = false
         state.triggerConsentRequest = null
+        state.triggerConsentApproval = null
       }
     })
   },

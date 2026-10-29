@@ -22,6 +22,40 @@ const reviewed = {
   triggers: [{ name: 'summarize', description: 'Summarize a recording', instruction: 'Prepare a summary.', change: 'approved' }],
 }
 
+const approvalMessage = 'Requests are now allowed. Try the action again.'
+
+test('approval confirmation describes saved permission without claiming app readiness', async ({ page }, testInfo) => {
+  await page.goto('/tests/trigger-consent.html')
+  await page.getByRole('button', { name: 'Allow requests', exact: true }).click()
+  await expect(page.getByText(approvalMessage, { exact: true })).toHaveCount(0)
+  await response(page, { projectId: 'notes', success: true, consent: reviewed })
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  const confirmation = page.getByRole('status').filter({ hasText: approvalMessage })
+  await expect(confirmation).toBeVisible()
+  await expect(confirmation).not.toContainText('Everything is ready')
+  await expect(confirmation).toHaveCSS('transform', 'none')
+  await page.screenshot({ path: testInfo.outputPath('approval-confirmation.png') })
+  // A duplicate response must not produce another confirmation.
+  await response(page, { projectId: 'notes', success: true, consent: reviewed })
+  await expect(page.getByText(approvalMessage, { exact: true })).toHaveCount(1)
+})
+
+for (const outcome of ['unrelated', 'failed', 'denied', 'disconnected']) {
+  test(`approval confirmation is not shown for a ${outcome} decision`, async ({ page }) => {
+    await page.goto('/tests/trigger-consent.html')
+    await page.getByRole('button', { name: outcome === 'denied' ? 'Keep requests off' : 'Allow requests', exact: true }).click()
+    if (outcome === 'disconnected') {
+      await page.evaluate(() => window.dispatchEvent(new CustomEvent('fixture-connected', { detail: false })))
+    }
+    await response(page, { projectId: 'notes', success: outcome !== 'failed',
+      ...(outcome === 'unrelated' ? { requestId: 'another-client' } : {}),
+      ...(outcome === 'failed' ? { error: 'Could not save permission.' } : {}),
+      consent: outcome === 'denied' ? { ...reviewed, triggers: [] } : reviewed,
+    })
+    await expect(page.getByText(approvalMessage, { exact: true })).toHaveCount(0)
+  })
+}
+
 for (const width of [1280, 390]) {
   test(`parameter defaults are visible before approval and after a default-only change at ${width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 844 })
