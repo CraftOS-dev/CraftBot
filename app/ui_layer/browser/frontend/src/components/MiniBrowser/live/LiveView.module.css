@@ -236,6 +236,12 @@
   animation: spin 0.9s linear infinite;
 }
 
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 /* "Main chat is browsing · Take control" / "You're in control · Hand back" */
 .pill {
   position: absolute;
