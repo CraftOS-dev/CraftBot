@@ -981,8 +981,6 @@ class AgentBase:
                 sets.append(set_name)
         for skill_name in skills:
             self.session_manager.add_skill(session.id, skill_name)
-        if skills:
-            self._invalidate_session_caches(session.id)
         if sets:
             InternalActionInterface.load_action_sets(sets, session_id=session.id)
 
@@ -1021,8 +1019,6 @@ class AgentBase:
         skills = payload.get("workflow_skills") or []
         for skill_name in skills:
             self.session_manager.remove_skill(session.id, skill_name)
-        if skills:
-            self._invalidate_session_caches(session.id)
 
     @staticmethod
     def _drop_aggregated_source(trigger: Trigger, source: str) -> None:
@@ -1251,28 +1247,6 @@ class AgentBase:
         except Exception as e:
             logger.warning(
                 f"[PERSIST] LLM session persist failed for {session_id}: {e}"
-            )
-
-    def _invalidate_session_caches(self, session_id: str) -> None:
-        """Rebuild a session's LLM caches after a capability change."""
-        try:
-            self.llm.remove_session_caches(session_id)
-        except Exception:
-            pass
-        try:
-            self.session_manager.rebuild_session_caches(session_id)
-            for call_type in (
-                LLMCallType.REASONING,
-                LLMCallType.ACTION_SELECTION,
-                LLMCallType.GUI_REASONING,
-                LLMCallType.GUI_ACTION_SELECTION,
-            ):
-                self.context_engine.reset_event_stream_sync(
-                    call_type, session_id=session_id, reason="workflow_skill"
-                )
-        except Exception as e:
-            logger.warning(
-                f"[AGENT] Failed to rebuild session caches for {session_id}: {e}"
             )
 
     # ----- Trigger data -----
@@ -4276,6 +4250,9 @@ class AgentBase:
         # Initialize skills system
         step(5, 7, "Loading skills")
         await self._initialize_skills()
+        # Sessions restored before skills were initialized: every loaded
+        # skill gets its instructions in its session's stream.
+        self.session_manager.restore_skill_instructions()
 
         # Start usage reporter background flush
         from app.usage import get_usage_reporter

@@ -531,64 +531,14 @@ class ContextEngine:
                     f"AND write it to keep working notes that must survive "
                     f"event-stream summarization."
                 )
-            if session.selected_skills:
-                lines.append(f"Loaded Skills: {list(session.selected_skills)}")
-
-            skill_instructions = self.get_skill_instructions(session_id=session_id)
-            if skill_instructions:
-                lines.append("")
-                lines.append(skill_instructions)
+            # Loaded skills are not listed here: this block sits ahead of the
+            # event stream in the cached prefix, so a load would break it. A
+            # skill's instructions enter the stream when it is loaded
+            # (SessionManager.add_skill), and a fold keeps them verbatim.
 
             lines.append("</session>")
             return "\n".join(lines)
         return "<session>\n(session state unavailable)\n</session>"
-
-    def get_skill_instructions(self, session_id: Optional[str] = None) -> str:
-        """Get instructions from skills loaded into the session.
-
-        Args:
-            session_id: Optional session ID for session-specific state lookup.
-        """
-        # Try session-specific state first
-        state_session = get_session_or_none(session_id)
-        if state_session and state_session.current_session:
-            session = state_session.current_session
-        else:
-            # CRITICAL: Log warning when falling back to global state
-            if session_id:
-                logger.warning(
-                    f"[CONTEXT_ENGINE] get_skill_instructions: Session not found for "
-                    f"session_id={session_id!r}, falling back to global STATE. "
-                    f"This may cause context leakage!"
-                )
-            session = get_state().current_session
-
-        if not session:
-            return ""
-
-        selected_skills = getattr(session, "selected_skills", [])
-        if not selected_skills:
-            return ""
-
-        try:
-            from app.skill import skill_manager
-
-            instructions = skill_manager.get_skill_instructions(selected_skills)
-
-            if not instructions:
-                return ""
-
-            return (
-                "<active_skills>\n"
-                "Follow these skill instructions for the current work:\n\n"
-                f"{instructions}\n"
-                "</active_skills>"
-            )
-        except ImportError:
-            return ""
-        except Exception as e:
-            logger.warning(f"[SKILLS] Failed to get skill instructions: {e}")
-            return ""
 
     def get_agent_state(self, session_id: Optional[str] = None) -> str:
         """Get the current agent state for inclusion in user prompts.
