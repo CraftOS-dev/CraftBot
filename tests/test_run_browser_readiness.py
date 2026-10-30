@@ -190,3 +190,20 @@ def test_frontend_crash_does_not_announce_success():
 def test_agent_crash_does_not_announce_success():
     with pytest.raises(SystemExit):
         _run_startup([True], agent_state="exited")
+
+
+def test_frontend_that_loads_during_agent_startup_is_rechecked():
+    events = _run_startup([False, True])
+    assert events.index(("frontend", False)) < events.index(("agent", "ready"))
+    assert events.index(("agent", "ready")) < events.index(("frontend", True))
+    assert ("adopt", (8925, 8926)) in events
+    assert ("publish", (8925, 8926)) in events
+    assert ("open", FRONTEND_URL) in events
+
+
+def test_frontend_still_down_after_agent_startup_is_rechecked_without_announcement():
+    events = _run_startup([False, False])
+    assert [event for event in events if event[0] == "frontend"] == [
+        ("frontend", False)
+    ] * 2
+    assert not [event for event in events if event[0] in ("publish", "banner", "open")]

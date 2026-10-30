@@ -2148,6 +2148,11 @@ if __name__ == "__main__":
             if _wait_for_backend_port(agent_process) == "exited":
                 _fail_agent_exited(agent_process, use_conda, env_name)
 
+            # The frontend may have finished loading during agent startup.
+            # Recheck before publishing readiness and adopting its listener.
+            if not frontend_ready:
+                frontend_ready = wait_for_frontend_silent(30)
+
             # Record the listeners into the owned-process ledger: a port that
             # answered is a process we spawned, and recording it is what lets
             # the next run stop it if this one is killed.
