@@ -285,23 +285,28 @@ def test_set_compiles_in_every_mode_and_under_its_old_name(registry, mode):
 
 
 def test_action_prompt_rule_and_placeholders():
-    from agent_core.core.prompts.action import MINI_BROWSER_RULE, SELECT_ACTION_PROMPT
+    from agent_core.core.prompts.action import (
+        MINI_BROWSER_RULE,
+        SELECT_ACTION_INSTRUCTIONS,
+        SELECT_ACTION_PROMPT,
+    )
     from agent_core.core.prompts.context import AGENT_INFO_PROMPT
 
     assert "load the 'mini_browser' action set" in MINI_BROWSER_RULE
-    # The rule is one whole bullet of the template, so the host can drop it.
-    assert MINI_BROWSER_RULE in SELECT_ACTION_PROMPT
+    # The rule is one whole bullet of the instructions, so the host can drop it.
+    assert MINI_BROWSER_RULE in SELECT_ACTION_INSTRUCTIONS
     assert MINI_BROWSER_RULE.startswith("- ") and MINI_BROWSER_RULE.endswith("\n")
-    # Nothing else in the template steers to the browser.
-    rest = SELECT_ACTION_PROMPT.replace(MINI_BROWSER_RULE, "")
+    # Nothing else in either template steers to the browser.
+    rest = (
+        SELECT_ACTION_INSTRUCTIONS.replace(MINI_BROWSER_RULE, "") + SELECT_ACTION_PROMPT
+    )
     assert "mini_browser" not in rest and "Mini Browser" not in rest
-    fields = {f for _, f, _, _ in string.Formatter().parse(SELECT_ACTION_PROMPT) if f}
-    assert fields == {
-        "action_candidates",
-        "session_state",
-        "event_stream",
-        "query",
-    }
+
+    def fields(template):
+        return {f for _, f, _, _ in string.Formatter().parse(template) if f}
+
+    assert fields(SELECT_ACTION_INSTRUCTIONS) == {"action_candidates"}
+    assert fields(SELECT_ACTION_PROMPT) == {"session_state", "event_stream", "query"}
     assert "Mini Browser" in AGENT_INFO_PROMPT
 
 
@@ -1066,15 +1071,9 @@ def test_availability_check_tolerates_an_older_or_broken_lifecycle(monkeypatch):
 
 
 def _rendered_action_prompt():
-    from agent_core.core.prompts.action import SELECT_ACTION_PROMPT
+    from agent_core.core.prompts.action import SELECT_ACTION_INSTRUCTIONS
 
-    return SELECT_ACTION_PROMPT.format(
-        action_candidates="[]",
-        session_state="",
-        event_stream="",
-        query="q",
-        integration_essentials="",
-    )
+    return SELECT_ACTION_INSTRUCTIONS.format(action_candidates="[]")
 
 
 def test_action_prompt_rule_is_dropped_while_the_browser_is_unusable(
@@ -1125,11 +1124,15 @@ def test_router_sends_the_filtered_prompt(monkeypatch):
         )
 
         async def decide(prompt, **kwargs):
-            seen.update(
-                prompt=prompt,
-                static=kwargs["static_prompt"],
-                rerendered=kwargs["render_prompt"](),
-            )
+            # The rule lives in the decision instructions (the end of the
+            # system prompt); the user message never carries it.
+            for user_part in (
+                prompt,
+                kwargs["static_prompt"],
+                kwargs["render_prompt"](),
+            ):
+                assert MINI_BROWSER_RULE not in user_part
+            seen.update(instructions=kwargs["instructions"])
             raise _Stop
 
         monkeypatch.setattr(router, "_prompt_for_decision", decide)

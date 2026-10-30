@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import json
 import ast
+import sys
 from typing import Callable, Optional, List, Dict, Any, Tuple
 
 from agent_core.core.hooks.usage import to_thread_with_usage
@@ -22,7 +23,11 @@ from agent_core.core.protocols.llm import LLMInterfaceProtocol
 from agent_core.core.impl.llm import LLMCallType
 from agent_core.core.impl.llm.errors import LLMConsecutiveFailureError
 from agent_core.core.errors import ClassifiedError, ErrorCategory, ErrorInfo
-from agent_core.core.prompts import SELECT_ACTION_PROMPT
+from agent_core.core.prompts import (
+    SELECT_ACTION_INSTRUCTIONS,
+    SELECT_ACTION_PROMPT,
+    decision_system_prompt,
+)
 from agent_core.core.impl.llm.interface import LLMContextOverflowError
 from agent_core import get_event_stream_manager
 from agent_core.utils.logger import logger
@@ -69,8 +74,8 @@ class ActionRouter:
             action_library: Repository for storing and retrieving action definitions.
             llm_interface: LLM client used to reason about which action to run.
             context_engine: Provider of system prompts and context formatting.
-            prompt_filter: Optional host hook applied to every rendered
-                action-selection prompt, e.g. to drop a capability rule while
+            prompt_filter: Optional host hook applied to every rendered set of
+                decision instructions, e.g. to drop a capability rule while
                 that capability is unavailable. A failing filter is skipped.
         """
         self.action_library = action_library
@@ -80,6 +85,13 @@ class ActionRouter:
         # Per session: held while a decision is made, so a fold the user asks
         # for (fold_session) never lands while a request is in flight.
         self._decision_locks: Dict[str, asyncio.Lock] = {}
+        # Per session history ("<task_id>:<call_type>"): the decision
+        # instructions its system prompt carries. A history keeps the ones it
+        # started with until it starts anew (first call, fold, reset), as it
+        # did when they were part of its first user message, so a change in
+        # what renders now (the Mini Browser rule dropping after a failed
+        # launch) never breaks the cached prefix of a history in progress.
+        self._history_instructions: Dict[str, str] = {}
 
     def _filter_prompt(self, prompt: str) -> str:
         """``prompt`` through the host's prompt_filter (unchanged on failure)."""
@@ -134,21 +146,21 @@ class ActionRouter:
             # The session's reasoning choice sets the input budget the fold
             # keeps half the room of; its turns run bound the same way.
             with StateSession.bind(session_id):
-                system_prompt, _ = self.context_engine.make_prompt(
-                    user_flags={"query": False, "expected_output": False},
-                    system_flags={"agent_info": True},
-                )
                 # The prompt around the stream as the session's decisions
                 # render it (the next turn's query is unknown here). A session
                 # without a turn since boot has no state to render it from.
                 static_prompt = None
+                instructions = ""
                 if get_session_or_none(session_id) is not None:
-                    session_state, candidates_text = self._decision_inputs(
-                        session_id
-                    )
-                    static_prompt = self._decision_prompt(
-                        session_state, "", candidates_text
-                    )
+                    session_state, instructions = self._decision_inputs(session_id)
+                    static_prompt = self._decision_prompt(session_state, "")
+                # The fold starts the session's next history, which carries
+                # the instructions as they render now.
+                base_prompt, _ = self.context_engine.make_prompt(
+                    user_flags={"query": False, "expected_output": False},
+                    system_flags={"agent_info": True},
+                )
+                system_prompt = decision_system_prompt(base_prompt, instructions)
                 # The summary call blocks: off the event loop.
                 return await to_thread_with_usage(
                     self._fold, stream, system_prompt, static_prompt, prune=False
@@ -157,9 +169,11 @@ class ActionRouter:
     def _decision_lock(self, session_id: Optional[str]) -> asyncio.Lock:
         return self._decision_locks.setdefault(session_id or "", asyncio.Lock())
 
-    def _decision_inputs(self, session_id: Optional[str]) -> Tuple[str, str]:
-        """The session state block and the formatted action candidates of a
-        session's decision prompt."""
+    def decision_instructions(self, session_id: Optional[str] = None) -> str:
+        """The decision instructions of ``session_id`` as they render now:
+        SELECT_ACTION_INSTRUCTIONS with the session's <actions> list, through
+        the host's prompt_filter. They end the system prompt of the session's
+        action-selection calls (ContextEngine.make_decision_system_prompt)."""
         # The session's <actions> list (fixed by its type)
         compiled_actions = self._get_session_compiled_actions(session_id=session_id)
 
@@ -170,26 +184,32 @@ class ActionRouter:
         logger.info(
             f"ActionRouter using compiled action list: {len(action_candidates)} actions"
         )
+        return self._filter_prompt(
+            SELECT_ACTION_INSTRUCTIONS.format(
+                action_candidates=self._format_candidates(action_candidates)
+            )
+        )
+
+    def _decision_inputs(self, session_id: Optional[str]) -> Tuple[str, str]:
+        """The session state block and the decision instructions of a
+        session's decision call."""
         return (
             self.context_engine.get_session_state(session_id=session_id),
-            self._format_candidates(action_candidates),
+            self.decision_instructions(session_id),
         )
 
     def _decision_prompt(
         self,
         session_state: str,
         query: str,
-        candidates_text: str,
         event_stream: str = "",
     ) -> str:
-        """A decision prompt; without ``event_stream``, its static part."""
-        return self._filter_prompt(
-            SELECT_ACTION_PROMPT.format(
-                session_state=session_state,
-                event_stream=event_stream,
-                query=query,
-                action_candidates=candidates_text,
-            )
+        """The user message of a decision call; without ``event_stream``, its
+        static part."""
+        return SELECT_ACTION_PROMPT.format(
+            session_state=session_state,
+            event_stream=event_stream,
+            query=query,
         )
 
     async def _select_action(
@@ -197,10 +217,10 @@ class ActionRouter:
     ) -> List[Dict[str, Any]]:
         """select_action_in_session, holding the session's decision lock."""
         # Build the instruction prompt for the LLM
-        session_state, candidates_text = self._decision_inputs(session_id)
+        session_state, instructions = self._decision_inputs(session_id)
 
         decision_prompt_name = "SELECT_ACTION"
-        static_prompt = self._decision_prompt(session_state, query, candidates_text)
+        static_prompt = self._decision_prompt(session_state, query)
 
         def render_prompt() -> str:
             # Rendered from the CURRENT stream, so a fold made while deciding
@@ -208,7 +228,6 @@ class ActionRouter:
             return self._decision_prompt(
                 session_state,
                 query,
-                candidates_text,
                 self.context_engine.get_event_stream(session_id=session_id),
             )
 
@@ -226,6 +245,7 @@ class ActionRouter:
                 session_id=session_id,
                 prompt_name=decision_prompt_name,
                 render_prompt=render_prompt,
+                instructions=instructions,
             )
 
             # Parse parallel action decisions with format error detection
@@ -327,6 +347,7 @@ class ActionRouter:
         session_id: Optional[str] = None,
         prompt_name: Optional[str] = None,
         render_prompt: Optional[Callable[[], str]] = None,
+        instructions: str = "",
     ) -> Dict[str, Any]:
         """
         Prompt the LLM for an action decision with session caching support.
@@ -339,6 +360,9 @@ class ActionRouter:
             session_id: Optional session ID for session-specific state lookup.
             prompt_name: Identity of the named prompt, tagged onto the captured
                 LLM call for per-prompt profiling.
+            instructions: The decision instructions as they render now
+                (decision_instructions). They end the system prompt; a session
+                history in progress keeps the ones it started with.
         """
         max_retries = 3
         last_error: Optional[Exception] = None
@@ -363,13 +387,18 @@ class ActionRouter:
         else:
             current_task_id = ""
 
+        history_key = f"{current_task_id}:{call_type}"
+
         for attempt in range(max_retries):
             # KV CACHING: System prompt is STATIC only (no dynamic content)
             # agent_info is included for all modes to provide consistent agent context
-            system_prompt, _ = self.context_engine.make_prompt(
+            base_prompt, _ = self.context_engine.make_prompt(
                 user_flags={"query": False, "expected_output": False},
                 system_flags={"agent_info": True},
             )
+            # With the instructions as they render now: what a new session
+            # history starts on, and what every stateless request carries.
+            system_prompt = decision_system_prompt(base_prompt, instructions)
 
             raw_response = None
 
@@ -403,6 +432,15 @@ class ActionRouter:
                                     call_type, session_id=effective_session_id
                                 )
                             )
+                            # The history continues on the instructions it
+                            # started with (after a restart: the ones that
+                            # render now, kept from here on).
+                            history_prompt = decision_system_prompt(
+                                base_prompt,
+                                self._history_instructions.setdefault(
+                                    history_key, sys.intern(instructions)
+                                ),
+                            )
 
                             if (
                                 has_delta
@@ -411,7 +449,7 @@ class ActionRouter:
                                 and not self.llm_interface.fits_context(
                                     current_task_id,
                                     call_type,
-                                    system_prompt,
+                                    history_prompt,
                                     delta_events,
                                 )
                             ):
@@ -437,7 +475,7 @@ class ActionRouter:
                                     task_id=current_task_id,
                                     call_type=call_type,
                                     user_prompt=delta_events,
-                                    system_prompt_for_new_session=system_prompt,
+                                    system_prompt_for_new_session=history_prompt,
                                     prompt_name=prompt_name,
                                 )
                                 # Mark events as synced after successful call
@@ -465,6 +503,11 @@ class ActionRouter:
                             # sync point); any accumulated turns are stale by then.
                             self.llm_interface.reset_session_history(
                                 current_task_id, call_type
+                            )
+                            # The new history starts on the instructions as
+                            # they render now and keeps them.
+                            self._history_instructions[history_key] = sys.intern(
+                                instructions
                             )
                             logger.info(
                                 f"[SESSION CACHE] Creating new session for {call_type} (first call)"

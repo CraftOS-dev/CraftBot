@@ -922,10 +922,7 @@ class InternalActionInterface:
             # Re-create session caches with fresh system prompt so the next
             # action selection call establishes a new session with updated actions
             if cls.context_engine:
-                system_prompt, _ = cls.context_engine.make_prompt(
-                    user_flags={"query": False, "expected_output": False},
-                    system_flags={},
-                )
+                system_prompt = cls.context_engine.make_decision_system_prompt(sid)
                 for call_type in [
                     LLMCallType.ACTION_SELECTION,
                     LLMCallType.GUI_ACTION_SELECTION,

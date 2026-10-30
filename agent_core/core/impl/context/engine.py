@@ -26,6 +26,7 @@ from agent_core.core.prompts import (
     USER_PROFILE_PROMPT,
     SOUL_PROMPT,
     LANGUAGE_INSTRUCTION,
+    decision_system_prompt,
 )
 from agent_core.core.state import get_state, get_session_or_none
 
@@ -66,6 +67,9 @@ class ContextEngine:
         self.system_messages = []
         self.user_messages = []
         self._role_info_func = None
+        self._decision_instructions_func: Optional[Callable[[Optional[str]], str]] = (
+            None
+        )
         self.state_manager = state_manager
         self._memory_manager = None
 
@@ -166,6 +170,32 @@ class ContextEngine:
                 agent_name = "Agent"
             return AGENT_ROLE_PROMPT.format(agent_name=agent_name, role=role)
         return ""
+
+    def set_decision_instructions_hook(
+        self, hook_fn: Callable[[Optional[str]], str]
+    ) -> None:
+        """Inject the renderer of a session's decision instructions
+        (ActionRouter.decision_instructions): the decision rules and the
+        session's <actions> list, which end the system prompt of its
+        action-selection calls."""
+        self._decision_instructions_func = hook_fn
+
+    def make_decision_system_prompt(self, session_id: Optional[str] = None) -> str:
+        """The system prompt of ``session_id``'s action-selection calls as it
+        renders now: the agent's system prompt followed by the session's
+        decision instructions (see prompts.action.decision_system_prompt).
+
+        Only action selection sends it; every other LLM call (sub-agents,
+        summaries, titles, ...) has a system prompt of its own.
+        """
+        system_prompt, _ = self.make_prompt(
+            user_flags={"query": False, "expected_output": False},
+            system_flags={"agent_info": True},
+        )
+        instructions = ""
+        if self._decision_instructions_func is not None:
+            instructions = self._decision_instructions_func(session_id)
+        return decision_system_prompt(system_prompt, instructions)
 
     def create_system_policy(self) -> str:
         """Create a system message block with constraints."""

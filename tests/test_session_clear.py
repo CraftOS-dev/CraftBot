@@ -52,7 +52,9 @@ def _manager(tmp_path, llm=None, own_streams=True):
     manager = SessionManager(
         event_stream_manager=streams,
         llm_interface=llm,
-        context_engine=SimpleNamespace(make_prompt=lambda **kw: ("SYSTEM", "")),
+        context_engine=SimpleNamespace(
+            make_decision_system_prompt=lambda session_id=None: "SYSTEM"
+        ),
         workspace_root=tmp_path,
         on_stream_create=(
             (lambda sid, wd: streams.create_stream(sid, wd)) if own_streams else None

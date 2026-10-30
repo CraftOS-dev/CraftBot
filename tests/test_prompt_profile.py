@@ -86,3 +86,103 @@ def test_parse_since():
     assert profiler._parse_since(None) is None
     dt = profiler._parse_since("24h")
     assert isinstance(dt, datetime)
+
+
+# ── prompt-audit views ───────────────────────────────────────────────────────
+
+
+def test_split_sections():
+    text = "<a>\none\n</a>\n\n---\n\n<b>\ntwo\n</b>\ntail"
+    assert profiler.split_sections(text) == [
+        ("a", "<a>\none\n</a>"),
+        ("(other)", "\n\n---\n\n"),
+        ("b", "<b>\ntwo\n</b>"),
+        ("(other)", "\ntail"),
+    ]
+    # An inline mention is not a block; an unclosed block runs to the end.
+    assert profiler.split_sections("see <a> here\n<c>\nopen") == [
+        ("(other)", "see <a> here\n"),
+        ("c", "<c>\nopen"),
+    ]
+
+
+def _decision(storage, *, user, inp, cached, task="s1", response="{}", model="m"):
+    storage.insert(
+        LLMCallRow(
+            provider="p",
+            model=model,
+            system_prompt="<rules>\nr\n</rules>",
+            user_prompt=user,
+            response=response,
+            status="success",
+            input_tokens=inp,
+            output_tokens=1,
+            cached_tokens=cached,
+            prompt_name="SELECT_ACTION",
+            task_id=task,
+        )
+    )
+
+
+def test_cache_report_splits_full_prompts_from_deltas(tmp_path):
+    db = os.path.join(tmp_path, "llm_calls.db")
+    s = LLMCallStorage(db_path=db)
+    _decision(s, user="<event_stream>\ne\n</event_stream>", inp=1000, cached=100)
+    _decision(s, user="10:00:00 [action_end]: ok", inp=2000, cached=1900)
+    _decision(s, user="10:00:01 [action_end]: ok", inp=2000, cached=0)
+
+    by_kind = {r["kind"]: r for r in profiler.cache_report(db, since=None)}
+    assert by_kind["full"]["calls"] == 1 and by_kind["full"]["uncached_tokens"] == 900
+    delta = by_kind["delta"]
+    assert delta["calls"] == 2 and delta["uncached_tokens"] == 2100
+    assert delta["misses"] == 1 and delta["miss_uncached_tokens"] == 2000
+
+
+def test_section_report_measures_blocks_per_layout(tmp_path):
+    db = os.path.join(tmp_path, "llm_calls.db")
+    s = LLMCallStorage(db_path=db)
+    _decision(
+        s,
+        user="<session>\nx\n</session>\n<event_stream>\ne\n</event_stream>",
+        inp=9,
+        cached=0,
+    )
+    _decision(s, user="10:00:00 [action_end]: ok", inp=9, cached=0)  # a delta: skipped
+
+    (layout,) = profiler.section_report(db, since=None)
+    assert layout["layout"] == "rules in system" and layout["rows"] == 1
+    blocks = {(b["part"], b["block"]) for b in layout["blocks"]}
+    assert blocks == {
+        ("system", "rules"),
+        ("user", "session"),
+        ("user", "event_stream"),
+    }
+
+
+def test_duplication_report_finds_inputs_sent_again(tmp_path):
+    import json
+
+    db = os.path.join(tmp_path, "llm_calls.db")
+    s = LLMCallStorage(db_path=db)
+    content = "line of content " * 20
+    reply = json.dumps(
+        {"actions": [{"action_name": "write_file", "parameters": {"content": content}}]}
+    )
+    _decision(
+        s, user="<event_stream>\ne\n</event_stream>", inp=9, cached=0, response=reply
+    )
+    _decision(
+        s,
+        user=f"10:00:00 [action_start]: {json.dumps(content)}",
+        inp=9,
+        cached=0,
+        response=reply,
+    )
+    _decision(s, user="10:00:01 [action_end]: ok", inp=9, cached=0)
+    _decision(
+        s, user="10:00:02 [action_end]: other session", inp=9, cached=0, task="s2"
+    )
+
+    report = profiler.duplication_report(db, since=None)
+    assert report["long_values_checked"] == 2
+    assert report["resent_in_next_delta"] == 1

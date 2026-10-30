@@ -367,6 +367,12 @@ class AgentBase:
             self.context_engine,
             prompt_filter=self._filter_action_prompt,
         )
+        # Session caches register the system prompt decisions send, which
+        # ends with the session's decision instructions. Set before any
+        # session is created or restored below.
+        self.context_engine.set_decision_instructions_hook(
+            self.action_router.decision_instructions
+        )
 
         self.session_manager = SessionManager(
             event_stream_manager=self.event_stream_manager,
