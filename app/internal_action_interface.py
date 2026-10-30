@@ -913,10 +913,10 @@ class InternalActionInterface:
             # Reset event stream sync points
             if cls.context_engine:
                 cls.context_engine.reset_event_stream_sync(
-                    LLMCallType.ACTION_SELECTION, session_id=sid
+                    LLMCallType.ACTION_SELECTION, session_id=sid, reason="skill"
                 )
                 cls.context_engine.reset_event_stream_sync(
-                    LLMCallType.GUI_ACTION_SELECTION, session_id=sid
+                    LLMCallType.GUI_ACTION_SELECTION, session_id=sid, reason="skill"
                 )
 
             # Re-create session caches with fresh system prompt so the next

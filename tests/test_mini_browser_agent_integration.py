@@ -1109,7 +1109,7 @@ def test_router_sends_the_filtered_prompt(monkeypatch):
         def get_session_state(self, session_id=None):
             return ""
 
-        def get_event_stream(self, session_id=None):
+        def get_event_stream(self, session_id=None, up_to=None):
             return ""
 
     class _Stop(Exception):

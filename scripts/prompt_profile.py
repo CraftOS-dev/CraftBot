@@ -22,6 +22,9 @@ Prompt-audit views (read-only, same data):
     --duplication  how often a long parameter value from a decision comes back
                    in the next delta (inputs the model already wrote, sent
                    again as action_start events).
+    --resets       action-selection requests by kind (full, delta, correction,
+                   stateless), and full requests by why their session history
+                   started anew (first, fold, skill, restart, ...).
 
 Usage:
     python scripts/prompt_profile.py                       # all captured calls
@@ -31,6 +34,7 @@ Usage:
     python scripts/prompt_profile.py --sections --since 7d
     python scripts/prompt_profile.py --cache --since 14d
     python scripts/prompt_profile.py --duplication --since 7d
+    python scripts/prompt_profile.py --resets --since 7d
 """
 
 from __future__ import annotations
@@ -409,6 +413,46 @@ def cache_report(db_path: str, since: Optional[datetime]) -> List[Dict[str, Any]
     return report
 
 
+def reset_report(db_path: str, since: Optional[datetime]) -> List[Dict[str, Any]]:
+    """Action-selection requests by kind, and full requests by why their
+    session history started anew (the router's labels in each call's
+    metadata). Calls captured before the labels count as ``(unlabeled)``.
+
+    Kinds: ``full`` (a history's first request: the whole prompt),
+    ``delta`` (new events), ``correction`` (a retry's feedback on a reply the
+    history holds), ``stateless`` (a provider without session histories).
+    """
+    groups: Dict[Tuple[str, str], Dict[str, int]] = defaultdict(
+        lambda: {"calls": 0, "input": 0, "cached": 0}
+    )
+    for row in _decision_rows(db_path, since, "metadata, input_tokens, cached_tokens"):
+        try:
+            meta = json.loads(row["metadata"]) if row["metadata"] else {}
+        except ValueError:
+            meta = {}
+        request = meta.get("request", "(unlabeled)")
+        reason = meta.get("reason", "")
+        if meta.get("feedback"):
+            reason += " (with feedback)"
+        g = groups[(request, reason)]
+        g["calls"] += 1
+        g["input"] += row["input_tokens"]
+        g["cached"] += row["cached_tokens"] or 0
+
+    report = [
+        {
+            "request": request,
+            "reason": reason,
+            "calls": g["calls"],
+            "input_tokens": g["input"],
+            "uncached_tokens": g["input"] - g["cached"],
+        }
+        for (request, reason), g in groups.items()
+    ]
+    report.sort(key=lambda r: r["uncached_tokens"], reverse=True)
+    return report
+
+
 def _long_string_values(response: str) -> List[str]:
     """Long string parameter values of a decision reply (one per action)."""
     try:
@@ -502,6 +546,20 @@ def _print_cache(report: List[Dict[str, Any]]) -> None:
         )
 
 
+def _print_resets(report: List[Dict[str, Any]]) -> None:
+    if not report:
+        print("No action-selection calls captured in this window.")
+        return
+    print(
+        f"{'REQUEST':12s} {'REASON':28s} {'CALLS':>6s} {'INPUT':>13s} {'UNCACHED':>12s}"
+    )
+    for r in report:
+        print(
+            f"{r['request']:12s} {r['reason'][:28]:28s} {r['calls']:6d} "
+            f"{r['input_tokens']:13,d} {r['uncached_tokens']:12,d}"
+        )
+
+
 def main() -> int:
     try:
         sys.stdout.reconfigure(encoding="utf-8")
@@ -527,6 +585,11 @@ def main() -> int:
         action="store_true",
         help="Decision inputs sent again in the next delta.",
     )
+    view.add_argument(
+        "--resets",
+        action="store_true",
+        help="Action-selection requests by kind, full ones by why.",
+    )
     ap.add_argument(
         "--limit",
         type=int,
@@ -538,13 +601,16 @@ def main() -> int:
     db_path = args.db or _default_db_path()
     since = _parse_since(args.since)
 
-    if args.sections or args.cache or args.duplication:
+    if args.sections or args.cache or args.duplication or args.resets:
         if args.sections:
             report: Any = section_report(db_path, since, args.limit)
             _print_sections(report)
         elif args.cache:
             report = cache_report(db_path, since)
             _print_cache(report)
+        elif args.resets:
+            report = reset_report(db_path, since)
+            _print_resets(report)
         else:
             report = duplication_report(db_path, since)
             print(

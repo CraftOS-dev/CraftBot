@@ -126,6 +126,10 @@ class EventStream:
         # Session cache tracking: maps call_type -> event_index of last synced event
         # Used to track which events have been sent to each session cache
         self._session_sync_points: dict[str, int] = {}
+        # Why a call type has no sync point now ("fold", "clear", or the
+        # reason given to reset_session_sync). The full request that starts
+        # its next session history is labeled with it (unsynced_reason).
+        self._unsynced_reasons: dict[str, str] = {}
 
         # The latest fold that shrank the stream (None: none since it was
         # created, restored or cleared). Until the next request reports its
@@ -618,7 +622,7 @@ class EventStream:
             if dropped_schemas:
                 self.tail_events = protected + self.tail_events[cutoff:]
                 self._drop_schemas(dropped_schemas)
-                self._session_sync_points.clear()
+                self._clear_sync_points("fold")
             # Everything else old enough to summarize is protected.
             return
 
@@ -647,7 +651,7 @@ class EventStream:
                 summary=None,
             )
             self._drop_schemas(dropped_schemas)
-            self._session_sync_points.clear()
+            self._clear_sync_points("fold")
             return
 
         first_ts = chunk[0].ts
@@ -718,7 +722,7 @@ class EventStream:
             self._drop_schemas(dropped_schemas)
 
             # Reset all session sync points - event indices are now invalid
-            self._session_sync_points.clear()
+            self._clear_sync_points("fold")
             logger.info(
                 f"[EventStream] Summarization complete. Tokens: {self._total_tokens}"
             )
@@ -744,7 +748,7 @@ class EventStream:
                 summary=None,
             )
             self._drop_schemas(dropped_schemas)
-            self._session_sync_points.clear()
+            self._clear_sync_points("fold")
 
     def actions_with_schemas(self) -> Set[str]:
         """Names of the actions whose schemas are in the live tail."""
@@ -784,7 +788,9 @@ class EventStream:
 
     # ───────────────────────── prompt accessors ──────────────────────────
 
-    def to_prompt_snapshot(self, include_summary: bool = True) -> str:
+    def to_prompt_snapshot(
+        self, include_summary: bool = True, up_to: Optional[int] = None
+    ) -> str:
         """
         Build a compact, human-readable history for inclusion in LLM prompts.
 
@@ -795,20 +801,23 @@ class EventStream:
 
         Args:
             include_summary: Whether to prepend the rolled-up ``head_summary``.
+            up_to: Only the first ``up_to`` tail events (the events a request
+                carries, see get_event_count); None for all of them.
 
         Returns:
             A newline-delimited string ready to embed in an LLM request.
         """
-        lines: List[str] = []
-        if include_summary and self.head_summary:
-            lines.append("Summary of folded event stream: \n" + self.head_summary)
+        with self._lock:
+            lines: List[str] = []
+            if include_summary and self.head_summary:
+                lines.append("Summary of folded event stream: \n" + self.head_summary)
 
-        recent = self.tail_events
-        if recent:
-            lines.append("Recent Event: ")
-            lines.extend(r.compact_line() for r in recent)
+            recent = self.tail_events[:up_to]
+            if recent:
+                lines.append("Recent Event: ")
+                lines.extend(r.compact_line() for r in recent)
 
-        return "\n".join(lines) if lines else "(no events)"
+            return "\n".join(lines) if lines else "(no events)"
 
     # ─────────────────────────── util / export ───────────────────────────
 
@@ -826,7 +835,7 @@ class EventStream:
         self.head_summary = None
         self.tail_events.clear()
         self._total_tokens = 0
-        self._session_sync_points.clear()
+        self._clear_sync_points("clear")
         self.last_fold = None
         # A new stream: its first event gets a fresh datetime marker.
         self._last_datetime_ts = None
@@ -895,25 +904,32 @@ class EventStream:
                     count += 1
         return count
 
-    def mark_session_synced(self, call_type: str) -> None:
+    def mark_session_synced(self, call_type: str, up_to: Optional[int] = None) -> None:
         """
-        Mark that all current events have been synced to the session cache.
+        Mark that the events a request carried have been synced to the
+        session cache.
 
         Called after sending events to a session cache to track the sync point.
         Next call to get_delta_events() will return only events added after this.
 
         Args:
             call_type: The type of LLM call (e.g., "action_selection", "gui_action_selection")
+            up_to: How many tail events the request carried (get_event_count
+                when it was built). Events logged while it was in flight were
+                not in it and stay unsent. None: all events now in the tail.
         """
         with self._lock:
-            self.mark_delivered()
-            # Store the current tail length as the sync point
-            self._session_sync_points[call_type] = len(self.tail_events)
+            point = len(self.tail_events) if up_to is None else up_to
+            self.mark_delivered(point)
+            self._session_sync_points[call_type] = point
+            self._unsynced_reasons.pop(call_type, None)
             logger.debug(
                 f"[EventStream] Session sync point for {call_type}: {self._session_sync_points[call_type]}"
             )
 
-    def get_delta_events(self, call_type: str) -> Tuple[str, bool]:
+    def get_delta_events(
+        self, call_type: str, up_to: Optional[int] = None
+    ) -> Tuple[str, bool]:
         """
         Get events added since the last sync point for a given call type.
 
@@ -922,6 +938,8 @@ class EventStream:
 
         Args:
             call_type: The type of LLM call
+            up_to: Only events before this tail index (the events a request
+                carries, see get_event_count); None for all of them.
 
         Returns:
             Tuple of (delta_events_string, has_delta).
@@ -941,7 +959,7 @@ class EventStream:
                 return "", False
 
             # Get events since sync point
-            delta_events = self.tail_events[sync_point:]
+            delta_events = self.tail_events[sync_point:up_to]
 
             if not delta_events:
                 return "", False
@@ -949,7 +967,7 @@ class EventStream:
             lines = [r.compact_line() for r in delta_events]
             return "\n".join(lines), True
 
-    def reset_session_sync(self, call_type: str) -> None:
+    def reset_session_sync(self, call_type: str, reason: str = "reset") -> None:
         """
         Reset the sync point for a session cache.
 
@@ -957,10 +975,32 @@ class EventStream:
 
         Args:
             call_type: The type of LLM call
+            reason: Why (e.g. "skill", "fold"); the full request that starts
+                the next session history is labeled with it.
         """
         with self._lock:
             self._session_sync_points.pop(call_type, None)
-            logger.debug(f"[EventStream] Reset session sync for {call_type}")
+            self._unsynced_reasons[call_type] = reason
+            logger.debug(f"[EventStream] Reset session sync for {call_type} ({reason})")
+
+    def _clear_sync_points(self, reason: str) -> None:
+        """Drop every sync point, recording ``reason``. Caller holds the lock."""
+        for call_type in self._session_sync_points:
+            self._unsynced_reasons[call_type] = reason
+        self._session_sync_points.clear()
+
+    def unsynced_reason(self, call_type: str) -> str:
+        """Why the next ``call_type`` request carries the whole stream: the
+        reason its sync point was dropped; otherwise "restart" when the model
+        has read this stream before (restored at boot without its session
+        history), else "first"."""
+        with self._lock:
+            reason = self._unsynced_reasons.get(call_type)
+            if reason:
+                return reason
+            if self.head_summary or any(r.delivered for r in self.tail_events):
+                return "restart"
+            return "first"
 
     def has_session_sync(self, call_type: str) -> bool:
         """Check if a sync point exists for the given call type."""

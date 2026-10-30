@@ -335,7 +335,9 @@ class ContextEngine:
 
     # ─────────────── USER PROMPT DYNAMIC COMPONENTS ───────────────
 
-    def get_event_stream(self, session_id: Optional[str] = None) -> str:
+    def get_event_stream(
+        self, session_id: Optional[str] = None, up_to: Optional[int] = None
+    ) -> str:
         """Get the event stream content for inclusion in user prompts.
 
         Sessions are fully isolated: the prompt contains ONLY this session's
@@ -348,6 +350,8 @@ class ContextEngine:
                         If provided, reads DIRECTLY from EventStreamManager's
                         per-session stream. Reading from StateSession.event_stream
                         would return a stale snapshot, not live events.
+            up_to: Only the first ``up_to`` tail events (the events a request
+                carries); None for all of them.
 
         Returns:
             Formatted <event_stream> block for this session.
@@ -364,7 +368,9 @@ class ContextEngine:
                 if event_stream_manager:
                     stream = event_stream_manager.get_stream_by_id(session_id)
                     if stream:
-                        event_stream = stream.to_prompt_snapshot(include_summary=True)
+                        event_stream = stream.to_prompt_snapshot(
+                            include_summary=True, up_to=up_to
+                        )
             except Exception:
                 pass
 
@@ -385,7 +391,10 @@ class ContextEngine:
         return "\n\n".join(sections)
 
     def get_event_stream_delta(
-        self, call_type: str, session_id: Optional[str] = None
+        self,
+        call_type: str,
+        session_id: Optional[str] = None,
+        up_to: Optional[int] = None,
     ) -> tuple[str, bool]:
         """Get only new events since the last session sync.
 
@@ -394,6 +403,8 @@ class ContextEngine:
             session_id: Optional session ID for session-specific stream lookup.
                         CRITICAL for concurrent task execution - without this,
                         events from other tasks may leak into this task's context.
+            up_to: Only events before this tail index (the events a request
+                carries); None for all of them.
         """
         try:
             event_stream_manager = self.state_manager.event_stream_manager
@@ -407,13 +418,16 @@ class ContextEngine:
             if not stream:
                 return "", False
 
-            delta_str, has_delta = stream.get_delta_events(call_type)
+            delta_str, has_delta = stream.get_delta_events(call_type, up_to=up_to)
             return (delta_str, True) if has_delta else ("", False)
         except Exception:
             return "", False
 
     def mark_event_stream_synced(
-        self, call_type: str, session_id: Optional[str] = None
+        self,
+        call_type: str,
+        session_id: Optional[str] = None,
+        up_to: Optional[int] = None,
     ) -> None:
         """Mark that the event stream has been synced to a session cache.
 
@@ -421,6 +435,8 @@ class ContextEngine:
             call_type: Type of LLM call for sync tracking.
             session_id: Optional session ID for session-specific stream lookup.
                         CRITICAL for concurrent task execution.
+            up_to: How many tail events the request carried; events logged
+                while it was in flight stay unsent. None: all of them.
         """
         try:
             event_stream_manager = self.state_manager.event_stream_manager
@@ -432,12 +448,15 @@ class ContextEngine:
                 stream = event_stream_manager.get_stream()
 
             if stream:
-                stream.mark_session_synced(call_type)
+                stream.mark_session_synced(call_type, up_to=up_to)
         except Exception:
             pass
 
     def reset_event_stream_sync(
-        self, call_type: str, session_id: Optional[str] = None
+        self,
+        call_type: str,
+        session_id: Optional[str] = None,
+        reason: str = "reset",
     ) -> None:
         """Reset the session sync point for the event stream.
 
@@ -445,6 +464,8 @@ class ContextEngine:
             call_type: Type of LLM call for sync tracking.
             session_id: Optional session ID for session-specific stream lookup.
                         CRITICAL for concurrent task execution.
+            reason: Why the session history starts anew (EventStream
+                .unsynced_reason); it labels the next full request.
         """
         try:
             event_stream_manager = self.state_manager.event_stream_manager
@@ -456,7 +477,7 @@ class ContextEngine:
                 stream = event_stream_manager.get_stream()
 
             if stream:
-                stream.reset_session_sync(call_type)
+                stream.reset_session_sync(call_type, reason=reason)
         except Exception:
             pass
 
