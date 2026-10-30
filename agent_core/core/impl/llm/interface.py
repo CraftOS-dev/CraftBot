@@ -1528,6 +1528,25 @@ class LLMInterface:
             self.reset_session_history(task_id, call_type)
             self._last_requests.pop(f"{prefix}{call_type}", None)
 
+    def remove_session_caches(self, task_id: str) -> None:
+        """Forget everything this interface holds for a deleted session.
+
+        What restart_session drops (histories, input counts, BytePlus's
+        server-side chains, last requests) plus the session's registrations
+        and recorded-turn flags, for every call type. Caches other sessions
+        share stay: Gemini's explicit cache is keyed by the system prompt,
+        which every session of a type sends.
+        """
+        self.restart_session(task_id)
+        prefix = f"{task_id}:"
+        for state in (
+            self._session_system_prompts,
+            self._checkpoints,
+            self._turn_recorded,
+        ):
+            for key in [k for k in state if k.startswith(prefix)]:
+                state.pop(key, None)
+
     def last_input_tokens(self, task_id: str, call_type: str) -> Optional[int]:
         """Input tokens the provider reported for this session's last request."""
         return self._last_input_tokens.get(f"{task_id}:{call_type}")
