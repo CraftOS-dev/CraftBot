@@ -1268,7 +1268,7 @@ class AgentBase:
                 LLMCallType.GUI_ACTION_SELECTION,
             ):
                 self.context_engine.reset_event_stream_sync(
-                    call_type, session_id=session_id
+                    call_type, session_id=session_id, reason="workflow_skill"
                 )
         except Exception as e:
             logger.warning(
@@ -3617,7 +3617,9 @@ class AgentBase:
                                 LLMCallType.GUI_ACTION_SELECTION,
                             ):
                                 self.context_engine.reset_event_stream_sync(
-                                    call_type, session_id=session_id
+                                    call_type,
+                                    session_id=session_id,
+                                    reason="provider_change",
                                 )
                     logger.info(
                         f"[AGENT] Rebuilt session caches for "

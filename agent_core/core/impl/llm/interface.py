@@ -393,6 +393,9 @@ class LLMInterface:
         # Where each session history stood at its last synced request; what
         # export_session saves so a restart can continue the session.
         self._checkpoints: Dict[str, _SessionCheckpoint] = {}
+        # Whether each session's last call added its exchange to the session
+        # history (session_turn_recorded).
+        self._turn_recorded: Dict[str, bool] = {}
 
         if ctx["byteplus"]:
             self.api_key = ctx["byteplus"]["api_key"]
@@ -680,6 +683,7 @@ class LLMInterface:
                         prompt_name=ctx.get("prompt_name"),
                         call_type=ctx.get("call_type"),
                         task_id=ctx.get("task_id"),
+                        metadata=dict(ctx.get("metadata") or {}),
                     )
                 )
             except Exception as e:
@@ -692,6 +696,7 @@ class LLMInterface:
         task_id: Optional[str] = None,
         thinking_budget: Optional[int] = None,
         reasoning_choice: Optional[ReasoningChoice] = None,
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Stamp per-call identity + start time into the context for capture.
 
@@ -705,6 +710,9 @@ class LLMInterface:
 
         ``reasoning_choice`` (when set) overrides the bound session's choice
         for this call; see ``reasoning_decision``.
+
+        ``metadata`` (when set) is stored with the captured call, e.g. what
+        kind of request a decision call is and why (the profiler's --resets).
         """
         _llm_call_ctx.set(
             {
@@ -713,6 +721,7 @@ class LLMInterface:
                 "task_id": task_id,
                 "thinking_budget": thinking_budget,
                 "reasoning_choice": reasoning_choice,
+                "metadata": metadata,
                 "start": time.perf_counter(),
                 "started_at": time.time(),
             }
@@ -1238,6 +1247,7 @@ class LLMInterface:
         thinking_budget: Optional[int] = None,
         reasoning_choice: Optional[ReasoningChoice] = None,
         usage_key: Optional[str] = None,
+        call_metadata: Optional[Dict[str, Any]] = None,
     ) -> str:
         """Async wrapper that defers the blocking call to a worker thread.
 
@@ -1256,6 +1266,9 @@ class LLMInterface:
         call is made for when the provider has no session path: its usage is
         recorded under that key, as a session call's is (see last_request).
         It changes nothing that is sent.
+
+        ``call_metadata`` is stored with the captured call; it changes
+        nothing that is sent.
         """
         # Stamp the context here, in the caller's context, so asyncio.to_thread
         # copies it into the worker thread where the capture runs.
@@ -1263,6 +1276,7 @@ class LLMInterface:
             prompt_name=prompt_name,
             thinking_budget=thinking_budget,
             reasoning_choice=reasoning_choice,
+            metadata=call_metadata,
         )
         token = _active_session_key.set(usage_key)
         try:
@@ -2296,6 +2310,7 @@ class LLMInterface:
         system_prompt_for_new_session: Optional[str] = None,
         log_response: bool = True,
         prompt_name: Optional[str] = None,
+        call_metadata: Optional[Dict[str, Any]] = None,
     ) -> str:
         """Synchronous session-based response generation.
 
@@ -2306,11 +2321,17 @@ class LLMInterface:
             system_prompt_for_new_session: System prompt to use if creating new session.
             log_response: Whether to log the response.
             prompt_name: Identity of the named prompt, for capture/profiling.
+            call_metadata: Stored with the captured call; changes nothing sent.
         """
-        self._begin_call(prompt_name=prompt_name, call_type=call_type, task_id=task_id)
+        self._begin_call(
+            prompt_name=prompt_name,
+            call_type=call_type,
+            task_id=task_id,
+            metadata=call_metadata,
+        )
         token = _active_session_key.set(f"{task_id}:{call_type}")
         try:
-            return self._generate_response_with_session_sync(
+            return self._session_call(
                 task_id,
                 call_type,
                 user_prompt,
@@ -2329,6 +2350,7 @@ class LLMInterface:
         system_prompt_for_new_session: Optional[str] = None,
         log_response: bool = True,
         prompt_name: Optional[str] = None,
+        call_metadata: Optional[Dict[str, Any]] = None,
     ) -> str:
         """Async wrapper for session-based response generation.
 
@@ -2339,14 +2361,20 @@ class LLMInterface:
             system_prompt_for_new_session: System prompt to use if creating new session.
             log_response: Whether to log the response.
             prompt_name: Identity of the named prompt, for capture/profiling.
+            call_metadata: Stored with the captured call; changes nothing sent.
         """
         # Stamp here (caller's context) so asyncio.to_thread copies it into the
         # worker thread where capture runs.
-        self._begin_call(prompt_name=prompt_name, call_type=call_type, task_id=task_id)
+        self._begin_call(
+            prompt_name=prompt_name,
+            call_type=call_type,
+            task_id=task_id,
+            metadata=call_metadata,
+        )
         token = _active_session_key.set(f"{task_id}:{call_type}")
         try:
             return await to_thread_with_usage(
-                self._generate_response_with_session_sync,
+                self._session_call,
                 task_id,
                 call_type,
                 user_prompt,
@@ -2355,6 +2383,46 @@ class LLMInterface:
             )
         finally:
             _active_session_key.reset(token)
+
+    def _session_turn_marker(self, task_id: str, call_type: str) -> Any:
+        """What grows when a session history records an exchange: the local
+        history's length, or BytePlus' server-side chain head."""
+        if self.provider == "byteplus" and self._byteplus_cache_manager:
+            return self._byteplus_cache_manager.get_session_cache(task_id, call_type)
+        return len(self._session_histories.get(f"{task_id}:{call_type}", ()))
+
+    def _session_call(
+        self,
+        task_id: str,
+        call_type: str,
+        user_prompt: str,
+        system_prompt_for_new_session: Optional[str],
+        log_response: bool,
+    ) -> str:
+        """One session call, noting whether its exchange reached the history
+        (see session_turn_recorded)."""
+        key = f"{task_id}:{call_type}"
+        before = self._session_turn_marker(task_id, call_type)
+        self._turn_recorded[key] = False
+        content = self._generate_response_with_session_sync(
+            task_id,
+            call_type,
+            user_prompt,
+            system_prompt_for_new_session,
+            log_response,
+        )
+        self._turn_recorded[key] = (
+            self._session_turn_marker(task_id, call_type) != before
+        )
+        return content
+
+    def session_turn_recorded(self, task_id: str, call_type: str) -> bool:
+        """Whether this session's last call added its exchange (the request
+        and the reply) to the session history. False when the call failed,
+        or when a fallback provider served it from a history of its own: the
+        request was then never recorded here, so its events are still unsent
+        as far as this session is concerned."""
+        return self._turn_recorded.get(f"{task_id}:{call_type}", False)
 
     def _generate_byteplus_with_session(
         self, task_id: str, call_type: str, user_prompt: str

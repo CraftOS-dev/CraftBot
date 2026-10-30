@@ -81,6 +81,12 @@ class _Stream:
     def mark_delivered(self, *args):
         pass
 
+    def get_event_count(self):
+        return 0
+
+    def unsynced_reason(self, call_type):
+        return "first"
+
 
 class _Context:
     def __init__(self, stream):
@@ -89,14 +95,14 @@ class _Context:
     def make_prompt(self, **kwargs):
         return "BASE", ""
 
-    def get_event_stream_delta(self, call_type, session_id=None):
+    def get_event_stream_delta(self, call_type, session_id=None, up_to=None):
         return ("DELTA", True) if self.stream.pending else ("", False)
 
-    def mark_event_stream_synced(self, call_type, session_id=None):
+    def mark_event_stream_synced(self, call_type, session_id=None, up_to=None):
         self.stream.synced = True
         self.stream.pending = False
 
-    def reset_event_stream_sync(self, call_type, session_id=None):
+    def reset_event_stream_sync(self, call_type, session_id=None, reason="reset"):
         self.stream.synced = False
 
 
@@ -117,6 +123,9 @@ class _LLM:
     def checkpoint_session(self, *args):
         pass
 
+    def session_turn_recorded(self, task_id, call_type):
+        return True
+
     async def generate_response_with_session_async(
         self,
         task_id,
@@ -124,6 +133,7 @@ class _LLM:
         user_prompt,
         system_prompt_for_new_session,
         prompt_name=None,
+        call_metadata=None,
     ):
         self.sent.append((system_prompt_for_new_session, user_prompt))
         return DECISION
@@ -145,7 +155,7 @@ def _decide(router, instructions):
             "FULL",
             is_task=True,
             session_id="s1",
-            render_prompt=lambda: "FULL",
+            render_prompt=lambda up_to=None: "FULL",
             instructions=instructions,
         )
     )

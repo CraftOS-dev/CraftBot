@@ -106,7 +106,9 @@ def test_split_sections():
     ]
 
 
-def _decision(storage, *, user, inp, cached, task="s1", response="{}", model="m"):
+def _decision(
+    storage, *, user, inp, cached, task="s1", response="{}", model="m", metadata=None
+):
     storage.insert(
         LLMCallRow(
             provider="p",
@@ -120,6 +122,7 @@ def _decision(storage, *, user, inp, cached, task="s1", response="{}", model="m"
             cached_tokens=cached,
             prompt_name="SELECT_ACTION",
             task_id=task,
+            metadata=metadata or {},
         )
     )
 
@@ -186,3 +189,41 @@ def test_duplication_report_finds_inputs_sent_again(tmp_path):
     report = profiler.duplication_report(db, since=None)
     assert report["long_values_checked"] == 2
     assert report["resent_in_next_delta"] == 1
+
+
+def test_reset_report_groups_requests_by_kind_and_reason(tmp_path):
+    db = os.path.join(tmp_path, "llm_calls.db")
+    s = LLMCallStorage(db_path=db)
+    full = "<event_stream>\ne\n</event_stream>"
+    _decision(
+        s, user=full, inp=900, cached=0, metadata={"request": "full", "reason": "first"}
+    )
+    _decision(
+        s,
+        user=full,
+        inp=800,
+        cached=100,
+        metadata={"request": "full", "reason": "skill"},
+    )
+    _decision(
+        s, user=full, inp=700, cached=0, metadata={"request": "full", "reason": "skill"}
+    )
+    _decision(
+        s,
+        user=full,
+        inp=500,
+        cached=0,
+        metadata={"request": "full", "reason": "first", "feedback": True},
+    )
+    _decision(s, user="delta", inp=50, cached=40, metadata={"request": "correction"})
+    _decision(s, user=full, inp=10, cached=0)  # captured before the labels
+
+    rows = {
+        (r["request"], r["reason"]): r for r in profiler.reset_report(db, since=None)
+    }
+    assert rows[("full", "skill")]["calls"] == 2
+    assert rows[("full", "skill")]["uncached_tokens"] == 1400
+    assert rows[("full", "first")]["calls"] == 1
+    assert rows[("full", "first (with feedback)")]["calls"] == 1
+    assert rows[("correction", "")]["uncached_tokens"] == 10
+    assert rows[("(unlabeled)", "")]["calls"] == 1

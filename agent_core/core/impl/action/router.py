@@ -222,23 +222,26 @@ class ActionRouter:
         decision_prompt_name = "SELECT_ACTION"
         static_prompt = self._decision_prompt(session_state, query)
 
-        def render_prompt() -> str:
+        def render_prompt(up_to: Optional[int] = None) -> str:
             # Rendered from the CURRENT stream, so a fold made while deciding
-            # (see _prompt_for_decision) is reflected in what is sent.
+            # (see _prompt_for_decision) is reflected in what is sent; with
+            # ``up_to``, from the events the request carries.
             return self._decision_prompt(
                 session_state,
                 query,
-                self.context_engine.get_event_stream(session_id=session_id),
+                self.context_engine.get_event_stream(
+                    session_id=session_id, up_to=up_to
+                ),
             )
 
         full_prompt = render_prompt()
 
         max_format_retries = 3
-        current_prompt = full_prompt
+        correction: Optional[str] = None
 
         for attempt in range(max_format_retries):
             decision = await self._prompt_for_decision(
-                current_prompt,
+                full_prompt,
                 is_task=True,
                 static_prompt=static_prompt,
                 call_type=LLMCallType.ACTION_SELECTION,
@@ -246,6 +249,7 @@ class ActionRouter:
                 prompt_name=decision_prompt_name,
                 render_prompt=render_prompt,
                 instructions=instructions,
+                correction=correction,
             )
 
             # Parse parallel action decisions with format error detection
@@ -258,8 +262,10 @@ class ActionRouter:
                 )
 
                 if attempt < max_format_retries - 1:
-                    current_prompt = self._augment_prompt_with_format_error(
-                        render_prompt(), attempt + 1, decision, format_error
+                    # A session history holding the reply gets the feedback as
+                    # its next turn; anything else resends the prompt with it.
+                    correction = self._format_error_feedback(
+                        attempt + 1, decision, format_error
                     )
                     continue
                 else:
@@ -267,6 +273,7 @@ class ActionRouter:
                         f"LLM output format error after {max_format_retries} attempts. "
                         f"Last error: {format_error}. Run aborted to prevent token waste."
                     )
+            correction = None
 
             if not actions:
                 # Empty action list (no format error) - return empty decision for backward compatibility
@@ -338,6 +345,31 @@ class ActionRouter:
             task_id, call_type, stream.sync_marker(call_type) if stream else None
         )
 
+    def _mark_sent(
+        self,
+        stream,
+        task_id: str,
+        call_type: str,
+        session_id: str,
+        up_to: Optional[int],
+    ) -> None:
+        """After a session call: the events it carried (the stream's first
+        ``up_to``) count as sent, only if the session history recorded the
+        exchange. A fallback provider's answer is recorded in a history of
+        its own, so they go again with this session's next request instead
+        of being lost to it. Events logged while the call was in flight were
+        not in it either; they stay unsent too."""
+        if not self.llm_interface.session_turn_recorded(task_id, call_type):
+            logger.info(
+                f"[SESSION CACHE] The history did not record this exchange for "
+                f"{call_type}; its events go with the next request"
+            )
+            return
+        self.context_engine.mark_event_stream_synced(
+            call_type, session_id=session_id, up_to=up_to
+        )
+        self._checkpoint(stream, task_id, call_type)
+
     async def _prompt_for_decision(
         self,
         prompt: str,
@@ -348,6 +380,7 @@ class ActionRouter:
         prompt_name: Optional[str] = None,
         render_prompt: Optional[Callable[[], str]] = None,
         instructions: str = "",
+        correction: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Prompt the LLM for an action decision with session caching support.
@@ -363,10 +396,26 @@ class ActionRouter:
             instructions: The decision instructions as they render now
                 (decision_instructions). They end the system prompt; a session
                 history in progress keeps the ones it started with.
+            correction: Feedback on the previous reply, which failed (a retry).
+                A session history continues with it as its next turn, after
+                any new events; a full request carries it already (``prompt``
+                ends with it).
         """
         max_retries = 3
         last_error: Optional[Exception] = None
-        current_prompt = prompt
+        # Feedback given here on a failed attempt: a reply that did not parse,
+        # or (stateless only) a provider error. ``correction`` is the caller's.
+        attempt_feedback = ""
+        # Whether this decision runs on a session history (set per attempt).
+        session_path = False
+
+        def full_request(up_to: Optional[int]) -> str:
+            """The whole user message, carrying the stream's first ``up_to``
+            events (rendered now, so it holds exactly the events marked sent
+            after it), then any retry feedback."""
+            base = prompt if render_prompt is None else render_prompt(up_to=up_to)
+            return base + (correction or "") + attempt_feedback
+
         # One fold per decision: a fold keeps at most its keep target of what
         # the model has read (new events count against it), so a request that
         # still does not fit is carrying new events too large to send in full.
@@ -401,6 +450,19 @@ class ActionRouter:
             system_prompt = decision_system_prompt(base_prompt, instructions)
 
             raw_response = None
+            sent_prompt = ""
+
+            # CRITICAL: Use session-specific stream to prevent event leakage
+            effective_session_id = session_id or current_task_id
+            stream = None
+            if current_task_id and is_task:
+                event_stream_manager = get_event_stream_manager()
+                if event_stream_manager:
+                    stream = event_stream_manager.get_stream_by_id(effective_session_id)
+            # The events this request carries: the ones in the stream now.
+            # Anything logged while it is in flight (other code paths write to
+            # a session's stream at any time) is left for the next request.
+            point = stream.get_event_count() if stream is not None else None
 
             try:
                 # Use session cache if we're in a task context AND session is registered
@@ -409,17 +471,9 @@ class ActionRouter:
                         current_task_id, call_type
                     )
 
+                    session_path = has_session
                     if has_session:
                         # Session is registered (complex task) - use session caching
-                        # CRITICAL: Use session-specific stream to prevent event leakage
-                        event_stream_manager = get_event_stream_manager()
-                        # Use get_stream_by_id with session_id to get the correct task's stream
-                        effective_session_id = session_id or current_task_id
-                        stream = (
-                            event_stream_manager.get_stream_by_id(effective_session_id)
-                            if event_stream_manager
-                            else None
-                        )
                         has_synced_before = (
                             stream.has_session_sync(call_type) if stream else False
                         )
@@ -429,7 +483,9 @@ class ActionRouter:
                             # CRITICAL: Pass session_id to get delta from the correct stream
                             delta_events, has_delta = (
                                 self.context_engine.get_event_stream_delta(
-                                    call_type, session_id=effective_session_id
+                                    call_type,
+                                    session_id=effective_session_id,
+                                    up_to=point,
                                 )
                             )
                             # The history continues on the instructions it
@@ -441,6 +497,19 @@ class ActionRouter:
                                     history_key, sys.intern(instructions)
                                 ),
                             )
+                            request_kind = "delta"
+                            if attempt_feedback or correction:
+                                # A retry: the history holds the failed reply,
+                                # so the feedback is its next turn (after any
+                                # new events) instead of a whole new prompt.
+                                feedback = (attempt_feedback or correction).lstrip("\n")
+                                delta_events = (
+                                    f"{delta_events}\n\n{feedback}"
+                                    if has_delta
+                                    else feedback
+                                )
+                                has_delta = True
+                                request_kind = "correction"
 
                             if (
                                 has_delta
@@ -461,9 +530,13 @@ class ActionRouter:
                                 )
                                 self._fold(stream, system_prompt, static_prompt)
                                 folded = True
-                                current_prompt = render_prompt()
+                                # The fold reshaped the tail; the new history
+                                # carries what it holds now.
+                                point = stream.get_event_count()
                                 self.context_engine.reset_event_stream_sync(
-                                    call_type, session_id=effective_session_id
+                                    call_type,
+                                    session_id=effective_session_id,
+                                    reason="fold",
                                 )
                                 has_synced_before = False
                             elif has_delta:
@@ -477,12 +550,16 @@ class ActionRouter:
                                     user_prompt=delta_events,
                                     system_prompt_for_new_session=history_prompt,
                                     prompt_name=prompt_name,
+                                    call_metadata={"request": request_kind},
                                 )
-                                # Mark events as synced after successful call
-                                self.context_engine.mark_event_stream_synced(
-                                    call_type, session_id=effective_session_id
+                                sent_prompt = delta_events
+                                self._mark_sent(
+                                    stream,
+                                    current_task_id,
+                                    call_type,
+                                    effective_session_id,
+                                    point,
                                 )
-                                self._checkpoint(stream, current_task_id, call_type)
                             else:
                                 # No new events - this could mean summarization happened
                                 logger.info(
@@ -492,7 +569,9 @@ class ActionRouter:
                                     current_task_id, call_type
                                 )
                                 self.context_engine.reset_event_stream_sync(
-                                    call_type, session_id=effective_session_id
+                                    call_type,
+                                    session_id=effective_session_id,
+                                    reason="no_delta",
                                 )
                                 # Fall through to first-call path
                                 has_synced_before = False
@@ -501,6 +580,11 @@ class ActionRouter:
                             # First call with session - send full prompt to establish session.
                             # Also reached after the stream folds (the fold clears the
                             # sync point); any accumulated turns are stale by then.
+                            reason = (
+                                stream.unsynced_reason(call_type)
+                                if stream
+                                else "unknown"
+                            )
                             self.llm_interface.reset_session_history(
                                 current_task_id, call_type
                             )
@@ -510,44 +594,48 @@ class ActionRouter:
                                 instructions
                             )
                             logger.info(
-                                f"[SESSION CACHE] Creating new session for {call_type} (first call)"
+                                f"[SESSION CACHE] Creating new session for {call_type} ({reason})"
                             )
+                            metadata = {"request": "full", "reason": reason}
+                            if attempt_feedback or correction:
+                                # A retry whose failed reply the history does
+                                # not hold: the prompt ends with the feedback.
+                                metadata["feedback"] = True
+                            sent_prompt = full_request(point)
                             raw_response = await self.llm_interface.generate_response_with_session_async(
                                 task_id=current_task_id,
                                 call_type=call_type,
-                                user_prompt=current_prompt,
+                                user_prompt=sent_prompt,
                                 system_prompt_for_new_session=system_prompt,
                                 prompt_name=prompt_name,
+                                call_metadata=metadata,
                             )
-                            # Mark events as synced after successful session creation
-                            self.context_engine.mark_event_stream_synced(
-                                call_type, session_id=effective_session_id
+                            self._mark_sent(
+                                stream,
+                                current_task_id,
+                                call_type,
+                                effective_session_id,
+                                point,
                             )
-                            self._checkpoint(stream, current_task_id, call_type)
                     else:
                         # No session registered (simple task) - use prefix cache / regular response
+                        sent_prompt = full_request(point)
                         raw_response = await self.llm_interface.generate_response_async(
                             system_prompt,
-                            current_prompt,
+                            sent_prompt,
                             prompt_name=prompt_name,
                             usage_key=f"{current_task_id}:{call_type}",
+                            call_metadata={"request": "stateless"},
                         )
-                        # The prompt carried the whole stream; a later fold may
-                        # collapse any of it now.
-                        event_stream_manager = get_event_stream_manager()
-                        stream = (
-                            event_stream_manager.get_stream_by_id(
-                                session_id or current_task_id
-                            )
-                            if event_stream_manager
-                            else None
-                        )
+                        # The prompt carried the stream's first ``point``
+                        # events; a later fold may collapse any of them now.
                         if stream is not None:
-                            stream.mark_delivered()
+                            stream.mark_delivered(point)
                 else:
                     # Not in task context - use regular response
+                    sent_prompt = full_request(None)
                     raw_response = await self.llm_interface.generate_response_async(
-                        system_prompt, current_prompt, prompt_name=prompt_name
+                        system_prompt, sent_prompt, prompt_name=prompt_name
                     )
 
                 # Validate response before parsing
@@ -556,7 +644,7 @@ class ActionRouter:
                 ):
                     logger.error(
                         f"[ACTION ROUTER] LLM returned empty response on attempt {attempt + 1}. "
-                        f"System prompt length: {len(system_prompt)}, User prompt length: {len(current_prompt)}"
+                        f"System prompt length: {len(system_prompt)}, User prompt length: {len(sent_prompt)}"
                     )
 
                 decision, parse_error = self._parse_action_decision(raw_response)
@@ -575,8 +663,10 @@ class ActionRouter:
                     f"Failed to parse LLM decision on attempt {attempt + 1}: "
                     f"{raw_response} | error={feedback_error}"
                 )
-                current_prompt = self._augment_prompt_with_feedback(
-                    prompt, attempt + 1, raw_response, feedback_error
+                # A session history holding the reply gets the feedback as its
+                # next turn; anything else resends the prompt with it.
+                attempt_feedback = self._parse_error_feedback(
+                    attempt + 1, raw_response, feedback_error
                 )
             except LLMConsecutiveFailureError:
                 # Fatal: LLM is in a broken state - re-raise immediately, do not retry
@@ -601,10 +691,12 @@ class ActionRouter:
                 elif not stream.collapse_undelivered_oversize():
                     # Folded, and the new events have nothing left to shrink.
                     raise
-                current_prompt = render_prompt()
+                # The next attempt renders the folded stream afresh.
                 self.llm_interface.reset_session_history(current_task_id, call_type)
                 self.context_engine.reset_event_stream_sync(
-                    call_type, session_id=session_id or current_task_id
+                    call_type,
+                    session_id=session_id or current_task_id,
+                    reason="overflow",
                 )
                 continue
             except RuntimeError as e:
@@ -631,13 +723,15 @@ class ActionRouter:
                 # After 3 attempts, give up
                 if attempt >= max_retries - 1:
                     raise last_error
-                # Otherwise, retry with more context in the prompt
-                current_prompt = self._augment_prompt_with_feedback(
-                    prompt,
-                    attempt + 1,
-                    f"[LLM ERROR] {error_msg}",
-                    "LLM provider failed - retrying",
-                )
+                # The model produced nothing to correct: a session history
+                # sends the same request again. A stateless retry carries a
+                # note about the failure in the prompt.
+                if not session_path:
+                    attempt_feedback = self._parse_error_feedback(
+                        attempt + 1,
+                        f"[LLM ERROR] {error_msg}",
+                        "LLM provider failed - retrying",
+                    )
             except Exception as e:
                 # Unexpected error
                 logger.error(
@@ -649,12 +743,12 @@ class ActionRouter:
                 )
                 if attempt >= max_retries - 1:
                     raise last_error
-                current_prompt = self._augment_prompt_with_feedback(
-                    prompt,
-                    attempt + 1,
-                    f"[ERROR] {str(e)}",
-                    "An unexpected error occurred - retrying",
-                )
+                if not session_path:
+                    attempt_feedback = self._parse_error_feedback(
+                        attempt + 1,
+                        f"[ERROR] {str(e)}",
+                        "An unexpected error occurred - retrying",
+                    )
 
         if last_error:
             raise last_error
@@ -715,14 +809,15 @@ class ActionRouter:
 
         return parsed, None
 
-    def _augment_prompt_with_feedback(
+    def _parse_error_feedback(
         self,
-        base_prompt: str,
         attempt: int,
         raw_response: str,
         error_message: str,
     ) -> str:
-        feedback_block = (
+        """The feedback a retry gives on a reply that did not parse; a full
+        prompt ends with it, a session history gets it as its next turn."""
+        return (
             f"\n\nPrevious attempt {attempt} failed to parse because: {error_message}. "
             "Review your last reply above (shown in the RAW RESPONSE section) and return a corrected response. "
             "You must return ONLY a JSON object with action_name and parameters fields. "
@@ -732,33 +827,31 @@ class ActionRouter:
             "--- End of RAW RESPONSE ---\n"
             "Respond now with the corrected JSON object."
         )
-        return base_prompt + feedback_block
 
-    def _augment_prompt_with_format_error(
+    def _format_error_feedback(
         self,
-        base_prompt: str,
         attempt: int,
         decision: Dict[str, Any],
         format_error: str,
     ) -> str:
         """
-        Augment prompt with format error feedback to help LLM correct its output.
+        Format error feedback to help the LLM correct its output; a full
+        prompt ends with it, a session history gets it as its next turn.
 
         Args:
-            base_prompt: Original prompt.
             attempt: Current attempt number.
             decision: The parsed decision that had format issues.
             format_error: Detailed error message explaining what was wrong.
 
         Returns:
-            Augmented prompt with error feedback.
+            The feedback block.
         """
         try:
             raw_response = json.dumps(decision, indent=2, ensure_ascii=False)
         except Exception:
             raw_response = str(decision)
 
-        feedback_block = (
+        return (
             f"\n\n{'=' * 60}\n"
             f"⚠️ OUTPUT FORMAT ERROR (Attempt {attempt}/3)\n"
             f"{'=' * 60}\n\n"
@@ -783,7 +876,6 @@ class ActionRouter:
             f"Return ONLY the corrected JSON object with the exact format shown above.\n"
             f"{'=' * 60}\n"
         )
-        return base_prompt + feedback_block
 
     def _format_candidates(self, candidates: List[Dict[str, Any]]) -> str:
         """Format action candidates with compact schema for reduced prompt size.
