@@ -476,6 +476,8 @@ class AgentBase:
         # Sessions whose event stream a user-requested fold is summarizing
         # (fold_session); the chat input's context button shows it.
         self.folding_sessions: set[str] = set()
+        # Chat sessions with an auto-title request in flight: one at a time.
+        self.titling_sessions: set[str] = set()
         self._extra_system_prompt: str = self._load_extra_system_prompt()
 
         # Scheduler for periodic tasks (memory processing, proactive checks, etc.)
@@ -1865,11 +1867,25 @@ class AgentBase:
         passes it directly when the first message arrives (so the sidebar
         updates while the run is still working). The run-end fallback call
         passes nothing and falls back to the event-stream snapshot.
+
+        One request per session at a time: a call made while another is in
+        flight (the run-end fallback of a quick run, a second message) does
+        nothing, and a title is only written while the chat has none, so it
+        never replaces another title or the user's own rename.
         """
         session = self.session_manager.get(session_id)
-        if not session:
+        if not session or session_id in self.titling_sessions:
             return
+        self.titling_sessions.add(session_id)
+        try:
+            await self._write_session_title(session_id, first_request)
+        finally:
+            self.titling_sessions.discard(session_id)
 
+    async def _write_session_title(
+        self, session_id: str, first_request: Optional[str]
+    ) -> None:
+        """_auto_title_session's work, with the session's request in flight."""
         basis = (first_request or "").strip()
         if not basis:
             try:
@@ -1907,6 +1923,11 @@ class AgentBase:
         if not title:
             title = self._fallback_session_title(first_request or "")
         if not title:
+            return
+
+        # Renamed (by the user) or titled meanwhile: keep that title.
+        session = self.session_manager.get(session_id)
+        if session is None or session.title not in ("", "New chat"):
             return
 
         try:
