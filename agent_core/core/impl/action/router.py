@@ -352,23 +352,26 @@ class ActionRouter:
         call_type: str,
         session_id: str,
         up_to: Optional[int],
-    ) -> None:
+    ) -> bool:
         """After a session call: the events it carried (the stream's first
         ``up_to``) count as sent, only if the session history recorded the
         exchange. A fallback provider's answer is recorded in a history of
         its own, so they go again with this session's next request instead
         of being lost to it. Events logged while the call was in flight were
-        not in it either; they stay unsent too."""
+        not in it either; they stay unsent too.
+
+        Returns whether the history recorded the exchange."""
         if not self.llm_interface.session_turn_recorded(task_id, call_type):
             logger.info(
                 f"[SESSION CACHE] The history did not record this exchange for "
                 f"{call_type}; its events go with the next request"
             )
-            return
+            return False
         self.context_engine.mark_event_stream_synced(
             call_type, session_id=session_id, up_to=up_to
         )
         self._checkpoint(stream, task_id, call_type)
+        return True
 
     async def _prompt_for_decision(
         self,
@@ -451,6 +454,8 @@ class ActionRouter:
 
             raw_response = None
             sent_prompt = ""
+            # Whether a session history recorded this attempt's exchange.
+            recorded = False
 
             # CRITICAL: Use session-specific stream to prevent event leakage
             effective_session_id = session_id or current_task_id
@@ -553,7 +558,7 @@ class ActionRouter:
                                     call_metadata={"request": request_kind},
                                 )
                                 sent_prompt = delta_events
-                                self._mark_sent(
+                                recorded = self._mark_sent(
                                     stream,
                                     current_task_id,
                                     call_type,
@@ -610,7 +615,7 @@ class ActionRouter:
                                 prompt_name=prompt_name,
                                 call_metadata=metadata,
                             )
-                            self._mark_sent(
+                            recorded = self._mark_sent(
                                 stream,
                                 current_task_id,
                                 call_type,
@@ -648,6 +653,12 @@ class ActionRouter:
                     )
 
                 decision, parse_error = self._parse_action_decision(raw_response)
+                if session_path and stream is not None:
+                    # The reply the history now ends with, which the next
+                    # delta refers to instead of repeating what it holds.
+                    stream.set_reply_in_history(
+                        call_type, decision if recorded else None
+                    )
                 if decision is not None:
                     decision.setdefault("parameters", {})
                     decision["parameters"] = self._ensure_parameters(

@@ -84,6 +84,9 @@ class _Stream:
     def get_event_count(self):
         return 0
 
+    def set_reply_in_history(self, call_type, decision):
+        pass
+
     def unsynced_reason(self, call_type):
         return "first"
 

@@ -26,7 +26,7 @@ from agent_core.core.protocols.context import ContextEngineProtocol
 from agent_core.core.protocols.state import StateManagerProtocol
 from agent_core.core.impl.action.executor import ActionExecutor
 from agent_core.core.impl.action.idempotency import IdempotencyGuard
-from agent_core.core.event_stream.event import EventType
+from agent_core.core.event_stream.event import SESSION_ID_INPUT_KEY, EventType
 from agent_core.utils.logger import logger
 
 # ============================================================================
@@ -261,7 +261,7 @@ class ActionManager:
         if input_data is None:
             input_data = {}
         if session_id:
-            input_data["_session_id"] = session_id
+            input_data[SESSION_ID_INPUT_KEY] = session_id
 
         logger.debug(f"[INPUT DATA] {input_data}")
 

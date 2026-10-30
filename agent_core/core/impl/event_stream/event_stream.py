@@ -14,6 +14,7 @@ APIs:
 """
 
 from __future__ import annotations
+import copy
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
@@ -21,7 +22,12 @@ import re
 import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
-from agent_core.core.event_stream.event import Event, EventRecord, EventType
+from agent_core.core.event_stream.event import (
+    SESSION_ID_INPUT_KEY,
+    Event,
+    EventRecord,
+    EventType,
+)
 from agent_core.core.protocols.llm import LLMInterfaceProtocol
 from agent_core.core.prompts import EVENT_STREAM_SUMMARIZATION_PROMPT
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -72,6 +78,33 @@ class FoldRecord:
 
     at: float
     freed_tokens: int
+
+
+# How a delta shows an action_start whose input the model's own reply (the
+# assistant message right before the delta) already holds.
+INPUT_IN_REPLY = "Running action {name} (input as in your reply above)."
+
+
+@dataclass(frozen=True)
+class _ReplyInHistory:
+    """A decision reply as the session history holds it: its reasoning and
+    each action's name and parameters, copied when it was recorded."""
+
+    reasoning: Optional[str]
+    actions: Tuple[Tuple[str, Any], ...]
+
+    @classmethod
+    def of(cls, decision: Dict[str, Any]) -> "_ReplyInHistory":
+        items = decision.get("actions")
+        if not isinstance(items, list):
+            items = [decision]  # the single-action reply form
+        actions = tuple(
+            (item.get("action_name"), copy.deepcopy(item.get("parameters") or {}))
+            for item in items
+            if isinstance(item, dict) and item.get("action_name")
+        )
+        reasoning = decision.get("reasoning")
+        return cls(reasoning if isinstance(reasoning, str) else None, actions)
 
 
 def get_cached_token_count(rec: "EventRecord") -> int:
@@ -130,6 +163,10 @@ class EventStream:
         # reason given to reset_session_sync). The full request that starts
         # its next session history is labeled with it (unsynced_reason).
         self._unsynced_reasons: dict[str, str] = {}
+        # Per call type: the decision reply its session history ends with
+        # (set_reply_in_history). A delta refers to what the model wrote there
+        # instead of sending it a second time (get_delta_events).
+        self._replies_in_history: dict[str, _ReplyInHistory] = {}
 
         # The latest fold that shrank the stream (None: none since it was
         # created, restored or cleared). Until the next request reports its
@@ -964,8 +1001,67 @@ class EventStream:
             if not delta_events:
                 return "", False
 
-            lines = [r.compact_line() for r in delta_events]
+            reply = self._replies_in_history.get(call_type)
+            if reply is None:
+                lines = [r.compact_line() for r in delta_events]
+            else:
+                lines = self._delta_lines(delta_events, reply)
             return "\n".join(lines), True
+
+    @staticmethod
+    def _delta_lines(records: List[EventRecord], reply: _ReplyInHistory) -> List[str]:
+        """The delta's lines when the session history ends with ``reply``.
+
+        What the model wrote in that reply is not sent a second time: its
+        reasoning event is left out, and an action_start whose action and
+        input are exactly as the reply has them is shown by reference. The
+        input is compared without the session id the runtime adds to every
+        action (SESSION_ID_INPUT_KEY); any other difference (filled defaults,
+        an injected account) means the run changed it, so that action_start
+        is sent in full. Full renders (a history's first request, EVENT.md, a
+        fold's summary) always show everything.
+        """
+        reasoning = reply.reasoning
+        actions = list(reply.actions)
+        lines: List[str] = []
+        for rec in records:
+            event = rec.event
+            if (
+                reasoning
+                and event.event_type is EventType.REASONING
+                and event.message == reasoning
+            ):
+                reasoning = None  # the reply's reasoning, once
+                continue
+            if event.event_type is EventType.ACTION_START and isinstance(
+                event.action_input, dict
+            ):
+                written = {
+                    k: v
+                    for k, v in event.action_input.items()
+                    if k != SESSION_ID_INPUT_KEY
+                }
+                key = (event.action_name, written)
+                if key in actions:
+                    actions.remove(key)  # each emitted action, once
+                    lines.append(
+                        rec.compact_line(INPUT_IN_REPLY.format(name=event.action_name))
+                    )
+                    continue
+            lines.append(rec.compact_line())
+        return lines
+
+    def set_reply_in_history(
+        self, call_type: str, decision: Optional[Dict[str, Any]]
+    ) -> None:
+        """Record the decision reply ``call_type``'s session history now ends
+        with; None when it ends with none a delta can refer to (the reply did
+        not parse, or the history did not record it)."""
+        with self._lock:
+            if decision is None:
+                self._replies_in_history.pop(call_type, None)
+            else:
+                self._replies_in_history[call_type] = _ReplyInHistory.of(decision)
 
     def reset_session_sync(self, call_type: str, reason: str = "reset") -> None:
         """
@@ -980,6 +1076,7 @@ class EventStream:
         """
         with self._lock:
             self._session_sync_points.pop(call_type, None)
+            self._replies_in_history.pop(call_type, None)
             self._unsynced_reasons[call_type] = reason
             logger.debug(f"[EventStream] Reset session sync for {call_type} ({reason})")
 
@@ -988,6 +1085,7 @@ class EventStream:
         for call_type in self._session_sync_points:
             self._unsynced_reasons[call_type] = reason
         self._session_sync_points.clear()
+        self._replies_in_history.clear()
 
     def unsynced_reason(self, call_type: str) -> str:
         """Why the next ``call_type`` request carries the whole stream: the
