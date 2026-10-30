@@ -1697,6 +1697,15 @@ if __name__ == "__main__":
         if backend_ready:
             backend_ready = _wait_for_agent_ready(agent_process)
 
+        # The first frontend check can time out while the frontend is still
+        # coming up; the agent wait above gives it time to finish, so look
+        # again rather than report a stale "not responding". Adopt it now,
+        # since the adoption above skipped a frontend that was not up yet.
+        if not frontend_ready:
+            frontend_ready = wait_for_frontend_silent(timeout=30)
+            if frontend_ready:
+                _adopt_port_listeners(FRONTEND_PORT)
+
         # Small delay to ensure agent's stdout is flushed before we print
         # The agent prints steps 3-8, and we want them to appear before the ready banner
         time.sleep(0.3)

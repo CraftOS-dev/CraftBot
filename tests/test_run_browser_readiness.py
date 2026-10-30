@@ -268,3 +268,118 @@ def test_main_routes_startup_through_the_readiness_helpers():
     source = (REPO_ROOT / "run.py").read_text(encoding="utf-8")
 
     assert _main_wiring_problems(source) == []
+
+
+# ── __main__ startup sequence: a frontend that was slow gets a second look ──
+
+
+def _startup_sequence(source: str) -> ast.Module:
+    """__main__'s statements from the first readiness wait to the announcement."""
+
+    def is_announce(stmt):
+        return (
+            isinstance(stmt, ast.Expr)
+            and getattr(getattr(stmt.value, "func", None), "id", None)
+            == "_announce_startup"
+        )
+
+    def is_first_wait(stmt):
+        return isinstance(stmt, ast.Assign) and any(
+            getattr(t, "id", None) == "frontend_ready" for t in stmt.targets
+        )
+
+    for node in ast.walk(ast.parse(source)):
+        for field in ("body", "orelse"):
+            stmts = getattr(node, field, None)
+            if not isinstance(stmts, list):
+                continue
+            ends = [i for i, s in enumerate(stmts) if is_announce(s)]
+            starts = [i for i, s in enumerate(stmts) if is_first_wait(s)]
+            if ends and starts and starts[0] < ends[0]:
+                return ast.Module(body=stmts[starts[0] : ends[0] + 1], type_ignores=[])
+    raise AssertionError("run.py's __main__ startup sequence not found")
+
+
+class _Alive:
+    returncode = None
+
+    def poll(self):
+        return None
+
+
+def _run_startup(frontend_results, source=None):
+    """Run run.py's real startup sequence against scripted readiness waits."""
+    source = source or (REPO_ROOT / "run.py").read_text(encoding="utf-8")
+    opened = []
+    run = _run_py(opened=opened)
+    log = []
+    frontend_results = iter(frontend_results)
+
+    def wait_for_frontend_silent(timeout=30):
+        ready = next(frontend_results)
+        log.append(("frontend", ready))
+        return ready
+
+    def wait_for_backend_silent(timeout=60):
+        log.append(("backend", True))
+        return True
+
+    def announce(*args, **kwargs):
+        log.append(("announce", args[0]))
+        run._announce_startup(*args, **kwargs)
+
+    namespace = {
+        "wait_for_frontend_silent": wait_for_frontend_silent,
+        "wait_for_backend_silent": wait_for_backend_silent,
+        "_adopt_port_listeners": lambda *ports: log.append(("adopt", ports)),
+        "_wait_for_agent_ready": lambda process: log.append(("agent", True)) or True,
+        "_announce_startup": announce,
+        "time": _FakeClock(),
+        "frontend_process": _Alive(),
+        "agent_process": _Alive(),
+        "FRONTEND_PORT": 7925,
+        "BACKEND_PORT": 7926,
+        "no_open_browser": False,
+        "env_name": None,
+        "use_conda": False,
+    }
+    exec(
+        compile(_startup_sequence(source), str(REPO_ROOT / "run.py"), "exec"), namespace
+    )
+    return run, log, opened
+
+
+def test_frontend_ready_during_agent_startup_is_rechecked_and_opened(capsys):
+    run, log, opened = _run_startup([False, True])
+
+    assert log == [
+        ("frontend", False),
+        ("backend", True),
+        ("adopt", (7926,)),  # the frontend port is not adopted while it is down
+        ("agent", True),
+        ("frontend", True),  # second look, only after the agent finished
+        ("adopt", (7925,)),
+        ("announce", True),
+    ]
+    assert run.CRAFTBOT_READY_MARKER in capsys.readouterr().out
+    assert opened == [FRONTEND_URL]
+
+
+def test_frontend_still_down_after_agent_startup_is_not_announced(capsys):
+    run, log, opened = _run_startup([False, False])
+
+    assert [e for e in log if e[0] == "frontend"] == [("frontend", False)] * 2
+    assert all(7925 not in e[1] for e in log if e[0] == "adopt")
+    assert ("announce", False) in log
+    output = capsys.readouterr().out
+    assert run.CRAFTBOT_READY_MARKER not in output
+    assert f"not responding at {FRONTEND_URL}" in output
+    assert opened == []
+
+
+def test_frontend_ready_first_time_is_not_waited_for_again(capsys):
+    run, log, opened = _run_startup([True])  # a second call would raise
+
+    assert [e for e in log if e[0] == "frontend"] == [("frontend", True)]
+    assert ("adopt", (7925, 7926)) in log
+    assert opened == [FRONTEND_URL]
