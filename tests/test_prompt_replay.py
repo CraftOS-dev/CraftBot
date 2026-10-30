@@ -63,3 +63,46 @@ def test_summarize_compares_against_self_agreement():
     assert summary["cross_agreement"] == 3 / 6
     assert summary["unparsed"] == {"captured": 1, "candidate": 1}
     assert [d["id"] for d in summary["disagreements"]] == [3]
+
+
+# ── folds (T5) ───────────────────────────────────────────────────────────────
+
+
+def _standalone_prompt(lines):
+    from agent_core.core.prompts import EVENT_STREAM_SUMMARIZATION_PROMPT
+
+    return EVENT_STREAM_SUMMARIZATION_PROMPT.format(
+        window="w", previous_summary="(none)", compact_lines="\n".join(lines)
+    )
+
+
+def test_the_fold_marker_is_the_last_folded_event():
+    prompt = _standalone_prompt(
+        [
+            "10:00:00 [user message]: hi",
+            '10:00:05 [action_start]: Running action write_file with input: {\n  "x": 1\n}.',
+        ]
+    )
+    assert replay.fold_marker(prompt).startswith("10:00:05 [action_start]: Running")
+    long_prompt = _standalone_prompt(["10:00:00 [action_end]: " + "y" * 1000])
+    assert replay.fold_marker(long_prompt).endswith(" ...")
+    assert replay.fold_marker("no events here") is None
+
+
+def test_fact_recall_counts_the_concrete_facts_a_summary_keeps():
+    chunk = (
+        "wrote C:\\work\\report.md and fetched https://example.com/a?b=1 "
+        "for ops@example.com, order 12,345, run 9f58177eef1b"
+    )
+    found = replay.facts(chunk)
+    assert {
+        "c:\\work\\report.md",
+        "https://example.com/a?b=1",
+        "ops@example.com",
+        "12,345",
+        "9f58177eef1b",
+    } <= found
+    summary = "Report saved to C:\\work\\report.md; order 12,345 placed."
+    assert replay.fact_recall(found, summary) == 2 / len(found)
+    assert replay.fact_recall(found, None) is None
+    assert replay.fact_recall(set(), summary) is None

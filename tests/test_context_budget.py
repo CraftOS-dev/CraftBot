@@ -437,7 +437,7 @@ class _KeepRecordingStream:
     def __init__(self):
         self.keep_tokens = []
 
-    def summarize_by_LLM(self, keep_tokens, prune=True):
+    def summarize_by_LLM(self, keep_tokens, prune=True, summarizer=None):
         self.keep_tokens.append(keep_tokens)
 
 

@@ -578,7 +578,13 @@ class EventStream:
                 )
             return reclaimed
 
-    def summarize_by_LLM(self, keep_tokens: int, *, prune: bool = True) -> int:
+    def summarize_by_LLM(
+        self,
+        keep_tokens: int,
+        *,
+        prune: bool = True,
+        summarizer: Optional[Callable[[EventRecord], Optional[str]]] = None,
+    ) -> int:
         """
         Summarize the oldest tail events using the language model, keeping
         about ``keep_tokens`` of the most recent events verbatim.
@@ -589,6 +595,11 @@ class EventStream:
         fold the user asks for passes False, and then a failed summary call
         raises and leaves the stream as it was.
 
+        ``summarizer``: writes the new summary from a conversation that
+        already holds the events being folded (the session's history),
+        given the last of them; None or an empty result falls back to the
+        standalone summary call, which is sent the events themselves.
+
         This is a SYNCHRONOUS blocking call that holds the lock for the entire
         duration, including the LLM call. This ensures no events can be added
         while summarization is in progress.
@@ -597,13 +608,18 @@ class EventStream:
         """
         with self._lock:
             before = self._total_tokens + count_tokens(self.head_summary or "")
-            self._summarize(keep_tokens, prune)
+            self._summarize(keep_tokens, prune, summarizer)
             freed = before - self._total_tokens - count_tokens(self.head_summary or "")
             if freed:
                 self.last_fold = FoldRecord(at=time.time(), freed_tokens=freed)
             return freed
 
-    def _summarize(self, keep_tokens: int, prune: bool) -> None:
+    def _summarize(
+        self,
+        keep_tokens: int,
+        prune: bool,
+        summarizer: Optional[Callable[[EventRecord], Optional[str]]] = None,
+    ) -> None:
         """summarize_by_LLM's fold. Caller holds the lock."""
         if not self.tail_events:
             return
@@ -720,19 +736,31 @@ class EventStream:
             logger.info(
                 f"[EventStream] Running synchronous summarization ({self._total_tokens} tokens)"
             )
-            # json_mode=False: this prompt asks for a prose summary, and
-            # forcing a provider's JSON mode onto it degenerates (DeepSeek
-            # returns whitespace-only output that reads as empty).
-            llm_output = self.llm.generate_response(
-                user_prompt=prompt,
-                prompt_name="EVENT_STREAM_SUMMARIZATION",
-                json_mode=False,
-            )
-            new_summary = (llm_output or "").strip()
+            new_summary = ""
+            if summarizer is not None:
+                # Written on the session's history, which holds every event
+                # of the chunk; its input comes from the provider's cache.
+                try:
+                    new_summary = (summarizer(chunk[-1]) or "").strip()
+                except Exception:
+                    logger.exception(
+                        "[EventStream] Summary on the session history failed; "
+                        "falling back to the standalone summary call"
+                    )
+            if not new_summary:
+                # json_mode=False: this prompt asks for a prose summary, and
+                # forcing a provider's JSON mode onto it degenerates (DeepSeek
+                # returns whitespace-only output that reads as empty).
+                llm_output = self.llm.generate_response(
+                    user_prompt=prompt,
+                    prompt_name="EVENT_STREAM_SUMMARIZATION",
+                    json_mode=False,
+                )
+                new_summary = (llm_output or "").strip()
 
-            logger.debug(
-                f"[EVENT STREAM SUMMARIZATION] llm_output_len={len(llm_output or '')}"
-            )
+                logger.debug(
+                    f"[EVENT STREAM SUMMARIZATION] llm_output_len={len(llm_output or '')}"
+                )
 
             if not new_summary:
                 logger.warning(
