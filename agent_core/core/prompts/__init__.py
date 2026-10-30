@@ -60,7 +60,11 @@ Output ONLY the NEW_HEAD_SUMMARY as plain text in paragraph (no JSON, no preface
 """
 
 # Action selection prompts
-from agent_core.core.prompts.action import SELECT_ACTION_PROMPT
+from agent_core.core.prompts.action import (
+    SELECT_ACTION_INSTRUCTIONS,
+    SELECT_ACTION_PROMPT,
+    decision_system_prompt,
+)
 
 # Context prompts
 from agent_core.core.prompts.context import (
@@ -97,7 +101,9 @@ __all__ = [
     # Event stream
     "EVENT_STREAM_SUMMARIZATION_PROMPT",
     # Action prompts
+    "SELECT_ACTION_INSTRUCTIONS",
     "SELECT_ACTION_PROMPT",
+    "decision_system_prompt",
     # Context prompts
     "AGENT_ROLE_PROMPT",
     "AGENT_INFO_PROMPT",

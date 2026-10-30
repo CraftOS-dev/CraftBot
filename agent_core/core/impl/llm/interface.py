@@ -127,6 +127,14 @@ class RequestUsage:
     model: str
 
 
+# What a saved session history holds next to the system prompt it continues
+# on. Bumped when that split changes: a history saved under another format
+# is not restored (the session starts a new prefix). 2: the decision
+# instructions end the system prompt instead of opening the first user
+# message.
+_SAVED_HISTORY_FORMAT = 2
+
+
 @dataclass(frozen=True)
 class _SessionCheckpoint:
     """A session history as of its last synced request.
@@ -1428,6 +1436,7 @@ class LLMInterface:
             if checkpoint is not None:
                 history = self._session_histories.get(key, [])
                 entry["history"] = list(history[: checkpoint.history_len])
+                entry["history_format"] = _SAVED_HISTORY_FORMAT
                 entry["marker"] = checkpoint.marker
                 entry["input_tokens"] = checkpoint.input_tokens
             request = self._last_requests.get(key)
@@ -1443,9 +1452,10 @@ class LLMInterface:
 
         The last request always comes back: it only describes a request that
         was made. The history comes back only if the provider in use built
-        it (message formats differ between providers) and ``stream`` still
-        holds the events it covers (EventStream.restore_sync_point checks);
-        otherwise the session starts a new prefix on its next request.
+        it (message formats differ between providers), it was saved under
+        the current _SAVED_HISTORY_FORMAT, and ``stream`` still holds the
+        events it covers (EventStream.restore_sync_point checks); otherwise
+        the session starts a new prefix on its next request.
 
         Returns the furthest sync point restored, or None if none was.
         """
@@ -1462,6 +1472,8 @@ class LLMInterface:
             history = entry.get("history")
             marker = entry.get("marker")
             if not history or not marker or entry.get("surface") != self.surface():
+                continue
+            if entry.get("history_format") != _SAVED_HISTORY_FORMAT:
                 continue
             if stream is None or not stream.restore_sync_point(call_type, marker):
                 continue

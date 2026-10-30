@@ -7,15 +7,26 @@ GUI-mode prompts. Every session turn — main session, chat session, or Living
 UI session — runs the same selection call.
 """
 
-# The one action-selection prompt for session turns.
+# The one action-selection call for session turns, in two parts.
 # core.impl.action.router.ActionRouter.select_action_in_session
-# KV CACHING OPTIMIZED: the cacheable prefix runs static content FIRST, then
-# session-static, then the append-only {event_stream}. The only truly per-turn
-# volatile block, {current_turn}/{query}, goes LAST so it never sits in front
-# of the growing stream and cap the cache. (The trigger is already written into
-# the event stream at claim time, so {query} here is a redundant restatement.)
-SELECT_ACTION_PROMPT = """
-<rules>
+#
+# SELECT_ACTION_INSTRUCTIONS: the decision rules and the session's <actions>
+# list. Identical for every session of a type, so it ends the SYSTEM prompt
+# (decision_system_prompt): the provider caches it once and every session of
+# that type reads it from cache, from its very first call. In the user
+# message it was cached per session only (Anthropic marks no cache point in a
+# first user message; the ChatGPT subscription caches at message boundaries).
+#
+# SELECT_ACTION_PROMPT: the session's own part, the first user message of a
+# session history. KV CACHING: session-static first, then the append-only
+# {event_stream}. The only per-turn block, {current_turn}/{query}, goes LAST
+# so it never sits in front of the growing stream and caps the cache. (The
+# trigger is already written into the event stream at claim time, so {query}
+# here is a redundant restatement.)
+#
+# The model reads the same text in the same order as when both parts were one
+# user message; only the message boundary moved.
+SELECT_ACTION_INSTRUCTIONS = """<rules>
 You are running one turn of a persistent session. A "run" starts when input
 wakes this session (a user message, a scheduled job, an integration event)
 and continues turn after turn until you end the run.
@@ -291,9 +302,9 @@ Example (loading a missing capability):
 <actions>
 This is the list of action candidates, each including descriptions and input schema:
 {action_candidates}
-</actions>
+</actions>"""
 
-{session_state}
+SELECT_ACTION_PROMPT = """{session_state}
 
 ---
 
@@ -328,11 +339,21 @@ Reply Context:
 </current_turn>
 """
 
-# The Mini Browser bullet of SELECT_ACTION_PROMPT's capability rules, verbatim.
-# The host application removes it from the rendered prompt (the ActionRouter's
-# ``prompt_filter`` hook) while the browser is not usable: steering every
-# agent to an action set that is not registered here, or to a browser that
-# cannot launch here, wastes turns on every matching task.
+
+def decision_system_prompt(base: str, instructions: str) -> str:
+    """The system prompt of an action-selection call: the agent's system
+    prompt (ContextEngine.make_prompt) followed by the rendered
+    SELECT_ACTION_INSTRUCTIONS. Empty ``instructions`` leave ``base`` as is."""
+    if not instructions:
+        return base
+    return f"{base}\n\n{instructions}"
+
+
+# The Mini Browser bullet of SELECT_ACTION_INSTRUCTIONS' capability rules,
+# verbatim. The host application removes it from the rendered instructions
+# (the ActionRouter's ``prompt_filter`` hook) while the browser is not usable:
+# steering every agent to an action set that is not registered here, or to a
+# browser that cannot launch here, wastes turns on every matching task.
 MINI_BROWSER_RULE = """\
 - Websites you must USE, not just read (log in, click through, fill or
   submit forms, search inside a site, shop or book, the user's account on a
@@ -344,5 +365,7 @@ MINI_BROWSER_RULE = """\
 
 __all__ = [
     "MINI_BROWSER_RULE",
+    "SELECT_ACTION_INSTRUCTIONS",
     "SELECT_ACTION_PROMPT",
+    "decision_system_prompt",
 ]

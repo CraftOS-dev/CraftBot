@@ -489,10 +489,7 @@ class SessionManager:
     def _create_session_caches(self, session_id: str) -> None:
         """Create LLM session caches for a session."""
         try:
-            system_prompt, _ = self.context_engine.make_prompt(
-                user_flags={"query": False, "expected_output": False},
-                system_flags={},
-            )
+            system_prompt = self.context_engine.make_decision_system_prompt(session_id)
             for call_type in [
                 LLMCallType.REASONING,
                 LLMCallType.ACTION_SELECTION,

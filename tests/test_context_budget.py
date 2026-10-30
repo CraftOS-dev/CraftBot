@@ -162,7 +162,9 @@ def test_a_restored_session_takes_the_session_path_like_a_new_one(tmp_path):
     from agent_core.core.state.session import StateSession
 
     iface = _make()
-    engine = SimpleNamespace(make_prompt=lambda **kw: ("SYSTEM", ""))
+    engine = SimpleNamespace(
+        make_decision_system_prompt=lambda session_id=None: "SYSTEM"
+    )
     manager = SessionManager(
         event_stream_manager=None,
         llm_interface=iface,
