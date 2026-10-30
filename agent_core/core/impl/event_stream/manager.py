@@ -378,6 +378,7 @@ class EventStreamManager:
         question: Optional[dict] = None,
         ui_artifact: Optional[dict] = None,
         schema_actions: Optional[List[str]] = None,
+        skill_name: Optional[str] = None,
         task_id: str | None = None,
         to_memory: bool = True,
     ) -> int:
@@ -436,6 +437,7 @@ class EventStreamManager:
             question=question,
             ui_artifact=ui_artifact,
             schema_actions=schema_actions,
+            skill_name=skill_name,
         )
 
         # Also log to the writing session's markdown files for persistence.

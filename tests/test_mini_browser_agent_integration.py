@@ -567,18 +567,11 @@ def iai(monkeypatch):
             event_stream_manager=streams, bump_event_stream=lambda: None
         ),
     )
-    invalidated: List[str] = []
-    monkeypatch.setattr(
-        InternalActionInterface,
-        "_invalidate_action_selection_caches",
-        classmethod(lambda cls, sid=None: invalidated.append(sid)),
-    )
     return types.SimpleNamespace(
         api=InternalActionInterface,
         manager=manager,
         stream=streams.stream,
         delivered=delivered,
-        invalidated=invalidated,
     )
 
 
@@ -606,8 +599,6 @@ def test_add_action_sets_normalises_names(iai, requested, loaded):
     assert iai.delivered == [loaded]
     assert "unknown_sets" not in result
     assert result["actions"] == [f"{s}_action" for s in loaded]
-    # Loading is a read: the prompt prefix (and its caches) stay as they are.
-    assert iai.invalidated == []
 
 
 def test_add_action_sets_skips_unknown_names_but_loads_the_rest(iai):
@@ -719,12 +710,12 @@ def test_use_skill_accepts_the_set_spelling_and_loads_the_set(iai):
     assert iai.stream.schema_actions == ["mini_browser_action"]
 
 
-def test_use_skill_still_rebuilds_caches_when_its_sets_are_unknown(iai):
+def test_use_skill_still_loads_the_skill_when_its_sets_are_unknown(iai):
     result = iai.api.use_skill("odd-skill", session_id="s1")
     assert result["success"] is True
     assert result["added_action_sets"] == []
     assert iai.delivered == []
-    assert iai.invalidated == ["s1"]
+    assert iai.manager.session.selected_skills == ["odd-skill"]
 
 
 # ── AgentBase: workflow skills and lifecycle hooks ─────────────────────
@@ -760,7 +751,6 @@ def bare_agent(monkeypatch):
     agent.busy_sessions = set()
     agent.ui_controller = None
     agent._interface_mode = "browser"
-    monkeypatch.setattr(agent, "_invalidate_session_caches", lambda sid: None)
     monkeypatch.setattr(agent, "_persist_session_stream", lambda sid: None)
     return agent
 

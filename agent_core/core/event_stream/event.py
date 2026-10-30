@@ -72,6 +72,11 @@ class EventType(str, Enum):
     # add_action_sets (and by skills / runs that declare sets). LLM-facing
     # reference material; `Event.schema_actions` names the actions it covers.
     ACTION_SCHEMAS = "action_schemas"
+    # A skill's instructions, logged when it is loaded into a session (and
+    # its unload marker). The stream keeps the newest instructions of every
+    # loaded skill verbatim across folds; `Event.skill_name` names the skill.
+    SKILL_INSTRUCTIONS = "skill_instructions"
+    SKILL_UNLOADED = "skill_unloaded"
 
 
 # Legacy `kind` → `event_type` mapping. NEW code MUST NOT call this.
@@ -162,6 +167,8 @@ class Event:
             actions whose schemas the message carries. The event stream keeps
             the event across a fold while any of these actions appears in the
             kept tail. None for every other event.
+        skill_name: For SKILL_INSTRUCTIONS and SKILL_UNLOADED events only:
+            the skill they concern. None for every other event.
     """
 
     message: str
@@ -180,6 +187,7 @@ class Event:
     question: Optional[Dict[str, Any]] = None
     ui_artifact: Optional[Dict[str, Any]] = None
     schema_actions: Optional[List[str]] = None
+    skill_name: Optional[str] = None
 
     def display_text(self) -> Optional[str]:
         """
@@ -215,6 +223,7 @@ class Event:
             "question": self.question,
             "ui_artifact": self.ui_artifact,
             "schema_actions": self.schema_actions,
+            "skill_name": self.skill_name,
         }
 
     @classmethod
@@ -257,6 +266,7 @@ class Event:
             question=data.get("question"),
             ui_artifact=data.get("ui_artifact"),
             schema_actions=data.get("schema_actions"),
+            skill_name=data.get("skill_name"),
         )
 
     @property

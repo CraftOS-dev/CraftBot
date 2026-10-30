@@ -261,6 +261,36 @@ class EventStream:
         self.tail_events.append(rec)
         self._total_tokens += get_cached_token_count(rec)
 
+    def _drop_skills(self, dropped: List[EventRecord]) -> None:
+        """Account for skill-instruction events a fold removed (of skills no
+        longer loaded, or superseded by a newer load). The caller has already
+        removed the records from tail_events and holds the lock."""
+        self._total_tokens -= sum(get_cached_token_count(r) for r in dropped)
+
+    def _loaded_skill_records(self) -> List[EventRecord]:
+        """The newest SKILL_INSTRUCTIONS record of every skill the stream has
+        loaded and not unloaded since, in stream order. Caller holds the lock."""
+        newest: Dict[str, EventRecord] = {}
+        for rec in self.tail_events:
+            name = rec.event.skill_name
+            if rec.event.event_type is EventType.SKILL_INSTRUCTIONS and name:
+                newest.pop(name, None)  # keeps stream order on a reload
+                newest[name] = rec
+            elif rec.event.event_type is EventType.SKILL_UNLOADED and name:
+                newest.pop(name, None)
+        return list(newest.values())
+
+    def loaded_skills(self) -> List[str]:
+        """Names of the skills whose instructions the stream holds as loaded."""
+        with self._lock:
+            return [r.event.skill_name for r in self._loaded_skill_records()]
+
+    def loaded_skill_tokens(self) -> int:
+        """Tokens of the loaded skills' instructions: a fold always keeps them,
+        so its budget counts them like the rest of what it does not shrink."""
+        with self._lock:
+            return sum(get_cached_token_count(r) for r in self._loaded_skill_records())
+
     def _maybe_push_datetime(self) -> None:
         """Push a fresh datetime marker on the first event and then at most once
         every DATETIME_REFRESH_SECONDS, so the stream always carries a recent
@@ -293,6 +323,7 @@ class EventStream:
         question: Optional[dict] = None,
         ui_artifact: Optional[dict] = None,
         schema_actions: Optional[List[str]] = None,
+        skill_name: Optional[str] = None,
     ) -> int:
         """
         Append a new event to the stream and trigger summarization if needed.
@@ -336,9 +367,10 @@ class EventStream:
         """
         if severity not in SEVERITIES:
             severity = "INFO"
-        if event_type is EventType.ACTION_SCHEMAS:
-            # Schemas are only useful verbatim: a pointer would make the agent
-            # read the registry back through read_file before every call.
+        if event_type in (EventType.ACTION_SCHEMAS, EventType.SKILL_INSTRUCTIONS):
+            # Schemas and skill instructions are only useful verbatim: a
+            # pointer would make the agent read them back through read_file
+            # before every call.
             msg = message.strip()
         else:
             msg = self._externalize_message(message.strip(), action_name=action_name)
@@ -359,6 +391,7 @@ class EventStream:
             question=question,
             ui_artifact=ui_artifact,
             schema_actions=schema_actions,
+            skill_name=skill_name,
         )
         rec = EventRecord(event=ev)
 
@@ -512,7 +545,10 @@ class EventStream:
             message = rec.event.message
             if len(message) <= MAX_EVENT_INLINE_CHARS:
                 continue
-            if rec.event.event_type is EventType.ACTION_SCHEMAS:
+            if rec.event.event_type in (
+                EventType.ACTION_SCHEMAS,
+                EventType.SKILL_INSTRUCTIONS,
+            ):
                 continue
             pointer = self._externalize_message(
                 message, action_name=rec.event.action_name, force=True
@@ -646,6 +682,10 @@ class EventStream:
         #   mid-use; folding them would make it load them again next turn);
         # - every other action schema is dropped without a summary: it is a
         #   copy of the registry, and add_action_sets brings it back on demand;
+        # - the newest instructions of every loaded skill stay verbatim too:
+        #   they are the skill, for as long as it is loaded. A skill's older
+        #   or unloaded instructions are dropped without a summary (its unload
+        #   marker folds like any other event);
         # - the rest is the chunk the LLM summarizes.
         region = list(self.tail_events[:cutoff])
         in_use = {
@@ -658,8 +698,10 @@ class EventStream:
             for r in self.tail_events
             if r.event.kind in PROTECTED_SUMMARY_KINDS
         }
+        loaded_skills = set(map(id, self._loaded_skill_records()))
         protected: List[EventRecord] = []
         dropped_schemas: List[EventRecord] = []
+        dropped_skills: List[EventRecord] = []
         chunk: List[EventRecord] = []
         for r in region:
             if newest_protected.get(r.event.kind) is r:
@@ -669,12 +711,18 @@ class EventStream:
                     protected.append(r)
                 else:
                     dropped_schemas.append(r)
+            elif r.event.event_type is EventType.SKILL_INSTRUCTIONS:
+                if id(r) in loaded_skills:
+                    protected.append(r)
+                else:
+                    dropped_skills.append(r)
             else:
                 chunk.append(r)
         if not chunk:
-            if dropped_schemas:
+            if dropped_schemas or dropped_skills:
                 self.tail_events = protected + self.tail_events[cutoff:]
                 self._drop_schemas(dropped_schemas)
+                self._drop_skills(dropped_skills)
                 self._clear_sync_points("fold")
             # Everything else old enough to summarize is protected.
             return
@@ -704,6 +752,7 @@ class EventStream:
                 summary=None,
             )
             self._drop_schemas(dropped_schemas)
+            self._drop_skills(dropped_skills)
             self._clear_sync_points("fold")
             return
 
@@ -785,6 +834,7 @@ class EventStream:
                 summary=new_summary,
             )
             self._drop_schemas(dropped_schemas)
+            self._drop_skills(dropped_skills)
 
             # Reset all session sync points - event indices are now invalid
             self._clear_sync_points("fold")
@@ -813,6 +863,7 @@ class EventStream:
                 summary=None,
             )
             self._drop_schemas(dropped_schemas)
+            self._drop_skills(dropped_skills)
             self._clear_sync_points("fold")
 
     def actions_with_schemas(self) -> Set[str]:

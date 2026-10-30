@@ -434,8 +434,12 @@ def test_the_shipped_catalog_is_well_formed():
 class _KeepRecordingStream:
     head_summary = None
 
-    def __init__(self):
+    def __init__(self, skill_tokens=0):
         self.keep_tokens = []
+        self.skill_tokens = skill_tokens
+
+    def loaded_skill_tokens(self):
+        return self.skill_tokens
 
     def summarize_by_LLM(self, keep_tokens, prune=True, summarizer=None):
         self.keep_tokens.append(keep_tokens)

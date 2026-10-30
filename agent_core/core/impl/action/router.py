@@ -362,7 +362,8 @@ class ActionRouter:
         A fold keeps context.keep_recent_tokens of recent events, but never
         more than half of the room the model's input budget leaves after
         what a fold does not shrink: the system prompt, the prompt around
-        the event stream (``static_prompt``) and the running summary. So
+        the event stream (``static_prompt``), the running summary and the
+        loaded skills' instructions. So
         every fold frees at least half of that room for new events, whatever
         the model's window. ``prune``: see EventStream.summarize_by_LLM.
 
@@ -381,6 +382,8 @@ class ActionRouter:
             - count_tokens(system_prompt)
             - count_tokens(static_prompt or "")
             - count_tokens(stream.head_summary or "")
+            # Loaded skills' instructions: a fold keeps them verbatim.
+            - stream.loaded_skill_tokens()
         )
         return stream.summarize_by_LLM(
             keep_tokens=min(get_keep_recent_tokens(), max(room, 0) // 2),
