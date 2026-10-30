@@ -507,6 +507,46 @@ def _wait_for_ready_marker(start_offset: int, timeout: float) -> bool:
     return False
 
 
+#: How long cmd_start keeps probing the browser UI once the agent is ready.
+#: run.py binds the frontend before it launches the agent, so by now the UI
+#: should already answer; this only absorbs a slow first response.
+FRONTEND_READY_TIMEOUT_S = 30
+
+#: Present in the UI's index.html (dev and built). A 200 without it is not
+#: the UI — e.g. the directory listing of a dist/ that has no index.html.
+_FRONTEND_ROOT_MARKER = b'id="root"'
+
+
+def _frontend_serving(url: str) -> bool:
+    """True only when `url` answers with the CraftBot UI itself.
+
+    The agent readiness marker says nothing about the frontend, and a server
+    that answers is not necessarily one that can serve the page: a 404 is
+    exactly what the user saw when the URL was shown too early. urlopen
+    raises on every 4xx/5xx, so any HTTP error counts as not ready.
+    """
+    from urllib.request import urlopen
+
+    try:
+        with urlopen(url, timeout=2) as resp:
+            return 200 <= resp.status < 300 and _FRONTEND_ROOT_MARKER in resp.read(
+                65536
+            )
+    except Exception:
+        return False
+
+
+def _wait_for_frontend(url: str, timeout: float) -> bool:
+    """Poll `url` until it serves the UI. Returns False on timeout."""
+    deadline = time.time() + timeout
+    while True:
+        if _frontend_serving(url):
+            return True
+        if time.time() >= deadline:
+            return False
+        time.sleep(0.5)
+
+
 def _is_running(pid: int) -> bool:
     """Return True if a process with the given PID is currently alive."""
     return _helpers.process_start_time(pid) is not None
@@ -755,7 +795,9 @@ def cmd_start(extra_args: List[str]) -> bool:
     open_browser = "--cli" not in run_args and "--no-open-browser" not in extra_args
     if open_browser:
         browser_url = _frontend_url(extra_args)
-        print(f"  {DIM}░░{RESET} {ORANGE}{browser_url}{RESET}")
+        # The URL is printed only once it works. Printing it here, before the
+        # waits below, invited users to open it while it still returned 404.
+        print(f"  {DIM}░░ Waiting for the browser interface...{RESET}", flush=True)
         # Wait for the agent to actually be up before opening a tab at it.
         #
         # This used to open immediately after _wait_for_startup_exit(), which
@@ -767,12 +809,26 @@ def cmd_start(extra_args: List[str]) -> bool:
         # run.py only prints the ready marker once the agent signals that
         # boot() finished (see app/paths.py AGENT_READY_FILE), so waiting for
         # the marker here is waiting for the real thing.
-        if _wait_for_ready_marker(ready_log_offset, BROWSER_READY_TIMEOUT_S):
-            _open_browser_detached(browser_url)
-        else:
+        #
+        # The marker is the agent's, not the UI's, so the frontend is then
+        # probed directly before the URL is shown.
+        if not _wait_for_ready_marker(ready_log_offset, BROWSER_READY_TIMEOUT_S):
             print(
                 f"  {DIM}Still starting — open {browser_url} once it finishes.{RESET}"
             )
+            print(f"  {DIM}Check progress: {sys.executable} craftbot.py logs{RESET}")
+        elif not _wait_for_frontend(browser_url, FRONTEND_READY_TIMEOUT_S):
+            print(
+                f"  {RED}✗{RESET} {WHITE}The browser interface is not responding"
+                f" at {browser_url}{RESET}"
+            )
+            print(
+                f"  {DIM}Check: {sys.executable} craftbot.py status, then"
+                f" {sys.executable} craftbot.py logs{RESET}"
+            )
+        else:
+            print(f"  {DIM}░░{RESET} {ORANGE}{browser_url}{RESET}")
+            _open_browser_detached(browser_url)
 
     return True
 
