@@ -30,6 +30,12 @@ from typing import Any, Dict, List, Optional
 
 SEVERITIES = ("DEBUG", "INFO", "WARN", "ERROR")
 
+# The key the action runtime adds to every action's input
+# (ActionManager.execute_action): the session the action runs in. The model
+# never writes it, so an executed input is compared with the model's
+# parameters without it (EventStream's delta rendering).
+SESSION_ID_INPUT_KEY = "_session_id"
+
 
 class EventType(str, Enum):
     """Closed set of event categories.
@@ -308,7 +314,7 @@ class EventRecord:
             repeat_count=data.get("repeat_count", 1),
         )
 
-    def compact_line(self) -> str:
+    def compact_line(self, message: Optional[str] = None) -> str:
         """
         Generate a compact single-line representation of this event.
 
@@ -318,11 +324,15 @@ class EventRecord:
         current-datetime block reports (and with the log files a human reads
         alongside). A naive ts (legacy persisted data) is assumed local.
 
+        Args:
+            message: Shown in place of the event's message (a delta refers to
+                an action input the model's own reply already holds).
+
         Returns:
             Compact string representation
         """
         t = self.ts.astimezone().strftime("%H:%M:%S")
         k = self.event.kind
-        msg = self.event.message
+        msg = self.event.message if message is None else message
         suffix = f" x{self.repeat_count}" if self.repeat_count > 1 else ""
         return f"{t} [{k}]: {msg}{suffix}"
