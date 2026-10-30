@@ -34,11 +34,12 @@ import argparse
 import ast
 import json
 import os
+import re
 import sqlite3
 import sys
 import time
 from datetime import datetime, timedelta
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _REPO_ROOT not in sys.path:
@@ -200,6 +201,224 @@ def summarize(results: List[Dict[str, Any]]) -> Dict[str, Any]:
     }
 
 
+# ── folds (prompt audit T5) ──────────────────────────────────────────────────
+#
+# A captured fold's standalone summary call against the summary asked for on
+# the session's history (the router's side request), both on the configured
+# model. Quality is judged by how many of the folded events' concrete facts
+# (paths, URLs, emails, ids, numbers) each summary keeps.
+
+SUMMARY_PROMPT = "EVENT_STREAM_SUMMARIZATION"
+_EVENT_LINE = re.compile(r"^\d\d:\d\d:\d\d \[[^\]]+\]: ", re.M)
+_FACT = re.compile(
+    r"https?://[^\s\"'<>)]+"  # URLs
+    r"|[\w.+-]+@[\w-]+\.[\w.-]+"  # emails
+    r"|(?:[A-Za-z]:)?[\\/][\w .\\/-]*\.\w{1,6}"  # file paths with an extension
+    r"|\b[0-9a-f]{8,}\b"  # hex ids
+    r"|\b\d[\d,.]{2,}\d\b"  # numbers of 4+ digits/characters
+)
+
+
+def fold_chunk(cold_prompt: str) -> str:
+    """The folded events of a standalone summary prompt."""
+    start = cold_prompt.find("OLDEST_EVENTS_CHUNK")
+    end = cold_prompt.rfind("</events>")
+    return cold_prompt[start:end] if start != -1 and end != -1 else ""
+
+
+def fold_marker(cold_prompt: str) -> Optional[str]:
+    """The last folded event's line, quoted the way the router quotes it."""
+    from agent_core.core.impl.action.router import _FOLD_MARKER_CHARS
+
+    chunk = fold_chunk(cold_prompt)
+    lines = list(_EVENT_LINE.finditer(chunk))
+    if not lines:
+        return None
+    marker = chunk[lines[-1].start() :].strip()
+    if len(marker) > _FOLD_MARKER_CHARS:
+        marker = marker[:_FOLD_MARKER_CHARS] + " ..."
+    return marker
+
+
+def facts(text: str) -> Set[str]:
+    return {m.group(0).rstrip(".,").lower() for m in _FACT.finditer(text or "")}
+
+
+def fact_recall(chunk_facts: Set[str], summary: Optional[str]) -> Optional[float]:
+    if not chunk_facts or not summary:
+        return None
+    kept = facts(summary)
+    return len(chunk_facts & kept) / len(chunk_facts)
+
+
+def load_fold_cases(
+    db_path: str, *, provider: Optional[str], limit: int
+) -> List[Dict[str, Any]]:
+    """The latest captured folds whose session history can be rebuilt: the
+    session's last full decision request before the fold and every request
+    after it, with their replies. A fold whose last event is not in that
+    history is skipped (the session could not be told apart)."""
+    if not os.path.exists(db_path):
+        return []
+    full = f"instr(user_prompt, '{FULL_PROMPT_MARK}') > 0"
+    cases: List[Dict[str, Any]] = []
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        sql = (
+            "SELECT id, timestamp, provider, model, user_prompt, response "
+            "FROM llm_calls WHERE prompt_name = ? AND status = 'success'"
+        )
+        params: List[Any] = [SUMMARY_PROMPT]
+        if provider:
+            sql += " AND provider = ?"
+            params.append(provider)
+        for fold in conn.execute(sql + " ORDER BY timestamp DESC", params):
+            if len(cases) >= limit:
+                break
+            marker = fold_marker(fold["user_prompt"])
+            last = conn.execute(
+                "SELECT task_id FROM llm_calls WHERE prompt_name = ? "
+                "AND timestamp < ? AND task_id IS NOT NULL "
+                "ORDER BY timestamp DESC LIMIT 1",
+                (DECISION_PROMPT, fold["timestamp"]),
+            ).fetchone()
+            if marker is None or last is None:
+                continue
+            rows = conn.execute(
+                f"SELECT system_prompt, user_prompt, response, {full} AS full_prompt "
+                "FROM llm_calls WHERE prompt_name = ? AND task_id = ? "
+                "AND timestamp < ? AND status = 'success' ORDER BY timestamp",
+                (DECISION_PROMPT, last["task_id"], fold["timestamp"]),
+            ).fetchall()
+            starts = [i for i, r in enumerate(rows) if r["full_prompt"]]
+            if not starts:
+                continue
+            history = rows[starts[-1] :]
+            text = "".join(r["user_prompt"] for r in history)
+            if marker[:24] not in text:  # its time and kind, as the model saw it
+                continue
+            cases.append(
+                {
+                    "fold": fold,
+                    "task_id": last["task_id"],
+                    "system": history[-1]["system_prompt"] or "",
+                    "history": [
+                        (r["user_prompt"], r["response"] or "") for r in history
+                    ],
+                    "marker": marker,
+                }
+            )
+    return cases
+
+
+def _summary_on_history(llm, case: Dict[str, Any]) -> Optional[str]:
+    """The router's side request, on a session history rebuilt from the log."""
+    from agent_core.core.impl.action.router import _summary_from_reply
+    from agent_core.core.impl.llm import LLMCallType
+    from agent_core.core.prompts import EVENT_STREAM_SUMMARY_ON_HISTORY_PROMPT
+
+    call_type = LLMCallType.ACTION_SELECTION
+    task_id = f"replay-{case['fold']['id']}"
+    llm.create_session_cache(task_id, call_type, case["system"])
+    llm._session_histories[f"{task_id}:{call_type}"] = [
+        message
+        for user, reply in case["history"]
+        for message in (
+            {"role": "user", "content": user},
+            {"role": "assistant", "content": reply},
+        )
+    ]
+    try:
+        raw = llm.generate_side_response_with_session(
+            task_id,
+            call_type,
+            EVENT_STREAM_SUMMARY_ON_HISTORY_PROMPT.format(last_event=case["marker"]),
+            case["system"],
+        )
+    finally:
+        llm.end_session_cache(task_id, call_type)
+    return _summary_from_reply(raw)
+
+
+def replay_folds(args, db_path: str, provider: Optional[str]) -> int:
+    from agent_core.core.models.registry import session_cc_providers
+    from agent_core.utils.token import count_tokens
+
+    cases = load_fold_cases(db_path, provider=provider, limit=args.limit)
+    print(f"{len(cases)} folds with a rebuilt session history")
+    for case in cases:
+        tokens = sum(count_tokens(u) + count_tokens(a) for u, a in case["history"])
+        print(
+            f"  fold #{case['fold']['id']} ({case['fold']['model']}, "
+            f"{case['task_id']}): history {len(case['history'])} turns, "
+            f"~{tokens:,} tokens; standalone prompt "
+            f"~{count_tokens(case['fold']['user_prompt']):,} tokens"
+        )
+    if args.dry_run or not cases:
+        return 0
+
+    llm = _build_llm()
+    # Histories rebuilt here use the plain {"role", "content"} message shape.
+    if llm.provider not in session_cc_providers() and llm.provider != "anthropic":
+        print(f"Fold replay does not rebuild {llm.provider} histories.")
+        return 1
+
+    results = []
+    for case in cases:
+        fold = case["fold"]
+        chunk_facts = facts(fold_chunk(fold["user_prompt"]))
+        try:
+            standalone = (
+                llm.generate_response(
+                    user_prompt=fold["user_prompt"], log_response=False, json_mode=False
+                )
+                or ""
+            ).strip()
+        except Exception as e:
+            standalone = f"[error] {e}"
+        try:
+            on_history = _summary_on_history(llm, case)
+        except Exception as e:
+            on_history = f"[error] {e}"
+        result = {
+            "fold": fold["id"],
+            "chunk_facts": len(chunk_facts),
+            "standalone": {
+                "recall": fact_recall(chunk_facts, standalone),
+                "words": len(standalone.split()),
+                "text": standalone,
+            },
+            "on_history": {
+                "recall": fact_recall(chunk_facts, on_history),
+                "words": len((on_history or "").split()),
+                "text": on_history,
+            },
+        }
+        results.append(result)
+        fmt = lambda v: "n/a" if v is None else f"{v:.0%}"  # noqa: E731
+        print(
+            f"  fold #{fold['id']}: {len(chunk_facts)} facts; standalone kept "
+            f"{fmt(result['standalone']['recall'])} in "
+            f"{result['standalone']['words']} words, on history kept "
+            f"{fmt(result['on_history']['recall'])} in "
+            f"{result['on_history']['words']} words"
+        )
+
+    def mean(key):
+        values = [r[key]["recall"] for r in results if r[key]["recall"] is not None]
+        return sum(values) / len(values) if values else None
+
+    print(
+        f"\nfacts kept, standalone: {mean('standalone')}; on history: "
+        f"{mean('on_history')}"
+    )
+    if args.json:
+        with open(args.json, "w", encoding="utf-8") as fh:
+            json.dump(results, fh, indent=2, default=str)
+        print(f"Wrote {args.json}")
+    return 0
+
+
 # ── run ──────────────────────────────────────────────────────────────────────
 
 
@@ -252,6 +471,12 @@ def main() -> int:
         help="Build both layouts and count tokens; call no model.",
     )
     ap.add_argument("--json", metavar="PATH", help="Write per-case results as JSON.")
+    ap.add_argument(
+        "--folds",
+        action="store_true",
+        help="Replay captured folds: the standalone summary call against the "
+        "summary written on the session's history (prompt audit T5).",
+    )
     args = ap.parse_args()
 
     from agent_core.utils.token import count_tokens
@@ -259,6 +484,8 @@ def main() -> int:
 
     db_path = args.db or os.path.join(APP_DATA_PATH, ".usage", "llm_calls.db")
     provider = None if args.any_provider else get_llm_provider()
+    if args.folds:
+        return replay_folds(args, db_path, provider)
     cases = load_cases(
         db_path,
         provider=provider,

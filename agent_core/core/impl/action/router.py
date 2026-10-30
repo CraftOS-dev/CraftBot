@@ -24,6 +24,7 @@ from agent_core.core.impl.llm import LLMCallType
 from agent_core.core.impl.llm.errors import LLMConsecutiveFailureError
 from agent_core.core.errors import ClassifiedError, ErrorCategory, ErrorInfo
 from agent_core.core.prompts import (
+    EVENT_STREAM_SUMMARY_ON_HISTORY_PROMPT,
     SELECT_ACTION_INSTRUCTIONS,
     SELECT_ACTION_PROMPT,
     decision_system_prompt,
@@ -32,6 +33,33 @@ from agent_core.core.impl.llm.interface import LLMContextOverflowError
 from agent_core import get_event_stream_manager
 from agent_core.utils.logger import logger
 from agent_core.utils.token import count_tokens
+
+
+# How much of the last folded event's line a summary request quotes to mark
+# where the fold ends (its time, kind and the start of its message).
+_FOLD_MARKER_CHARS = 300
+
+
+def _summary_from_reply(raw: Optional[str]) -> Optional[str]:
+    """The summary in a summary request's JSON reply ({"summary": ...}), or
+    None when the reply holds none."""
+    text = (raw or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = json.loads(text)
+    except ValueError:
+        start = text.find("{")
+        if start == -1:
+            return None
+        try:
+            parsed, _ = json.JSONDecoder().raw_decode(text[start:])
+        except ValueError:
+            return None
+    summary = parsed.get("summary") if isinstance(parsed, dict) else None
+    if not isinstance(summary, str) or not summary.strip():
+        return None
+    return summary.strip()
 
 
 def _is_visible_in_mode(action, GUI_mode: bool) -> bool:
@@ -161,9 +189,24 @@ class ActionRouter:
                     system_flags={"agent_info": True},
                 )
                 system_prompt = decision_system_prompt(base_prompt, instructions)
+                # Only delivered events fold, and on the session path the
+                # session's history holds every one of them: the summary is
+                # written on it (when there is none, the standalone call is).
+                call_type = LLMCallType.ACTION_SELECTION
+                history_prompt = decision_system_prompt(
+                    base_prompt,
+                    self._history_instructions.get(
+                        f"{session_id}:{call_type}", instructions
+                    ),
+                )
                 # The summary call blocks: off the event loop.
                 return await to_thread_with_usage(
-                    self._fold, stream, system_prompt, static_prompt, prune=False
+                    self._fold,
+                    stream,
+                    system_prompt,
+                    static_prompt,
+                    prune=False,
+                    history=(session_id, call_type, history_prompt),
                 )
 
     def _decision_lock(self, session_id: Optional[str]) -> asyncio.Lock:
@@ -312,6 +355,7 @@ class ActionRouter:
         static_prompt: Optional[str],
         *,
         prune: bool = True,
+        history: Optional[Tuple[str, str, str]] = None,
     ) -> int:
         """Fold ``stream``, keeping as much recent history as the budget allows.
 
@@ -321,6 +365,12 @@ class ActionRouter:
         the event stream (``static_prompt``) and the running summary. So
         every fold frees at least half of that room for new events, whatever
         the model's window. ``prune``: see EventStream.summarize_by_LLM.
+
+        ``history``: (task_id, call_type, system prompt) of the session
+        history that holds every event being folded. The summary is then
+        asked for on that history, whose input the provider serves from its
+        cache (_summary_on_history); without one, the standalone summary
+        call is sent the folded events.
 
         Returns how many tokens the stream shrank by.
         """
@@ -335,7 +385,33 @@ class ActionRouter:
         return stream.summarize_by_LLM(
             keep_tokens=min(get_keep_recent_tokens(), max(room, 0) // 2),
             prune=prune,
+            summarizer=self._summary_on_history(*history) if history else None,
         )
+
+    def _summary_on_history(
+        self, task_id: str, call_type: str, system_prompt: str
+    ) -> Callable[[Any], Optional[str]]:
+        """A fold's summarizer for a session whose history holds the events
+        being folded: it asks for the summary as a side request on that
+        history (nothing joins it) and reads the summary from the JSON reply.
+        None (no history to continue, no summary in the reply) and errors
+        fall back to the standalone summary call."""
+
+        def summarize(last_event) -> Optional[str]:
+            marker = last_event.compact_line()
+            if len(marker) > _FOLD_MARKER_CHARS:
+                marker = marker[:_FOLD_MARKER_CHARS] + " ..."
+            raw = self.llm_interface.generate_side_response_with_session(
+                task_id,
+                call_type,
+                EVENT_STREAM_SUMMARY_ON_HISTORY_PROMPT.format(last_event=marker),
+                system_prompt,
+                prompt_name="EVENT_STREAM_SUMMARIZATION",
+                call_metadata={"request": "summary", "on": "history"},
+            )
+            return _summary_from_reply(raw)
+
+        return summarize
 
     def _checkpoint(self, stream, task_id: str, call_type: str) -> None:
         """Tell the LLM interface how far the session history now covers the
@@ -533,7 +609,18 @@ class ActionRouter:
                                     f"[SESSION CACHE] Next request exceeds the context "
                                     f"budget; folding the event stream for {call_type}"
                                 )
-                                self._fold(stream, system_prompt, static_prompt)
+                                # The history in progress holds every event
+                                # being folded: the summary is written on it.
+                                self._fold(
+                                    stream,
+                                    system_prompt,
+                                    static_prompt,
+                                    history=(
+                                        current_task_id,
+                                        call_type,
+                                        history_prompt,
+                                    ),
+                                )
                                 folded = True
                                 # The fold reshaped the tail; the new history
                                 # carries what it holds now.

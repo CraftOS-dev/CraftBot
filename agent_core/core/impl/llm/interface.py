@@ -1731,6 +1731,7 @@ class LLMInterface:
         user_prompt: str,
         system_prompt_for_new_session: Optional[str] = None,
         log_response: bool = True,
+        record: bool = True,
     ) -> str:
         """Generate response using session/explicit cache for the given task and call type.
 
@@ -1757,7 +1758,11 @@ class LLMInterface:
 
         # Stash the in-flight session call so _finalize_session_response can
         # retry this same turn on a fallback provider (Phase 5, FR-9).
-        self._current_session_call = (task_id, call_type, user_prompt)
+        # A side request (record=False) is never retried on a fallback
+        # provider: that would add it to the fallback's history.
+        self._current_session_call = (
+            (task_id, call_type, user_prompt) if record else None
+        )
 
         # Same consecutive-failure backstop as `_generate_response_sync`. The
         # session path previously had none, so a persistent provider error
@@ -1818,7 +1823,7 @@ class LLMInterface:
             )
 
             assistant_content = response.get("content", "")
-            if assistant_content and not response.get("error"):
+            if record and assistant_content and not response.get("error"):
                 history.append({"role": "user", "parts": [{"text": user_prompt}]})
                 history.append(
                     {"role": "model", "parts": [{"text": assistant_content}]}
@@ -1884,7 +1889,7 @@ class LLMInterface:
                 )
 
                 assistant_content = response.get("content", "")
-                if assistant_content and not response.get("error"):
+                if record and assistant_content and not response.get("error"):
                     history.append({"role": "user", "content": user_prompt})
                     history.append({"role": "assistant", "content": assistant_content})
             else:
@@ -1930,7 +1935,7 @@ class LLMInterface:
                 )
 
                 assistant_content = response.get("content", "")
-                if assistant_content and not response.get("error"):
+                if record and assistant_content and not response.get("error"):
                     history.append({"role": "user", "content": user_prompt})
                     history.append({"role": "assistant", "content": assistant_content})
 
@@ -2015,7 +2020,7 @@ class LLMInterface:
 
             # On success, accumulate the user message + assistant response in history
             assistant_content = response.get("content", "")
-            if assistant_content and not response.get("error"):
+            if record and assistant_content and not response.get("error"):
                 history.append({"role": "user", "content": user_prompt})
                 history.append({"role": "assistant", "content": assistant_content})
 
@@ -2094,7 +2099,7 @@ class LLMInterface:
             # history (without cachePoint — it's re-placed each call).
             assistant_content = response.get("content", "")
             response_has_error = bool(response.get("error"))
-            if assistant_content and not response_has_error:
+            if record and assistant_content and not response_has_error:
                 history.append({"role": "user", "content": [{"text": user_prompt}]})
                 history.append(
                     {"role": "assistant", "content": [{"text": assistant_content}]}
@@ -2103,7 +2108,7 @@ class LLMInterface:
                     f"[BEDROCK SESSION] {session_key}: appended turn → "
                     f"history={len(history)} msgs"
                 )
-            else:
+            elif record:
                 logger.warning(
                     f"[BEDROCK SESSION] {session_key}: SKIPPED history append "
                     f"(content_empty={not assistant_content}, "
@@ -2423,6 +2428,65 @@ class LLMInterface:
         request was then never recorded here, so its events are still unsent
         as far as this session is concerned."""
         return self._turn_recorded.get(f"{task_id}:{call_type}", False)
+
+    def has_session_history(self, task_id: str, call_type: str) -> bool:
+        """Whether this session has a history a side request can continue:
+        recorded exchanges, or for BytePlus a server-side chain head."""
+        if not self.has_session_cache(task_id, call_type):
+            return False
+        if self.provider == "byteplus" and self._byteplus_cache_manager:
+            return bool(
+                self._byteplus_cache_manager.get_session_cache(task_id, call_type)
+            )
+        return bool(self._session_histories.get(f"{task_id}:{call_type}"))
+
+    def generate_side_response_with_session(
+        self,
+        task_id: str,
+        call_type: str,
+        user_prompt: str,
+        system_prompt: str,
+        prompt_name: Optional[str] = None,
+        call_metadata: Optional[Dict[str, Any]] = None,
+    ) -> Optional[str]:
+        """One request on the session's history that does not become part of
+        it (e.g. the summary written when the session's stream folds).
+
+        Sent as the history plus ``user_prompt`` under ``system_prompt`` (the
+        one the history continues on), so the provider serves the history
+        from its cache. Neither the request nor its reply joins the history,
+        BytePlus' server-side chain keeps its head, a fallback provider never
+        takes it, and the session's last request (the context readout) stays
+        the session's own.
+
+        Returns None when the session has no history to continue. Errors
+        (including LLMContextOverflowError) propagate.
+        """
+        if not self.has_session_history(task_id, call_type):
+            return None
+        self._begin_call(
+            prompt_name=prompt_name,
+            call_type=call_type,
+            task_id=task_id,
+            metadata=call_metadata,
+        )
+        token = _active_session_key.set(None)
+        head = None
+        if self.provider == "byteplus" and self._byteplus_cache_manager:
+            head = self._byteplus_cache_manager.get_session_cache(task_id, call_type)
+        try:
+            return self._generate_response_with_session_sync(
+                task_id,
+                call_type,
+                user_prompt,
+                system_prompt,
+                log_response=False,
+                record=False,
+            )
+        finally:
+            _active_session_key.reset(token)
+            if head is not None:
+                self._byteplus_cache_manager.set_session_cache(task_id, call_type, head)
 
     def _generate_byteplus_with_session(
         self, task_id: str, call_type: str, user_prompt: str
