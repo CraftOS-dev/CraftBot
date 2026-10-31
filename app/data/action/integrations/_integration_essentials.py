@@ -4,10 +4,8 @@
 When an integration's actions are loaded into a session (add_action_sets, a
 skill's recommended sets, or a run's declared sets), the schemas arrive in the
 event stream together with that integration's workflow guidance, so the model
-has the rules in context before its first call. Action sets name either a
-provider or one of its underscore-separated subgroups ("github_workflows"
--> github). Only ids that name a provider directory count; the longest
-matching provider id owns a subgroup.
+has the rules in context before its first call. Which provider a set belongs
+to is read from where its actions come from (integration_ids_for_action_sets).
 
 Guidance sources, in order:
   1. ``craftos_integrations/providers/<id>/GUIDANCE.md`` — multi-account
@@ -29,36 +27,22 @@ _PACKAGE_ROOT = Path(__file__).resolve().parents[4] / "craftos_integrations"
 _PROVIDERS_ROOT = _PACKAGE_ROOT / "providers"
 
 
-def integration_ids() -> Set[str]:
-    """Every provider id (fs scan — no registry import, sidestepping the
-    startup-ordering issue)."""
-    ids: Set[str] = set()
-    if _PROVIDERS_ROOT.is_dir():
-        for child in _PROVIDERS_ROOT.iterdir():
-            name = child.name
-            if name.startswith(("_", ".")) or name == "__pycache__":
-                continue
-            if child.is_dir():
-                ids.add(name)
-    return ids
-
-
 def integration_ids_for_action_sets(set_names: Iterable[str]) -> Set[str]:
-    """Resolve provider and subgroup sets to their owning provider ids.
+    """The provider ids whose actions the given sets hold.
 
-    Match whole ids before stripping underscore-separated subgroup suffixes,
-    so google_calendar_admin belongs to google_calendar even if a provider
-    named google also exists. Unrelated and non-integration sets are ignored.
+    Read from where the actions come from (ActionSetManager.integration_sets:
+    the integration adapter's declarations and the bridged platforms'
+    directories), never from the set names: lark_sheets lives in the Lark
+    Drive platform, and the telegram sets serve both Telegram providers.
+    Non-integration sets are ignored.
     """
-    providers = integration_ids()
+    from app.action.action_set import action_set_manager
+
+    wanted = set(set_names)
     ids: Set[str] = set()
-    for set_name in set_names:
-        candidate = set_name
-        while candidate:
-            if candidate in providers:
-                ids.add(candidate)
-                break
-            candidate = candidate.rpartition("_")[0]
+    for integration, sets in action_set_manager.integration_sets().items():
+        if wanted.intersection(sets):
+            ids.update(action_set_manager.integration_providers(integration))
     return ids
 
 
