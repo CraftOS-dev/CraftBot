@@ -10,21 +10,25 @@ from agent_core import action
     input_schema={
         "file_path": {
             "type": "string",
+            "required": True,
             "example": "/workspace/output.txt",
             "description": "Absolute path to the file to write.",
         },
         "content": {
             "type": "string",
+            "required": True,
             "example": "Hello, World!",
             "description": "Content to write to the file.",
         },
         "encoding": {
             "type": "string",
+            "required": False,
             "example": "utf-8",
             "description": "File encoding. Defaults to 'utf-8'.",
         },
         "mode": {
             "type": "string",
+            "required": False,
             "example": "overwrite",
             "description": "Write mode: 'overwrite' or 'append'. Defaults to 'overwrite'.",
         },

@@ -169,11 +169,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "text": {
                     "type": "string",
+                    "required": True,
                     "description": "Post text (max 3000 chars).",
                     "example": "Excited to share...",
                 },
                 "visibility": {
                     "type": "string",
+                    "required": False,
                     "description": "Visibility: PUBLIC, CONNECTIONS, or LOGGED_IN.",
                     "example": "PUBLIC",
                 },
@@ -194,6 +196,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "post_urn": {
                     "type": "string",
+                    "required": True,
                     "description": "Post URN.",
                     "example": "urn:li:share:123",
                 }
@@ -207,6 +210,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "post_urn": {
                     "type": "string",
+                    "required": True,
                     "description": "Post URN.",
                     "example": "urn:li:share:123",
                 }
@@ -224,11 +228,13 @@ def build_operations() -> List[Operation]:
                 input_schema={
                     "count": {
                         "type": "integer",
+                        "required": False,
                         "description": "Count.",
                         "example": 50,
                     },
                     "include_metadata": {
                         "type": "boolean",
+                        "required": False,
                         "description": "False (default): lean posts. True: full raw ugcPosts.",
                         "example": False,
                     },
@@ -253,11 +259,13 @@ def build_operations() -> List[Operation]:
                 input_schema={
                     "organization_urn": {
                         "type": "string",
+                        "required": True,
                         "description": "Org URN.",
                         "example": "urn:li:organization:123",
                     },
                     "include_metadata": {
                         "type": "boolean",
+                        "required": False,
                         "description": "False (default): lean posts. True: full raw ugcPosts.",
                         "example": False,
                     },
@@ -275,11 +283,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "original_post_urn": {
                     "type": "string",
+                    "required": True,
                     "description": "Original Post URN.",
                     "example": "urn:li:share:123",
                 },
                 "commentary": {
                     "type": "string",
+                    "required": False,
                     "description": "Commentary.",
                     "example": "Interesting!",
                 },
@@ -300,6 +310,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "post_urn": {
                     "type": "string",
+                    "required": True,
                     "description": "Post URN.",
                     "example": "urn:li:share:123",
                 }
@@ -314,6 +325,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "post_urn": {
                     "type": "string",
+                    "required": True,
                     "description": "Post URN.",
                     "example": "urn:li:share:123",
                 }
@@ -328,6 +340,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "post_urn": {
                     "type": "string",
+                    "required": True,
                     "description": "Post URN.",
                     "example": "urn:li:share:123",
                 }
@@ -342,11 +355,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "post_urn": {
                     "type": "string",
+                    "required": True,
                     "description": "Post URN.",
                     "example": "urn:li:share:123",
                 },
                 "text": {
                     "type": "string",
+                    "required": True,
                     "description": "Comment text.",
                     "example": "Great post!",
                 },
@@ -365,6 +380,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "post_urn": {
                     "type": "string",
+                    "required": True,
                     "description": "Post URN.",
                     "example": "urn:li:share:123",
                 }
@@ -379,11 +395,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "post_urn": {
                     "type": "string",
+                    "required": True,
                     "description": "Post URN.",
                     "example": "urn:li:share:123",
                 },
                 "comment_urn": {
                     "type": "string",
+                    "required": True,
                     "description": "Comment URN.",
                     "example": "urn:li:comment:123",
                 },
@@ -403,6 +421,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "count": {
                     "type": "integer",
+                    "required": False,
                     "description": "Number of connections to return.",
                     "example": 50,
                 },
@@ -418,16 +437,19 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "recipient_urns": {
                     "type": "array",
+                    "required": True,
                     "description": "List of recipient URNs (urn:li:person:xxx).",
                     "example": [],
                 },
                 "subject": {
                     "type": "string",
+                    "required": True,
                     "description": "Message subject.",
                     "example": "Hello",
                 },
                 "body": {
                     "type": "string",
+                    "required": True,
                     "description": "Message body.",
                     "example": "Hi, I wanted to connect...",
                 },
@@ -449,11 +471,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "invitee_profile_urn": {
                     "type": "string",
+                    "required": True,
                     "description": "Profile URN.",
                     "example": "urn:li:person:123",
                 },
                 "message": {
                     "type": "string",
+                    "required": False,
                     "description": "Message.",
                     "example": "Hi",
                 },
@@ -469,7 +493,7 @@ def build_operations() -> List[Operation]:
             description="Get sent invitations.",
             tags=("linkedin",),
             input_schema={
-                "count": {"type": "integer", "description": "Count.", "example": 50}
+                "count": {"type": "integer", "required": False, "description": "Count.", "example": 50}
             },
             arg_map=lambda d: {"count": d.get("count", 50)},
         ),
@@ -479,7 +503,7 @@ def build_operations() -> List[Operation]:
             description="Get received invitations.",
             tags=("linkedin",),
             input_schema={
-                "count": {"type": "integer", "description": "Count.", "example": 50}
+                "count": {"type": "integer", "required": False, "description": "Count.", "example": 50}
             },
             arg_map=lambda d: {"count": d.get("count", 50)},
         ),
@@ -493,11 +517,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "invitation_urn": {
                     "type": "string",
+                    "required": True,
                     "description": "Invitation URN.",
                     "example": "urn:li:invitation:123",
                 },
                 "action": {
                     "type": "string",
+                    "required": True,
                     "description": "accept/ignore.",
                     "example": "accept",
                 },
@@ -513,7 +539,7 @@ def build_operations() -> List[Operation]:
             description="Get conversations.",
             tags=("linkedin",),
             input_schema={
-                "count": {"type": "integer", "description": "Count.", "example": 20}
+                "count": {"type": "integer", "required": False, "description": "Count.", "example": 20}
             },
             arg_map=lambda d: {"count": d.get("count", 20)},
         ),
@@ -526,16 +552,19 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "keywords": {
                     "type": "string",
+                    "required": True,
                     "description": "Job search keywords.",
                     "example": "software engineer",
                 },
                 "location": {
                     "type": "string",
+                    "required": False,
                     "description": "Optional location filter.",
                     "example": "",
                 },
                 "count": {
                     "type": "integer",
+                    "required": False,
                     "description": "Number of results.",
                     "example": 25,
                 },
@@ -552,7 +581,7 @@ def build_operations() -> List[Operation]:
             description="Get job details.",
             tags=("linkedin",),
             input_schema={
-                "job_id": {"type": "string", "description": "Job ID.", "example": "123"}
+                "job_id": {"type": "string", "required": True, "description": "Job ID.", "example": "123"}
             },
         ),
         client_op(
@@ -563,6 +592,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "keywords": {
                     "type": "string",
+                    "required": True,
                     "description": "Keywords.",
                     "example": "tech",
                 }
@@ -576,6 +606,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "vanity_name": {
                     "type": "string",
+                    "required": True,
                     "description": "Vanity name.",
                     "example": "microsoft",
                 }
@@ -589,6 +620,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "person_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Person ID.",
                     "example": "123",
                 }
@@ -610,6 +642,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "organization_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Org ID.",
                     "example": "123",
                 }
@@ -623,6 +656,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "organization_urn": {
                     "type": "string",
+                    "required": True,
                     "description": "Org URN.",
                     "example": "urn:li:organization:123",
                 }
@@ -636,6 +670,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "post_urn": {
                     "type": "string",
+                    "required": True,
                     "description": "Post URN.",
                     "example": "urn:li:share:123",
                 }
@@ -651,6 +686,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "organization_urn": {
                     "type": "string",
+                    "required": True,
                     "description": "Org URN.",
                     "example": "urn:li:organization:123",
                 }
@@ -668,6 +704,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "organization_urn": {
                     "type": "string",
+                    "required": True,
                     "description": "Org URN.",
                     "example": "urn:li:organization:123",
                 }

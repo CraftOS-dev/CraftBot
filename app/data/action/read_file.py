@@ -9,26 +9,31 @@ from agent_core import action
     input_schema={
         "file_path": {
             "type": "string",
+            "required": True,
             "example": "/workspace/document.txt",
             "description": "Absolute path to the text file to read.",
         },
         "encoding": {
             "type": "string",
+            "required": False,
             "example": "utf-8",
             "description": "File encoding. Defaults to 'utf-8'.",
         },
         "offset": {
             "type": "integer",
+            "required": False,
             "example": 0,
             "description": "Line number to start reading from (0-based). Default is 0 (start from beginning).",
         },
         "limit": {
             "type": "integer",
+            "required": False,
             "example": 500,
             "description": "Maximum number of lines to read. Default is 2000. Use smaller values for focused reading of large files.",
         },
         "max_line_length": {
             "type": "integer",
+            "required": False,
             "example": 500,
             "description": "Maximum characters per line before truncation. Default is 2000. Lines exceeding this will be truncated with '...'.",
         },

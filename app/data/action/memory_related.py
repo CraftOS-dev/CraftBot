@@ -4,11 +4,13 @@ from agent_core import action
 _INPUT_SCHEMA = {
     "name_a": {
         "type": "string",
+        "required": True,
         "example": "John",
         "description": "First entity name. Case-insensitive.",
     },
     "name_b": {
         "type": "string",
+        "required": True,
         "example": "Agent App",
         "description": "Second entity name. Case-insensitive.",
     },

@@ -8,11 +8,13 @@ from agent_core import action
     input_schema={
         "frequency": {
             "type": "string",
+            "required": False,
             "description": "Filter by frequency: 'all', 'hourly', 'daily', 'weekly', 'monthly'. Use 'all' to get all tasks.",
             "example": "daily",
         },
         "enabled_only": {
             "type": "boolean",
+            "required": False,
             "description": "Only return enabled tasks. Default is true.",
             "example": True,
         },

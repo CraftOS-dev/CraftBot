@@ -157,20 +157,23 @@ def build_operations() -> List[Operation]:
                 input_schema={
                     "query": {
                         "type": "string",
+                        "required": True,
                         "description": "Search terms.",
                         "example": "claude code tutorial",
                     },
                     "type": {
                         "type": "string",
+                        "required": False,
                         "description": "What to search for: video, channel, or playlist.",
                         "example": "video",
                     },
                     "max_results": {
                         "type": "integer",
+                        "required": False,
                         "description": "Max number of results.",
                         "example": 25,
                     },
-                    "include_metadata": dict(_INCLUDE_METADATA_SCHEMA),
+                    "include_metadata": dict(_INCLUDE_METADATA_SCHEMA, required=False),
                 },
                 arg_map=lambda d: {
                     "query": d["query"],
@@ -193,6 +196,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "video_id": {
                     "type": "string",
+                    "required": True,
                     "description": "The YouTube video ID.",
                     "example": "dQw4w9WgXcQ",
                 },
@@ -214,11 +218,13 @@ def build_operations() -> List[Operation]:
                 input_schema={
                     "max_results": {
                         "type": "integer",
+                        "required": False,
                         "description": "Max number of subscriptions to return.",
                         "example": 50,
                     },
                     "include_metadata": {
                         **_INCLUDE_METADATA_SCHEMA,
+                        "required": False,
                         "description": (
                             "Return raw subscription resources (default false = lean)."
                         ),
@@ -243,11 +249,13 @@ def build_operations() -> List[Operation]:
                 input_schema={
                     "max_results": {
                         "type": "integer",
+                        "required": False,
                         "description": "Max number of playlists to return.",
                         "example": 50,
                     },
                     "include_metadata": {
                         **_INCLUDE_METADATA_SCHEMA,
+                        "required": False,
                         "description": (
                             "Return raw playlist resources (default false = lean)."
                         ),
@@ -272,16 +280,19 @@ def build_operations() -> List[Operation]:
                 input_schema={
                     "playlist_id": {
                         "type": "string",
+                        "required": True,
                         "description": "The playlist ID.",
                         "example": "PLrAXt...",
                     },
                     "max_results": {
                         "type": "integer",
+                        "required": False,
                         "description": "Max number of items to return.",
                         "example": 50,
                     },
                     "include_metadata": {
                         **_INCLUDE_METADATA_SCHEMA,
+                        "required": False,
                         "description": (
                             "Return raw playlistItem resources (default false = lean)."
                         ),
@@ -305,6 +316,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "channel_id": {
                     "type": "string",
+                    "required": True,
                     "description": "The channel ID to subscribe to.",
                     "example": "UC...",
                 },
@@ -324,6 +336,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "subscription_id": {
                     "type": "string",
+                    "required": True,
                     "description": "The subscription record ID.",
                     "example": "abc123...",
                 },
@@ -339,11 +352,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "video_id": {
                     "type": "string",
+                    "required": True,
                     "description": "The YouTube video ID.",
                     "example": "dQw4w9WgXcQ",
                 },
                 "rating": {
                     "type": "string",
+                    "required": True,
                     "description": "One of: like, dislike, none.",
                     "example": "like",
                 },
@@ -362,11 +377,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "video_id": {
                     "type": "string",
+                    "required": True,
                     "description": "The YouTube video ID.",
                     "example": "dQw4w9WgXcQ",
                 },
                 "text": {
                     "type": "string",
+                    "required": True,
                     "description": "Comment text.",
                     "example": "Great video!",
                 },
@@ -388,16 +405,19 @@ def build_operations() -> List[Operation]:
                 input_schema={
                     "video_id": {
                         "type": "string",
+                        "required": True,
                         "description": "The YouTube video ID.",
                         "example": "dQw4w9WgXcQ",
                     },
                     "max_results": {
                         "type": "integer",
+                        "required": False,
                         "description": "Max number of comments to return.",
                         "example": 50,
                     },
                     "include_metadata": {
                         **_INCLUDE_METADATA_SCHEMA,
+                        "required": False,
                         "description": (
                             "Return raw commentThread resources (default false = lean)."
                         ),

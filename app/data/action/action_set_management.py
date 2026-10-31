@@ -28,6 +28,7 @@ from agent_core import action
     input_schema={
         "action_sets": {
             "type": "array",
+            "required": True,
             "items": {"type": "string"},
             "example": ["mini_browser"],
             "description": (
@@ -113,6 +114,7 @@ def add_action_sets(input_data: dict) -> dict:
     input_schema={
         "sets": {
             "type": "array",
+            "required": False,
             "example": ["gmail_drafts"],
             "description": (
                 "Optional: action set names whose actions to list (to pick the "

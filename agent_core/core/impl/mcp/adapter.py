@@ -79,9 +79,8 @@ class MCPActionAdapter:
             if "default" in prop:
                 field["example"] = prop["default"]
 
-            # Mark as required if in required list
-            if name in required:
-                field["required"] = True
+            # Required as the tool's JSON Schema lists it, optional otherwise.
+            field["required"] = name in required
 
             # Handle enum values
             if "enum" in prop:

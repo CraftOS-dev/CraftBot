@@ -15,10 +15,11 @@ from agent_core import action
     input_schema={
         "to": {
             "type": "string",
+            "required": True,
             "description": "Recipient userId / groupId / roomId.",
             "example": "U...",
         },
-        "text": {"type": "string", "description": "Message text.", "example": ""},
+        "text": {"type": "string", "required": True, "description": "Message text.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -39,10 +40,11 @@ def send_line_message(input_data: dict) -> dict:
     input_schema={
         "reply_token": {
             "type": "string",
+            "required": True,
             "description": "Reply token from the webhook event.",
             "example": "",
         },
-        "text": {"type": "string", "description": "Reply text.", "example": ""},
+        "text": {"type": "string", "required": True, "description": "Reply text.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -63,8 +65,8 @@ def reply_line_message(input_data: dict) -> dict:
     description="Send the same text to up to 500 user IDs.",
     action_sets=["line_messages", "line"],
     input_schema={
-        "to": {"type": "array", "description": "List of user IDs.", "example": []},
-        "text": {"type": "string", "description": "Message text.", "example": ""},
+        "to": {"type": "array", "required": True, "description": "List of user IDs.", "example": []},
+        "text": {"type": "string", "required": True, "description": "Message text.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -82,7 +84,7 @@ def multicast_line_message(input_data: dict) -> dict:
     description="Broadcast a text to all friends.",
     action_sets=["line_messages", "line"],
     input_schema={
-        "text": {"type": "string", "description": "Message text.", "example": ""},
+        "text": {"type": "string", "required": True, "description": "Message text.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -98,14 +100,16 @@ def broadcast_line_message(input_data: dict) -> dict:
     description="Push up to 5 LINE message objects to a recipient. messages is a list of LINE-formatted dicts (e.g. {type:'text',text:'...'}, {type:'image',originalContentUrl:'...'}). Use for sending multiple message types in one call or for full control over message shape.",
     action_sets=["line_messages", "line"],
     input_schema={
-        "to": {"type": "string", "description": "Recipient.", "example": ""},
+        "to": {"type": "string", "required": True, "description": "Recipient.", "example": ""},
         "messages": {
             "type": "array",
+            "required": True,
             "description": "Array of LINE message objects.",
             "example": [],
         },
         "notification_disabled": {
             "type": "boolean",
+            "required": False,
             "description": "Silent delivery (optional).",
             "example": False,
         },
@@ -132,14 +136,16 @@ def push_line_messages(input_data: dict) -> dict:
     description="Reply with up to 5 LINE message objects (rich reply).",
     action_sets=["line_messages", "line"],
     input_schema={
-        "reply_token": {"type": "string", "description": "Reply token.", "example": ""},
+        "reply_token": {"type": "string", "required": True, "description": "Reply token.", "example": ""},
         "messages": {
             "type": "array",
+            "required": True,
             "description": "Array of LINE message objects.",
             "example": [],
         },
         "notification_disabled": {
             "type": "boolean",
+            "required": False,
             "description": "Silent delivery (optional).",
             "example": False,
         },
@@ -165,10 +171,11 @@ def reply_line_messages(input_data: dict) -> dict:
     description="Multicast up to 5 LINE message objects to many users.",
     action_sets=["line_messages"],
     input_schema={
-        "to": {"type": "array", "description": "User IDs (max 500).", "example": []},
-        "messages": {"type": "array", "description": "Message objects.", "example": []},
+        "to": {"type": "array", "required": True, "description": "User IDs (max 500).", "example": []},
+        "messages": {"type": "array", "required": True, "description": "Message objects.", "example": []},
         "notification_disabled": {
             "type": "boolean",
+            "required": False,
             "description": "Silent.",
             "example": False,
         },
@@ -194,9 +201,10 @@ def multicast_line_messages(input_data: dict) -> dict:
     description="Broadcast up to 5 LINE message objects to all friends.",
     action_sets=["line_messages"],
     input_schema={
-        "messages": {"type": "array", "description": "Message objects.", "example": []},
+        "messages": {"type": "array", "required": True, "description": "Message objects.", "example": []},
         "notification_disabled": {
             "type": "boolean",
+            "required": False,
             "description": "Silent.",
             "example": False,
         },
@@ -225,14 +233,16 @@ def broadcast_line_messages(input_data: dict) -> dict:
     description="Push an image. Image must be publicly accessible HTTPS URL.",
     action_sets=["line_messages", "line"],
     input_schema={
-        "to": {"type": "string", "description": "Recipient.", "example": ""},
+        "to": {"type": "string", "required": True, "description": "Recipient.", "example": ""},
         "original_content_url": {
             "type": "string",
+            "required": True,
             "description": "HTTPS URL to full image.",
             "example": "",
         },
         "preview_image_url": {
             "type": "string",
+            "required": False,
             "description": "Preview URL (optional, defaults to original).",
             "example": "",
         },
@@ -258,14 +268,16 @@ def send_line_image(input_data: dict) -> dict:
     description="Push a video (HTTPS URL + preview image).",
     action_sets=["line_messages", "line"],
     input_schema={
-        "to": {"type": "string", "description": "Recipient.", "example": ""},
+        "to": {"type": "string", "required": True, "description": "Recipient.", "example": ""},
         "original_content_url": {
             "type": "string",
+            "required": True,
             "description": "HTTPS URL to MP4.",
             "example": "",
         },
         "preview_image_url": {
             "type": "string",
+            "required": True,
             "description": "Preview HTTPS URL.",
             "example": "",
         },
@@ -291,14 +303,16 @@ def send_line_video(input_data: dict) -> dict:
     description="Push an audio file. duration_ms is required.",
     action_sets=["line_messages", "line"],
     input_schema={
-        "to": {"type": "string", "description": "Recipient.", "example": ""},
+        "to": {"type": "string", "required": True, "description": "Recipient.", "example": ""},
         "original_content_url": {
             "type": "string",
+            "required": True,
             "description": "HTTPS URL.",
             "example": "",
         },
         "duration_ms": {
             "type": "integer",
+            "required": True,
             "description": "Duration in milliseconds.",
             "example": 0,
         },
@@ -324,12 +338,13 @@ def send_line_audio(input_data: dict) -> dict:
     description="Push a location pin.",
     action_sets=["line_messages", "line"],
     input_schema={
-        "to": {"type": "string", "description": "Recipient.", "example": ""},
-        "title": {"type": "string", "description": "Title.", "example": ""},
-        "address": {"type": "string", "description": "Address.", "example": ""},
-        "latitude": {"type": "number", "description": "Latitude.", "example": 35.6762},
+        "to": {"type": "string", "required": True, "description": "Recipient.", "example": ""},
+        "title": {"type": "string", "required": True, "description": "Title.", "example": ""},
+        "address": {"type": "string", "required": True, "description": "Address.", "example": ""},
+        "latitude": {"type": "number", "required": True, "description": "Latitude.", "example": 35.6762},
         "longitude": {
             "type": "number",
+            "required": True,
             "description": "Longitude.",
             "example": 139.6503,
         },
@@ -357,14 +372,16 @@ def send_line_location(input_data: dict) -> dict:
     description="Push a LINE sticker. See https://developers.line.biz/en/docs/messaging-api/sticker-list/ for IDs.",
     action_sets=["line_messages", "line"],
     input_schema={
-        "to": {"type": "string", "description": "Recipient.", "example": ""},
+        "to": {"type": "string", "required": True, "description": "Recipient.", "example": ""},
         "package_id": {
             "type": "string",
+            "required": True,
             "description": "Sticker package ID.",
             "example": "446",
         },
         "sticker_id": {
             "type": "string",
+            "required": True,
             "description": "Sticker ID.",
             "example": "1988",
         },
@@ -390,14 +407,16 @@ def send_line_sticker(input_data: dict) -> dict:
     description="Push a Flex Message — LINE's rich, interactive card format. contents is the Flex container JSON (bubble or carousel).",
     action_sets=["line_messages", "line"],
     input_schema={
-        "to": {"type": "string", "description": "Recipient.", "example": ""},
+        "to": {"type": "string", "required": True, "description": "Recipient.", "example": ""},
         "alt_text": {
             "type": "string",
+            "required": True,
             "description": "Fallback text shown on devices without Flex support.",
             "example": "New notification",
         },
         "contents": {
             "type": "object",
+            "required": True,
             "description": "Flex container JSON.",
             "example": {},
         },
@@ -423,10 +442,11 @@ def send_line_flex(input_data: dict) -> dict:
     description="Push a template message: buttons / confirm / carousel / image_carousel. template is the Template object.",
     action_sets=["line_messages", "line"],
     input_schema={
-        "to": {"type": "string", "description": "Recipient.", "example": ""},
-        "alt_text": {"type": "string", "description": "Fallback text.", "example": ""},
+        "to": {"type": "string", "required": True, "description": "Recipient.", "example": ""},
+        "alt_text": {"type": "string", "required": True, "description": "Fallback text.", "example": ""},
         "template": {
             "type": "object",
+            "required": True,
             "description": "Template object.",
             "example": {},
         },
@@ -452,24 +472,27 @@ def send_line_template(input_data: dict) -> dict:
     description="Push an imagemap: a clickable image overlaid with tappable regions. actions is a list of imagemap-action objects.",
     action_sets=["line_messages"],
     input_schema={
-        "to": {"type": "string", "description": "Recipient.", "example": ""},
+        "to": {"type": "string", "required": True, "description": "Recipient.", "example": ""},
         "base_url": {
             "type": "string",
+            "required": True,
             "description": "Base HTTPS URL of the image set.",
             "example": "",
         },
-        "alt_text": {"type": "string", "description": "Alt text.", "example": ""},
+        "alt_text": {"type": "string", "required": True, "description": "Alt text.", "example": ""},
         "base_width": {
             "type": "integer",
+            "required": True,
             "description": "Base width (px).",
             "example": 1040,
         },
         "base_height": {
             "type": "integer",
+            "required": True,
             "description": "Base height (px).",
             "example": 1040,
         },
-        "actions": {"type": "array", "description": "Imagemap actions.", "example": []},
+        "actions": {"type": "array", "required": True, "description": "Imagemap actions.", "example": []},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -494,9 +517,10 @@ def send_line_imagemap(input_data: dict) -> dict:
     description="Download the binary content of a user-sent image/video/audio/file message to a local path.",
     action_sets=["line_messages", "line"],
     input_schema={
-        "message_id": {"type": "string", "description": "Message ID.", "example": ""},
+        "message_id": {"type": "string", "required": True, "description": "Message ID.", "example": ""},
         "dest_path": {
             "type": "string",
+            "required": True,
             "description": "Local destination path.",
             "example": "",
         },
@@ -525,7 +549,7 @@ def download_line_message_content(input_data: dict) -> dict:
     description="Fetch a LINE user's display name + picture URL.",
     action_sets=["line"],
     input_schema={
-        "user_id": {"type": "string", "description": "User ID.", "example": "U..."},
+        "user_id": {"type": "string", "required": True, "description": "User ID.", "example": "U..."},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -573,6 +597,7 @@ def get_line_quota(input_data: dict) -> dict:
     input_schema={
         "group_id": {
             "type": "string",
+            "required": True,
             "description": "Group ID (starts with 'C').",
             "example": "",
         },
@@ -590,7 +615,7 @@ def get_line_group_summary(input_data: dict) -> dict:
     description="Get the member count of a group.",
     action_sets=["line_groups", "line"],
     input_schema={
-        "group_id": {"type": "string", "description": "Group ID.", "example": ""},
+        "group_id": {"type": "string", "required": True, "description": "Group ID.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -607,9 +632,10 @@ def get_line_group_member_count(input_data: dict) -> dict:
     description="List user IDs of group members (paginated via start cursor).",
     action_sets=["line_groups", "line"],
     input_schema={
-        "group_id": {"type": "string", "description": "Group ID.", "example": ""},
+        "group_id": {"type": "string", "required": True, "description": "Group ID.", "example": ""},
         "start": {
             "type": "string",
+            "required": False,
             "description": "Pagination cursor (optional).",
             "example": "",
         },
@@ -632,8 +658,8 @@ def list_line_group_members(input_data: dict) -> dict:
     description="Get a group member's display name + picture URL.",
     action_sets=["line_groups", "line"],
     input_schema={
-        "group_id": {"type": "string", "description": "Group ID.", "example": ""},
-        "user_id": {"type": "string", "description": "User ID.", "example": ""},
+        "group_id": {"type": "string", "required": True, "description": "Group ID.", "example": ""},
+        "user_id": {"type": "string", "required": True, "description": "User ID.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -653,7 +679,7 @@ def get_line_group_member_profile(input_data: dict) -> dict:
     description="Leave a LINE group.",
     action_sets=["line_groups", "line"],
     input_schema={
-        "group_id": {"type": "string", "description": "Group ID.", "example": ""},
+        "group_id": {"type": "string", "required": True, "description": "Group ID.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -671,6 +697,7 @@ def leave_line_group(input_data: dict) -> dict:
     input_schema={
         "room_id": {
             "type": "string",
+            "required": True,
             "description": "Room ID (starts with 'R').",
             "example": "",
         },
@@ -690,8 +717,8 @@ def get_line_room_member_count(input_data: dict) -> dict:
     description="List user IDs in a room.",
     action_sets=["line_groups"],
     input_schema={
-        "room_id": {"type": "string", "description": "Room ID.", "example": ""},
-        "start": {"type": "string", "description": "Pagination cursor.", "example": ""},
+        "room_id": {"type": "string", "required": True, "description": "Room ID.", "example": ""},
+        "start": {"type": "string", "required": False, "description": "Pagination cursor.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -711,8 +738,8 @@ def list_line_room_members(input_data: dict) -> dict:
     description="Get a room member's display name + picture URL.",
     action_sets=["line_groups"],
     input_schema={
-        "room_id": {"type": "string", "description": "Room ID.", "example": ""},
-        "user_id": {"type": "string", "description": "User ID.", "example": ""},
+        "room_id": {"type": "string", "required": True, "description": "Room ID.", "example": ""},
+        "user_id": {"type": "string", "required": True, "description": "User ID.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -732,7 +759,7 @@ def get_line_room_member_profile(input_data: dict) -> dict:
     description="Leave a LINE room (multi-person chat).",
     action_sets=["line_groups"],
     input_schema={
-        "room_id": {"type": "string", "description": "Room ID.", "example": ""},
+        "room_id": {"type": "string", "required": True, "description": "Room ID.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -755,6 +782,7 @@ def leave_line_room(input_data: dict) -> dict:
     input_schema={
         "rich_menu": {
             "type": "object",
+            "required": True,
             "description": "RichMenu object.",
             "example": {},
         },
@@ -777,6 +805,7 @@ def create_line_rich_menu(input_data: dict) -> dict:
     input_schema={
         "rich_menu_id": {
             "type": "string",
+            "required": True,
             "description": "Rich menu ID.",
             "example": "",
         },
@@ -811,6 +840,7 @@ def list_line_rich_menus(input_data: dict) -> dict:
     input_schema={
         "rich_menu_id": {
             "type": "string",
+            "required": True,
             "description": "Rich menu ID.",
             "example": "",
         },
@@ -833,11 +863,13 @@ def delete_line_rich_menu(input_data: dict) -> dict:
     input_schema={
         "rich_menu_id": {
             "type": "string",
+            "required": True,
             "description": "Rich menu ID.",
             "example": "",
         },
         "file_path": {
             "type": "string",
+            "required": True,
             "description": "Local PNG or JPEG path.",
             "example": "",
         },
@@ -863,6 +895,7 @@ def upload_line_rich_menu_image(input_data: dict) -> dict:
     input_schema={
         "rich_menu_id": {
             "type": "string",
+            "required": True,
             "description": "Rich menu ID.",
             "example": "",
         },
@@ -910,9 +943,10 @@ def cancel_line_default_rich_menu(input_data: dict) -> dict:
     description="Show a specific rich menu to a single user.",
     action_sets=["line_rich_menus", "line"],
     input_schema={
-        "user_id": {"type": "string", "description": "User ID.", "example": ""},
+        "user_id": {"type": "string", "required": True, "description": "User ID.", "example": ""},
         "rich_menu_id": {
             "type": "string",
+            "required": True,
             "description": "Rich menu ID.",
             "example": "",
         },
@@ -936,7 +970,7 @@ def link_line_rich_menu_to_user(input_data: dict) -> dict:
     description="Remove the per-user rich menu override (falls back to default).",
     action_sets=["line_rich_menus"],
     input_schema={
-        "user_id": {"type": "string", "description": "User ID.", "example": ""},
+        "user_id": {"type": "string", "required": True, "description": "User ID.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -954,7 +988,7 @@ def unlink_line_rich_menu_from_user(input_data: dict) -> dict:
     description="Get the rich menu ID currently linked to a user.",
     action_sets=["line_rich_menus"],
     input_schema={
-        "user_id": {"type": "string", "description": "User ID.", "example": ""},
+        "user_id": {"type": "string", "required": True, "description": "User ID.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -971,11 +1005,13 @@ def get_line_user_rich_menu(input_data: dict) -> dict:
     input_schema={
         "rich_menu_id": {
             "type": "string",
+            "required": True,
             "description": "Rich menu ID.",
             "example": "",
         },
         "user_ids": {
             "type": "array",
+            "required": True,
             "description": "User IDs (max 500).",
             "example": [],
         },
@@ -999,7 +1035,7 @@ def bulk_link_line_rich_menu(input_data: dict) -> dict:
     description="Unlink rich menus from many users in one call.",
     action_sets=["line_rich_menus"],
     input_schema={
-        "user_ids": {"type": "array", "description": "User IDs.", "example": []},
+        "user_ids": {"type": "array", "required": True, "description": "User IDs.", "example": []},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -1025,26 +1061,31 @@ def bulk_unlink_line_rich_menu(input_data: dict) -> dict:
     input_schema={
         "messages": {
             "type": "array",
+            "required": True,
             "description": "LINE message objects.",
             "example": [],
         },
         "recipient": {
             "type": "object",
+            "required": False,
             "description": "Audience recipient spec (optional).",
             "example": {},
         },
         "demographic": {
             "type": "object",
+            "required": False,
             "description": "Demographic filter (optional).",
             "example": {},
         },
         "limit": {
             "type": "object",
+            "required": False,
             "description": "Limit spec (optional).",
             "example": {},
         },
         "notification_disabled": {
             "type": "boolean",
+            "required": False,
             "description": "Silent.",
             "example": False,
         },
@@ -1074,6 +1115,7 @@ def send_line_narrowcast(input_data: dict) -> dict:
     input_schema={
         "request_id": {
             "type": "string",
+            "required": True,
             "description": "Request ID from send_line_narrowcast.",
             "example": "",
         },
@@ -1095,16 +1137,19 @@ def get_line_narrowcast_progress(input_data: dict) -> dict:
     input_schema={
         "description": {
             "type": "string",
+            "required": True,
             "description": "Audience description.",
             "example": "",
         },
         "audiences": {
             "type": "array",
+            "required": False,
             "description": "List of {id: user_id} dicts.",
             "example": [],
         },
         "is_ifa_audience": {
             "type": "boolean",
+            "required": False,
             "description": "True for advertising-ID audience.",
             "example": False,
         },
@@ -1131,6 +1176,7 @@ def create_line_user_id_audience(input_data: dict) -> dict:
     input_schema={
         "audience_group_id": {
             "type": "integer",
+            "required": True,
             "description": "Audience group ID.",
             "example": 0,
         },
@@ -1150,19 +1196,22 @@ def get_line_audience(input_data: dict) -> dict:
     description="List the bot's audience groups (with optional filters).",
     action_sets=["line_audiences"],
     input_schema={
-        "page": {"type": "integer", "description": "Page number.", "example": 1},
+        "page": {"type": "integer", "required": False, "description": "Page number.", "example": 1},
         "size": {
             "type": "integer",
+            "required": False,
             "description": "Page size (max 40).",
             "example": 20,
         },
         "description": {
             "type": "string",
+            "required": False,
             "description": "Filter by description substring.",
             "example": "",
         },
         "status": {
             "type": "string",
+            "required": False,
             "description": "Filter by status: IN_PROGRESS | READY | FAILED | EXPIRED.",
             "example": "",
         },
@@ -1189,11 +1238,13 @@ def list_line_audiences(input_data: dict) -> dict:
     input_schema={
         "audience_group_id": {
             "type": "integer",
+            "required": True,
             "description": "Audience group ID.",
             "example": 0,
         },
         "description": {
             "type": "string",
+            "required": True,
             "description": "New description.",
             "example": "",
         },
@@ -1219,6 +1270,7 @@ def update_line_audience_description(input_data: dict) -> dict:
     input_schema={
         "audience_group_id": {
             "type": "integer",
+            "required": True,
             "description": "Audience group ID.",
             "example": 0,
         },
@@ -1244,7 +1296,7 @@ def delete_line_audience(input_data: dict) -> dict:
     description="Number of followers on a given date (YYYYMMDD).",
     action_sets=["line_insights", "line"],
     input_schema={
-        "date": {"type": "string", "description": "YYYYMMDD.", "example": "20260520"},
+        "date": {"type": "string", "required": True, "description": "YYYYMMDD.", "example": "20260520"},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -1272,7 +1324,7 @@ def get_line_friend_demographics(input_data: dict) -> dict:
     description="Number of pushes/multicasts/broadcasts sent on a date.",
     action_sets=["line_insights"],
     input_schema={
-        "date": {"type": "string", "description": "YYYYMMDD.", "example": "20260520"},
+        "date": {"type": "string", "required": True, "description": "YYYYMMDD.", "example": "20260520"},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -1289,7 +1341,7 @@ def get_line_message_delivery_stats(input_data: dict) -> dict:
     description="Per-narrowcast/broadcast click/impression/open stats.",
     action_sets=["line_insights"],
     input_schema={
-        "request_id": {"type": "string", "description": "Request ID.", "example": ""},
+        "request_id": {"type": "string", "required": True, "description": "Request ID.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -1311,7 +1363,7 @@ def get_line_message_event_stats(input_data: dict) -> dict:
     description="Set the HTTPS endpoint where LINE will POST incoming events.",
     action_sets=["line_channel"],
     input_schema={
-        "endpoint": {"type": "string", "description": "HTTPS URL.", "example": ""},
+        "endpoint": {"type": "string", "required": True, "description": "HTTPS URL.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -1344,6 +1396,7 @@ def get_line_webhook_endpoint(input_data: dict) -> dict:
     input_schema={
         "endpoint": {
             "type": "string",
+            "required": False,
             "description": "Override URL (optional, defaults to configured one).",
             "example": "",
         },
@@ -1363,9 +1416,10 @@ def test_line_webhook_endpoint(input_data: dict) -> dict:
     description="Issue a short-lived channel access token (v2.1). Useful for credential rotation.",
     action_sets=["line_channel"],
     input_schema={
-        "channel_id": {"type": "string", "description": "Channel ID.", "example": ""},
+        "channel_id": {"type": "string", "required": True, "description": "Channel ID.", "example": ""},
         "channel_secret": {
             "type": "string",
+            "required": True,
             "description": "Channel secret.",
             "example": "",
         },
@@ -1391,6 +1445,7 @@ def issue_line_channel_access_token(input_data: dict) -> dict:
     input_schema={
         "access_token": {
             "type": "string",
+            "required": True,
             "description": "Token to revoke.",
             "example": "",
         },
@@ -1413,6 +1468,7 @@ def revoke_line_channel_access_token(input_data: dict) -> dict:
     input_schema={
         "access_token": {
             "type": "string",
+            "required": True,
             "description": "Token to verify.",
             "example": "",
         },

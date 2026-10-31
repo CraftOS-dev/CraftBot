@@ -15,31 +15,37 @@ from agent_core import action
     input_schema={
         "chat_id": {
             "type": "string",
+            "required": True,
             "description": "Telegram chat ID or @username.",
             "example": "123456789",
         },
         "text": {
             "type": "string",
+            "required": True,
             "description": "Message text to send.",
             "example": "Hello!",
         },
         "parse_mode": {
             "type": "string",
+            "required": False,
             "description": "Optional parse mode: HTML or MarkdownV2.",
             "example": "HTML",
         },
         "reply_to_message_id": {
             "type": "integer",
+            "required": False,
             "description": "Optional message to reply to.",
             "example": 42,
         },
         "disable_web_page_preview": {
             "type": "boolean",
+            "required": False,
             "description": "Disable link previews.",
             "example": False,
         },
         "reply_markup": {
             "type": "object",
+            "required": False,
             "description": "Optional reply markup (inline keyboard etc.).",
             "example": {},
         },
@@ -87,32 +93,38 @@ async def send_telegram_bot_message(input_data: dict) -> dict:
     input_schema={
         "chat_id": {
             "type": "string",
+            "required": True,
             "description": "Chat ID or @username.",
             "example": "123456789",
         },
-        "text": {"type": "string", "description": "Message text.", "example": "Hi"},
+        "text": {"type": "string", "required": True, "description": "Message text.", "example": "Hi"},
         "parse_mode": {
             "type": "string",
+            "required": False,
             "description": "HTML or MarkdownV2.",
             "example": "HTML",
         },
         "reply_to_message_id": {
             "type": "integer",
+            "required": False,
             "description": "Reply target message id.",
             "example": 42,
         },
         "disable_web_page_preview": {
             "type": "boolean",
+            "required": False,
             "description": "Disable preview.",
             "example": False,
         },
         "disable_notification": {
             "type": "boolean",
+            "required": False,
             "description": "Send silently.",
             "example": False,
         },
         "reply_markup": {
             "type": "object",
+            "required": False,
             "description": "Reply markup.",
             "example": {},
         },
@@ -152,16 +164,18 @@ async def send_telegram_text_message(input_data: dict) -> dict:
     description="Edit the text of a message sent by the bot.",
     action_sets=["telegram_messages", "telegram"],
     input_schema={
-        "chat_id": {"type": "string", "description": "Chat ID.", "example": "123"},
-        "message_id": {"type": "integer", "description": "Message ID.", "example": 42},
-        "text": {"type": "string", "description": "New text.", "example": "Edited"},
+        "chat_id": {"type": "string", "required": True, "description": "Chat ID.", "example": "123"},
+        "message_id": {"type": "integer", "required": True, "description": "Message ID.", "example": 42},
+        "text": {"type": "string", "required": True, "description": "New text.", "example": "Edited"},
         "parse_mode": {
             "type": "string",
+            "required": False,
             "description": "Parse mode.",
             "example": "HTML",
         },
         "reply_markup": {
             "type": "object",
+            "required": False,
             "description": "New reply markup.",
             "example": {},
         },
@@ -191,20 +205,23 @@ async def edit_telegram_message_text(input_data: dict) -> dict:
     description="Edit the caption of a media message.",
     action_sets=["telegram_messages"],
     input_schema={
-        "chat_id": {"type": "string", "description": "Chat ID.", "example": "123"},
-        "message_id": {"type": "integer", "description": "Message ID.", "example": 42},
+        "chat_id": {"type": "string", "required": True, "description": "Chat ID.", "example": "123"},
+        "message_id": {"type": "integer", "required": True, "description": "Message ID.", "example": 42},
         "caption": {
             "type": "string",
+            "required": True,
             "description": "New caption.",
             "example": "New caption",
         },
         "parse_mode": {
             "type": "string",
+            "required": False,
             "description": "Parse mode.",
             "example": "HTML",
         },
         "reply_markup": {
             "type": "object",
+            "required": False,
             "description": "Reply markup.",
             "example": {},
         },
@@ -234,10 +251,11 @@ async def edit_telegram_message_caption(input_data: dict) -> dict:
     description="Edit only the reply markup of a message.",
     action_sets=["telegram_messages"],
     input_schema={
-        "chat_id": {"type": "string", "description": "Chat ID.", "example": "123"},
-        "message_id": {"type": "integer", "description": "Message ID.", "example": 42},
+        "chat_id": {"type": "string", "required": True, "description": "Chat ID.", "example": "123"},
+        "message_id": {"type": "integer", "required": True, "description": "Message ID.", "example": 42},
         "reply_markup": {
             "type": "object",
+            "required": True,
             "description": "Reply markup.",
             "example": {},
         },
@@ -265,8 +283,8 @@ async def edit_telegram_message_reply_markup(input_data: dict) -> dict:
     description="Delete a single message sent by or visible to the bot.",
     action_sets=["telegram_messages", "telegram"],
     input_schema={
-        "chat_id": {"type": "string", "description": "Chat ID.", "example": "123"},
-        "message_id": {"type": "integer", "description": "Message ID.", "example": 42},
+        "chat_id": {"type": "string", "required": True, "description": "Chat ID.", "example": "123"},
+        "message_id": {"type": "integer", "required": True, "description": "Message ID.", "example": 42},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -286,9 +304,10 @@ async def delete_telegram_message(input_data: dict) -> dict:
     description="Delete multiple messages in a chat in one call.",
     action_sets=["telegram_messages"],
     input_schema={
-        "chat_id": {"type": "string", "description": "Chat ID.", "example": "123"},
+        "chat_id": {"type": "string", "required": True, "description": "Chat ID.", "example": "123"},
         "message_ids": {
             "type": "array",
+            "required": True,
             "description": "List of message IDs.",
             "example": [1, 2, 3],
         },
@@ -313,21 +332,25 @@ async def delete_telegram_messages(input_data: dict) -> dict:
     input_schema={
         "chat_id": {
             "type": "string",
+            "required": True,
             "description": "Destination chat.",
             "example": "123",
         },
         "from_chat_id": {
             "type": "string",
+            "required": True,
             "description": "Source chat.",
             "example": "456",
         },
         "message_id": {
             "type": "integer",
+            "required": True,
             "description": "Source message ID.",
             "example": 42,
         },
         "caption": {
             "type": "string",
+            "required": False,
             "description": "Optional new caption.",
             "example": "Copied",
         },
@@ -355,15 +378,17 @@ async def copy_telegram_message(input_data: dict) -> dict:
     input_schema={
         "chat_id": {
             "type": "string",
+            "required": True,
             "description": "Destination chat.",
             "example": "123",
         },
         "from_chat_id": {
             "type": "string",
+            "required": True,
             "description": "Source chat.",
             "example": "456",
         },
-        "message_id": {"type": "integer", "description": "Message ID.", "example": 1},
+        "message_id": {"type": "integer", "required": True, "description": "Message ID.", "example": 1},
     },
     output_schema={
         "status": {"type": "string", "example": "success"},
@@ -391,16 +416,19 @@ async def forward_telegram_message(input_data: dict) -> dict:
     input_schema={
         "chat_id": {
             "type": "string",
+            "required": True,
             "description": "Destination chat.",
             "example": "123",
         },
         "from_chat_id": {
             "type": "string",
+            "required": True,
             "description": "Source chat.",
             "example": "456",
         },
         "message_ids": {
             "type": "array",
+            "required": True,
             "description": "List of message IDs.",
             "example": [1, 2, 3],
         },
@@ -439,10 +467,11 @@ async def forward_telegram_messages(input_data: dict) -> dict:
     description="Pin a message in a chat.",
     action_sets=["telegram_messages"],
     input_schema={
-        "chat_id": {"type": "string", "description": "Chat ID.", "example": "123"},
-        "message_id": {"type": "integer", "description": "Message ID.", "example": 42},
+        "chat_id": {"type": "string", "required": True, "description": "Chat ID.", "example": "123"},
+        "message_id": {"type": "integer", "required": True, "description": "Message ID.", "example": 42},
         "disable_notification": {
             "type": "boolean",
+            "required": False,
             "description": "Silent pin.",
             "example": True,
         },
@@ -466,9 +495,10 @@ async def pin_telegram_message(input_data: dict) -> dict:
     description="Unpin a specific message (or the most recent if omitted).",
     action_sets=["telegram_messages"],
     input_schema={
-        "chat_id": {"type": "string", "description": "Chat ID.", "example": "123"},
+        "chat_id": {"type": "string", "required": True, "description": "Chat ID.", "example": "123"},
         "message_id": {
             "type": "integer",
+            "required": False,
             "description": "Optional message ID.",
             "example": 42,
         },
@@ -491,7 +521,7 @@ async def unpin_telegram_message(input_data: dict) -> dict:
     description="Clear the list of pinned messages in a chat.",
     action_sets=["telegram_messages"],
     input_schema={
-        "chat_id": {"type": "string", "description": "Chat ID.", "example": "123"},
+        "chat_id": {"type": "string", "required": True, "description": "Chat ID.", "example": "123"},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -510,15 +540,17 @@ async def unpin_all_telegram_messages(input_data: dict) -> dict:
     description="Set or remove emoji reactions on a message.",
     action_sets=["telegram_messages"],
     input_schema={
-        "chat_id": {"type": "string", "description": "Chat ID.", "example": "123"},
-        "message_id": {"type": "integer", "description": "Message ID.", "example": 42},
+        "chat_id": {"type": "string", "required": True, "description": "Chat ID.", "example": "123"},
+        "message_id": {"type": "integer", "required": True, "description": "Message ID.", "example": 42},
         "reactions": {
             "type": "array",
+            "required": True,
             "description": "Array of reaction objects, e.g. [{type:'emoji', emoji:'👍'}].",
             "example": [{"type": "emoji", "emoji": "👍"}],
         },
         "is_big": {
             "type": "boolean",
+            "required": False,
             "description": "Animated big reaction.",
             "example": False,
         },
@@ -543,9 +575,10 @@ async def set_telegram_message_reaction(input_data: dict) -> dict:
     description="Show 'typing', 'upload_photo', etc. indicators to the user.",
     action_sets=["telegram_messages"],
     input_schema={
-        "chat_id": {"type": "string", "description": "Chat ID.", "example": "123"},
+        "chat_id": {"type": "string", "required": True, "description": "Chat ID.", "example": "123"},
         "action_type": {
             "type": "string",
+            "required": True,
             "description": "typing | upload_photo | record_video | upload_video | record_voice | upload_voice | upload_document | choose_sticker | find_location | record_video_note | upload_video_note.",
             "example": "typing",
         },
@@ -575,13 +608,14 @@ async def send_telegram_chat_action(input_data: dict) -> dict:
     description="Send a photo to a Telegram chat via bot.",
     action_sets=["telegram_media", "telegram"],
     input_schema={
-        "chat_id": {"type": "string", "description": "Chat ID.", "example": "123"},
+        "chat_id": {"type": "string", "required": True, "description": "Chat ID.", "example": "123"},
         "photo": {
             "type": "string",
+            "required": True,
             "description": "URL or file_id.",
             "example": "https://example.com/p.jpg",
         },
-        "caption": {"type": "string", "description": "Caption.", "example": "Cool pic"},
+        "caption": {"type": "string", "required": False, "description": "Caption.", "example": "Cool pic"},
     },
     output_schema={
         "status": {"type": "string", "example": "success"},
@@ -607,14 +641,16 @@ async def send_telegram_photo(input_data: dict) -> dict:
     description="Send a document to a Telegram chat via bot.",
     action_sets=["telegram_media", "telegram"],
     input_schema={
-        "chat_id": {"type": "string", "description": "Chat ID.", "example": "123"},
+        "chat_id": {"type": "string", "required": True, "description": "Chat ID.", "example": "123"},
         "document": {
             "type": "string",
+            "required": True,
             "description": "File ID or URL.",
             "example": "https://example.com/doc.pdf",
         },
         "caption": {
             "type": "string",
+            "required": False,
             "description": "Caption.",
             "example": "Here is the file",
         },
@@ -643,20 +679,23 @@ async def send_telegram_document(input_data: dict) -> dict:
     description="Send a video file via bot.",
     action_sets=["telegram_media"],
     input_schema={
-        "chat_id": {"type": "string", "description": "Chat ID.", "example": "123"},
+        "chat_id": {"type": "string", "required": True, "description": "Chat ID.", "example": "123"},
         "video": {
             "type": "string",
+            "required": True,
             "description": "File ID or URL.",
             "example": "https://example.com/v.mp4",
         },
-        "caption": {"type": "string", "description": "Caption.", "example": ""},
+        "caption": {"type": "string", "required": False, "description": "Caption.", "example": ""},
         "duration": {
             "type": "integer",
+            "required": False,
             "description": "Duration in seconds.",
             "example": 30,
         },
         "supports_streaming": {
             "type": "boolean",
+            "required": False,
             "description": "Streaming-capable.",
             "example": True,
         },
@@ -687,15 +726,16 @@ async def send_telegram_video(input_data: dict) -> dict:
     description="Send an audio file (music) via bot.",
     action_sets=["telegram_media"],
     input_schema={
-        "chat_id": {"type": "string", "description": "Chat ID.", "example": "123"},
+        "chat_id": {"type": "string", "required": True, "description": "Chat ID.", "example": "123"},
         "audio": {
             "type": "string",
+            "required": True,
             "description": "File ID or URL.",
             "example": "https://example.com/a.mp3",
         },
-        "caption": {"type": "string", "description": "Caption.", "example": ""},
-        "title": {"type": "string", "description": "Track title.", "example": "Song"},
-        "performer": {"type": "string", "description": "Artist.", "example": "Artist"},
+        "caption": {"type": "string", "required": False, "description": "Caption.", "example": ""},
+        "title": {"type": "string", "required": False, "description": "Track title.", "example": "Song"},
+        "performer": {"type": "string", "required": False, "description": "Artist.", "example": "Artist"},
     },
     output_schema={
         "status": {"type": "string", "example": "success"},
@@ -723,15 +763,17 @@ async def send_telegram_audio(input_data: dict) -> dict:
     description="Send a voice message (OGG opus) via bot.",
     action_sets=["telegram_media"],
     input_schema={
-        "chat_id": {"type": "string", "description": "Chat ID.", "example": "123"},
+        "chat_id": {"type": "string", "required": True, "description": "Chat ID.", "example": "123"},
         "voice": {
             "type": "string",
+            "required": True,
             "description": "File ID or URL.",
             "example": "https://example.com/v.ogg",
         },
-        "caption": {"type": "string", "description": "Caption.", "example": ""},
+        "caption": {"type": "string", "required": False, "description": "Caption.", "example": ""},
         "duration": {
             "type": "integer",
+            "required": False,
             "description": "Duration in seconds.",
             "example": 10,
         },
@@ -761,18 +803,20 @@ async def send_telegram_voice(input_data: dict) -> dict:
     description="Send a rounded square video note (short circular video).",
     action_sets=["telegram_media"],
     input_schema={
-        "chat_id": {"type": "string", "description": "Chat ID.", "example": "123"},
+        "chat_id": {"type": "string", "required": True, "description": "Chat ID.", "example": "123"},
         "video_note": {
             "type": "string",
+            "required": True,
             "description": "File ID or URL.",
             "example": "https://example.com/note.mp4",
         },
         "duration": {
             "type": "integer",
+            "required": False,
             "description": "Duration in seconds.",
             "example": 10,
         },
-        "length": {"type": "integer", "description": "Side length.", "example": 240},
+        "length": {"type": "integer", "required": False, "description": "Side length.", "example": 240},
     },
     output_schema={
         "status": {"type": "string", "example": "success"},
@@ -799,13 +843,14 @@ async def send_telegram_video_note(input_data: dict) -> dict:
     description="Send an animation (GIF or H.264/MPEG-4 without sound).",
     action_sets=["telegram_media"],
     input_schema={
-        "chat_id": {"type": "string", "description": "Chat ID.", "example": "123"},
+        "chat_id": {"type": "string", "required": True, "description": "Chat ID.", "example": "123"},
         "animation": {
             "type": "string",
+            "required": True,
             "description": "File ID or URL.",
             "example": "https://example.com/anim.gif",
         },
-        "caption": {"type": "string", "description": "Caption.", "example": ""},
+        "caption": {"type": "string", "required": False, "description": "Caption.", "example": ""},
     },
     output_schema={
         "status": {"type": "string", "example": "success"},
@@ -831,9 +876,10 @@ async def send_telegram_animation(input_data: dict) -> dict:
     description="Send a sticker (.webp / .tgs / .webm).",
     action_sets=["telegram_media"],
     input_schema={
-        "chat_id": {"type": "string", "description": "Chat ID.", "example": "123"},
+        "chat_id": {"type": "string", "required": True, "description": "Chat ID.", "example": "123"},
         "sticker": {
             "type": "string",
+            "required": True,
             "description": "File ID or URL or emoji.",
             "example": "CAACAgQA...",
         },
@@ -861,15 +907,17 @@ async def send_telegram_sticker(input_data: dict) -> dict:
     description="Send a geographic location.",
     action_sets=["telegram_media"],
     input_schema={
-        "chat_id": {"type": "string", "description": "Chat ID.", "example": "123"},
-        "latitude": {"type": "number", "description": "Latitude.", "example": 37.7749},
+        "chat_id": {"type": "string", "required": True, "description": "Chat ID.", "example": "123"},
+        "latitude": {"type": "number", "required": True, "description": "Latitude.", "example": 37.7749},
         "longitude": {
             "type": "number",
+            "required": True,
             "description": "Longitude.",
             "example": -122.4194,
         },
         "live_period": {
             "type": "integer",
+            "required": False,
             "description": "Live location duration in seconds.",
             "example": 60,
         },
@@ -899,16 +947,18 @@ async def send_telegram_location(input_data: dict) -> dict:
     description="Send a venue with name and address.",
     action_sets=["telegram_media"],
     input_schema={
-        "chat_id": {"type": "string", "description": "Chat ID.", "example": "123"},
-        "latitude": {"type": "number", "description": "Latitude.", "example": 37.7749},
+        "chat_id": {"type": "string", "required": True, "description": "Chat ID.", "example": "123"},
+        "latitude": {"type": "number", "required": True, "description": "Latitude.", "example": 37.7749},
         "longitude": {
             "type": "number",
+            "required": True,
             "description": "Longitude.",
             "example": -122.4194,
         },
-        "title": {"type": "string", "description": "Venue name.", "example": "Cafe X"},
+        "title": {"type": "string", "required": True, "description": "Venue name.", "example": "Cafe X"},
         "address": {
             "type": "string",
+            "required": True,
             "description": "Venue address.",
             "example": "1 Main St",
         },
@@ -939,18 +989,20 @@ async def send_telegram_venue(input_data: dict) -> dict:
     description="Send a phone contact card.",
     action_sets=["telegram_media"],
     input_schema={
-        "chat_id": {"type": "string", "description": "Chat ID.", "example": "123"},
+        "chat_id": {"type": "string", "required": True, "description": "Chat ID.", "example": "123"},
         "phone_number": {
             "type": "string",
+            "required": True,
             "description": "Phone number.",
             "example": "+15551234567",
         },
         "first_name": {
             "type": "string",
+            "required": True,
             "description": "First name.",
             "example": "John",
         },
-        "last_name": {"type": "string", "description": "Last name.", "example": "Doe"},
+        "last_name": {"type": "string", "required": False, "description": "Last name.", "example": "Doe"},
     },
     output_schema={
         "status": {"type": "string", "example": "success"},
@@ -977,9 +1029,10 @@ async def send_telegram_contact(input_data: dict) -> dict:
     description="Send an animated dice / emoji-game (🎲 🎯 🏀 ⚽ 🎳 🎰).",
     action_sets=["telegram_media"],
     input_schema={
-        "chat_id": {"type": "string", "description": "Chat ID.", "example": "123"},
+        "chat_id": {"type": "string", "required": True, "description": "Chat ID.", "example": "123"},
         "emoji": {
             "type": "string",
+            "required": False,
             "description": "One of 🎲 🎯 🏀 ⚽ 🎳 🎰.",
             "example": "🎲",
         },
@@ -1007,34 +1060,40 @@ async def send_telegram_dice(input_data: dict) -> dict:
     description="Send a poll to a chat.",
     action_sets=["telegram_media"],
     input_schema={
-        "chat_id": {"type": "string", "description": "Chat ID.", "example": "123"},
+        "chat_id": {"type": "string", "required": True, "description": "Chat ID.", "example": "123"},
         "question": {
             "type": "string",
+            "required": True,
             "description": "Poll question.",
             "example": "Best language?",
         },
         "options": {
             "type": "array",
+            "required": True,
             "description": "Poll option strings.",
             "example": ["Python", "Go", "Rust"],
         },
         "is_anonymous": {
             "type": "boolean",
+            "required": False,
             "description": "Anonymous poll.",
             "example": True,
         },
         "type": {
             "type": "string",
+            "required": False,
             "description": "quiz | regular.",
             "example": "regular",
         },
         "allows_multiple_answers": {
             "type": "boolean",
+            "required": False,
             "description": "Allow multi-select.",
             "example": False,
         },
         "correct_option_id": {
             "type": "integer",
+            "required": False,
             "description": "Quiz correct option index.",
             "example": 0,
         },
@@ -1066,9 +1125,10 @@ async def send_telegram_poll(input_data: dict) -> dict:
     description="Stop an active poll.",
     action_sets=["telegram_media"],
     input_schema={
-        "chat_id": {"type": "string", "description": "Chat ID.", "example": "123"},
+        "chat_id": {"type": "string", "required": True, "description": "Chat ID.", "example": "123"},
         "message_id": {
             "type": "integer",
+            "required": True,
             "description": "Poll message ID.",
             "example": 42,
         },
@@ -1092,9 +1152,10 @@ async def stop_telegram_poll(input_data: dict) -> dict:
     description="Send a group of photos/videos/audios/documents as an album.",
     action_sets=["telegram_media"],
     input_schema={
-        "chat_id": {"type": "string", "description": "Chat ID.", "example": "123"},
+        "chat_id": {"type": "string", "required": True, "description": "Chat ID.", "example": "123"},
         "media": {
             "type": "array",
+            "required": True,
             "description": "Array of InputMedia objects (type, media, caption).",
             "example": [
                 {"type": "photo", "media": "https://example.com/1.jpg"},
@@ -1135,7 +1196,7 @@ async def send_telegram_media_group(input_data: dict) -> dict:
     description="Get file metadata (including file_path) for a file_id.",
     action_sets=["telegram_media"],
     input_schema={
-        "file_id": {"type": "string", "description": "File ID.", "example": "AgAC..."},
+        "file_id": {"type": "string", "required": True, "description": "File ID.", "example": "AgAC..."},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -1154,9 +1215,10 @@ async def get_telegram_file(input_data: dict) -> dict:
     description="Resolve a file_id and stream the bytes to a local path.",
     action_sets=["telegram_media"],
     input_schema={
-        "file_id": {"type": "string", "description": "File ID.", "example": "AgAC..."},
+        "file_id": {"type": "string", "required": True, "description": "File ID.", "example": "AgAC..."},
         "dest_path": {
             "type": "string",
+            "required": True,
             "description": "Local file path to save to.",
             "example": "/tmp/file.bin",
         },
@@ -1187,6 +1249,7 @@ async def download_telegram_file(input_data: dict) -> dict:
     input_schema={
         "chat_id": {
             "type": "string",
+            "required": True,
             "description": "Chat ID or @username.",
             "example": "123456789",
         },
@@ -1204,7 +1267,7 @@ async def get_telegram_chat(input_data: dict) -> dict:
     description="Get chat members count via bot.",
     action_sets=["telegram_chats", "telegram"],
     input_schema={
-        "chat_id": {"type": "string", "description": "Chat ID.", "example": "123"},
+        "chat_id": {"type": "string", "required": True, "description": "Chat ID.", "example": "123"},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -1223,7 +1286,7 @@ async def get_telegram_chat_members_count(input_data: dict) -> dict:
     description="List the administrators of a chat.",
     action_sets=["telegram_chats"],
     input_schema={
-        "chat_id": {"type": "string", "description": "Chat ID.", "example": "123"},
+        "chat_id": {"type": "string", "required": True, "description": "Chat ID.", "example": "123"},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -1242,15 +1305,17 @@ async def get_telegram_chat_administrators(input_data: dict) -> dict:
     description="Ban a user from a group/supergroup/channel.",
     action_sets=["telegram_chats"],
     input_schema={
-        "chat_id": {"type": "string", "description": "Chat ID.", "example": "123"},
-        "user_id": {"type": "integer", "description": "User ID.", "example": 987654321},
+        "chat_id": {"type": "string", "required": True, "description": "Chat ID.", "example": "123"},
+        "user_id": {"type": "integer", "required": True, "description": "User ID.", "example": 987654321},
         "until_date": {
             "type": "integer",
+            "required": False,
             "description": "Unix timestamp ban-until (0 = forever).",
             "example": 0,
         },
         "revoke_messages": {
             "type": "boolean",
+            "required": False,
             "description": "Delete all messages from user.",
             "example": False,
         },
@@ -1275,10 +1340,11 @@ async def ban_telegram_chat_member(input_data: dict) -> dict:
     description="Unban a previously banned user.",
     action_sets=["telegram_chats"],
     input_schema={
-        "chat_id": {"type": "string", "description": "Chat ID.", "example": "123"},
-        "user_id": {"type": "integer", "description": "User ID.", "example": 987654321},
+        "chat_id": {"type": "string", "required": True, "description": "Chat ID.", "example": "123"},
+        "user_id": {"type": "integer", "required": True, "description": "User ID.", "example": 987654321},
         "only_if_banned": {
             "type": "boolean",
+            "required": False,
             "description": "Only if currently banned.",
             "example": True,
         },
@@ -1302,15 +1368,17 @@ async def unban_telegram_chat_member(input_data: dict) -> dict:
     description="Restrict a user in a supergroup with specific ChatPermissions.",
     action_sets=["telegram_chats"],
     input_schema={
-        "chat_id": {"type": "string", "description": "Chat ID.", "example": "123"},
-        "user_id": {"type": "integer", "description": "User ID.", "example": 987654321},
+        "chat_id": {"type": "string", "required": True, "description": "Chat ID.", "example": "123"},
+        "user_id": {"type": "integer", "required": True, "description": "User ID.", "example": 987654321},
         "permissions": {
             "type": "object",
+            "required": True,
             "description": "ChatPermissions object.",
             "example": {"can_send_messages": False},
         },
         "until_date": {
             "type": "integer",
+            "required": False,
             "description": "Unix timestamp restrict-until.",
             "example": 0,
         },
@@ -1335,65 +1403,77 @@ async def restrict_telegram_chat_member(input_data: dict) -> dict:
     description="Promote or demote a user. Pass False to remove a privilege.",
     action_sets=["telegram_chats"],
     input_schema={
-        "chat_id": {"type": "string", "description": "Chat ID.", "example": "123"},
-        "user_id": {"type": "integer", "description": "User ID.", "example": 987654321},
+        "chat_id": {"type": "string", "required": True, "description": "Chat ID.", "example": "123"},
+        "user_id": {"type": "integer", "required": True, "description": "User ID.", "example": 987654321},
         "is_anonymous": {
             "type": "boolean",
+            "required": False,
             "description": "Anonymous admin.",
             "example": False,
         },
         "can_manage_chat": {
             "type": "boolean",
+            "required": False,
             "description": "Manage chat privilege.",
             "example": True,
         },
         "can_delete_messages": {
             "type": "boolean",
+            "required": False,
             "description": "Delete messages.",
             "example": True,
         },
         "can_manage_video_chats": {
             "type": "boolean",
+            "required": False,
             "description": "Manage video chats.",
             "example": False,
         },
         "can_restrict_members": {
             "type": "boolean",
+            "required": False,
             "description": "Restrict members.",
             "example": True,
         },
         "can_promote_members": {
             "type": "boolean",
+            "required": False,
             "description": "Promote members.",
             "example": False,
         },
         "can_change_info": {
             "type": "boolean",
+            "required": False,
             "description": "Change chat info.",
             "example": False,
         },
         "can_invite_users": {
             "type": "boolean",
+            "required": False,
             "description": "Invite users.",
             "example": True,
         },
         "can_post_messages": {
             "type": "boolean",
+            "required": False,
             "description": "Channel post.",
             "example": False,
         },
         "can_edit_messages": {
             "type": "boolean",
+            "required": False,
             "description": "Channel edit.",
             "example": False,
         },
         "can_pin_messages": {
             "type": "boolean",
+            "required": False,
             "description": "Pin messages.",
             "example": False,
         },
         "can_manage_topics": {
             "type": "boolean",
+            "required": False,
             "description": "Manage forum topics.",
             "example": False,
         },
@@ -1428,14 +1508,16 @@ async def promote_telegram_chat_member(input_data: dict) -> dict:
     description="Set a custom title for an administrator.",
     action_sets=["telegram_chats"],
     input_schema={
-        "chat_id": {"type": "string", "description": "Chat ID.", "example": "123"},
+        "chat_id": {"type": "string", "required": True, "description": "Chat ID.", "example": "123"},
         "user_id": {
             "type": "integer",
+            "required": True,
             "description": "Admin user ID.",
             "example": 987654321,
         },
         "custom_title": {
             "type": "string",
+            "required": True,
             "description": "Custom title (max 16 chars).",
             "example": "Owner",
         },
@@ -1459,9 +1541,10 @@ async def set_telegram_chat_administrator_custom_title(input_data: dict) -> dict
     description="Set default chat permissions for all non-admin members.",
     action_sets=["telegram_chats"],
     input_schema={
-        "chat_id": {"type": "string", "description": "Chat ID.", "example": "123"},
+        "chat_id": {"type": "string", "required": True, "description": "Chat ID.", "example": "123"},
         "permissions": {
             "type": "object",
+            "required": True,
             "description": "ChatPermissions object.",
             "example": {"can_send_messages": True},
         },
@@ -1484,9 +1567,10 @@ async def set_telegram_chat_permissions(input_data: dict) -> dict:
     description="Change the title of a chat.",
     action_sets=["telegram_chats"],
     input_schema={
-        "chat_id": {"type": "string", "description": "Chat ID.", "example": "123"},
+        "chat_id": {"type": "string", "required": True, "description": "Chat ID.", "example": "123"},
         "title": {
             "type": "string",
+            "required": True,
             "description": "New title (1-128 chars).",
             "example": "New Chat Name",
         },
@@ -1509,9 +1593,10 @@ async def set_telegram_chat_title(input_data: dict) -> dict:
     description="Change the description of a group/supergroup/channel.",
     action_sets=["telegram_chats"],
     input_schema={
-        "chat_id": {"type": "string", "description": "Chat ID.", "example": "123"},
+        "chat_id": {"type": "string", "required": True, "description": "Chat ID.", "example": "123"},
         "description": {
             "type": "string",
+            "required": True,
             "description": "New description (0-255 chars).",
             "example": "About this chat",
         },
@@ -1534,7 +1619,7 @@ async def set_telegram_chat_description(input_data: dict) -> dict:
     description="Delete the photo of a group/supergroup/channel.",
     action_sets=["telegram_chats"],
     input_schema={
-        "chat_id": {"type": "string", "description": "Chat ID.", "example": "123"},
+        "chat_id": {"type": "string", "required": True, "description": "Chat ID.", "example": "123"},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -1553,7 +1638,7 @@ async def delete_telegram_chat_photo(input_data: dict) -> dict:
     description="Make the bot leave a chat.",
     action_sets=["telegram_chats"],
     input_schema={
-        "chat_id": {"type": "string", "description": "Chat ID.", "example": "123"},
+        "chat_id": {"type": "string", "required": True, "description": "Chat ID.", "example": "123"},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -1572,8 +1657,8 @@ async def leave_telegram_chat(input_data: dict) -> dict:
     description="Get information about a member of a chat.",
     action_sets=["telegram_chats"],
     input_schema={
-        "chat_id": {"type": "string", "description": "Chat ID.", "example": "123"},
-        "user_id": {"type": "integer", "description": "User ID.", "example": 987654321},
+        "chat_id": {"type": "string", "required": True, "description": "Chat ID.", "example": "123"},
+        "user_id": {"type": "integer", "required": True, "description": "User ID.", "example": 987654321},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -1593,7 +1678,7 @@ async def get_telegram_chat_member(input_data: dict) -> dict:
     description="Generate a new primary invite link, revoking previous primary.",
     action_sets=["telegram_chats"],
     input_schema={
-        "chat_id": {"type": "string", "description": "Chat ID.", "example": "123"},
+        "chat_id": {"type": "string", "required": True, "description": "Chat ID.", "example": "123"},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -1612,20 +1697,23 @@ async def export_telegram_chat_invite_link(input_data: dict) -> dict:
     description="Create an additional invite link (does not revoke the primary).",
     action_sets=["telegram_chats"],
     input_schema={
-        "chat_id": {"type": "string", "description": "Chat ID.", "example": "123"},
-        "name": {"type": "string", "description": "Invite name.", "example": "VIP"},
+        "chat_id": {"type": "string", "required": True, "description": "Chat ID.", "example": "123"},
+        "name": {"type": "string", "required": False, "description": "Invite name.", "example": "VIP"},
         "expire_date": {
             "type": "integer",
+            "required": False,
             "description": "Unix timestamp expire.",
             "example": 1735689600,
         },
         "member_limit": {
             "type": "integer",
+            "required": False,
             "description": "Max members 1-99999.",
             "example": 10,
         },
         "creates_join_request": {
             "type": "boolean",
+            "required": False,
             "description": "Require admin approval.",
             "example": False,
         },
@@ -1651,25 +1739,29 @@ async def create_telegram_chat_invite_link(input_data: dict) -> dict:
     description="Edit an existing non-primary invite link.",
     action_sets=["telegram_chats"],
     input_schema={
-        "chat_id": {"type": "string", "description": "Chat ID.", "example": "123"},
+        "chat_id": {"type": "string", "required": True, "description": "Chat ID.", "example": "123"},
         "invite_link": {
             "type": "string",
+            "required": True,
             "description": "Invite link to edit.",
             "example": "https://t.me/+abc",
         },
-        "name": {"type": "string", "description": "Name.", "example": "VIP-renamed"},
+        "name": {"type": "string", "required": False, "description": "Name.", "example": "VIP-renamed"},
         "expire_date": {
             "type": "integer",
+            "required": False,
             "description": "Unix timestamp.",
             "example": 1735689600,
         },
         "member_limit": {
             "type": "integer",
+            "required": False,
             "description": "Max members.",
             "example": 20,
         },
         "creates_join_request": {
             "type": "boolean",
+            "required": False,
             "description": "Approval flow.",
             "example": False,
         },
@@ -1696,9 +1788,10 @@ async def edit_telegram_chat_invite_link(input_data: dict) -> dict:
     description="Revoke an invite link.",
     action_sets=["telegram_chats"],
     input_schema={
-        "chat_id": {"type": "string", "description": "Chat ID.", "example": "123"},
+        "chat_id": {"type": "string", "required": True, "description": "Chat ID.", "example": "123"},
         "invite_link": {
             "type": "string",
+            "required": True,
             "description": "Invite link.",
             "example": "https://t.me/+abc",
         },
@@ -1721,8 +1814,8 @@ async def revoke_telegram_chat_invite_link(input_data: dict) -> dict:
     description="Approve a pending chat join request.",
     action_sets=["telegram_chats"],
     input_schema={
-        "chat_id": {"type": "string", "description": "Chat ID.", "example": "123"},
-        "user_id": {"type": "integer", "description": "User ID.", "example": 987654321},
+        "chat_id": {"type": "string", "required": True, "description": "Chat ID.", "example": "123"},
+        "user_id": {"type": "integer", "required": True, "description": "User ID.", "example": 987654321},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -1742,8 +1835,8 @@ async def approve_telegram_chat_join_request(input_data: dict) -> dict:
     description="Decline a pending chat join request.",
     action_sets=["telegram_chats"],
     input_schema={
-        "chat_id": {"type": "string", "description": "Chat ID.", "example": "123"},
-        "user_id": {"type": "integer", "description": "User ID.", "example": 987654321},
+        "chat_id": {"type": "string", "required": True, "description": "Chat ID.", "example": "123"},
+        "user_id": {"type": "integer", "required": True, "description": "User ID.", "example": 987654321},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -1771,16 +1864,19 @@ async def decline_telegram_chat_join_request(input_data: dict) -> dict:
     input_schema={
         "commands": {
             "type": "array",
+            "required": True,
             "description": "List of {command, description} objects.",
             "example": [{"command": "start", "description": "Start the bot"}],
         },
         "scope": {
             "type": "object",
+            "required": False,
             "description": "BotCommandScope.",
             "example": {"type": "default"},
         },
         "language_code": {
             "type": "string",
+            "required": False,
             "description": "IETF tag.",
             "example": "en",
         },
@@ -1806,11 +1902,13 @@ async def set_telegram_my_commands(input_data: dict) -> dict:
     input_schema={
         "scope": {
             "type": "object",
+            "required": False,
             "description": "BotCommandScope.",
             "example": {"type": "default"},
         },
         "language_code": {
             "type": "string",
+            "required": False,
             "description": "IETF tag.",
             "example": "en",
         },
@@ -1835,11 +1933,13 @@ async def get_telegram_my_commands(input_data: dict) -> dict:
     input_schema={
         "scope": {
             "type": "object",
+            "required": False,
             "description": "BotCommandScope.",
             "example": {"type": "default"},
         },
         "language_code": {
             "type": "string",
+            "required": False,
             "description": "IETF tag.",
             "example": "en",
         },
@@ -1864,11 +1964,13 @@ async def delete_telegram_my_commands(input_data: dict) -> dict:
     input_schema={
         "description": {
             "type": "string",
+            "required": True,
             "description": "0-512 chars.",
             "example": "My great bot",
         },
         "language_code": {
             "type": "string",
+            "required": False,
             "description": "IETF tag.",
             "example": "en",
         },
@@ -1893,6 +1995,7 @@ async def set_telegram_my_description(input_data: dict) -> dict:
     input_schema={
         "language_code": {
             "type": "string",
+            "required": False,
             "description": "IETF tag.",
             "example": "en",
         },
@@ -1916,11 +2019,13 @@ async def get_telegram_my_description(input_data: dict) -> dict:
     input_schema={
         "short_description": {
             "type": "string",
+            "required": True,
             "description": "0-120 chars.",
             "example": "Helpful AI",
         },
         "language_code": {
             "type": "string",
+            "required": False,
             "description": "IETF tag.",
             "example": "en",
         },
@@ -1943,9 +2048,10 @@ async def set_telegram_my_short_description(input_data: dict) -> dict:
     description="Set the bot's display name.",
     action_sets=["telegram_bot_config"],
     input_schema={
-        "name": {"type": "string", "description": "0-64 chars.", "example": "CraftBot"},
+        "name": {"type": "string", "required": True, "description": "0-64 chars.", "example": "CraftBot"},
         "language_code": {
             "type": "string",
+            "required": False,
             "description": "IETF tag.",
             "example": "en",
         },
@@ -1970,11 +2076,13 @@ async def set_telegram_my_name(input_data: dict) -> dict:
     input_schema={
         "chat_id": {
             "type": "string",
+            "required": False,
             "description": "Chat ID (omit for default).",
             "example": "123",
         },
         "menu_button": {
             "type": "object",
+            "required": False,
             "description": "MenuButton object.",
             "example": {"type": "commands"},
         },
@@ -1999,6 +2107,7 @@ async def set_telegram_chat_menu_button(input_data: dict) -> dict:
     input_schema={
         "chat_id": {
             "type": "string",
+            "required": False,
             "description": "Chat ID (omit for default).",
             "example": "123",
         },
@@ -2022,11 +2131,13 @@ async def get_telegram_chat_menu_button(input_data: dict) -> dict:
     input_schema={
         "rights": {
             "type": "object",
+            "required": False,
             "description": "ChatAdministratorRights object.",
             "example": {"is_anonymous": False, "can_manage_chat": True},
         },
         "for_channels": {
             "type": "boolean",
+            "required": False,
             "description": "True for channels, false/omit for groups.",
             "example": False,
         },
@@ -2051,6 +2162,7 @@ async def set_telegram_my_default_administrator_rights(input_data: dict) -> dict
     input_schema={
         "for_channels": {
             "type": "boolean",
+            "required": False,
             "description": "True for channels.",
             "example": False,
         },
@@ -2093,26 +2205,31 @@ async def get_telegram_bot_info(input_data: dict) -> dict:
     input_schema={
         "callback_query_id": {
             "type": "string",
+            "required": True,
             "description": "Callback query ID.",
             "example": "abc123",
         },
         "text": {
             "type": "string",
+            "required": False,
             "description": "Notification text (0-200 chars).",
             "example": "Got it",
         },
         "show_alert": {
             "type": "boolean",
+            "required": False,
             "description": "Show as alert dialog.",
             "example": False,
         },
         "url": {
             "type": "string",
+            "required": False,
             "description": "Open this URL.",
             "example": "https://example.com",
         },
         "cache_time": {
             "type": "integer",
+            "required": False,
             "description": "Cache seconds.",
             "example": 0,
         },
@@ -2146,26 +2263,31 @@ async def answer_telegram_callback_query(input_data: dict) -> dict:
     input_schema={
         "url": {
             "type": "string",
+            "required": True,
             "description": "HTTPS URL.",
             "example": "https://example.com/tg-webhook",
         },
         "secret_token": {
             "type": "string",
+            "required": False,
             "description": "Header secret 1-256 chars.",
             "example": "topsecret",
         },
         "max_connections": {
             "type": "integer",
+            "required": False,
             "description": "Max concurrent updates 1-100.",
             "example": 40,
         },
         "allowed_updates": {
             "type": "array",
+            "required": False,
             "description": "List of update types to receive.",
             "example": ["message", "callback_query"],
         },
         "drop_pending_updates": {
             "type": "boolean",
+            "required": False,
             "description": "Drop pending updates.",
             "example": False,
         },
@@ -2193,6 +2315,7 @@ async def set_telegram_webhook(input_data: dict) -> dict:
     input_schema={
         "drop_pending_updates": {
             "type": "boolean",
+            "required": False,
             "description": "Drop pending updates.",
             "example": False,
         },
@@ -2235,16 +2358,19 @@ async def get_telegram_webhook_info(input_data: dict) -> dict:
     input_schema={
         "limit": {
             "type": "integer",
+            "required": False,
             "description": "Max number of updates.",
             "example": 10,
         },
         "offset": {
             "type": "integer",
+            "required": False,
             "description": "Update offset for pagination.",
             "example": 0,
         },
         "include_metadata": {
             "type": "boolean",
+            "required": False,
             "description": "Return raw Update objects (default false = lean summaries).",
             "example": False,
         },
@@ -2324,6 +2450,7 @@ async def get_telegram_updates(input_data: dict) -> dict:
     input_schema={
         "name": {
             "type": "string",
+            "required": True,
             "description": "Contact name to search for.",
             "example": "John",
         },
@@ -2347,7 +2474,7 @@ async def search_telegram_contact(input_data: dict) -> dict:
     description="Get chats via Telegram user account.",
     action_sets=["telegram_user", "telegram"],
     input_schema={
-        "limit": {"type": "integer", "description": "Limit.", "example": 50},
+        "limit": {"type": "integer", "required": False, "description": "Limit.", "example": 50},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -2366,8 +2493,8 @@ async def get_telegram_chats(input_data: dict) -> dict:
     description="Read messages via Telegram user account.",
     action_sets=["telegram_user", "telegram"],
     input_schema={
-        "chat_id": {"type": "string", "description": "Chat ID.", "example": "123"},
-        "limit": {"type": "integer", "description": "Limit.", "example": 50},
+        "chat_id": {"type": "string", "required": True, "description": "Chat ID.", "example": "123"},
+        "limit": {"type": "integer", "required": False, "description": "Limit.", "example": 50},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -2390,10 +2517,11 @@ async def read_telegram_messages(input_data: dict) -> dict:
     input_schema={
         "chat_id": {
             "type": "string",
+            "required": True,
             "description": "Recipient: @username (preferred), phone number, or 'self' for Saved Messages. Do NOT use numeric IDs.",
             "example": "@emadtavana7",
         },
-        "text": {"type": "string", "description": "Text.", "example": "Hi"},
+        "text": {"type": "string", "required": True, "description": "Text.", "example": "Hi"},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -2420,9 +2548,10 @@ async def send_telegram_user_message(input_data: dict) -> dict:
     description="Send a file via Telegram user account.",
     action_sets=["telegram_user"],
     input_schema={
-        "chat_id": {"type": "string", "description": "Chat ID.", "example": "123"},
+        "chat_id": {"type": "string", "required": True, "description": "Chat ID.", "example": "123"},
         "file_path": {
             "type": "string",
+            "required": True,
             "description": "Path.",
             "example": "/path/to/file",
         },
@@ -2445,7 +2574,7 @@ async def send_telegram_user_file(input_data: dict) -> dict:
     description="Search contacts via Telegram user account.",
     action_sets=["telegram_user"],
     input_schema={
-        "query": {"type": "string", "description": "Query.", "example": "John"},
+        "query": {"type": "string", "required": True, "description": "Query.", "example": "John"},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -2468,14 +2597,16 @@ async def search_telegram_user_contacts(input_data: dict) -> dict:
     ),
     action_sets=["telegram_user"],
     input_schema={
-        "chat_id": {"type": "string", "description": "Chat ID.", "example": "123"},
+        "chat_id": {"type": "string", "required": True, "description": "Chat ID.", "example": "123"},
         "message_id": {
             "type": "string",
+            "required": True,
             "description": "Message ID holding the media.",
             "example": "456",
         },
         "dest_path": {
             "type": "string",
+            "required": True,
             "description": "Local file or directory to save to.",
             "example": "/path/to/save",
         },

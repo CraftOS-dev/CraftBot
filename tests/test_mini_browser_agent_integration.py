@@ -69,7 +69,7 @@ REQUIRED_PARAMS: Dict[str, set] = {
     "mini_browser_upload_file": {"element_id", "paths"},
     "mini_browser_login": set(),
     "mini_browser_screenshot": set(),
-    "mini_browser_tabs": {"action"},
+    "mini_browser_tabs": set(),  # action defaults to 'list'
 }
 
 OLD_PROTOTYPE_ACTIONS = (

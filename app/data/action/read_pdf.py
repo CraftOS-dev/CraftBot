@@ -23,11 +23,13 @@ from agent_core import action
     input_schema={
         "file_path": {
             "type": "string",
+            "required": True,
             "example": "C:/path/to/document.pdf",
             "description": "Absolute path to the PDF file to read.",
         },
         "mode": {
             "type": "string",
+            "required": False,
             "example": "text",
             "description": (
                 "Output mode. 'text' (default): plain text + tables, minimal tokens. "
@@ -36,6 +38,7 @@ from agent_core import action
         },
         "page_range": {
             "type": "string",
+            "required": False,
             "example": "1-3",
             "description": (
                 "Pages to read. Omit to read all pages. "
@@ -44,6 +47,7 @@ from agent_core import action
         },
         "include_metadata": {
             "type": "boolean",
+            "required": False,
             "example": False,
             "description": (
                 "False (default): text mode returns only {text, tables} — lean, for reading. "
