@@ -45,32 +45,32 @@ _STATUS = {"status": {"type": "string", "example": "success"}}
 # ────────────────────────────────────────────────────────────────────────
 
 
-def _s(description: str, example: str = "") -> Dict[str, Any]:
-    return {"type": "string", "description": description, "example": example}
+def _s(description: str, example: str = "", *, required: bool) -> Dict[str, Any]:
+    return {"type": "string", "required": required, "description": description, "example": example}
 
 
-def _i(description: str, example: int) -> Dict[str, Any]:
-    return {"type": "integer", "description": description, "example": example}
+def _i(description: str, example: int, *, required: bool) -> Dict[str, Any]:
+    return {"type": "integer", "required": required, "description": description, "example": example}
 
 
-def _b(description: str, example: bool = False) -> Dict[str, Any]:
-    return {"type": "boolean", "description": description, "example": example}
+def _b(description: str, example: bool = False, *, required: bool) -> Dict[str, Any]:
+    return {"type": "boolean", "required": required, "description": description, "example": example}
 
 
-def _arr(description: str, example: List[Any]) -> Dict[str, Any]:
-    return {"type": "array", "description": description, "example": example}
+def _arr(description: str, example: List[Any], *, required: bool) -> Dict[str, Any]:
+    return {"type": "array", "required": required, "description": description, "example": example}
 
 
-def _obj(description: str, example: Dict[str, Any]) -> Dict[str, Any]:
-    return {"type": "object", "description": description, "example": example}
+def _obj(description: str, example: Dict[str, Any], *, required: bool) -> Dict[str, Any]:
+    return {"type": "object", "required": required, "description": description, "example": example}
 
 
-def _limit(example: int = 30, description: str = "Max results.") -> Dict[str, Any]:
-    return _i(description, example)
+def _limit(example: int = 30, description: str = "Max results.", *, required: bool) -> Dict[str, Any]:
+    return _i(description, example, required=required)
 
 
-def _after() -> Dict[str, Any]:
-    return _s("Pagination cursor.", "")
+def _after(*, required: bool) -> Dict[str, Any]:
+    return _s("Pagination cursor.", "", required=required)
 
 
 def _only(description: str) -> Dict[str, Any]:
@@ -177,13 +177,14 @@ def build_operations() -> List[Operation]:
                 ),
                 tags=("hubspot_contacts", "hubspot"),
                 input_schema={
-                    "limit": _limit(30, "Max results (1-100, default 30)."),
-                    "after": _s("Pagination cursor from previous response.", ""),
+                    "limit": _limit(30, "Max results (1-100, default 30).", required=False),
+                    "after": _s("Pagination cursor from previous response.", "", required=False),
                     "properties": _s(
                         "Comma-separated property names to include.",
                         "email,firstname,lastname",
+                        required=False,
                     ),
-                    "archived": _b("Include archived contacts."),
+                    "archived": _b("Include archived contacts.", required=False),
                 },
                 arg_map=lambda d: {
                     "limit": d.get("limit", 30),
@@ -203,14 +204,16 @@ def build_operations() -> List[Operation]:
             ),
             tags=("hubspot_contacts", "hubspot"),
             input_schema={
-                "contact_id": _s("HubSpot contact ID (numeric string).", "123456789"),
+                "contact_id": _s("HubSpot contact ID (numeric string).", "123456789", required=True),
                 "properties": _s(
                     "Comma-separated property names to include.",
                     "email,firstname,lastname,phone",
+                    required=False,
                 ),
                 "associations": _s(
                     "Comma-separated object types to include associations for.",
                     "companies,deals",
+                    required=False,
                 ),
             },
             arg_map=lambda d: {
@@ -238,6 +241,7 @@ def build_operations() -> List[Operation]:
                             "firstname": "Jane",
                             "lastname": "Doe",
                         },
+                        required=True,
                     ),
                 },
                 output_schema=_only("Only {id}."),
@@ -253,9 +257,9 @@ def build_operations() -> List[Operation]:
                 parallelizable=False,
                 tags=("hubspot_contacts", "hubspot"),
                 input_schema={
-                    "contact_id": _s("Contact ID.", "123456789"),
+                    "contact_id": _s("Contact ID.", "123456789", required=True),
                     "properties": _obj(
-                        "Properties to update (flat dict).", {"phone": "+1-555-0100"}
+                        "Properties to update (flat dict).", {"phone": "+1-555-0100"}, required=True
                     ),
                 },
                 output_schema=_only("Only {id}."),
@@ -276,7 +280,7 @@ def build_operations() -> List[Operation]:
             destructive=True,
             parallelizable=False,
             tags=("hubspot_contacts",),
-            input_schema={"contact_id": _s("Contact ID.", "123456789")},
+            input_schema={"contact_id": _s("Contact ID.", "123456789", required=True)},
             arg_map=lambda d: {"contact_id": d["contact_id"]},
         ),
         _with_post(
@@ -294,6 +298,7 @@ def build_operations() -> List[Operation]:
                     "query": _s(
                         "Free-text search across default searchable properties.",
                         "jane@example.com",
+                        required=False,
                     ),
                     "filter_groups": _arr(
                         "Filter groups: [{filters: [{propertyName, operator, value}]}].",
@@ -308,13 +313,15 @@ def build_operations() -> List[Operation]:
                                 ]
                             }
                         ],
+                        required=False,
                     ),
                     "properties": _s(
                         "Comma-separated properties to return.",
                         "email,firstname,lastname",
+                        required=False,
                     ),
-                    "limit": _limit(30, "Max results (1-100)."),
-                    "after": _after(),
+                    "limit": _limit(30, "Max results (1-100).", required=False),
+                    "after": _after(required=False),
                 },
                 arg_map=lambda d: {
                     "query": d.get("query") or None,
@@ -332,9 +339,9 @@ def build_operations() -> List[Operation]:
             description="Read up to 100 contacts in a single call. Cheaper than N gets.",
             tags=("hubspot_contacts",),
             input_schema={
-                "ids": _arr("Contact IDs.", ["123", "456", "789"]),
+                "ids": _arr("Contact IDs.", ["123", "456", "789"], required=True),
                 "properties": _s(
-                    "Comma-separated properties to return.", "email,firstname"
+                    "Comma-separated properties to return.", "email,firstname", required=False
                 ),
             },
             arg_map=lambda d: {
@@ -357,6 +364,7 @@ def build_operations() -> List[Operation]:
                     "records": _arr(
                         "List of property dicts.",
                         [{"email": "a@x.com"}, {"email": "b@x.com"}],
+                        required=True,
                     ),
                 },
                 output_schema=_only("Only {ids, numErrors?, errors?}."),
@@ -376,9 +384,9 @@ def build_operations() -> List[Operation]:
                 parallelizable=False,
                 tags=("hubspot_contacts",),
                 input_schema={
-                    "primary_id": _s("Contact ID that survives the merge.", "123"),
+                    "primary_id": _s("Contact ID that survives the merge.", "123", required=True),
                     "id_to_merge": _s(
-                        "Contact ID that gets merged INTO the primary.", "456"
+                        "Contact ID that gets merged INTO the primary.", "456", required=True
                     ),
                 },
                 output_schema=_only("Only {id}."),
@@ -397,12 +405,12 @@ def build_operations() -> List[Operation]:
                 description="List HubSpot companies. Paginated via 'after' cursor.",
                 tags=("hubspot_companies", "hubspot"),
                 input_schema={
-                    "limit": _limit(30, "Max results (1-100)."),
-                    "after": _after(),
+                    "limit": _limit(30, "Max results (1-100).", required=False),
+                    "after": _after(required=False),
                     "properties": _s(
-                        "Comma-separated property names.", "name,domain,industry"
+                        "Comma-separated property names.", "name,domain,industry", required=False
                     ),
-                    "archived": _b("Include archived."),
+                    "archived": _b("Include archived.", required=False),
                 },
                 arg_map=lambda d: {
                     "limit": d.get("limit", 30),
@@ -419,12 +427,12 @@ def build_operations() -> List[Operation]:
             description="Get a HubSpot company by ID.",
             tags=("hubspot_companies",),
             input_schema={
-                "company_id": _s("Company ID (numeric string).", "123456789"),
+                "company_id": _s("Company ID (numeric string).", "123456789", required=True),
                 "properties": _s(
-                    "Comma-separated properties.", "name,domain,industry,city"
+                    "Comma-separated properties.", "name,domain,industry,city", required=False
                 ),
                 "associations": _s(
-                    "Comma-separated association types.", "contacts,deals"
+                    "Comma-separated association types.", "contacts,deals", required=False
                 ),
             },
             arg_map=lambda d: {
@@ -445,7 +453,7 @@ def build_operations() -> List[Operation]:
                 tags=("hubspot_companies", "hubspot"),
                 input_schema={
                     "properties": _obj(
-                        "Flat property dict.", {"name": "Acme Co", "domain": "acme.com"}
+                        "Flat property dict.", {"name": "Acme Co", "domain": "acme.com"}, required=True
                     ),
                 },
                 output_schema=_only("Only {id}."),
@@ -461,9 +469,9 @@ def build_operations() -> List[Operation]:
                 parallelizable=False,
                 tags=("hubspot_companies",),
                 input_schema={
-                    "company_id": _s("Company ID.", "123456789"),
+                    "company_id": _s("Company ID.", "123456789", required=True),
                     "properties": _obj(
-                        "Properties to update.", {"industry": "Software"}
+                        "Properties to update.", {"industry": "Software"}, required=True
                     ),
                 },
                 output_schema=_only("Only {id}."),
@@ -481,7 +489,7 @@ def build_operations() -> List[Operation]:
             destructive=True,
             parallelizable=False,
             tags=("hubspot_companies",),
-            input_schema={"company_id": _s("Company ID.", "123456789")},
+            input_schema={"company_id": _s("Company ID.", "123456789", required=True)},
             arg_map=lambda d: {"company_id": d["company_id"]},
         ),
         _with_post(
@@ -494,7 +502,7 @@ def build_operations() -> List[Operation]:
                 ),
                 tags=("hubspot_companies", "hubspot"),
                 input_schema={
-                    "query": _s("Free-text search.", "acme"),
+                    "query": _s("Free-text search.", "acme", required=False),
                     "filter_groups": _arr(
                         "Property filter groups.",
                         [
@@ -508,12 +516,13 @@ def build_operations() -> List[Operation]:
                                 ]
                             }
                         ],
+                        required=False,
                     ),
                     "properties": _s(
-                        "Comma-separated properties to return.", "name,domain"
+                        "Comma-separated properties to return.", "name,domain", required=False
                     ),
-                    "limit": _limit(),
-                    "after": _after(),
+                    "limit": _limit(required=False),
+                    "after": _after(required=False),
                 },
                 arg_map=lambda d: {
                     "query": d.get("query") or None,
@@ -531,8 +540,8 @@ def build_operations() -> List[Operation]:
             description="Read up to 100 companies in a single call.",
             tags=("hubspot_companies",),
             input_schema={
-                "ids": _arr("Company IDs.", ["123", "456"]),
-                "properties": _s("Comma-separated properties.", "name,domain"),
+                "ids": _arr("Company IDs.", ["123", "456"], required=True),
+                "properties": _s("Comma-separated properties.", "name,domain", required=False),
             },
             arg_map=lambda d: {
                 "ids": d["ids"],
@@ -551,7 +560,7 @@ def build_operations() -> List[Operation]:
                 tags=("hubspot_companies",),
                 input_schema={
                     "records": _arr(
-                        "List of property dicts.", [{"name": "Acme"}, {"name": "Foo"}]
+                        "List of property dicts.", [{"name": "Acme"}, {"name": "Foo"}], required=True
                     ),
                 },
                 output_schema=_only("Only {ids, numErrors?, errors?}."),
@@ -567,13 +576,14 @@ def build_operations() -> List[Operation]:
                 description="List HubSpot deals. Paginated.",
                 tags=("hubspot_deals", "hubspot"),
                 input_schema={
-                    "limit": _limit(),
-                    "after": _after(),
+                    "limit": _limit(required=False),
+                    "after": _after(required=False),
                     "properties": _s(
                         "Comma-separated properties.",
                         "dealname,amount,dealstage,pipeline",
+                        required=False,
                     ),
-                    "archived": _b("Include archived."),
+                    "archived": _b("Include archived.", required=False),
                 },
                 arg_map=lambda d: {
                     "limit": d.get("limit", 30),
@@ -590,13 +600,14 @@ def build_operations() -> List[Operation]:
             description="Get a HubSpot deal by ID.",
             tags=("hubspot_deals",),
             input_schema={
-                "deal_id": _s("Deal ID.", "123456789"),
+                "deal_id": _s("Deal ID.", "123456789", required=True),
                 "properties": _s(
                     "Comma-separated properties.",
                     "dealname,amount,dealstage,pipeline,closedate",
+                    required=False,
                 ),
                 "associations": _s(
-                    "Comma-separated association types.", "contacts,companies"
+                    "Comma-separated association types.", "contacts,companies", required=False
                 ),
             },
             arg_map=lambda d: {
@@ -624,6 +635,7 @@ def build_operations() -> List[Operation]:
                             "amount": "50000",
                             "dealstage": "qualifiedtobuy",
                         },
+                        required=True,
                     ),
                 },
                 output_schema=_only("Only {id}."),
@@ -639,8 +651,8 @@ def build_operations() -> List[Operation]:
                 parallelizable=False,
                 tags=("hubspot_deals", "hubspot"),
                 input_schema={
-                    "deal_id": _s("Deal ID.", "123456789"),
-                    "properties": _obj("Properties to update.", {"amount": "75000"}),
+                    "deal_id": _s("Deal ID.", "123456789", required=True),
+                    "properties": _obj("Properties to update.", {"amount": "75000"}, required=True),
                 },
                 output_schema=_only("Only {id}."),
                 arg_map=lambda d: {
@@ -657,7 +669,7 @@ def build_operations() -> List[Operation]:
             destructive=True,
             parallelizable=False,
             tags=("hubspot_deals",),
-            input_schema={"deal_id": _s("Deal ID.", "123456789")},
+            input_schema={"deal_id": _s("Deal ID.", "123456789", required=True)},
             arg_map=lambda d: {"deal_id": d["deal_id"]},
         ),
         _with_post(
@@ -667,7 +679,7 @@ def build_operations() -> List[Operation]:
                 description="Search HubSpot deals via query or filter_groups.",
                 tags=("hubspot_deals",),
                 input_schema={
-                    "query": _s("Free-text search.", "renewal"),
+                    "query": _s("Free-text search.", "renewal", required=False),
                     "filter_groups": _arr(
                         "Property filter groups.",
                         [
@@ -681,10 +693,11 @@ def build_operations() -> List[Operation]:
                                 ]
                             }
                         ],
+                        required=False,
                     ),
-                    "properties": _s("Comma-separated properties.", "dealname,amount"),
-                    "limit": _limit(),
-                    "after": _after(),
+                    "properties": _s("Comma-separated properties.", "dealname,amount", required=False),
+                    "limit": _limit(required=False),
+                    "after": _after(required=False),
                 },
                 arg_map=lambda d: {
                     "query": d.get("query") or None,
@@ -710,6 +723,7 @@ def build_operations() -> List[Operation]:
                     "records": _arr(
                         "List of property dicts.",
                         [{"dealname": "A"}, {"dealname": "B"}],
+                        required=True,
                     ),
                 },
                 output_schema=_only("Only {ids, numErrors?, errors?}."),
@@ -728,10 +742,11 @@ def build_operations() -> List[Operation]:
                 parallelizable=False,
                 tags=("hubspot_deals", "hubspot"),
                 input_schema={
-                    "deal_id": _s("Deal ID.", "123456789"),
+                    "deal_id": _s("Deal ID.", "123456789", required=True),
                     "stage_id": _s(
                         "Target stage ID (use list_hubspot_pipeline_stages to find).",
                         "closedwon",
+                        required=True,
                     ),
                 },
                 output_schema=_only("Only {id}."),
@@ -752,9 +767,9 @@ def build_operations() -> List[Operation]:
                 ),
                 tags=("hubspot_deals",),
                 input_schema={
-                    "pipeline_id": _s("Pipeline ID.", "default"),
-                    "limit": _limit(),
-                    "after": _after(),
+                    "pipeline_id": _s("Pipeline ID.", "default", required=True),
+                    "limit": _limit(required=False),
+                    "after": _after(required=False),
                 },
                 arg_map=lambda d: {
                     "pipeline_id": d["pipeline_id"],
@@ -772,13 +787,14 @@ def build_operations() -> List[Operation]:
                 description="List HubSpot support tickets. Paginated.",
                 tags=("hubspot_tickets", "hubspot"),
                 input_schema={
-                    "limit": _limit(),
-                    "after": _after(),
+                    "limit": _limit(required=False),
+                    "after": _after(required=False),
                     "properties": _s(
                         "Comma-separated properties.",
                         "subject,content,hs_pipeline_stage,hs_ticket_priority",
+                        required=False,
                     ),
-                    "archived": _b("Include archived."),
+                    "archived": _b("Include archived.", required=False),
                 },
                 arg_map=lambda d: {
                     "limit": d.get("limit", 30),
@@ -795,12 +811,12 @@ def build_operations() -> List[Operation]:
             description="Get a HubSpot ticket by ID.",
             tags=("hubspot_tickets",),
             input_schema={
-                "ticket_id": _s("Ticket ID.", "123456789"),
+                "ticket_id": _s("Ticket ID.", "123456789", required=True),
                 "properties": _s(
-                    "Comma-separated properties.", "subject,content,hs_pipeline_stage"
+                    "Comma-separated properties.", "subject,content,hs_pipeline_stage", required=False
                 ),
                 "associations": _s(
-                    "Comma-separated association types.", "contacts,companies"
+                    "Comma-separated association types.", "contacts,companies", required=False
                 ),
             },
             arg_map=lambda d: {
@@ -829,6 +845,7 @@ def build_operations() -> List[Operation]:
                             "content": "User can't log in",
                             "hs_ticket_priority": "HIGH",
                         },
+                        required=True,
                     ),
                 },
                 output_schema=_only("Only {id}."),
@@ -844,9 +861,9 @@ def build_operations() -> List[Operation]:
                 parallelizable=False,
                 tags=("hubspot_tickets",),
                 input_schema={
-                    "ticket_id": _s("Ticket ID.", "123456789"),
+                    "ticket_id": _s("Ticket ID.", "123456789", required=True),
                     "properties": _obj(
-                        "Properties to update.", {"hs_ticket_priority": "URGENT"}
+                        "Properties to update.", {"hs_ticket_priority": "URGENT"}, required=True
                     ),
                 },
                 output_schema=_only("Only {id}."),
@@ -864,7 +881,7 @@ def build_operations() -> List[Operation]:
             destructive=True,
             parallelizable=False,
             tags=("hubspot_tickets",),
-            input_schema={"ticket_id": _s("Ticket ID.", "123456789")},
+            input_schema={"ticket_id": _s("Ticket ID.", "123456789", required=True)},
             arg_map=lambda d: {"ticket_id": d["ticket_id"]},
         ),
         _with_post(
@@ -874,7 +891,7 @@ def build_operations() -> List[Operation]:
                 description="Search HubSpot tickets via query or filter_groups.",
                 tags=("hubspot_tickets",),
                 input_schema={
-                    "query": _s("Free-text search.", "login"),
+                    "query": _s("Free-text search.", "login", required=False),
                     "filter_groups": _arr(
                         "Filter groups.",
                         [
@@ -888,10 +905,11 @@ def build_operations() -> List[Operation]:
                                 ]
                             }
                         ],
+                        required=False,
                     ),
-                    "properties": _s("Comma-separated properties.", "subject,content"),
-                    "limit": _limit(),
-                    "after": _after(),
+                    "properties": _s("Comma-separated properties.", "subject,content", required=False),
+                    "limit": _limit(required=False),
+                    "after": _after(required=False),
                 },
                 arg_map=lambda d: {
                     "query": d.get("query") or None,
@@ -914,11 +932,12 @@ def build_operations() -> List[Operation]:
                 parallelizable=False,
                 tags=("hubspot_tickets", "hubspot"),
                 input_schema={
-                    "ticket_id": _s("Ticket ID.", "123456789"),
+                    "ticket_id": _s("Ticket ID.", "123456789", required=True),
                     "closed_stage_id": _s(
                         "Closed-stage ID for this pipeline (use "
                         "list_hubspot_pipeline_stages).",
                         "4",
+                        required=True,
                     ),
                 },
                 output_schema=_only("Only {id}."),
@@ -936,9 +955,9 @@ def build_operations() -> List[Operation]:
                 description="List tickets in a specific pipeline. Helper that wraps search.",
                 tags=("hubspot_tickets",),
                 input_schema={
-                    "pipeline_id": _s("Pipeline ID.", "0"),
-                    "limit": _limit(),
-                    "after": _after(),
+                    "pipeline_id": _s("Pipeline ID.", "0", required=True),
+                    "limit": _limit(required=False),
+                    "after": _after(required=False),
                 },
                 arg_map=lambda d: {
                     "pipeline_id": d["pipeline_id"],
@@ -956,11 +975,12 @@ def build_operations() -> List[Operation]:
                 description="List HubSpot tasks (engagements).",
                 tags=("hubspot_engagements",),
                 input_schema={
-                    "limit": _limit(),
-                    "after": _after(),
+                    "limit": _limit(required=False),
+                    "after": _after(required=False),
                     "properties": _s(
                         "Comma-separated properties.",
                         "hs_task_subject,hs_task_status,hs_timestamp",
+                        required=False,
                     ),
                 },
                 arg_map=lambda d: {
@@ -982,24 +1002,26 @@ def build_operations() -> List[Operation]:
                 parallelizable=False,
                 tags=("hubspot_engagements", "hubspot"),
                 input_schema={
-                    "subject": _s("Task title.", "Follow up on demo"),
-                    "body": _s("Task description.", "Ask about pricing tier"),
+                    "subject": _s("Task title.", "Follow up on demo", required=True),
+                    "body": _s("Task description.", "Ask about pricing tier", required=False),
                     "due_timestamp_ms": _i(
-                        "Due date in ms since epoch.", 1735689600000
+                        "Due date in ms since epoch.", 1735689600000, required=False
                     ),
-                    "owner_id": _s("Owner (user) ID to assign.", "12345"),
-                    "priority": _s("NONE | LOW | MEDIUM | HIGH.", "MEDIUM"),
+                    "owner_id": _s("Owner (user) ID to assign.", "12345", required=False),
+                    "priority": _s("NONE | LOW | MEDIUM | HIGH.", "MEDIUM", required=False),
                     "status": _s(
                         "NOT_STARTED | IN_PROGRESS | WAITING | COMPLETED | DEFERRED.",
                         "NOT_STARTED",
+                        required=False,
                     ),
                     "associated_object_type": _s(
                         "Type of object to associate "
                         "(contacts/companies/deals/tickets).",
                         "contacts",
+                        required=False,
                     ),
                     "associated_object_id": _s(
-                        "ID of the associated object.", "123456789"
+                        "ID of the associated object.", "123456789", required=False
                     ),
                 },
                 output_schema=_only("Only {id}."),
@@ -1027,9 +1049,9 @@ def build_operations() -> List[Operation]:
                 parallelizable=False,
                 tags=("hubspot_engagements",),
                 input_schema={
-                    "task_id": _s("Task ID.", "123456789"),
+                    "task_id": _s("Task ID.", "123456789", required=True),
                     "properties": _obj(
-                        "Properties to update.", {"hs_task_status": "COMPLETED"}
+                        "Properties to update.", {"hs_task_status": "COMPLETED"}, required=True
                     ),
                 },
                 output_schema=_only("Only {id}."),
@@ -1047,7 +1069,7 @@ def build_operations() -> List[Operation]:
             destructive=True,
             parallelizable=False,
             tags=("hubspot_engagements",),
-            input_schema={"task_id": _s("Task ID.", "123456789")},
+            input_schema={"task_id": _s("Task ID.", "123456789", required=True)},
             arg_map=lambda d: {"task_id": d["task_id"]},
         ),
         # ── Engagements: notes ───────────────────────────────────────────
@@ -1058,10 +1080,10 @@ def build_operations() -> List[Operation]:
                 description="List HubSpot notes (engagements).",
                 tags=("hubspot_engagements",),
                 input_schema={
-                    "limit": _limit(),
-                    "after": _after(),
+                    "limit": _limit(required=False),
+                    "after": _after(required=False),
                     "properties": _s(
-                        "Comma-separated properties.", "hs_note_body,hs_timestamp"
+                        "Comma-separated properties.", "hs_note_body,hs_timestamp", required=False
                     ),
                 },
                 arg_map=lambda d: {
@@ -1086,12 +1108,13 @@ def build_operations() -> List[Operation]:
                     "body": _s(
                         "Note content (HTML supported).",
                         "Customer mentioned interest in Enterprise tier",
+                        required=True,
                     ),
-                    "owner_id": _s("Owner ID.", "12345"),
+                    "owner_id": _s("Owner ID.", "12345", required=False),
                     "associated_object_type": _s(
-                        "contacts/companies/deals/tickets.", "contacts"
+                        "contacts/companies/deals/tickets.", "contacts", required=False
                     ),
-                    "associated_object_id": _s("ID of associated object.", "123456789"),
+                    "associated_object_id": _s("ID of associated object.", "123456789", required=False),
                 },
                 output_schema=_only("Only {id}."),
                 arg_map=lambda d: {
@@ -1110,7 +1133,7 @@ def build_operations() -> List[Operation]:
             destructive=True,
             parallelizable=False,
             tags=("hubspot_engagements",),
-            input_schema={"note_id": _s("Note ID.", "123456789")},
+            input_schema={"note_id": _s("Note ID.", "123456789", required=True)},
             arg_map=lambda d: {"note_id": d["note_id"]},
         ),
         # ── Engagements: calls ───────────────────────────────────────────
@@ -1121,11 +1144,12 @@ def build_operations() -> List[Operation]:
                 description="List HubSpot call engagements (logged calls).",
                 tags=("hubspot_engagements",),
                 input_schema={
-                    "limit": _limit(),
-                    "after": _after(),
+                    "limit": _limit(required=False),
+                    "after": _after(required=False),
                     "properties": _s(
                         "Comma-separated properties.",
                         "hs_call_title,hs_call_duration,hs_call_direction",
+                        required=False,
                     ),
                 },
                 arg_map=lambda d: {
@@ -1144,22 +1168,23 @@ def build_operations() -> List[Operation]:
                 parallelizable=False,
                 tags=("hubspot_engagements", "hubspot"),
                 input_schema={
-                    "title": _s("Call title.", "Discovery call"),
-                    "body": _s("Call notes.", "Discussed pricing"),
+                    "title": _s("Call title.", "Discovery call", required=True),
+                    "body": _s("Call notes.", "Discussed pricing", required=False),
                     "timestamp_ms": _i(
                         "When the call happened (ms epoch). Defaults to now.",
                         1735689600000,
+                        required=False,
                     ),
-                    "duration_ms": _i("Call duration in ms.", 600000),
-                    "from_number": _s("Caller phone.", "+1-555-0100"),
-                    "to_number": _s("Callee phone.", "+1-555-0200"),
-                    "direction": _s("INBOUND | OUTBOUND.", "OUTBOUND"),
-                    "disposition": _s("Outcome ID (configured per portal).", ""),
-                    "owner_id": _s("Owner ID.", "12345"),
+                    "duration_ms": _i("Call duration in ms.", 600000, required=False),
+                    "from_number": _s("Caller phone.", "+1-555-0100", required=False),
+                    "to_number": _s("Callee phone.", "+1-555-0200", required=False),
+                    "direction": _s("INBOUND | OUTBOUND.", "OUTBOUND", required=False),
+                    "disposition": _s("Outcome ID (configured per portal).", "", required=False),
+                    "owner_id": _s("Owner ID.", "12345", required=False),
                     "associated_object_type": _s(
-                        "contacts/companies/deals/tickets.", "contacts"
+                        "contacts/companies/deals/tickets.", "contacts", required=False
                     ),
-                    "associated_object_id": _s("Associated object ID.", "123456789"),
+                    "associated_object_id": _s("Associated object ID.", "123456789", required=False),
                 },
                 output_schema=_only("Only {id}."),
                 arg_map=lambda d: {
@@ -1189,11 +1214,12 @@ def build_operations() -> List[Operation]:
                 ),
                 tags=("hubspot_engagements",),
                 input_schema={
-                    "limit": _limit(),
-                    "after": _after(),
+                    "limit": _limit(required=False),
+                    "after": _after(required=False),
                     "properties": _s(
                         "Comma-separated properties.",
                         "hs_email_subject,hs_email_direction",
+                        required=False,
                     ),
                 },
                 arg_map=lambda d: {
@@ -1215,21 +1241,22 @@ def build_operations() -> List[Operation]:
                 parallelizable=False,
                 tags=("hubspot_engagements",),
                 input_schema={
-                    "subject": _s("Email subject.", "Re: Pricing"),
-                    "text_body": _s("Plain-text body.", "Here's the proposal"),
-                    "html_body": _s("HTML body (optional).", ""),
-                    "timestamp_ms": _i("When sent (ms epoch).", 1735689600000),
+                    "subject": _s("Email subject.", "Re: Pricing", required=True),
+                    "text_body": _s("Plain-text body.", "Here's the proposal", required=False),
+                    "html_body": _s("HTML body (optional).", "", required=False),
+                    "timestamp_ms": _i("When sent (ms epoch).", 1735689600000, required=False),
                     "direction": _s(
                         "EMAIL (incoming) | INCOMING_EMAIL | FORWARDED_EMAIL.",
                         "EMAIL",
+                        required=False,
                     ),
-                    "from_email": _s("Sender.", "you@yourdomain.com"),
-                    "to_email": _s("Recipient.", "customer@example.com"),
-                    "owner_id": _s("Owner ID.", "12345"),
+                    "from_email": _s("Sender.", "you@yourdomain.com", required=False),
+                    "to_email": _s("Recipient.", "customer@example.com", required=False),
+                    "owner_id": _s("Owner ID.", "12345", required=False),
                     "associated_object_type": _s(
-                        "contacts/companies/deals/tickets.", "contacts"
+                        "contacts/companies/deals/tickets.", "contacts", required=False
                     ),
-                    "associated_object_id": _s("Associated object ID.", "123456789"),
+                    "associated_object_id": _s("Associated object ID.", "123456789", required=False),
                 },
                 output_schema=_only("Only {id}."),
                 arg_map=lambda d: {
@@ -1255,11 +1282,12 @@ def build_operations() -> List[Operation]:
                 description="List HubSpot meeting engagements.",
                 tags=("hubspot_engagements",),
                 input_schema={
-                    "limit": _limit(),
-                    "after": _after(),
+                    "limit": _limit(required=False),
+                    "after": _after(required=False),
                     "properties": _s(
                         "Comma-separated properties.",
                         "hs_meeting_title,hs_meeting_start_time",
+                        required=False,
                     ),
                 },
                 arg_map=lambda d: {
@@ -1278,17 +1306,17 @@ def build_operations() -> List[Operation]:
                 parallelizable=False,
                 tags=("hubspot_engagements",),
                 input_schema={
-                    "title": _s("Meeting title.", "Quarterly review"),
-                    "body": _s("Description / agenda.", "Review Q3 numbers"),
-                    "start_timestamp_ms": _i("Start time (ms epoch).", 1735689600000),
-                    "end_timestamp_ms": _i("End time (ms epoch).", 1735693200000),
-                    "location": _s("Where (URL or address).", "https://zoom.us/j/123"),
-                    "meeting_outcome": _s("Outcome ID (configured per portal).", ""),
-                    "owner_id": _s("Owner ID.", "12345"),
+                    "title": _s("Meeting title.", "Quarterly review", required=True),
+                    "body": _s("Description / agenda.", "Review Q3 numbers", required=False),
+                    "start_timestamp_ms": _i("Start time (ms epoch).", 1735689600000, required=True),
+                    "end_timestamp_ms": _i("End time (ms epoch).", 1735693200000, required=True),
+                    "location": _s("Where (URL or address).", "https://zoom.us/j/123", required=False),
+                    "meeting_outcome": _s("Outcome ID (configured per portal).", "", required=False),
+                    "owner_id": _s("Owner ID.", "12345", required=False),
                     "associated_object_type": _s(
-                        "contacts/companies/deals/tickets.", "deals"
+                        "contacts/companies/deals/tickets.", "deals", required=False
                     ),
-                    "associated_object_id": _s("Associated object ID.", "123456789"),
+                    "associated_object_id": _s("Associated object ID.", "123456789", required=False),
                 },
                 output_schema=_only("Only {id}."),
                 arg_map=lambda d: {
@@ -1312,7 +1340,7 @@ def build_operations() -> List[Operation]:
             destructive=True,
             parallelizable=False,
             tags=("hubspot_engagements",),
-            input_schema={"meeting_id": _s("Meeting ID.", "123456789")},
+            input_schema={"meeting_id": _s("Meeting ID.", "123456789", required=True)},
             arg_map=lambda d: {"meeting_id": d["meeting_id"]},
         ),
         # ── Lists ────────────────────────────────────────────────────────
@@ -1323,8 +1351,8 @@ def build_operations() -> List[Operation]:
                 description="List/search HubSpot lists. Optionally filter to specific list IDs.",
                 tags=("hubspot_lists",),
                 input_schema={
-                    "limit": _limit(30, "Max results (1-500)."),
-                    "list_ids": _arr("Optional: specific list IDs to fetch.", []),
+                    "limit": _limit(30, "Max results (1-500).", required=False),
+                    "list_ids": _arr("Optional: specific list IDs to fetch.", [], required=False),
                 },
                 arg_map=lambda d: {
                     "limit": d.get("limit", 30),
@@ -1338,7 +1366,7 @@ def build_operations() -> List[Operation]:
             "get_list",
             description="Get a HubSpot list by ID.",
             tags=("hubspot_lists",),
-            input_schema={"list_id": _s("List ID.", "1")},
+            input_schema={"list_id": _s("List ID.", "1", required=True)},
             arg_map=lambda d: {"list_id": d["list_id"]},
         ),
         _with_post(
@@ -1353,14 +1381,15 @@ def build_operations() -> List[Operation]:
                 parallelizable=False,
                 tags=("hubspot_lists",),
                 input_schema={
-                    "name": _s("List name.", "Q3 prospects"),
+                    "name": _s("List name.", "Q3 prospects", required=True),
                     "object_type_id": _s(
                         "Object type ID (0-1=contact, 0-2=company, 0-3=deal, "
                         "0-5=ticket).",
                         "0-1",
+                        required=False,
                     ),
-                    "processing_type": _s("MANUAL or DYNAMIC.", "MANUAL"),
-                    "filter_branch": _obj("Filter tree for DYNAMIC lists.", {}),
+                    "processing_type": _s("MANUAL or DYNAMIC.", "MANUAL", required=False),
+                    "filter_branch": _obj("Filter tree for DYNAMIC lists.", {}, required=False),
                 },
                 output_schema=_only("Only {listId}."),
                 arg_map=lambda d: {
@@ -1379,7 +1408,7 @@ def build_operations() -> List[Operation]:
             destructive=True,
             parallelizable=False,
             tags=("hubspot_lists",),
-            input_schema={"list_id": _s("List ID.", "1")},
+            input_schema={"list_id": _s("List ID.", "1", required=True)},
             arg_map=lambda d: {"list_id": d["list_id"]},
         ),
         client_op(
@@ -1389,8 +1418,8 @@ def build_operations() -> List[Operation]:
             parallelizable=False,
             tags=("hubspot_lists",),
             input_schema={
-                "list_id": _s("List ID.", "1"),
-                "contact_ids": _arr("Contact IDs to add.", ["123", "456"]),
+                "list_id": _s("List ID.", "1", required=True),
+                "contact_ids": _arr("Contact IDs to add.", ["123", "456"], required=True),
             },
             arg_map=lambda d: {
                 "list_id": d["list_id"],
@@ -1405,8 +1434,8 @@ def build_operations() -> List[Operation]:
             parallelizable=False,
             tags=("hubspot_lists",),
             input_schema={
-                "list_id": _s("List ID.", "1"),
-                "contact_ids": _arr("Contact IDs to remove.", ["123", "456"]),
+                "list_id": _s("List ID.", "1", required=True),
+                "contact_ids": _arr("Contact IDs to remove.", ["123", "456"], required=True),
             },
             arg_map=lambda d: {
                 "list_id": d["list_id"],
@@ -1424,7 +1453,7 @@ def build_operations() -> List[Operation]:
                 ),
                 tags=("hubspot_pipelines",),
                 input_schema={
-                    "object_type": _s("Object type: deals or tickets.", "deals"),
+                    "object_type": _s("Object type: deals or tickets.", "deals", required=True),
                 },
                 arg_map=lambda d: {"object_type": d["object_type"]},
             ),
@@ -1436,8 +1465,8 @@ def build_operations() -> List[Operation]:
             description="Get a pipeline definition (including stages).",
             tags=("hubspot_pipelines",),
             input_schema={
-                "object_type": _s("deals or tickets.", "deals"),
-                "pipeline_id": _s("Pipeline ID.", "default"),
+                "object_type": _s("deals or tickets.", "deals", required=True),
+                "pipeline_id": _s("Pipeline ID.", "default", required=True),
             },
             arg_map=lambda d: {
                 "object_type": d["object_type"],
@@ -1456,8 +1485,8 @@ def build_operations() -> List[Operation]:
                 parallelizable=False,
                 tags=("hubspot_pipelines",),
                 input_schema={
-                    "object_type": _s("deals or tickets.", "deals"),
-                    "label": _s("Pipeline name.", "Renewals"),
+                    "object_type": _s("deals or tickets.", "deals", required=True),
+                    "label": _s("Pipeline name.", "Renewals", required=True),
                     "stages": _arr(
                         "Stage definitions.",
                         [
@@ -1467,8 +1496,9 @@ def build_operations() -> List[Operation]:
                                 "metadata": {"probability": "0.1"},
                             }
                         ],
+                        required=True,
                     ),
-                    "display_order": _i("Display order among pipelines.", 0),
+                    "display_order": _i("Display order among pipelines.", 0, required=False),
                 },
                 output_schema=_only("Only {id}."),
                 arg_map=lambda d: {
@@ -1490,8 +1520,8 @@ def build_operations() -> List[Operation]:
                 ),
                 tags=("hubspot_pipelines",),
                 input_schema={
-                    "object_type": _s("deals or tickets.", "deals"),
-                    "pipeline_id": _s("Pipeline ID.", "default"),
+                    "object_type": _s("deals or tickets.", "deals", required=True),
+                    "pipeline_id": _s("Pipeline ID.", "default", required=True),
                 },
                 arg_map=lambda d: {
                     "object_type": d["object_type"],
@@ -1511,11 +1541,11 @@ def build_operations() -> List[Operation]:
                 parallelizable=False,
                 tags=("hubspot_pipelines",),
                 input_schema={
-                    "object_type": _s("deals or tickets.", "deals"),
-                    "pipeline_id": _s("Pipeline ID.", "default"),
-                    "stage_id": _s("Stage ID.", "qualifiedtobuy"),
+                    "object_type": _s("deals or tickets.", "deals", required=True),
+                    "pipeline_id": _s("Pipeline ID.", "default", required=True),
+                    "stage_id": _s("Stage ID.", "qualifiedtobuy", required=True),
                     "properties": _obj(
-                        "Stage fields to update.", {"label": "Qualified — Buying"}
+                        "Stage fields to update.", {"label": "Qualified — Buying"}, required=True
                     ),
                 },
                 output_schema=_only("Only {id}."),
@@ -1539,8 +1569,8 @@ def build_operations() -> List[Operation]:
                 ),
                 tags=("hubspot_owners", "hubspot"),
                 input_schema={
-                    "email": _s("Optional: filter to one owner by email.", ""),
-                    "limit": _limit(100, "Max results (1-500)."),
+                    "email": _s("Optional: filter to one owner by email.", "", required=False),
+                    "limit": _limit(100, "Max results (1-500).", required=False),
                 },
                 arg_map=lambda d: {
                     "email": d.get("email") or None,
@@ -1554,7 +1584,7 @@ def build_operations() -> List[Operation]:
             "get_owner",
             description="Get a HubSpot owner (user) by ID.",
             tags=("hubspot_owners",),
-            input_schema={"owner_id": _s("Owner ID.", "12345")},
+            input_schema={"owner_id": _s("Owner ID.", "12345", required=True)},
             arg_map=lambda d: {"owner_id": d["owner_id"]},
         ),
         # ── Properties ───────────────────────────────────────────────────
@@ -1572,6 +1602,7 @@ def build_operations() -> List[Operation]:
                     "object_type": _s(
                         "contacts/companies/deals/tickets or custom schema name.",
                         "contacts",
+                        required=True,
                     ),
                 },
                 arg_map=lambda d: {"object_type": d["object_type"]},
@@ -1584,8 +1615,8 @@ def build_operations() -> List[Operation]:
             description="Get a property definition (type, options, group).",
             tags=("hubspot_properties",),
             input_schema={
-                "object_type": _s("Object type.", "contacts"),
-                "property_name": _s("Property internal name.", "firstname"),
+                "object_type": _s("Object type.", "contacts", required=True),
+                "property_name": _s("Property internal name.", "firstname", required=True),
             },
             arg_map=lambda d: {
                 "object_type": d["object_type"],
@@ -1604,7 +1635,7 @@ def build_operations() -> List[Operation]:
                 parallelizable=False,
                 tags=("hubspot_properties",),
                 input_schema={
-                    "object_type": _s("Object type.", "contacts"),
+                    "object_type": _s("Object type.", "contacts", required=True),
                     "definition": _obj(
                         "Property definition.",
                         {
@@ -1614,6 +1645,7 @@ def build_operations() -> List[Operation]:
                             "fieldType": "text",
                             "groupName": "contactinformation",
                         },
+                        required=True,
                     ),
                 },
                 output_schema=_only("Only {id, name, type}."),
@@ -1635,10 +1667,10 @@ def build_operations() -> List[Operation]:
                 parallelizable=False,
                 tags=("hubspot_properties",),
                 input_schema={
-                    "object_type": _s("Object type.", "contacts"),
-                    "property_name": _s("Property internal name.", "favorite_color"),
+                    "object_type": _s("Object type.", "contacts", required=True),
+                    "property_name": _s("Property internal name.", "favorite_color", required=True),
                     "definition": _obj(
-                        "Fields to update.", {"label": "Color preference"}
+                        "Fields to update.", {"label": "Color preference"}, required=True
                     ),
                 },
                 output_schema=_only("Only {id, name, type}."),
@@ -1661,8 +1693,8 @@ def build_operations() -> List[Operation]:
             parallelizable=False,
             tags=("hubspot_properties",),
             input_schema={
-                "object_type": _s("Object type.", "contacts"),
-                "property_name": _s("Property internal name.", "favorite_color"),
+                "object_type": _s("Object type.", "contacts", required=True),
+                "property_name": _s("Property internal name.", "favorite_color", required=True),
             },
             arg_map=lambda d: {
                 "object_type": d["object_type"],
@@ -1679,7 +1711,7 @@ def build_operations() -> List[Operation]:
                 ),
                 tags=("hubspot_properties",),
                 input_schema={
-                    "object_type": _s("Object type.", "contacts"),
+                    "object_type": _s("Object type.", "contacts", required=True),
                 },
                 arg_map=lambda d: {"object_type": d["object_type"]},
             ),
@@ -1698,14 +1730,15 @@ def build_operations() -> List[Operation]:
                 parallelizable=False,
                 tags=("hubspot_associations", "hubspot"),
                 input_schema={
-                    "from_object_type": _s("Source object type.", "deals"),
-                    "from_object_id": _s("Source object ID.", "123"),
-                    "to_object_type": _s("Target object type.", "contacts"),
-                    "to_object_id": _s("Target object ID.", "456"),
+                    "from_object_type": _s("Source object type.", "deals", required=True),
+                    "from_object_id": _s("Source object ID.", "123", required=True),
+                    "to_object_type": _s("Target object type.", "contacts", required=True),
+                    "to_object_id": _s("Target object ID.", "456", required=True),
                     "association_type_id": _i(
                         "Optional: specific association type ID (use "
                         "list_hubspot_association_types).",
                         0,
+                        required=False,
                     ),
                 },
                 output_schema=_only("Only {id}."),
@@ -1728,11 +1761,11 @@ def build_operations() -> List[Operation]:
                 ),
                 tags=("hubspot_associations",),
                 input_schema={
-                    "from_object_type": _s("Source object type.", "deals"),
-                    "from_object_id": _s("Source object ID.", "123"),
-                    "to_object_type": _s("Target object type to look up.", "contacts"),
-                    "limit": _limit(100, "Max results (1-500)."),
-                    "after": _after(),
+                    "from_object_type": _s("Source object type.", "deals", required=True),
+                    "from_object_id": _s("Source object ID.", "123", required=True),
+                    "to_object_type": _s("Target object type to look up.", "contacts", required=True),
+                    "limit": _limit(100, "Max results (1-500).", required=False),
+                    "after": _after(required=False),
                 },
                 arg_map=lambda d: {
                     "from_object_type": d["from_object_type"],
@@ -1752,10 +1785,10 @@ def build_operations() -> List[Operation]:
             parallelizable=False,
             tags=("hubspot_associations",),
             input_schema={
-                "from_object_type": _s("Source type.", "deals"),
-                "from_object_id": _s("Source ID.", "123"),
-                "to_object_type": _s("Target type.", "contacts"),
-                "to_object_id": _s("Target ID.", "456"),
+                "from_object_type": _s("Source type.", "deals", required=True),
+                "from_object_id": _s("Source ID.", "123", required=True),
+                "to_object_type": _s("Target type.", "contacts", required=True),
+                "to_object_id": _s("Target ID.", "456", required=True),
             },
             arg_map=lambda d: {
                 "from_object_type": d["from_object_type"],
@@ -1774,8 +1807,8 @@ def build_operations() -> List[Operation]:
                 ),
                 tags=("hubspot_associations",),
                 input_schema={
-                    "from_object_type": _s("Source type.", "deals"),
-                    "to_object_type": _s("Target type.", "contacts"),
+                    "from_object_type": _s("Source type.", "deals", required=True),
+                    "to_object_type": _s("Target type.", "contacts", required=True),
                 },
                 arg_map=lambda d: {
                     "from_object_type": d["from_object_type"],
@@ -1792,8 +1825,8 @@ def build_operations() -> List[Operation]:
                 description="List HubSpot forms (marketing v3).",
                 tags=("hubspot_forms",),
                 input_schema={
-                    "limit": _limit(),
-                    "after": _after(),
+                    "limit": _limit(required=False),
+                    "after": _after(required=False),
                 },
                 arg_map=lambda d: {
                     "limit": d.get("limit", 30),
@@ -1808,7 +1841,7 @@ def build_operations() -> List[Operation]:
             description="Get a HubSpot form definition by ID.",
             tags=("hubspot_forms",),
             input_schema={
-                "form_id": _s("Form GUID.", "abc12345-6789-0abc-def0-123456789abc"),
+                "form_id": _s("Form GUID.", "abc12345-6789-0abc-def0-123456789abc", required=True),
             },
             arg_map=lambda d: {"form_id": d["form_id"]},
         ),
@@ -1823,9 +1856,9 @@ def build_operations() -> List[Operation]:
                 parallelizable=False,
                 tags=("hubspot_forms",),
                 input_schema={
-                    "portal_id": _s("Portal/hub ID.", "12345678"),
+                    "portal_id": _s("Portal/hub ID.", "12345678", required=True),
                     "form_guid": _s(
-                        "Form GUID.", "abc12345-6789-0abc-def0-123456789abc"
+                        "Form GUID.", "abc12345-6789-0abc-def0-123456789abc", required=True
                     ),
                     "fields": _arr(
                         "Form fields to submit.",
@@ -1833,10 +1866,12 @@ def build_operations() -> List[Operation]:
                             {"name": "email", "value": "jane@example.com"},
                             {"name": "firstname", "value": "Jane"},
                         ],
+                        required=True,
                     ),
                     "context": _obj(
                         "Optional context (hutk, pageUrl, pageName, ipAddress).",
                         {"pageName": "Demo Request"},
+                        required=False,
                     ),
                 },
                 output_schema=_only("Only {id}."),
@@ -1857,10 +1892,10 @@ def build_operations() -> List[Operation]:
                 tags=("hubspot_forms",),
                 input_schema={
                     "form_guid": _s(
-                        "Form GUID.", "abc12345-6789-0abc-def0-123456789abc"
+                        "Form GUID.", "abc12345-6789-0abc-def0-123456789abc", required=True
                     ),
-                    "limit": _limit(30, "Max results (1-50)."),
-                    "after": _after(),
+                    "limit": _limit(30, "Max results (1-50).", required=False),
+                    "after": _after(required=False),
                 },
                 arg_map=lambda d: {
                     "form_guid": d["form_guid"],
@@ -1878,8 +1913,8 @@ def build_operations() -> List[Operation]:
                 description="List marketing email campaigns.",
                 tags=("hubspot_marketing_email",),
                 input_schema={
-                    "limit": _limit(),
-                    "after": _after(),
+                    "limit": _limit(required=False),
+                    "after": _after(required=False),
                 },
                 arg_map=lambda d: {
                     "limit": d.get("limit", 30),
@@ -1893,7 +1928,7 @@ def build_operations() -> List[Operation]:
             "get_marketing_email",
             description="Get a marketing email campaign by ID.",
             tags=("hubspot_marketing_email",),
-            input_schema={"email_id": _s("Marketing email ID.", "123456789")},
+            input_schema={"email_id": _s("Marketing email ID.", "123456789", required=True)},
             arg_map=lambda d: {"email_id": d["email_id"]},
         ),
         _with_post(
@@ -1908,13 +1943,13 @@ def build_operations() -> List[Operation]:
                 parallelizable=False,
                 tags=("hubspot_marketing_email", "hubspot"),
                 input_schema={
-                    "email_id": _s("Marketing email template ID.", "123456789"),
-                    "to_email": _s("Recipient email.", "jane@example.com"),
+                    "email_id": _s("Marketing email template ID.", "123456789", required=True),
+                    "to_email": _s("Recipient email.", "jane@example.com", required=True),
                     "custom_properties": _obj(
-                        "Optional template variables.", {"first_name": "Jane"}
+                        "Optional template variables.", {"first_name": "Jane"}, required=False
                     ),
                     "contact_properties": _obj(
-                        "Optional contact-property overrides.", {}
+                        "Optional contact-property overrides.", {}, required=False
                     ),
                 },
                 output_schema=_only("Only {id}."),
@@ -1932,7 +1967,7 @@ def build_operations() -> List[Operation]:
             "get_marketing_email_statistics",
             description="Get aggregated send/open/click statistics for a marketing email.",
             tags=("hubspot_marketing_email",),
-            input_schema={"email_id": _s("Marketing email ID.", "123456789")},
+            input_schema={"email_id": _s("Marketing email ID.", "123456789", required=True)},
             arg_map=lambda d: {"email_id": d["email_id"]},
         ),
         # ── Files ────────────────────────────────────────────────────────
@@ -1949,13 +1984,14 @@ def build_operations() -> List[Operation]:
                 parallelizable=False,
                 tags=("hubspot_files",),
                 input_schema={
-                    "file_path": _s("Local path to the file.", "/tmp/contract.pdf"),
-                    "folder_path": _s("HubSpot folder path.", "/"),
+                    "file_path": _s("Local path to the file.", "/tmp/contract.pdf", required=True),
+                    "folder_path": _s("HubSpot folder path.", "/", required=False),
                     "access": _s(
                         "PUBLIC_INDEXABLE | PUBLIC_NOT_INDEXABLE | HIDDEN | PRIVATE.",
                         "PRIVATE",
+                        required=False,
                     ),
-                    "overwrite": _b("Overwrite existing file with the same name."),
+                    "overwrite": _b("Overwrite existing file with the same name.", required=False),
                 },
                 output_schema=_only("Only {id, url}."),
                 arg_map=lambda d: {
@@ -1972,7 +2008,7 @@ def build_operations() -> List[Operation]:
             "get_file",
             description="Get a file's metadata (including URL).",
             tags=("hubspot_files",),
-            input_schema={"file_id": _s("File ID.", "123456789")},
+            input_schema={"file_id": _s("File ID.", "123456789", required=True)},
             arg_map=lambda d: {"file_id": d["file_id"]},
         ),
         client_op(
@@ -1982,7 +2018,7 @@ def build_operations() -> List[Operation]:
             destructive=True,
             parallelizable=False,
             tags=("hubspot_files",),
-            input_schema={"file_id": _s("File ID.", "123456789")},
+            input_schema={"file_id": _s("File ID.", "123456789", required=True)},
             arg_map=lambda d: {"file_id": d["file_id"]},
         ),
         _with_post(
@@ -1992,8 +2028,8 @@ def build_operations() -> List[Operation]:
                 description="List folders in the HubSpot file manager.",
                 tags=("hubspot_files",),
                 input_schema={
-                    "limit": _limit(),
-                    "after": _after(),
+                    "limit": _limit(required=False),
+                    "after": _after(required=False),
                 },
                 arg_map=lambda d: {
                     "limit": d.get("limit", 30),
@@ -2010,8 +2046,8 @@ def build_operations() -> List[Operation]:
                 description="List conversation threads in the HubSpot Inbox.",
                 tags=("hubspot_conversations",),
                 input_schema={
-                    "limit": _limit(),
-                    "after": _after(),
+                    "limit": _limit(required=False),
+                    "after": _after(required=False),
                 },
                 arg_map=lambda d: {
                     "limit": d.get("limit", 30),
@@ -2025,7 +2061,7 @@ def build_operations() -> List[Operation]:
             "get_conversation",
             description="Get a conversation thread by ID.",
             tags=("hubspot_conversations",),
-            input_schema={"thread_id": _s("Thread ID.", "123456789")},
+            input_schema={"thread_id": _s("Thread ID.", "123456789", required=True)},
             arg_map=lambda d: {"thread_id": d["thread_id"]},
         ),
         _with_post(
@@ -2035,9 +2071,9 @@ def build_operations() -> List[Operation]:
                 description="List messages in a conversation thread.",
                 tags=("hubspot_conversations",),
                 input_schema={
-                    "thread_id": _s("Thread ID.", "123456789"),
-                    "limit": _limit(),
-                    "after": _after(),
+                    "thread_id": _s("Thread ID.", "123456789", required=True),
+                    "limit": _limit(required=False),
+                    "after": _after(required=False),
                 },
                 arg_map=lambda d: {
                     "thread_id": d["thread_id"],
@@ -2060,11 +2096,11 @@ def build_operations() -> List[Operation]:
                 parallelizable=False,
                 tags=("hubspot_conversations",),
                 input_schema={
-                    "thread_id": _s("Thread ID.", "123456789"),
-                    "text": _s("Message body.", "Thanks for reaching out!"),
-                    "channel_id": _s("Channel ID (from thread metadata).", "1000"),
+                    "thread_id": _s("Thread ID.", "123456789", required=True),
+                    "text": _s("Message body.", "Thanks for reaching out!", required=True),
+                    "channel_id": _s("Channel ID (from thread metadata).", "1000", required=True),
                     "channel_account_id": _s(
-                        "Channel account ID (from thread metadata).", "12345"
+                        "Channel account ID (from thread metadata).", "12345", required=True
                     ),
                     "recipients": _arr(
                         "Recipient list [{actorId, deliveryIdentifier:{type,value}}].",
@@ -2077,8 +2113,9 @@ def build_operations() -> List[Operation]:
                                 },
                             }
                         ],
+                        required=True,
                     ),
-                    "sender_actor_id": _s("Optional sender actor ID.", ""),
+                    "sender_actor_id": _s("Optional sender actor ID.", "", required=False),
                 },
                 output_schema=_only("Only {id}."),
                 arg_map=lambda d: {
@@ -2103,7 +2140,7 @@ def build_operations() -> List[Operation]:
                 ),
                 tags=("hubspot_webhooks",),
                 input_schema={
-                    "app_id": _s("HubSpot App ID (developer console).", "1234567"),
+                    "app_id": _s("HubSpot App ID (developer console).", "1234567", required=True),
                 },
                 arg_map=lambda d: {"app_id": d["app_id"]},
             ),
@@ -2121,13 +2158,14 @@ def build_operations() -> List[Operation]:
                 parallelizable=False,
                 tags=("hubspot_webhooks",),
                 input_schema={
-                    "app_id": _s("HubSpot App ID.", "1234567"),
-                    "event_type": _s("Event type to subscribe to.", "contact.creation"),
+                    "app_id": _s("HubSpot App ID.", "1234567", required=True),
+                    "event_type": _s("Event type to subscribe to.", "contact.creation", required=True),
                     "property_name": _s(
                         "Property name (only for *.propertyChange event types).",
                         "",
+                        required=False,
                     ),
-                    "active": _b("Whether the subscription is active.", True),
+                    "active": _b("Whether the subscription is active.", True, required=False),
                 },
                 output_schema=_only("Only {id}."),
                 arg_map=lambda d: {
@@ -2147,8 +2185,8 @@ def build_operations() -> List[Operation]:
             parallelizable=False,
             tags=("hubspot_webhooks",),
             input_schema={
-                "app_id": _s("HubSpot App ID.", "1234567"),
-                "subscription_id": _s("Subscription ID.", "abc123"),
+                "app_id": _s("HubSpot App ID.", "1234567", required=True),
+                "subscription_id": _s("Subscription ID.", "abc123", required=True),
             },
             arg_map=lambda d: {
                 "app_id": d["app_id"],

@@ -26,11 +26,13 @@ from .client import clean_snippet
 # (send / reply / create + update draft).
 _HTML_INPUT = {
     "type": "boolean",
+    "required": False,
     "description": "Treat body as HTML instead of plain text (default false).",
     "example": False,
 }
 _INLINE_IMAGES_INPUT = {
     "type": "array",
+    "required": False,
     "description": (
         "Optional local image file paths shown INSIDE the email body (not as "
         'attachments). Place each in an HTML body with <img src="cid:<file '
@@ -57,14 +59,16 @@ def _get_gmail_thread_op() -> Operation:
         unwrap_envelope=True,
         fail_message="Failed to get thread.",
         input_schema={
-            "thread_id": {"type": "string", "description": "Thread ID.", "example": ""},
+            "thread_id": {"type": "string", "required": True, "description": "Thread ID.", "example": ""},
             "fmt": {
                 "type": "string",
+                "required": False,
                 "description": "metadata | full | minimal.",
                 "example": "metadata",
             },
             "include_metadata": {
                 "type": "boolean",
+                "required": False,
                 "description": "Return the raw thread resource (default false = lean).",
                 "example": False,
             },
@@ -126,14 +130,16 @@ def _get_gmail_draft_op() -> Operation:
         unwrap_envelope=True,
         fail_message="Failed to get draft.",
         input_schema={
-            "draft_id": {"type": "string", "description": "Draft ID.", "example": ""},
+            "draft_id": {"type": "string", "required": True, "description": "Draft ID.", "example": ""},
             "fmt": {
                 "type": "string",
+                "required": False,
                 "description": "metadata | full | minimal.",
                 "example": "metadata",
             },
             "include_metadata": {
                 "type": "boolean",
+                "required": False,
                 "description": "Return the raw draft resource (default false = lean).",
                 "example": False,
             },
@@ -186,6 +192,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "to": {
                     "type": "string",
+                    "required": False,
                     "description": (
                         "Recipient email address. OMIT to send to the user's "
                         "own address (the connected account) — never store or "
@@ -195,11 +202,13 @@ def build_operations() -> List[Operation]:
                 },
                 "subject": {
                     "type": "string",
+                    "required": True,
                     "description": "Email subject.",
                     "example": "Meeting Follow-up",
                 },
                 "body": {
                     "type": "string",
+                    "required": True,
                     "description": "Email body (plain text, or HTML with html=true).",
                     "example": "Hi, here are the notes...",
                 },
@@ -207,6 +216,7 @@ def build_operations() -> List[Operation]:
                 "inline_images": _INLINE_IMAGES_INPUT,
                 "attachments": {
                     "type": "array",
+                    "required": False,
                     "description": "Optional list of file paths to attach.",
                     "example": [],
                 },
@@ -231,11 +241,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "count": {
                     "type": "integer",
+                    "required": False,
                     "description": "Number of recent emails to list.",
                     "example": 5,
                 },
                 "unread_only": {
                     "type": "boolean",
+                    "required": False,
                     "description": "Only unread emails.",
                     "example": True,
                 },
@@ -261,11 +273,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "message_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Gmail message id (from list/search).",
                     "example": "18c2f...",
                 },
                 "full_body": {
                     "type": "boolean",
+                    "required": False,
                     "description": (
                         "Also return the body text and attachments list. "
                         "HTML-only mail is converted to text "
@@ -288,11 +302,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "count": {
                     "type": "integer",
+                    "required": False,
                     "description": "Number of emails to read.",
                     "example": 5,
                 },
                 "full_body": {
                     "type": "boolean",
+                    "required": False,
                     "description": "Include full body text.",
                     "example": False,
                 },
@@ -312,11 +328,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "query": {
                     "type": "string",
+                    "required": True,
                     "description": "Gmail search query.",
                     "example": "from:alice subject:invoice newer_than:7d",
                 },
                 "max_results": {
                     "type": "integer",
+                    "required": False,
                     "description": "Maximum number of results.",
                     "example": 10,
                 },
@@ -335,16 +353,19 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "message_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Id of the message being replied to.",
                     "example": "18c2f...",
                 },
                 "body": {
                     "type": "string",
+                    "required": True,
                     "description": "Reply body (plain text, or HTML with html=true).",
                     "example": "Thanks — confirmed for Tuesday.",
                 },
                 "reply_all": {
                     "type": "boolean",
+                    "required": False,
                     "description": "Reply to all recipients.",
                     "example": False,
                 },
@@ -364,21 +385,25 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "message_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Original message ID.",
                     "example": "",
                 },
                 "to": {
                     "type": "string",
+                    "required": True,
                     "description": "Recipient email.",
                     "example": "bob@example.com",
                 },
                 "body": {
                     "type": "string",
+                    "required": False,
                     "description": "Optional intro text, prepended above the forwarded content. The original body is always included — do not copy it here.",
                     "example": "",
                 },
                 "attachments": {
                     "type": "array",
+                    "required": False,
                     "description": "Optional EXTRA local file paths to attach. The original message's attachments are forwarded automatically.",
                     "example": [],
                 },
@@ -405,16 +430,19 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "message_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Message ID.",
                     "example": "",
                 },
                 "add_label_ids": {
                     "type": "array",
+                    "required": False,
                     "description": "Label IDs to add.",
                     "example": ["STARRED"],
                 },
                 "remove_label_ids": {
                     "type": "array",
+                    "required": False,
                     "description": "Label IDs to remove.",
                     "example": ["UNREAD"],
                 },
@@ -432,6 +460,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "message_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Gmail message id.",
                     "example": "18c2f...",
                 },
@@ -448,6 +477,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "message_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Message ID.",
                     "example": "",
                 },
@@ -464,16 +494,19 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "message_ids": {
                     "type": "array",
+                    "required": True,
                     "description": "List of message IDs.",
                     "example": [],
                 },
                 "add_label_ids": {
                     "type": "array",
+                    "required": False,
                     "description": "Label IDs to add.",
                     "example": [],
                 },
                 "remove_label_ids": {
                     "type": "array",
+                    "required": False,
                     "description": "Label IDs to remove.",
                     "example": [],
                 },
@@ -490,16 +523,19 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "query": {
                     "type": "string",
+                    "required": False,
                     "description": "Optional Gmail q query.",
                     "example": "",
                 },
                 "label_ids": {
                     "type": "array",
+                    "required": False,
                     "description": "Optional label filter.",
                     "example": ["INBOX"],
                 },
                 "max_results": {
                     "type": "integer",
+                    "required": False,
                     "description": "Max threads.",
                     "example": 25,
                 },
@@ -522,16 +558,19 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "thread_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Thread ID.",
                     "example": "",
                 },
                 "add_label_ids": {
                     "type": "array",
+                    "required": False,
                     "description": "Labels to add.",
                     "example": [],
                 },
                 "remove_label_ids": {
                     "type": "array",
+                    "required": False,
                     "description": "Labels to remove.",
                     "example": [],
                 },
@@ -548,6 +587,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "thread_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Thread ID.",
                     "example": "",
                 },
@@ -564,6 +604,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "thread_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Thread ID.",
                     "example": "",
                 },
@@ -580,11 +621,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "max_results": {
                     "type": "integer",
+                    "required": False,
                     "description": "Max drafts.",
                     "example": 25,
                 },
                 "query": {
                     "type": "string",
+                    "required": False,
                     "description": "Optional q query.",
                     "example": "",
                 },
@@ -605,16 +648,19 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "to": {
                     "type": "string",
+                    "required": True,
                     "description": "Recipient email address.",
                     "example": "user@example.com",
                 },
                 "subject": {
                     "type": "string",
+                    "required": True,
                     "description": "Draft subject.",
                     "example": "Q3 report",
                 },
                 "body": {
                     "type": "string",
+                    "required": True,
                     "description": "Draft body (plain text, or HTML with html=true).",
                     "example": "Draft text...",
                 },
@@ -633,26 +679,30 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "draft_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Draft ID.",
                     "example": "",
                 },
-                "to": {"type": "string", "description": "Recipient.", "example": ""},
-                "subject": {"type": "string", "description": "Subject.", "example": ""},
+                "to": {"type": "string", "required": True, "description": "Recipient.", "example": ""},
+                "subject": {"type": "string", "required": True, "description": "Subject.", "example": ""},
                 "body": {
                     "type": "string",
+                    "required": True,
                     "description": "Body (plain text, or HTML with html=true).",
                     "example": "",
                 },
                 "html": _HTML_INPUT,
                 "inline_images": _INLINE_IMAGES_INPUT,
-                "cc": {"type": "string", "description": "Optional CC.", "example": ""},
+                "cc": {"type": "string", "required": False, "description": "Optional CC.", "example": ""},
                 "bcc": {
                     "type": "string",
+                    "required": False,
                     "description": "Optional BCC.",
                     "example": "",
                 },
                 "attachments": {
                     "type": "array",
+                    "required": False,
                     "description": "Local file paths.",
                     "example": [],
                 },
@@ -681,6 +731,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "draft_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Draft ID.",
                     "example": "",
                 },
@@ -698,6 +749,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "draft_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Draft ID.",
                     "example": "",
                 },
@@ -723,6 +775,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "label_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Label ID.",
                     "example": "",
                 },
@@ -743,26 +796,31 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "name": {
                     "type": "string",
+                    "required": True,
                     "description": "Label name (use '/' for nesting, e.g. 'Work/Clients').",
                     "example": "Receipts",
                 },
                 "label_list_visibility": {
                     "type": "string",
+                    "required": False,
                     "description": "labelShow / labelShowIfUnread / labelHide.",
                     "example": "labelShow",
                 },
                 "message_list_visibility": {
                     "type": "string",
+                    "required": False,
                     "description": "show / hide.",
                     "example": "show",
                 },
                 "background_color": {
                     "type": "string",
+                    "required": False,
                     "description": "Hex color (optional, requires text_color).",
                     "example": "",
                 },
                 "text_color": {
                     "type": "string",
+                    "required": False,
                     "description": "Hex color (optional, requires background_color).",
                     "example": "",
                 },
@@ -786,31 +844,37 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "label_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Label ID.",
                     "example": "",
                 },
                 "name": {
                     "type": "string",
+                    "required": False,
                     "description": "New name (optional).",
                     "example": "",
                 },
                 "label_list_visibility": {
                     "type": "string",
+                    "required": False,
                     "description": "labelShow / labelShowIfUnread / labelHide.",
                     "example": "",
                 },
                 "message_list_visibility": {
                     "type": "string",
+                    "required": False,
                     "description": "show / hide.",
                     "example": "",
                 },
                 "background_color": {
                     "type": "string",
+                    "required": False,
                     "description": "Hex color (optional).",
                     "example": "",
                 },
                 "text_color": {
                     "type": "string",
+                    "required": False,
                     "description": "Hex color (optional).",
                     "example": "",
                 },
@@ -836,6 +900,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "label_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Label ID.",
                     "example": "",
                 },
@@ -858,21 +923,25 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "message_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Message ID.",
                     "example": "",
                 },
                 "attachment_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Attachment ID from get_gmail(full_body=true).attachments[].attachment_id.",
                     "example": "",
                 },
                 "save_to": {
                     "type": "string",
+                    "required": True,
                     "description": "Local path to save to. May be a directory; use filename to set the file name.",
                     "example": "C:/Users/me/downloads/",
                 },
                 "filename": {
                     "type": "string",
+                    "required": False,
                     "description": "Filename to use when save_to is a directory. Use the filename from get_gmail attachments list.",
                     "example": "invoice.pdf",
                 },

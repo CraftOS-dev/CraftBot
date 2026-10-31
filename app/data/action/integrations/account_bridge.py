@@ -61,6 +61,8 @@ def _account_schema(label: str) -> Dict[str, str]:
     # the model sees both and must treat them identically.
     return {
         "type": "string",
+        # Omitted: the primary account.
+        "required": False,
         "description": (
             f"Optional {label} account to act as: an identity, the user's "
             f"nickname for the account (e.g. 'work'), or any unique "

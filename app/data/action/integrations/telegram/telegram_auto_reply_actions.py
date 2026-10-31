@@ -56,11 +56,13 @@ def get_telegram_auto_reply_contacts(input_data: dict) -> dict:
     input_schema={
         "contact_id": {
             "type": "string",
+            "required": True,
             "description": "Numeric Telegram user ID of the selected contact.",
             "example": "123456789",
         },
         "enabled": {
             "type": "boolean",
+            "required": True,
             "description": "True to enable auto-replies; false to disable them.",
             "example": True,
         },
@@ -143,11 +145,13 @@ def set_telegram_contact_auto_reply(input_data: dict) -> dict:
     input_schema={
         "contact_id": {
             "type": "string",
+            "required": True,
             "description": "Positive numeric Telegram user ID.",
             "example": "123456789",
         },
         "enabled": {
             "type": "boolean",
+            "required": True,
             "description": "Whether to grant owner control.",
             "example": True,
         },

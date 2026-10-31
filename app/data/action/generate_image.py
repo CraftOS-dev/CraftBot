@@ -20,36 +20,43 @@ from agent_core import action
         },
         "output_path": {
             "type": "string",
+            "required": False,
             "example": "C:/Users/user/Pictures/generated_image.png",
             "description": "Absolute path where the generated image will be saved. If omitted, saved to temp directory with a timestamped name.",
         },
         "resolution": {
             "type": "string",
+            "required": False,
             "example": "2K",
             "description": "Output resolution: '1K' (default), '2K', or '4K'. Higher resolution costs more. OpenAI tops out at ~1536px regardless of this setting.",
         },
         "aspect_ratio": {
             "type": "string",
+            "required": False,
             "example": "16:9",
             "description": "Aspect ratio: '1:1' (default), '3:4', '4:3', '9:16', '16:9'. OpenAI maps to the nearest available canvas size — true 16:9 and 9:16 are not supported natively.",
         },
         "number_of_images": {
             "type": "integer",
+            "required": False,
             "example": 1,
             "description": "Number of images to generate (1–4). Default: 1.",
         },
         "negative_prompt": {
             "type": "string",
+            "required": False,
             "example": "blurry, low quality, distorted",
             "description": "Elements to avoid. Native on Gemini; appended to prompt for OpenAI.",
         },
         "reference_images": {
             "type": "array",
+            "required": False,
             "example": ["C:/Users/user/Pictures/ref.png"],
             "description": "Optional reference image paths (up to 14). Gemini: style guidance. OpenAI: compositional/mask inputs (different behaviour — results may vary).",
         },
         "safety_filter_level": {
             "type": "string",
+            "required": False,
             "example": "block_medium_and_above",
             "description": "Gemini safety filter: 'block_none', 'block_only_high', 'block_medium_and_above' (default), 'block_low_and_above'. Ignored by OpenAI.",
         },

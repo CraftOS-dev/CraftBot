@@ -6,7 +6,8 @@ This module owns the canonical compact representation used to describe
 available actions to the LLM. It is intentionally tight on tokens:
 
 - One JSON object per action with ``name``, ``description``, ``params``.
-- Each parameter collapses to a single string ``"<type>, required|optional - <desc>"``.
+- Each parameter collapses to a single string ``"<type>, required|optional - <desc>"``,
+  required or optional as its schema's ``required`` flag declares.
 - No ``example`` fields, no nested type-definitions.
 
 Both ``ActionRouter`` (main agent) and ``SubAgentContextEngine`` (sub-agents)
@@ -67,13 +68,14 @@ def format_action_candidates(candidates: List[Dict[str, Any]]) -> str:
             if isinstance(param_def, dict):
                 ptype = param_def.get("type", "any")
                 desc = param_def.get("description", "") or ""
-                # Match the heuristic used by ActionRouter._format_candidates:
-                # treat parameters whose description mentions "default" or
-                # "optional" as optional, everything else required.
-                low = desc.lower()
-                is_optional = "default" in low or "optional" in low
-                req = "optional" if is_optional else "required"
-                params[param_name] = f"{ptype}, {req} - {desc}"
+                # Required or optional as the schema declares it. A schema
+                # that declares neither gets no label: nothing is inferred.
+                required = param_def.get("required")
+                if isinstance(required, bool):
+                    req = "required" if required else "optional"
+                    params[param_name] = f"{ptype}, {req} - {desc}"
+                else:
+                    params[param_name] = f"{ptype} - {desc}"
             else:
                 params[param_name] = str(param_def)
 

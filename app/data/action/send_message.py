@@ -30,6 +30,7 @@ from agent_core import action
     input_schema={
         "message": {
             "type": "string",
+            "required": True,
             "example": "Hello, user!",
             "description": (
                 "The chat message to send. Send message in terminal friendly format and "
@@ -41,6 +42,7 @@ from agent_core import action
         },
         "continue_work": {
             "type": "boolean",
+            "required": False,
             "example": False,
             "description": (
                 "False (default): this is your final message for now — the run ends and "
@@ -50,6 +52,7 @@ from agent_core import action
         },
         "suggested_responses": {
             "type": "array",
+            "required": False,
             "example": ["Yes, go ahead", "No, skip it"],
             "description": (
                 "Only when the message is a question: 2-5 short suggested answers "
@@ -61,6 +64,7 @@ from agent_core import action
         },
         "allow_free_text": {
             "type": "boolean",
+            "required": False,
             "example": True,
             "description": (
                 "Only with suggested_responses. True (default): the user can also type "

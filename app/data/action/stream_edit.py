@@ -10,33 +10,39 @@ from agent_core import action
     input_schema={
         "file_path": {
             "type": "string",
+            "required": True,
             "example": "/path/to/file.py",
             "description": "Absolute path to the file to edit. The file must exist.",
         },
         "old_string": {
             "type": "string",
+            "required": True,
             "example": "def old_function():",
             "description": "The text or regex pattern to find and replace. Must match exactly including whitespace and indentation (unless regex=True). The edit will FAIL if old_string is not found or appears multiple times (unless replace_all=True).",
         },
         "new_string": {
             "type": "string",
+            "required": True,
             "example": "def new_function():",
             "description": "The text to replace old_string with. Can be empty string to delete the old_string. When regex=True, can use backreferences like \\1, \\2.",
         },
         "replace_all": {
             "type": "boolean",
+            "required": False,
             "example": False,
             "description": "If True, replace ALL occurrences of old_string. If False (default), the edit fails if old_string appears more than once.",
             "default": False,
         },
         "regex": {
             "type": "boolean",
+            "required": False,
             "example": False,
             "description": "If True, treat old_string as a regex pattern. If False (default), treat as literal string.",
             "default": False,
         },
         "ignore_case": {
             "type": "boolean",
+            "required": False,
             "example": False,
             "description": "If True, perform case-insensitive matching. If False (default), matching is case-sensitive.",
             "default": False,

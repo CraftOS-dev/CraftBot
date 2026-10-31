@@ -10,26 +10,31 @@ from agent_core import action
     input_schema={
         "pattern": {
             "type": "string",
+            "required": True,
             "example": "*.pdf",
             "description": "The file name or glob pattern to match. Supports wildcards like * and ?. To match any of several patterns in a single call, join them with '|' or ' OR ' instead of calling find_files multiple times, e.g. '*craftbot*|*craftos*' or '*.jpg OR *.png'.",
         },
         "recursive": {
             "type": "boolean",
+            "required": False,
             "example": True,
             "description": "Whether to search directories recursively. Default is true.",
         },
         "base_directory": {
             "type": "string",
+            "required": False,
             "example": "/home/user/Documents",
             "description": "Absolute path to the base directory to start searching from. Use full absolute paths (e.g., /home/user/Documents or /Users/name/Desktop). To search multiple roots in one call, join them with '|' (e.g. '/home/user|/mnt/data'). Ignored if all_drives is true.",
         },
         "all_drives": {
             "type": "boolean",
+            "required": False,
             "example": False,
             "description": "If true, search every local fixed drive/mount in one call instead of just base_directory (which is then ignored). Use this instead of calling find_files once per drive.",
         },
         "limit": {
             "type": "integer",
+            "required": False,
             "example": 500,
             "description": "Optional cap on the total number of matches returned across all searched roots. Useful with all_drives or broad patterns to avoid extremely large result sets. Pass 0 or omit for unlimited.",
         },
@@ -98,26 +103,31 @@ def find_file_by_name(input_data: dict) -> dict:
     input_schema={
         "pattern": {
             "type": "string",
+            "required": True,
             "example": "*.pdf",
             "description": "The file name or glob pattern to match. Supports wildcards like * and ?. To match any of several patterns in a single call, join them with '|' or ' OR ' instead of calling find_files multiple times, e.g. '*craftbot*|*craftos*' or '*.jpg OR *.png'.",
         },
         "recursive": {
             "type": "boolean",
+            "required": False,
             "example": True,
             "description": "Whether to search directories recursively. Default is true.",
         },
         "base_directory": {
             "type": "string",
+            "required": False,
             "example": "C:/Users/user/Documents",
             "description": "Absolute path to the base directory to start searching from. Use full absolute paths (e.g., C:/Users/user/Documents or D:/Projects). To search multiple drives/roots in one call, join them with '|' (e.g. 'C:/|D:/'). Ignored if all_drives is true.",
         },
         "all_drives": {
             "type": "boolean",
+            "required": False,
             "example": False,
             "description": "If true, search every local fixed drive in one call instead of just base_directory (which is then ignored). Use this instead of calling find_files once per drive.",
         },
         "limit": {
             "type": "integer",
+            "required": False,
             "example": 500,
             "description": "Optional cap on the total number of matches returned across all searched roots. Useful with all_drives or broad patterns to avoid extremely large result sets. Pass 0 or omit for unlimited.",
         },

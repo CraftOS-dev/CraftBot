@@ -4,11 +4,13 @@ from agent_core import action
 _INPUT_SCHEMA = {
     "query": {
         "type": "string",
+        "required": True,
         "example": "user preferences for communication",
         "description": "The semantic search query to find relevant memory.",
     },
     "top_k": {
         "type": "integer",
+        "required": False,
         "example": 5,
         "description": "Maximum number of results to return. Defaults to 5.",
         "default": 5,

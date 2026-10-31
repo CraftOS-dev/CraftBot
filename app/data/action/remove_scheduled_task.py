@@ -8,6 +8,7 @@ from agent_core import action
     input_schema={
         "schedule_id": {
             "type": "string",
+            "required": True,
             "description": "The ID of the schedule to remove",
             "example": "memory-processing",
         }

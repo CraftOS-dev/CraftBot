@@ -34,6 +34,8 @@ def _account_schema(provider: Provider) -> Dict[str, Any]:
     name = getattr(provider, "display_name", "") or provider.id
     return {
         "type": "string",
+        # Omitted: the primary account.
+        "required": False,
         "description": (
             f"Optional {name} account to act as: an email/identity, the "
             f"user's nickname for the account (e.g. 'work'), or any unique "

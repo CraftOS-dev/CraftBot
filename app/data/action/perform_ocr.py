@@ -9,11 +9,13 @@ from agent_core import action
     input_schema={
         "image_path": {
             "type": "string",
+            "required": True,
             "example": "C:\\Users\\user\\Pictures\\receipt.jpg",
             "description": "Absolute path to the image file containing text to extract.",
         },
         "user_prompt": {
             "type": "string",
+            "required": False,
             "example": "Extract all text including prices and product names.",
             "description": "Optional: extra instruction to guide the OCR (e.g. focus on specific regions or text types).",
         },
