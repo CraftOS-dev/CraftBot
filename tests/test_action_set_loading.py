@@ -168,7 +168,7 @@ def test_loading_delivers_schemas_without_touching_actions(loader):
     assert session.compiled_actions == before
     (event,) = _schema_events(stream)
     assert event.schema_actions == ["send_gmail", "list_gmail"]
-    assert '"name": "send_gmail"' in event.message
+    assert '{"name":"send_gmail"' in event.message
     assert "Recipient." in event.message
     # The integration named in the actions' own sets brings its guidance.
     assert "### gmail" in event.message
