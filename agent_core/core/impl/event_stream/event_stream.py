@@ -14,6 +14,7 @@ APIs:
 """
 
 from __future__ import annotations
+import copy
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
@@ -21,7 +22,12 @@ import re
 import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
-from agent_core.core.event_stream.event import Event, EventRecord, EventType
+from agent_core.core.event_stream.event import (
+    SESSION_ID_INPUT_KEY,
+    Event,
+    EventRecord,
+    EventType,
+)
 from agent_core.core.protocols.llm import LLMInterfaceProtocol
 from agent_core.core.prompts import EVENT_STREAM_SUMMARIZATION_PROMPT
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -72,6 +78,33 @@ class FoldRecord:
 
     at: float
     freed_tokens: int
+
+
+# How a delta shows an action_start whose input the model's own reply (the
+# assistant message right before the delta) already holds.
+INPUT_IN_REPLY = "Running action {name} (input as in your reply above)."
+
+
+@dataclass(frozen=True)
+class _ReplyInHistory:
+    """A decision reply as the session history holds it: its reasoning and
+    each action's name and parameters, copied when it was recorded."""
+
+    reasoning: Optional[str]
+    actions: Tuple[Tuple[str, Any], ...]
+
+    @classmethod
+    def of(cls, decision: Dict[str, Any]) -> "_ReplyInHistory":
+        items = decision.get("actions")
+        if not isinstance(items, list):
+            items = [decision]  # the single-action reply form
+        actions = tuple(
+            (item.get("action_name"), copy.deepcopy(item.get("parameters") or {}))
+            for item in items
+            if isinstance(item, dict) and item.get("action_name")
+        )
+        reasoning = decision.get("reasoning")
+        return cls(reasoning if isinstance(reasoning, str) else None, actions)
 
 
 def get_cached_token_count(rec: "EventRecord") -> int:
@@ -126,6 +159,14 @@ class EventStream:
         # Session cache tracking: maps call_type -> event_index of last synced event
         # Used to track which events have been sent to each session cache
         self._session_sync_points: dict[str, int] = {}
+        # Why a call type has no sync point now ("fold", "clear", or the
+        # reason given to reset_session_sync). The full request that starts
+        # its next session history is labeled with it (unsynced_reason).
+        self._unsynced_reasons: dict[str, str] = {}
+        # Per call type: the decision reply its session history ends with
+        # (set_reply_in_history). A delta refers to what the model wrote there
+        # instead of sending it a second time (get_delta_events).
+        self._replies_in_history: dict[str, _ReplyInHistory] = {}
 
         # The latest fold that shrank the stream (None: none since it was
         # created, restored or cleared). Until the next request reports its
@@ -220,6 +261,36 @@ class EventStream:
         self.tail_events.append(rec)
         self._total_tokens += get_cached_token_count(rec)
 
+    def _drop_skills(self, dropped: List[EventRecord]) -> None:
+        """Account for skill-instruction events a fold removed (of skills no
+        longer loaded, or superseded by a newer load). The caller has already
+        removed the records from tail_events and holds the lock."""
+        self._total_tokens -= sum(get_cached_token_count(r) for r in dropped)
+
+    def _loaded_skill_records(self) -> List[EventRecord]:
+        """The newest SKILL_INSTRUCTIONS record of every skill the stream has
+        loaded and not unloaded since, in stream order. Caller holds the lock."""
+        newest: Dict[str, EventRecord] = {}
+        for rec in self.tail_events:
+            name = rec.event.skill_name
+            if rec.event.event_type is EventType.SKILL_INSTRUCTIONS and name:
+                newest.pop(name, None)  # keeps stream order on a reload
+                newest[name] = rec
+            elif rec.event.event_type is EventType.SKILL_UNLOADED and name:
+                newest.pop(name, None)
+        return list(newest.values())
+
+    def loaded_skills(self) -> List[str]:
+        """Names of the skills whose instructions the stream holds as loaded."""
+        with self._lock:
+            return [r.event.skill_name for r in self._loaded_skill_records()]
+
+    def loaded_skill_tokens(self) -> int:
+        """Tokens of the loaded skills' instructions: a fold always keeps them,
+        so its budget counts them like the rest of what it does not shrink."""
+        with self._lock:
+            return sum(get_cached_token_count(r) for r in self._loaded_skill_records())
+
     def _maybe_push_datetime(self) -> None:
         """Push a fresh datetime marker on the first event and then at most once
         every DATETIME_REFRESH_SECONDS, so the stream always carries a recent
@@ -252,6 +323,7 @@ class EventStream:
         question: Optional[dict] = None,
         ui_artifact: Optional[dict] = None,
         schema_actions: Optional[List[str]] = None,
+        skill_name: Optional[str] = None,
     ) -> int:
         """
         Append a new event to the stream and trigger summarization if needed.
@@ -295,9 +367,10 @@ class EventStream:
         """
         if severity not in SEVERITIES:
             severity = "INFO"
-        if event_type is EventType.ACTION_SCHEMAS:
-            # Schemas are only useful verbatim: a pointer would make the agent
-            # read the registry back through read_file before every call.
+        if event_type in (EventType.ACTION_SCHEMAS, EventType.SKILL_INSTRUCTIONS):
+            # Schemas and skill instructions are only useful verbatim: a
+            # pointer would make the agent read them back through read_file
+            # before every call.
             msg = message.strip()
         else:
             msg = self._externalize_message(message.strip(), action_name=action_name)
@@ -318,6 +391,7 @@ class EventStream:
             question=question,
             ui_artifact=ui_artifact,
             schema_actions=schema_actions,
+            skill_name=skill_name,
         )
         rec = EventRecord(event=ev)
 
@@ -471,7 +545,10 @@ class EventStream:
             message = rec.event.message
             if len(message) <= MAX_EVENT_INLINE_CHARS:
                 continue
-            if rec.event.event_type is EventType.ACTION_SCHEMAS:
+            if rec.event.event_type in (
+                EventType.ACTION_SCHEMAS,
+                EventType.SKILL_INSTRUCTIONS,
+            ):
                 continue
             pointer = self._externalize_message(
                 message, action_name=rec.event.action_name, force=True
@@ -537,7 +614,13 @@ class EventStream:
                 )
             return reclaimed
 
-    def summarize_by_LLM(self, keep_tokens: int, *, prune: bool = True) -> int:
+    def summarize_by_LLM(
+        self,
+        keep_tokens: int,
+        *,
+        prune: bool = True,
+        summarizer: Optional[Callable[[EventRecord], Optional[str]]] = None,
+    ) -> int:
         """
         Summarize the oldest tail events using the language model, keeping
         about ``keep_tokens`` of the most recent events verbatim.
@@ -548,6 +631,11 @@ class EventStream:
         fold the user asks for passes False, and then a failed summary call
         raises and leaves the stream as it was.
 
+        ``summarizer``: writes the new summary from a conversation that
+        already holds the events being folded (the session's history),
+        given the last of them; None or an empty result falls back to the
+        standalone summary call, which is sent the events themselves.
+
         This is a SYNCHRONOUS blocking call that holds the lock for the entire
         duration, including the LLM call. This ensures no events can be added
         while summarization is in progress.
@@ -556,13 +644,18 @@ class EventStream:
         """
         with self._lock:
             before = self._total_tokens + count_tokens(self.head_summary or "")
-            self._summarize(keep_tokens, prune)
+            self._summarize(keep_tokens, prune, summarizer)
             freed = before - self._total_tokens - count_tokens(self.head_summary or "")
             if freed:
                 self.last_fold = FoldRecord(at=time.time(), freed_tokens=freed)
             return freed
 
-    def _summarize(self, keep_tokens: int, prune: bool) -> None:
+    def _summarize(
+        self,
+        keep_tokens: int,
+        prune: bool,
+        summarizer: Optional[Callable[[EventRecord], Optional[str]]] = None,
+    ) -> None:
         """summarize_by_LLM's fold. Caller holds the lock."""
         if not self.tail_events:
             return
@@ -589,6 +682,10 @@ class EventStream:
         #   mid-use; folding them would make it load them again next turn);
         # - every other action schema is dropped without a summary: it is a
         #   copy of the registry, and add_action_sets brings it back on demand;
+        # - the newest instructions of every loaded skill stay verbatim too:
+        #   they are the skill, for as long as it is loaded. A skill's older
+        #   or unloaded instructions are dropped without a summary (its unload
+        #   marker folds like any other event);
         # - the rest is the chunk the LLM summarizes.
         region = list(self.tail_events[:cutoff])
         in_use = {
@@ -601,8 +698,10 @@ class EventStream:
             for r in self.tail_events
             if r.event.kind in PROTECTED_SUMMARY_KINDS
         }
+        loaded_skills = set(map(id, self._loaded_skill_records()))
         protected: List[EventRecord] = []
         dropped_schemas: List[EventRecord] = []
+        dropped_skills: List[EventRecord] = []
         chunk: List[EventRecord] = []
         for r in region:
             if newest_protected.get(r.event.kind) is r:
@@ -612,13 +711,19 @@ class EventStream:
                     protected.append(r)
                 else:
                     dropped_schemas.append(r)
+            elif r.event.event_type is EventType.SKILL_INSTRUCTIONS:
+                if id(r) in loaded_skills:
+                    protected.append(r)
+                else:
+                    dropped_skills.append(r)
             else:
                 chunk.append(r)
         if not chunk:
-            if dropped_schemas:
+            if dropped_schemas or dropped_skills:
                 self.tail_events = protected + self.tail_events[cutoff:]
                 self._drop_schemas(dropped_schemas)
-                self._session_sync_points.clear()
+                self._drop_skills(dropped_skills)
+                self._clear_sync_points("fold")
             # Everything else old enough to summarize is protected.
             return
 
@@ -647,7 +752,8 @@ class EventStream:
                 summary=None,
             )
             self._drop_schemas(dropped_schemas)
-            self._session_sync_points.clear()
+            self._drop_skills(dropped_skills)
+            self._clear_sync_points("fold")
             return
 
         first_ts = chunk[0].ts
@@ -679,19 +785,31 @@ class EventStream:
             logger.info(
                 f"[EventStream] Running synchronous summarization ({self._total_tokens} tokens)"
             )
-            # json_mode=False: this prompt asks for a prose summary, and
-            # forcing a provider's JSON mode onto it degenerates (DeepSeek
-            # returns whitespace-only output that reads as empty).
-            llm_output = self.llm.generate_response(
-                user_prompt=prompt,
-                prompt_name="EVENT_STREAM_SUMMARIZATION",
-                json_mode=False,
-            )
-            new_summary = (llm_output or "").strip()
+            new_summary = ""
+            if summarizer is not None:
+                # Written on the session's history, which holds every event
+                # of the chunk; its input comes from the provider's cache.
+                try:
+                    new_summary = (summarizer(chunk[-1]) or "").strip()
+                except Exception:
+                    logger.exception(
+                        "[EventStream] Summary on the session history failed; "
+                        "falling back to the standalone summary call"
+                    )
+            if not new_summary:
+                # json_mode=False: this prompt asks for a prose summary, and
+                # forcing a provider's JSON mode onto it degenerates (DeepSeek
+                # returns whitespace-only output that reads as empty).
+                llm_output = self.llm.generate_response(
+                    user_prompt=prompt,
+                    prompt_name="EVENT_STREAM_SUMMARIZATION",
+                    json_mode=False,
+                )
+                new_summary = (llm_output or "").strip()
 
-            logger.debug(
-                f"[EVENT STREAM SUMMARIZATION] llm_output_len={len(llm_output or '')}"
-            )
+                logger.debug(
+                    f"[EVENT STREAM SUMMARIZATION] llm_output_len={len(llm_output or '')}"
+                )
 
             if not new_summary:
                 logger.warning(
@@ -716,9 +834,10 @@ class EventStream:
                 summary=new_summary,
             )
             self._drop_schemas(dropped_schemas)
+            self._drop_skills(dropped_skills)
 
             # Reset all session sync points - event indices are now invalid
-            self._session_sync_points.clear()
+            self._clear_sync_points("fold")
             logger.info(
                 f"[EventStream] Summarization complete. Tokens: {self._total_tokens}"
             )
@@ -744,7 +863,8 @@ class EventStream:
                 summary=None,
             )
             self._drop_schemas(dropped_schemas)
-            self._session_sync_points.clear()
+            self._drop_skills(dropped_skills)
+            self._clear_sync_points("fold")
 
     def actions_with_schemas(self) -> Set[str]:
         """Names of the actions whose schemas are in the live tail."""
@@ -784,7 +904,9 @@ class EventStream:
 
     # ───────────────────────── prompt accessors ──────────────────────────
 
-    def to_prompt_snapshot(self, include_summary: bool = True) -> str:
+    def to_prompt_snapshot(
+        self, include_summary: bool = True, up_to: Optional[int] = None
+    ) -> str:
         """
         Build a compact, human-readable history for inclusion in LLM prompts.
 
@@ -795,20 +917,23 @@ class EventStream:
 
         Args:
             include_summary: Whether to prepend the rolled-up ``head_summary``.
+            up_to: Only the first ``up_to`` tail events (the events a request
+                carries, see get_event_count); None for all of them.
 
         Returns:
             A newline-delimited string ready to embed in an LLM request.
         """
-        lines: List[str] = []
-        if include_summary and self.head_summary:
-            lines.append("Summary of folded event stream: \n" + self.head_summary)
+        with self._lock:
+            lines: List[str] = []
+            if include_summary and self.head_summary:
+                lines.append("Summary of folded event stream: \n" + self.head_summary)
 
-        recent = self.tail_events
-        if recent:
-            lines.append("Recent Event: ")
-            lines.extend(r.compact_line() for r in recent)
+            recent = self.tail_events[:up_to]
+            if recent:
+                lines.append("Recent Event: ")
+                lines.extend(r.compact_line() for r in recent)
 
-        return "\n".join(lines) if lines else "(no events)"
+            return "\n".join(lines) if lines else "(no events)"
 
     # ─────────────────────────── util / export ───────────────────────────
 
@@ -826,7 +951,7 @@ class EventStream:
         self.head_summary = None
         self.tail_events.clear()
         self._total_tokens = 0
-        self._session_sync_points.clear()
+        self._clear_sync_points("clear")
         self.last_fold = None
         # A new stream: its first event gets a fresh datetime marker.
         self._last_datetime_ts = None
@@ -895,25 +1020,32 @@ class EventStream:
                     count += 1
         return count
 
-    def mark_session_synced(self, call_type: str) -> None:
+    def mark_session_synced(self, call_type: str, up_to: Optional[int] = None) -> None:
         """
-        Mark that all current events have been synced to the session cache.
+        Mark that the events a request carried have been synced to the
+        session cache.
 
         Called after sending events to a session cache to track the sync point.
         Next call to get_delta_events() will return only events added after this.
 
         Args:
             call_type: The type of LLM call (e.g., "action_selection", "gui_action_selection")
+            up_to: How many tail events the request carried (get_event_count
+                when it was built). Events logged while it was in flight were
+                not in it and stay unsent. None: all events now in the tail.
         """
         with self._lock:
-            self.mark_delivered()
-            # Store the current tail length as the sync point
-            self._session_sync_points[call_type] = len(self.tail_events)
+            point = len(self.tail_events) if up_to is None else up_to
+            self.mark_delivered(point)
+            self._session_sync_points[call_type] = point
+            self._unsynced_reasons.pop(call_type, None)
             logger.debug(
                 f"[EventStream] Session sync point for {call_type}: {self._session_sync_points[call_type]}"
             )
 
-    def get_delta_events(self, call_type: str) -> Tuple[str, bool]:
+    def get_delta_events(
+        self, call_type: str, up_to: Optional[int] = None
+    ) -> Tuple[str, bool]:
         """
         Get events added since the last sync point for a given call type.
 
@@ -922,6 +1054,8 @@ class EventStream:
 
         Args:
             call_type: The type of LLM call
+            up_to: Only events before this tail index (the events a request
+                carries, see get_event_count); None for all of them.
 
         Returns:
             Tuple of (delta_events_string, has_delta).
@@ -941,15 +1075,74 @@ class EventStream:
                 return "", False
 
             # Get events since sync point
-            delta_events = self.tail_events[sync_point:]
+            delta_events = self.tail_events[sync_point:up_to]
 
             if not delta_events:
                 return "", False
 
-            lines = [r.compact_line() for r in delta_events]
+            reply = self._replies_in_history.get(call_type)
+            if reply is None:
+                lines = [r.compact_line() for r in delta_events]
+            else:
+                lines = self._delta_lines(delta_events, reply)
             return "\n".join(lines), True
 
-    def reset_session_sync(self, call_type: str) -> None:
+    @staticmethod
+    def _delta_lines(records: List[EventRecord], reply: _ReplyInHistory) -> List[str]:
+        """The delta's lines when the session history ends with ``reply``.
+
+        What the model wrote in that reply is not sent a second time: its
+        reasoning event is left out, and an action_start whose action and
+        input are exactly as the reply has them is shown by reference. The
+        input is compared without the session id the runtime adds to every
+        action (SESSION_ID_INPUT_KEY); any other difference (filled defaults,
+        an injected account) means the run changed it, so that action_start
+        is sent in full. Full renders (a history's first request, EVENT.md, a
+        fold's summary) always show everything.
+        """
+        reasoning = reply.reasoning
+        actions = list(reply.actions)
+        lines: List[str] = []
+        for rec in records:
+            event = rec.event
+            if (
+                reasoning
+                and event.event_type is EventType.REASONING
+                and event.message == reasoning
+            ):
+                reasoning = None  # the reply's reasoning, once
+                continue
+            if event.event_type is EventType.ACTION_START and isinstance(
+                event.action_input, dict
+            ):
+                written = {
+                    k: v
+                    for k, v in event.action_input.items()
+                    if k != SESSION_ID_INPUT_KEY
+                }
+                key = (event.action_name, written)
+                if key in actions:
+                    actions.remove(key)  # each emitted action, once
+                    lines.append(
+                        rec.compact_line(INPUT_IN_REPLY.format(name=event.action_name))
+                    )
+                    continue
+            lines.append(rec.compact_line())
+        return lines
+
+    def set_reply_in_history(
+        self, call_type: str, decision: Optional[Dict[str, Any]]
+    ) -> None:
+        """Record the decision reply ``call_type``'s session history now ends
+        with; None when it ends with none a delta can refer to (the reply did
+        not parse, or the history did not record it)."""
+        with self._lock:
+            if decision is None:
+                self._replies_in_history.pop(call_type, None)
+            else:
+                self._replies_in_history[call_type] = _ReplyInHistory.of(decision)
+
+    def reset_session_sync(self, call_type: str, reason: str = "reset") -> None:
         """
         Reset the sync point for a session cache.
 
@@ -957,10 +1150,34 @@ class EventStream:
 
         Args:
             call_type: The type of LLM call
+            reason: Why (e.g. "skill", "fold"); the full request that starts
+                the next session history is labeled with it.
         """
         with self._lock:
             self._session_sync_points.pop(call_type, None)
-            logger.debug(f"[EventStream] Reset session sync for {call_type}")
+            self._replies_in_history.pop(call_type, None)
+            self._unsynced_reasons[call_type] = reason
+            logger.debug(f"[EventStream] Reset session sync for {call_type} ({reason})")
+
+    def _clear_sync_points(self, reason: str) -> None:
+        """Drop every sync point, recording ``reason``. Caller holds the lock."""
+        for call_type in self._session_sync_points:
+            self._unsynced_reasons[call_type] = reason
+        self._session_sync_points.clear()
+        self._replies_in_history.clear()
+
+    def unsynced_reason(self, call_type: str) -> str:
+        """Why the next ``call_type`` request carries the whole stream: the
+        reason its sync point was dropped; otherwise "restart" when the model
+        has read this stream before (restored at boot without its session
+        history), else "first"."""
+        with self._lock:
+            reason = self._unsynced_reasons.get(call_type)
+            if reason:
+                return reason
+            if self.head_summary or any(r.delivered for r in self.tail_events):
+                return "restart"
+            return "first"
 
     def has_session_sync(self, call_type: str) -> bool:
         """Check if a sync point exists for the given call type."""

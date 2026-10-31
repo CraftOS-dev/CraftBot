@@ -21,6 +21,7 @@ from agent_core import action
     input_schema={
         "status": {
             "type": "string",
+            "required": True,
             "enum": ["completed", "failed"],
             "example": "completed",
             "description": (
@@ -30,6 +31,7 @@ from agent_core import action
         },
         "result": {
             "type": "string",
+            "required": True,
             "example": (
                 "The latest stable Python is 3.13.1, released 2024-12-03. "
                 "Source: [python.org downloads](https://www.python.org/downloads/)."

@@ -250,13 +250,14 @@ def build_operations() -> List[Operation]:
                 input_schema={
                     "event_data": {
                         "type": "object",
+                        "required": True,
                         "description": (
                             "Calendar event data with summary, start, end, "
                             "conferenceData."
                         ),
                         "example": {},
                     },
-                    "calendar_id": dict(_CAL_ID_DEFAULT),
+                    "calendar_id": dict(_CAL_ID_DEFAULT, required=False),
                 },
                 output_schema={
                     "status": {"type": "string", "example": "success"},
@@ -284,15 +285,17 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "time_min": {
                     "type": "string",
+                    "required": True,
                     "description": "Start time in ISO 8601 format.",
                     "example": "2024-01-15T09:00:00Z",
                 },
                 "time_max": {
                     "type": "string",
+                    "required": True,
                     "description": "End time in ISO 8601 format.",
                     "example": "2024-01-15T17:00:00Z",
                 },
-                "calendar_id": dict(_CAL_ID_DEFAULT),
+                "calendar_id": dict(_CAL_ID_DEFAULT, required=False),
             },
             arg_map=lambda d: {
                 "calendar_id": d.get("calendar_id", "primary"),
@@ -306,31 +309,37 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "start_time": {
                     "type": "string",
+                    "required": True,
                     "description": "Start time.",
                     "example": "2024-01-01T10:00:00",
                 },
                 "end_time": {
                     "type": "string",
+                    "required": True,
                     "description": "End time.",
                     "example": "2024-01-01T11:00:00",
                 },
                 "summary": {
                     "type": "string",
+                    "required": True,
                     "description": "Summary.",
                     "example": "Meeting",
                 },
                 "description": {
                     "type": "string",
+                    "required": False,
                     "description": "Description.",
                     "example": "Details",
                 },
                 "attendees": {
                     "type": "array",
+                    "required": False,
                     "description": "Attendees.",
                     "example": ["a@b.com"],
                 },
                 "from_email": {
                     "type": "string",
+                    "required": False,
                     "description": "Sender.",
                     "example": "me@example.com",
                 },
@@ -356,24 +365,28 @@ def build_operations() -> List[Operation]:
                 unwrap_envelope=True,
                 fail_message="Failed to list events.",
                 input_schema={
-                    "calendar_id": dict(_CAL_ID_DEFAULT),
+                    "calendar_id": dict(_CAL_ID_DEFAULT, required=False),
                     "time_min": {
                         "type": "string",
+                        "required": False,
                         "description": "ISO 8601 lower bound (optional).",
                         "example": "2026-05-20T00:00:00Z",
                     },
                     "time_max": {
                         "type": "string",
+                        "required": False,
                         "description": "ISO 8601 upper bound (optional).",
                         "example": "2026-05-27T00:00:00Z",
                     },
                     "max_results": {
                         "type": "integer",
+                        "required": False,
                         "description": "Max events to return.",
                         "example": 50,
                     },
                     "include_metadata": {
                         "type": "boolean",
+                        "required": False,
                         "description": (
                             "Return full raw Event resources (default false = lean)."
                         ),
@@ -403,12 +416,14 @@ def build_operations() -> List[Operation]:
                 input_schema={
                     "event_id": {
                         "type": "string",
+                        "required": True,
                         "description": "Event ID.",
                         "example": "",
                     },
-                    "calendar_id": dict(_CAL_ID_DEFAULT),
+                    "calendar_id": dict(_CAL_ID_DEFAULT, required=False),
                     "include_metadata": {
                         "type": "boolean",
+                        "required": False,
                         "description": (
                             "Return the full raw Event resource (default false = lean)."
                         ),
@@ -439,20 +454,23 @@ def build_operations() -> List[Operation]:
                 input_schema={
                     "event_data": {
                         "type": "object",
+                        "required": True,
                         "description": (
                             "Event resource: summary, description, start, end, "
                             "attendees, recurrence, etc."
                         ),
                         "example": {},
                     },
-                    "calendar_id": dict(_CAL_ID_DEFAULT),
+                    "calendar_id": dict(_CAL_ID_DEFAULT, required=False),
                     "send_updates": {
                         "type": "string",
+                        "required": False,
                         "description": "none, all, or externalOnly — who gets notified.",
                         "example": "none",
                     },
                     "supports_attachments": {
                         "type": "boolean",
+                        "required": False,
                         "description": "Set true if event_data includes attachments.",
                         "example": False,
                     },
@@ -480,16 +498,18 @@ def build_operations() -> List[Operation]:
                 input_schema={
                     "event_id": {
                         "type": "string",
+                        "required": True,
                         "description": "Event ID.",
                         "example": "",
                     },
                     "event_data": {
                         "type": "object",
+                        "required": True,
                         "description": "Full Event resource — replaces existing.",
                         "example": {},
                     },
-                    "calendar_id": dict(_CAL_ID_DEFAULT),
-                    "send_updates": dict(_SEND_UPDATES),
+                    "calendar_id": dict(_CAL_ID_DEFAULT, required=False),
+                    "send_updates": dict(_SEND_UPDATES, required=False),
                 },
                 arg_map=lambda d: {
                     "calendar_id": d.get("calendar_id", "primary"),
@@ -514,16 +534,18 @@ def build_operations() -> List[Operation]:
                 input_schema={
                     "event_id": {
                         "type": "string",
+                        "required": True,
                         "description": "Event ID.",
                         "example": "",
                     },
                     "event_data": {
                         "type": "object",
+                        "required": True,
                         "description": "Partial event fields to update.",
                         "example": {"summary": "New title"},
                     },
-                    "calendar_id": dict(_CAL_ID_DEFAULT),
-                    "send_updates": dict(_SEND_UPDATES),
+                    "calendar_id": dict(_CAL_ID_DEFAULT, required=False),
+                    "send_updates": dict(_SEND_UPDATES, required=False),
                 },
                 arg_map=lambda d: {
                     "calendar_id": d.get("calendar_id", "primary"),
@@ -545,10 +567,11 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "event_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Event ID.",
                     "example": "",
                 },
-                "calendar_id": dict(_CAL_ID_DEFAULT),
+                "calendar_id": dict(_CAL_ID_DEFAULT, required=False),
             },
             arg_map=lambda d: {
                 "event_id": d["event_id"],
@@ -570,20 +593,23 @@ def build_operations() -> List[Operation]:
                 input_schema={
                     "event_id": {
                         "type": "string",
+                        "required": True,
                         "description": "Event ID.",
                         "example": "",
                     },
                     "calendar_id": {
                         "type": "string",
+                        "required": False,
                         "description": "Current calendar ID.",
                         "example": "primary",
                     },
                     "destination_calendar_id": {
                         "type": "string",
+                        "required": True,
                         "description": "Target calendar ID.",
                         "example": "",
                     },
-                    "send_updates": dict(_SEND_UPDATES),
+                    "send_updates": dict(_SEND_UPDATES, required=False),
                 },
                 arg_map=lambda d: {
                     "event_id": d["event_id"],
@@ -609,11 +635,12 @@ def build_operations() -> List[Operation]:
                 input_schema={
                     "text": {
                         "type": "string",
+                        "required": True,
                         "description": "Natural-language event description.",
                         "example": "Lunch with Alice tomorrow at noon",
                     },
-                    "calendar_id": dict(_CAL_ID_DEFAULT),
-                    "send_updates": dict(_SEND_UPDATES),
+                    "calendar_id": dict(_CAL_ID_DEFAULT, required=False),
+                    "send_updates": dict(_SEND_UPDATES, required=False),
                 },
                 arg_map=lambda d: {
                     "calendar_id": d.get("calendar_id", "primary"),
@@ -637,27 +664,32 @@ def build_operations() -> List[Operation]:
                 input_schema={
                     "event_id": {
                         "type": "string",
+                        "required": True,
                         "description": "Recurring event ID.",
                         "example": "",
                     },
-                    "calendar_id": dict(_CAL_ID_DEFAULT),
+                    "calendar_id": dict(_CAL_ID_DEFAULT, required=False),
                     "time_min": {
                         "type": "string",
+                        "required": False,
                         "description": "ISO 8601 lower bound (optional).",
                         "example": "",
                     },
                     "time_max": {
                         "type": "string",
+                        "required": False,
                         "description": "ISO 8601 upper bound (optional).",
                         "example": "",
                     },
                     "max_results": {
                         "type": "integer",
+                        "required": False,
                         "description": "Max instances.",
                         "example": 50,
                     },
                     "include_metadata": {
                         "type": "boolean",
+                        "required": False,
                         "description": (
                             "Return full raw Event resources (default false = lean)."
                         ),
@@ -690,11 +722,13 @@ def build_operations() -> List[Operation]:
                 input_schema={
                     "event_data": {
                         "type": "object",
+                        "required": True,
                         "description": "Event resource including iCalUID.",
                         "example": {},
                     },
                     "calendar_id": {
                         "type": "string",
+                        "required": False,
                         "description": "Target calendar ID.",
                         "example": "primary",
                     },
@@ -728,7 +762,7 @@ def build_operations() -> List[Operation]:
             unwrap_envelope=True,
             fail_message="Failed to get calendar.",
             input_schema={
-                "calendar_id": dict(_CAL_ID_DEFAULT),
+                "calendar_id": dict(_CAL_ID_DEFAULT, required=False),
             },
             arg_map=lambda d: {"calendar_id": d.get("calendar_id", "primary")},
         ),
@@ -745,21 +779,25 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "summary": {
                     "type": "string",
+                    "required": True,
                     "description": "Calendar name.",
                     "example": "Team events",
                 },
                 "description": {
                     "type": "string",
+                    "required": False,
                     "description": "Description (optional).",
                     "example": "",
                 },
                 "time_zone": {
                     "type": "string",
+                    "required": False,
                     "description": "IANA tz (optional, e.g. Asia/Tokyo).",
                     "example": "UTC",
                 },
                 "location": {
                     "type": "string",
+                    "required": False,
                     "description": "Default location (optional).",
                     "example": "",
                 },
@@ -785,26 +823,31 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "calendar_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Calendar ID.",
                     "example": "",
                 },
                 "summary": {
                     "type": "string",
+                    "required": False,
                     "description": "New name (optional).",
                     "example": "",
                 },
                 "description": {
                     "type": "string",
+                    "required": False,
                     "description": "New description (optional).",
                     "example": "",
                 },
                 "time_zone": {
                     "type": "string",
+                    "required": False,
                     "description": "New IANA tz (optional).",
                     "example": "",
                 },
                 "location": {
                     "type": "string",
+                    "required": False,
                     "description": "New location (optional).",
                     "example": "",
                 },
@@ -828,26 +871,31 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "calendar_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Calendar ID.",
                     "example": "",
                 },
                 "summary": {
                     "type": "string",
+                    "required": False,
                     "description": "New name (optional).",
                     "example": "",
                 },
                 "description": {
                     "type": "string",
+                    "required": False,
                     "description": "New description (optional).",
                     "example": "",
                 },
                 "time_zone": {
                     "type": "string",
+                    "required": False,
                     "description": "New IANA tz (optional).",
                     "example": "",
                 },
                 "location": {
                     "type": "string",
+                    "required": False,
                     "description": "New location (optional).",
                     "example": "",
                 },
@@ -874,6 +922,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "calendar_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Calendar ID to delete.",
                     "example": "",
                 },
@@ -895,6 +944,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "calendar_id": {
                     "type": "string",
+                    "required": False,
                     "description": "Must be 'primary'.",
                     "example": "primary",
                 },
@@ -915,6 +965,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "calendar_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Calendar ID.",
                     "example": "",
                 },
@@ -935,11 +986,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "calendar_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Calendar ID to subscribe to.",
                     "example": "",
                 },
                 "color_id": {
                     "type": "string",
+                    "required": False,
                     "description": (
                         "Color ID from get_google_calendar_colors (optional)."
                     ),
@@ -947,16 +1000,19 @@ def build_operations() -> List[Operation]:
                 },
                 "summary_override": {
                     "type": "string",
+                    "required": False,
                     "description": "User-side display name (optional).",
                     "example": "",
                 },
                 "selected": {
                     "type": "boolean",
+                    "required": False,
                     "description": "Show in UI (optional).",
                     "example": True,
                 },
                 "hidden": {
                     "type": "boolean",
+                    "required": False,
                     "description": "Hide from UI (optional).",
                     "example": False,
                 },
@@ -983,26 +1039,31 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "calendar_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Calendar ID.",
                     "example": "",
                 },
                 "color_id": {
                     "type": "string",
+                    "required": False,
                     "description": "Color ID (optional).",
                     "example": "",
                 },
                 "summary_override": {
                     "type": "string",
+                    "required": False,
                     "description": "Display name (optional).",
                     "example": "",
                 },
                 "selected": {
                     "type": "boolean",
+                    "required": False,
                     "description": "Show in UI (optional).",
                     "example": True,
                 },
                 "hidden": {
                     "type": "boolean",
+                    "required": False,
                     "description": "Hide from UI (optional).",
                     "example": False,
                 },
@@ -1031,6 +1092,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "calendar_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Calendar ID to unsubscribe from.",
                     "example": "",
                 },
@@ -1046,7 +1108,7 @@ def build_operations() -> List[Operation]:
             unwrap_envelope=True,
             fail_message="Failed to list ACL.",
             input_schema={
-                "calendar_id": dict(_CAL_ID_DEFAULT),
+                "calendar_id": dict(_CAL_ID_DEFAULT, required=False),
             },
             arg_map=lambda d: {"calendar_id": d.get("calendar_id", "primary")},
         ),
@@ -1060,11 +1122,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "calendar_id": {
                     "type": "string",
+                    "required": False,
                     "description": "Calendar ID.",
                     "example": "primary",
                 },
                 "rule_id": {
                     "type": "string",
+                    "required": True,
                     "description": "ACL rule ID.",
                     "example": "",
                 },
@@ -1086,14 +1150,16 @@ def build_operations() -> List[Operation]:
             unwrap_envelope=True,
             fail_message="Failed to add ACL rule.",
             input_schema={
-                "calendar_id": dict(_CAL_ID_DEFAULT),
+                "calendar_id": dict(_CAL_ID_DEFAULT, required=False),
                 "scope_type": {
                     "type": "string",
+                    "required": True,
                     "description": "user, group, domain, or default.",
                     "example": "user",
                 },
                 "scope_value": {
                     "type": "string",
+                    "required": False,
                     "description": (
                         "Email, group address, or domain (empty for 'default')."
                     ),
@@ -1101,11 +1167,13 @@ def build_operations() -> List[Operation]:
                 },
                 "role": {
                     "type": "string",
+                    "required": True,
                     "description": "none, freeBusyReader, reader, writer, or owner.",
                     "example": "reader",
                 },
                 "send_notifications": {
                     "type": "boolean",
+                    "required": False,
                     "description": "Email the grantee.",
                     "example": True,
                 },
@@ -1129,31 +1197,37 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "calendar_id": {
                     "type": "string",
+                    "required": False,
                     "description": "Calendar ID.",
                     "example": "primary",
                 },
                 "rule_id": {
                     "type": "string",
+                    "required": True,
                     "description": "ACL rule ID.",
                     "example": "",
                 },
                 "role": {
                     "type": "string",
+                    "required": True,
                     "description": "New role.",
                     "example": "writer",
                 },
                 "scope_type": {
                     "type": "string",
+                    "required": False,
                     "description": "New scope type (optional).",
                     "example": "",
                 },
                 "scope_value": {
                     "type": "string",
+                    "required": False,
                     "description": "New scope value (optional).",
                     "example": "",
                 },
                 "send_notifications": {
                     "type": "boolean",
+                    "required": False,
                     "description": "Email the grantee.",
                     "example": True,
                 },
@@ -1179,11 +1253,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "calendar_id": {
                     "type": "string",
+                    "required": False,
                     "description": "Calendar ID.",
                     "example": "primary",
                 },
                 "rule_id": {
                     "type": "string",
+                    "required": True,
                     "description": "ACL rule ID.",
                     "example": "",
                 },
@@ -1220,6 +1296,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "setting_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Setting ID.",
                     "example": "timezone",
                 },

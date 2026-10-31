@@ -29,37 +29,45 @@ from agent_core import action
     input_schema={
         "title": {
             "type": "string",
+            "required": True,
             "description": "Short title, up to 120 characters.",
         },
         "html": {
             "type": "string",
+            "required": True,
             "description": "Complete HTML document, up to 512 KB.",
         },
         "artifact_id": {
             "type": "string",
+            "required": False,
             "description": "Optional: earlier render_ui id in this session, to revise with complete new HTML (keep state keys).",
         },
         "persistence": {
             "type": "string",
+            "required": False,
             "description": "controls (default): persist static native controls by stable id/data-craftbot-state, hydrated before scripts run; manual: explicitly restore/save dynamic DOM or custom state with craftbot.state/saveState; none: stateless output. Never persist secrets.",
         },
         "libraries": {
             "type": "array",
+            "required": False,
             "items": {"type": "string"},
             "description": "Optional, preloaded as globals: leaflet (L; base map L.tileLayer.craftbot()), three (THREE, THREE.OrbitControls), chart (Chart.js), motion (Motion.animate/stagger/inView), lucide (lucide.createIcons() fills <i data-lucide=name>).",
         },
         "connect_origins": {
             "type": "array",
+            "required": False,
             "items": {"type": "string"},
             "description": "Optional: up to 8 exact public HTTPS origins the page fetches (browser CORS, no keys).",
         },
         "image_origins": {
             "type": "array",
+            "required": False,
             "items": {"type": "string"},
             "description": "Optional: up to 8 exact public HTTPS origins for web images.",
         },
         "images": {
             "type": "object",
+            "required": False,
             "description": "Optional: {name: local image path}, e.g. generate_image output; src = window.craftbot.images.name.",
         },
     },

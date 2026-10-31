@@ -23,11 +23,13 @@ from agent_core import action
     input_schema={
         "source_path": {
             "type": "string",
+            "required": True,
             "example": "C:/path/in.pdf",
             "description": "Absolute path to the source .pdf.",
         },
         "output_path": {
             "type": "string",
+            "required": True,
             "example": "C:/path/out.docx",
             "description": (
                 "Absolute output path. Extension drives target detection: .docx→docx, "
@@ -36,11 +38,13 @@ from agent_core import action
         },
         "target_format": {
             "type": "string",
+            "required": False,
             "example": "docx",
             "description": "Optional explicit target override. One of: docx, html.",
         },
         "mode": {
             "type": "string",
+            "required": False,
             "example": "xhtml",
             "description": "html target only: 'xhtml' (flow, reflows on edits — default) or 'html' (absolute-positioned, rigid).",
         },

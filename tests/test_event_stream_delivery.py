@@ -153,7 +153,7 @@ class _ContextEngine:
     def make_prompt(self, user_flags=None, system_flags=None):
         return "SYSTEM", None
 
-    def reset_event_stream_sync(self, call_type, session_id=None):
+    def reset_event_stream_sync(self, call_type, session_id=None, reason="reset"):
         pass
 
 

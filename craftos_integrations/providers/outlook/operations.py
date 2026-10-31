@@ -45,16 +45,19 @@ def _forward_outlook_email_op() -> Operation:
         input_schema={
             "message_id": {
                 "type": "string",
+                "required": True,
                 "description": "Message ID.",
                 "example": "AAMk...",
             },
             "to_recipients": {
                 "type": "string",
+                "required": True,
                 "description": "Comma-separated recipient emails.",
                 "example": "bob@example.com",
             },
             "comment": {
                 "type": "string",
+                "required": False,
                 "description": "Optional intro comment.",
                 "example": "",
             },
@@ -91,6 +94,7 @@ def _get_outlook_mailbox_settings_op() -> Operation:
         input_schema={
             "include_metadata": {
                 "type": "boolean",
+                "required": False,
                 "description": "Return the raw mailboxSettings resource (default false = lean).",
                 "example": False,
             },
@@ -140,6 +144,7 @@ def _get_outlook_automatic_replies_op() -> Operation:
         input_schema={
             "include_metadata": {
                 "type": "boolean",
+                "required": False,
                 "description": "Return the raw automaticRepliesSetting (default false = lean, HTML stripped).",
                 "example": False,
             },
@@ -227,21 +232,25 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "to": {
                     "type": "string",
+                    "required": True,
                     "description": "Recipient email address.",
                     "example": "user@example.com",
                 },
                 "subject": {
                     "type": "string",
+                    "required": True,
                     "description": "Email subject.",
                     "example": "Meeting Follow-up",
                 },
                 "body": {
                     "type": "string",
+                    "required": True,
                     "description": "Email body text.",
                     "example": "Hi, here are the notes...",
                 },
                 "cc": {
                     "type": "string",
+                    "required": False,
                     "description": "Optional CC recipients (comma-separated).",
                     "example": "",
                 },
@@ -263,11 +272,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "count": {
                     "type": "integer",
+                    "required": False,
                     "description": "Number of recent emails to list.",
                     "example": 10,
                 },
                 "unread_only": {
                     "type": "boolean",
+                    "required": False,
                     "description": "Only show unread emails.",
                     "example": False,
                 },
@@ -291,11 +302,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "message_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Outlook message ID.",
                     "example": "AAMk...",
                 },
                 "include_metadata": {
                     "type": "boolean",
+                    "required": False,
                     "description": "Return the HTML body instead of plain text (default false).",
                     "example": False,
                 },
@@ -319,16 +332,19 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "count": {
                     "type": "integer",
+                    "required": False,
                     "description": "Number of emails to read.",
                     "example": 5,
                 },
                 "full_body": {
                     "type": "boolean",
+                    "required": False,
                     "description": "Include full body text.",
                     "example": False,
                 },
                 "include_metadata": {
                     "type": "boolean",
+                    "required": False,
                     "description": "With full_body, return HTML bodies instead of plain text (default false).",
                     "example": False,
                 },
@@ -352,16 +368,19 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "query": {
                     "type": "string",
+                    "required": True,
                     "description": "Search text.",
                     "example": "invoice contoso",
                 },
                 "top": {
                     "type": "integer",
+                    "required": False,
                     "description": "Max results.",
                     "example": 25,
                 },
                 "folder": {
                     "type": "string",
+                    "required": False,
                     "description": "Optional folder name (inbox/sentitems/etc.) or ID.",
                     "example": "",
                 },
@@ -384,16 +403,19 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "message_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Original message ID.",
                     "example": "AAMk...",
                 },
                 "comment": {
                     "type": "string",
+                    "required": True,
                     "description": "Reply body (plain text).",
                     "example": "Thanks, sounds good.",
                 },
                 "to_recipients": {
                     "type": "string",
+                    "required": False,
                     "description": "Optional comma-separated extra recipients.",
                     "example": "",
                 },
@@ -418,11 +440,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "message_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Original message ID.",
                     "example": "AAMk...",
                 },
                 "comment": {
                     "type": "string",
+                    "required": True,
                     "description": "Reply body.",
                     "example": "",
                 },
@@ -444,11 +468,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "message_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Original message ID.",
                     "example": "AAMk...",
                 },
                 "comment": {
                     "type": "string",
+                    "required": False,
                     "description": "Optional initial reply text.",
                     "example": "",
                 },
@@ -472,16 +498,19 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "message_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Original message ID.",
                     "example": "AAMk...",
                 },
                 "to_recipients": {
                     "type": "string",
+                    "required": False,
                     "description": "Comma-separated recipient emails.",
                     "example": "",
                 },
                 "comment": {
                     "type": "string",
+                    "required": False,
                     "description": "Optional intro.",
                     "example": "",
                 },
@@ -506,27 +535,32 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "subject": {
                     "type": "string",
+                    "required": True,
                     "description": "Subject.",
                     "example": "Quick question",
                 },
-                "body": {"type": "string", "description": "Body.", "example": ""},
+                "body": {"type": "string", "required": True, "description": "Body.", "example": ""},
                 "to": {
                     "type": "string",
+                    "required": False,
                     "description": "Comma-separated recipients (optional).",
                     "example": "",
                 },
                 "cc": {
                     "type": "string",
+                    "required": False,
                     "description": "Comma-separated CC (optional).",
                     "example": "",
                 },
                 "bcc": {
                     "type": "string",
+                    "required": False,
                     "description": "Comma-separated BCC (optional).",
                     "example": "",
                 },
                 "html": {
                     "type": "boolean",
+                    "required": False,
                     "description": "Body is HTML.",
                     "example": False,
                 },
@@ -551,36 +585,43 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "message_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Draft ID.",
                     "example": "",
                 },
                 "subject": {
                     "type": "string",
+                    "required": False,
                     "description": "New subject (optional).",
                     "example": "",
                 },
                 "body": {
                     "type": "string",
+                    "required": False,
                     "description": "New body (optional).",
                     "example": "",
                 },
                 "html": {
                     "type": "boolean",
+                    "required": False,
                     "description": "Body is HTML.",
                     "example": False,
                 },
                 "to": {
                     "type": "string",
+                    "required": False,
                     "description": "New comma-separated recipients (optional, replaces).",
                     "example": "",
                 },
                 "cc": {
                     "type": "string",
+                    "required": False,
                     "description": "New CC (optional).",
                     "example": "",
                 },
                 "bcc": {
                     "type": "string",
+                    "required": False,
                     "description": "New BCC (optional).",
                     "example": "",
                 },
@@ -599,6 +640,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "message_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Draft ID.",
                     "example": "",
                 },
@@ -619,6 +661,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "message_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Message ID.",
                     "example": "",
                 },
@@ -639,11 +682,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "message_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Message ID.",
                     "example": "",
                 },
                 "destination_folder_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Folder ID or well-known name.",
                     "example": "archive",
                 },
@@ -660,11 +705,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "message_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Message ID.",
                     "example": "",
                 },
                 "destination_folder_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Folder ID or well-known name.",
                     "example": "",
                 },
@@ -682,6 +729,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "message_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Outlook message ID.",
                     "example": "AAMk...",
                 },
@@ -698,6 +746,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "message_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Message ID.",
                     "example": "",
                 },
@@ -717,11 +766,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "message_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Message ID.",
                     "example": "",
                 },
                 "flag_status": {
                     "type": "string",
+                    "required": False,
                     "description": "notFlagged, flagged, or complete.",
                     "example": "flagged",
                 },
@@ -745,11 +796,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "message_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Message ID.",
                     "example": "",
                 },
                 "categories": {
                     "type": "string",
+                    "required": True,
                     "description": "Comma-separated category display names.",
                     "example": "Personal,Important",
                 },
@@ -770,6 +823,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "message_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Message ID.",
                     "example": "",
                 },
@@ -789,16 +843,19 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "message_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Message ID.",
                     "example": "",
                 },
                 "attachment_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Attachment ID.",
                     "example": "",
                 },
                 "save_to": {
                     "type": "string",
+                    "required": True,
                     "description": "Local path to save to.",
                     "example": "C:/Users/me/downloads/file.pdf",
                 },
@@ -815,16 +872,19 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "message_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Draft message ID.",
                     "example": "",
                 },
                 "file_path": {
                     "type": "string",
+                    "required": True,
                     "description": "Absolute path to the local file.",
                     "example": "",
                 },
                 "content_type": {
                     "type": "string",
+                    "required": False,
                     "description": "MIME type (autodetect if omitted).",
                     "example": "",
                 },
@@ -847,11 +907,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "message_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Message ID.",
                     "example": "",
                 },
                 "attachment_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Attachment ID.",
                     "example": "",
                 },
@@ -877,6 +939,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "folder_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Folder ID or well-known name (inbox, drafts, sentitems, etc.).",
                     "example": "inbox",
                 },
@@ -895,11 +958,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "display_name": {
                     "type": "string",
+                    "required": True,
                     "description": "Folder name.",
                     "example": "Receipts",
                 },
                 "parent_folder_id": {
                     "type": "string",
+                    "required": False,
                     "description": "Parent folder ID or well-known name. Default msgfolderroot.",
                     "example": "msgfolderroot",
                 },
@@ -920,11 +985,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "folder_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Folder ID.",
                     "example": "",
                 },
                 "display_name": {
                     "type": "string",
+                    "required": True,
                     "description": "New name.",
                     "example": "",
                 },
@@ -945,6 +1012,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "folder_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Folder ID.",
                     "example": "",
                 },
@@ -960,6 +1028,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "folder_id": {
                     "type": "string",
+                    "required": False,
                     "description": "Parent folder ID or well-known name. Default msgfolderroot.",
                     "example": "msgfolderroot",
                 },
@@ -978,16 +1047,19 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "folder_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Folder ID or well-known name.",
                     "example": "inbox",
                 },
                 "count": {
                     "type": "integer",
+                    "required": False,
                     "description": "Max results.",
                     "example": 25,
                 },
                 "unread_only": {
                     "type": "boolean",
+                    "required": False,
                     "description": "Filter to unread.",
                     "example": False,
                 },
@@ -1015,31 +1087,37 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "status": {
                     "type": "string",
+                    "required": True,
                     "description": "disabled, alwaysEnabled, or scheduled.",
                     "example": "alwaysEnabled",
                 },
                 "internal_reply": {
                     "type": "string",
+                    "required": False,
                     "description": "Reply text shown to internal senders (optional).",
                     "example": "Out of office until Friday.",
                 },
                 "external_reply": {
                     "type": "string",
+                    "required": False,
                     "description": "Reply text shown to external senders (optional).",
                     "example": "",
                 },
                 "external_audience": {
                     "type": "string",
+                    "required": False,
                     "description": "none, contactsOnly, or all.",
                     "example": "all",
                 },
                 "scheduled_start": {
                     "type": "string",
+                    "required": False,
                     "description": "ISO 8601 start (only for status=scheduled).",
                     "example": "",
                 },
                 "scheduled_end": {
                     "type": "string",
+                    "required": False,
                     "description": "ISO 8601 end (only for status=scheduled).",
                     "example": "",
                 },
@@ -1071,26 +1149,31 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "display_name": {
                     "type": "string",
+                    "required": True,
                     "description": "Rule name.",
                     "example": "From boss to Important",
                 },
                 "conditions": {
                     "type": "object",
+                    "required": True,
                     "description": "Graph messageRulePredicates object.",
                     "example": {},
                 },
                 "actions": {
                     "type": "object",
+                    "required": True,
                     "description": "Graph messageRuleActions object.",
                     "example": {},
                 },
                 "sequence": {
                     "type": "integer",
+                    "required": False,
                     "description": "Run order (lower runs first).",
                     "example": 1,
                 },
                 "is_enabled": {
                     "type": "boolean",
+                    "required": False,
                     "description": "Enable on create.",
                     "example": True,
                 },
@@ -1115,6 +1198,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "rule_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Rule ID.",
                     "example": "",
                 },
@@ -1146,11 +1230,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "display_name": {
                     "type": "string",
+                    "required": True,
                     "description": "Category name.",
                     "example": "Personal",
                 },
                 "color": {
                     "type": "string",
+                    "required": False,
                     "description": "preset0..preset24.",
                     "example": "preset0",
                 },
@@ -1172,6 +1258,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "category_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Category ID.",
                     "example": "",
                 },

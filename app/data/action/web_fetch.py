@@ -24,21 +24,25 @@ from agent_core import action
         },
         "mode": {
             "type": "string",
+            "required": False,
             "example": "full",
             "description": "What to return. 'full' (default): extracted page content up to max_content_length, overflow saved to content_file. 'title': only the page title, no content extraction.",
         },
         "timeout": {
             "type": "number",
+            "required": False,
             "example": 20,
             "description": "Request timeout in seconds. Defaults to 20.",
         },
         "max_content_length": {
             "type": "integer",
+            "required": False,
             "example": 5000,
             "description": "Maximum content length in characters returned inline. Content beyond this is saved to content_file — use grep_files to search it or read_file with offset/limit to paginate through it. Defaults to 5000. Pass 0 to return all content inline (use sparingly — large pages waste tokens).",
         },
         "use_jina_fallback": {
             "type": "boolean",
+            "required": False,
             "example": True,
             "description": "Use Jina Reader API as fallback for JS-rendered sites when static extraction yields too little content. Defaults to True.",
         },

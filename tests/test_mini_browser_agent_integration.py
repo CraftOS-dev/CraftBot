@@ -69,7 +69,7 @@ REQUIRED_PARAMS: Dict[str, set] = {
     "mini_browser_upload_file": {"element_id", "paths"},
     "mini_browser_login": set(),
     "mini_browser_screenshot": set(),
-    "mini_browser_tabs": {"action"},
+    "mini_browser_tabs": set(),  # action defaults to 'list'
 }
 
 OLD_PROTOTYPE_ACTIONS = (
@@ -285,23 +285,28 @@ def test_set_compiles_in_every_mode_and_under_its_old_name(registry, mode):
 
 
 def test_action_prompt_rule_and_placeholders():
-    from agent_core.core.prompts.action import MINI_BROWSER_RULE, SELECT_ACTION_PROMPT
+    from agent_core.core.prompts.action import (
+        MINI_BROWSER_RULE,
+        SELECT_ACTION_INSTRUCTIONS,
+        SELECT_ACTION_PROMPT,
+    )
     from agent_core.core.prompts.context import AGENT_INFO_PROMPT
 
     assert "load the 'mini_browser' action set" in MINI_BROWSER_RULE
-    # The rule is one whole bullet of the template, so the host can drop it.
-    assert MINI_BROWSER_RULE in SELECT_ACTION_PROMPT
+    # The rule is one whole bullet of the instructions, so the host can drop it.
+    assert MINI_BROWSER_RULE in SELECT_ACTION_INSTRUCTIONS
     assert MINI_BROWSER_RULE.startswith("- ") and MINI_BROWSER_RULE.endswith("\n")
-    # Nothing else in the template steers to the browser.
-    rest = SELECT_ACTION_PROMPT.replace(MINI_BROWSER_RULE, "")
+    # Nothing else in either template steers to the browser.
+    rest = (
+        SELECT_ACTION_INSTRUCTIONS.replace(MINI_BROWSER_RULE, "") + SELECT_ACTION_PROMPT
+    )
     assert "mini_browser" not in rest and "Mini Browser" not in rest
-    fields = {f for _, f, _, _ in string.Formatter().parse(SELECT_ACTION_PROMPT) if f}
-    assert fields == {
-        "action_candidates",
-        "session_state",
-        "event_stream",
-        "query",
-    }
+
+    def fields(template):
+        return {f for _, f, _, _ in string.Formatter().parse(template) if f}
+
+    assert fields(SELECT_ACTION_INSTRUCTIONS) == {"action_candidates"}
+    assert fields(SELECT_ACTION_PROMPT) == {"session_state", "event_stream", "query"}
     assert "Mini Browser" in AGENT_INFO_PROMPT
 
 
@@ -562,18 +567,11 @@ def iai(monkeypatch):
             event_stream_manager=streams, bump_event_stream=lambda: None
         ),
     )
-    invalidated: List[str] = []
-    monkeypatch.setattr(
-        InternalActionInterface,
-        "_invalidate_action_selection_caches",
-        classmethod(lambda cls, sid=None: invalidated.append(sid)),
-    )
     return types.SimpleNamespace(
         api=InternalActionInterface,
         manager=manager,
         stream=streams.stream,
         delivered=delivered,
-        invalidated=invalidated,
     )
 
 
@@ -601,8 +599,6 @@ def test_add_action_sets_normalises_names(iai, requested, loaded):
     assert iai.delivered == [loaded]
     assert "unknown_sets" not in result
     assert result["actions"] == [f"{s}_action" for s in loaded]
-    # Loading is a read: the prompt prefix (and its caches) stay as they are.
-    assert iai.invalidated == []
 
 
 def test_add_action_sets_skips_unknown_names_but_loads_the_rest(iai):
@@ -714,12 +710,12 @@ def test_use_skill_accepts_the_set_spelling_and_loads_the_set(iai):
     assert iai.stream.schema_actions == ["mini_browser_action"]
 
 
-def test_use_skill_still_rebuilds_caches_when_its_sets_are_unknown(iai):
+def test_use_skill_still_loads_the_skill_when_its_sets_are_unknown(iai):
     result = iai.api.use_skill("odd-skill", session_id="s1")
     assert result["success"] is True
     assert result["added_action_sets"] == []
     assert iai.delivered == []
-    assert iai.invalidated == ["s1"]
+    assert iai.manager.session.selected_skills == ["odd-skill"]
 
 
 # ── AgentBase: workflow skills and lifecycle hooks ─────────────────────
@@ -755,7 +751,6 @@ def bare_agent(monkeypatch):
     agent.busy_sessions = set()
     agent.ui_controller = None
     agent._interface_mode = "browser"
-    monkeypatch.setattr(agent, "_invalidate_session_caches", lambda sid: None)
     monkeypatch.setattr(agent, "_persist_session_stream", lambda sid: None)
     return agent
 
@@ -1007,7 +1002,8 @@ def test_browser_mode_prompt_explains_the_live_view(bare_agent, monkeypatch):
     assert "## Mini Browser" in prompt
     assert "for_user=true" in prompt and "continue_work=true" in prompt
     bare_agent._interface_mode = "cli"
-    assert bare_agent._get_interface_capabilities_prompt() == ""
+    cli_prompt = bare_agent._get_interface_capabilities_prompt()
+    assert "## File Sharing" not in cli_prompt and "Mini Browser" not in cli_prompt
 
 
 def test_browser_mode_note_is_left_out_while_the_browser_is_unusable(
@@ -1066,15 +1062,9 @@ def test_availability_check_tolerates_an_older_or_broken_lifecycle(monkeypatch):
 
 
 def _rendered_action_prompt():
-    from agent_core.core.prompts.action import SELECT_ACTION_PROMPT
+    from agent_core.core.prompts.action import SELECT_ACTION_INSTRUCTIONS
 
-    return SELECT_ACTION_PROMPT.format(
-        action_candidates="[]",
-        session_state="",
-        event_stream="",
-        query="q",
-        integration_essentials="",
-    )
+    return SELECT_ACTION_INSTRUCTIONS.format(action_candidates="[]")
 
 
 def test_action_prompt_rule_is_dropped_while_the_browser_is_unusable(
@@ -1110,7 +1100,7 @@ def test_router_sends_the_filtered_prompt(monkeypatch):
         def get_session_state(self, session_id=None):
             return ""
 
-        def get_event_stream(self, session_id=None):
+        def get_event_stream(self, session_id=None, up_to=None):
             return ""
 
     class _Stop(Exception):
@@ -1125,11 +1115,15 @@ def test_router_sends_the_filtered_prompt(monkeypatch):
         )
 
         async def decide(prompt, **kwargs):
-            seen.update(
-                prompt=prompt,
-                static=kwargs["static_prompt"],
-                rerendered=kwargs["render_prompt"](),
-            )
+            # The rule lives in the decision instructions (the end of the
+            # system prompt); the user message never carries it.
+            for user_part in (
+                prompt,
+                kwargs["static_prompt"],
+                kwargs["render_prompt"](),
+            ):
+                assert MINI_BROWSER_RULE not in user_part
+            seen.update(instructions=kwargs["instructions"])
             raise _Stop
 
         monkeypatch.setattr(router, "_prompt_for_decision", decide)

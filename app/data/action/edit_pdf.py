@@ -23,11 +23,13 @@ from agent_core import action
     input_schema={
         "file_path": {
             "type": "string",
+            "required": True,
             "example": "C:/path/to/document.pdf",
             "description": "Absolute path to the source PDF to edit.",
         },
         "output_path": {
             "type": "string",
+            "required": True,
             "example": "C:/path/to/document_edited.pdf",
             "description": (
                 "Absolute path for the output PDF. "
@@ -37,6 +39,7 @@ from agent_core import action
         },
         "operations": {
             "type": "array",
+            "required": True,
             "description": (
                 "Ordered list of edit operations to apply. Each operation is an object "
                 "with a 'type' field plus type-specific fields. "

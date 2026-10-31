@@ -32,11 +32,13 @@ logger = logging.getLogger(__name__)
     input_schema={
         "name": {
             "type": "string",
+            "required": True,
             "example": "Stock Forecaster",
             "description": "Display name for the Agent App project.",
         },
         "description": {
             "type": "string",
+            "required": True,
             "example": "A dashboard that forecasts stock performance.",
             "description": (
                 "Description of what the app does. Include EVERY requirement "
@@ -46,11 +48,13 @@ logger = logging.getLogger(__name__)
         },
         "features": {
             "type": "array",
+            "required": False,
             "example": ["watchlist", "forecasts", "alerts"],
             "description": "Optional list of high-level features requested by the user.",
         },
         "chat_context": {
             "type": "string",
+            "required": False,
             "example": (
                 'User: "I run a small pottery studio" / User: "no existing '
                 'tools, maybe a marketplace app could help"'
@@ -65,12 +69,14 @@ logger = logging.getLogger(__name__)
         },
         "theme": {
             "type": "string",
+            "required": False,
             "enum": ["light", "dark", "system"],
             "example": "system",
             "description": "UI theme. Defaults to 'system'.",
         },
         "auth_mode": {
             "type": "string",
+            "required": False,
             "enum": ["none", "multi-user"],
             "example": "none",
             "description": (
@@ -416,6 +422,7 @@ async def agent_app_list_projects(input_data: dict) -> dict:
     input_schema={
         "project_id": {
             "type": "string",
+            "required": True,
             "example": "abc12345",
             "description": "The Agent App project ID (provided in task instruction).",
         },
@@ -735,11 +742,13 @@ async def agent_app_notify_ready(input_data: dict) -> dict:
     input_schema={
         "project_id": {
             "type": "string",
+            "required": True,
             "example": "abc12345",
             "description": "The Agent App project ID (provided in task instruction).",
         },
         "scope": {
             "type": "string",
+            "required": False,
             "example": "auto",
             "description": (
                 "'auto' (default): the verifier decides which features the "
@@ -1320,11 +1329,13 @@ async def agent_app_walk_verify(input_data: dict) -> dict:
     input_schema={
         "project_id": {
             "type": "string",
+            "required": True,
             "example": "abc12345",
             "description": "The external Agent App project ID.",
         },
         "op_names": {
             "type": "array",
+            "required": False,
             "example": ["todos.create"],
             "description": (
                 "Optional: verify only these operations. Default: all "
@@ -1423,6 +1434,7 @@ async def agent_app_ops_verify(input_data: dict) -> dict:
     input_schema={
         "project_id": {
             "type": "string",
+            "required": True,
             "example": "5a58a160",
             "description": "The Agent App project ID (from agent_app_projects.json).",
         },
@@ -1495,11 +1507,13 @@ async def agent_app_restart(input_data: dict) -> dict:
     input_schema={
         "project_id": {
             "type": "string",
+            "required": True,
             "example": "abc12345",
             "description": "The Agent App project ID.",
         },
         "phase": {
             "type": "string",
+            "required": False,
             "enum": [
                 "initializing",
                 "scaffolding",
@@ -1513,6 +1527,7 @@ async def agent_app_restart(input_data: dict) -> dict:
         },
         "progress": {
             "type": "integer",
+            "required": False,
             "minimum": 0,
             "maximum": 100,
             "example": 50,
@@ -1520,6 +1535,7 @@ async def agent_app_restart(input_data: dict) -> dict:
         },
         "message": {
             "type": "string",
+            "required": False,
             "example": "Implementing view components...",
             "description": "Human-readable status message.",
         },
@@ -1615,11 +1631,13 @@ async def agent_app_report_progress(input_data: dict) -> dict:
     input_schema={
         "project_id": {
             "type": "string",
+            "required": True,
             "example": "abc12345",
             "description": "The Agent App project ID.",
         },
         "ruled_out": {
             "type": "array",
+            "required": False,
             "example": [
                 "the grant is fine - dry-run of send_gmail returned 200",
                 "not a schema problem - the record saves from the CLI",
@@ -1631,6 +1649,7 @@ async def agent_app_report_progress(input_data: dict) -> dict:
         },
         "disputed": {
             "type": "array",
+            "required": False,
             "example": [
                 "AI Explore - ran it on the dev instance, graph went 1 -> 5 "
                 "nodes with AI-written ideas. Not broken."
@@ -1643,6 +1662,7 @@ async def agent_app_report_progress(input_data: dict) -> dict:
         },
         "blocked_question": {
             "type": "string",
+            "required": False,
             "example": "Which calendar should new bookings write to?",
             "description": (
                 "The one question the user must answer for work to continue. "
@@ -1784,47 +1804,56 @@ def agent_app_report_finding(input_data: dict) -> dict:
     input_schema={
         "project_id": {
             "type": "string",
+            "required": True,
             "example": "84d93cca",
             "description": "The Agent App project ID.",
         },
         "method": {
             "type": "string",
+            "required": False,
             "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"],
             "example": "POST",
             "description": "HTTP method to use.",
         },
         "path": {
             "type": "string",
+            "required": True,
             "example": "/api/boards/2/cards",
             "description": "API path on the Agent App backend, starting with '/'. Do NOT include scheme or host.",
         },
         "headers": {
             "type": "object",
+            "required": False,
             "example": {"Accept": "application/json"},
             "description": "Optional headers to send.",
         },
         "params": {
             "type": "object",
+            "required": False,
             "example": {"limit": "10"},
             "description": "Optional query parameters.",
         },
         "json": {
             "type": "object",
+            "required": False,
             "example": {"title": "Call John at 5pm", "column": "todo"},
             "description": "JSON body to send. Mutually exclusive with 'data'.",
         },
         "data": {
             "type": "string",
+            "required": False,
             "example": "field=value",
             "description": "Raw request body. Mutually exclusive with 'json'.",
         },
         "timeout": {
             "type": "number",
+            "required": False,
             "example": 30,
             "description": "Timeout in seconds. Defaults to 30.",
         },
         "target": {
             "type": "string",
+            "required": False,
             "enum": ["backend", "frontend"],
             "example": "backend",
             "description": "Which server to hit. Defaults to 'backend'. Use 'frontend' only if the project serves data from its frontend port.",
@@ -2135,6 +2164,7 @@ def agent_app_http(input_data: dict) -> dict:
     input_schema={
         "project_id": {
             "type": "string",
+            "required": True,
             "example": "84d93cca",
             "description": "The Agent App project ID (agent_app_list_projects resolves names to ids).",
         },
@@ -2268,6 +2298,7 @@ async def agent_app_marketplace_list(input_data: dict) -> dict:
     input_schema={
         "project_id": {
             "type": "string",
+            "required": True,
             "example": "84d93cca",
             "description": "The Agent App project whose triggers the user approved.",
         },
@@ -2370,21 +2401,25 @@ def agent_app_approve_triggers(input_data: dict) -> dict:
     input_schema={
         "app_id": {
             "type": "string",
+            "required": True,
             "example": "kanban-board",
             "description": "The app id from the marketplace catalogue.",
         },
         "name": {
             "type": "string",
+            "required": False,
             "example": "My Kanban",
             "description": "Optional display name (defaults to the catalogue name/app id).",
         },
         "description": {
             "type": "string",
+            "required": False,
             "example": "Team task board",
             "description": "Optional project description.",
         },
         "will_adapt": {
             "type": "boolean",
+            "required": False,
             "example": False,
             "description": (
                 "True when the requirements demand adaptations AFTER the "
@@ -2611,11 +2646,13 @@ async def agent_app_marketplace_install(input_data: dict) -> dict:
     input_schema={
         "zip_path": {
             "type": "string",
+            "required": True,
             "example": "/Users/me/Downloads/my-app-export.zip",
             "description": "Absolute path to the exported Agent App ZIP.",
         },
         "name": {
             "type": "string",
+            "required": False,
             "example": "My Imported App",
             "description": "Optional display name (defaults to the export's name).",
         },
@@ -2700,11 +2737,13 @@ async def agent_app_import_zip(input_data: dict) -> dict:
     input_schema={
         "source": {
             "type": "string",
+            "required": True,
             "example": "https://github.com/someone/my-agent-app",
             "description": ("A .zip path, a local project folder path, or a git URL."),
         },
         "name": {
             "type": "string",
+            "required": False,
             "example": "My Imported App",
             "description": "Optional display name (defaults to the app's name).",
         },
@@ -2828,16 +2867,19 @@ async def agent_app_import(input_data: dict) -> dict:
     input_schema={
         "source": {
             "type": "string",
+            "required": True,
             "example": "https://github.com/someone/express-todo-app",
             "description": "A .zip path, a local folder path, or a git URL of the foreign app.",
         },
         "name": {
             "type": "string",
+            "required": False,
             "example": "My Todo Board",
             "description": "Optional display name (defaults to the repo/folder name).",
         },
         "description": {
             "type": "string",
+            "required": False,
             "example": "Keep the kanban view, skip the admin panel",
             "description": "Optional user note on what matters in the rebuild.",
         },

@@ -26,6 +26,7 @@ from agent_core.core.prompts import (
     USER_PROFILE_PROMPT,
     SOUL_PROMPT,
     LANGUAGE_INSTRUCTION,
+    decision_system_prompt,
 )
 from agent_core.core.state import get_state, get_session_or_none
 
@@ -66,6 +67,9 @@ class ContextEngine:
         self.system_messages = []
         self.user_messages = []
         self._role_info_func = None
+        self._decision_instructions_func: Optional[Callable[[Optional[str]], str]] = (
+            None
+        )
         self.state_manager = state_manager
         self._memory_manager = None
 
@@ -166,6 +170,32 @@ class ContextEngine:
                 agent_name = "Agent"
             return AGENT_ROLE_PROMPT.format(agent_name=agent_name, role=role)
         return ""
+
+    def set_decision_instructions_hook(
+        self, hook_fn: Callable[[Optional[str]], str]
+    ) -> None:
+        """Inject the renderer of a session's decision instructions
+        (ActionRouter.decision_instructions): the decision rules and the
+        session's <actions> list, which end the system prompt of its
+        action-selection calls."""
+        self._decision_instructions_func = hook_fn
+
+    def make_decision_system_prompt(self, session_id: Optional[str] = None) -> str:
+        """The system prompt of ``session_id``'s action-selection calls as it
+        renders now: the agent's system prompt followed by the session's
+        decision instructions (see prompts.action.decision_system_prompt).
+
+        Only action selection sends it; every other LLM call (sub-agents,
+        summaries, titles, ...) has a system prompt of its own.
+        """
+        system_prompt, _ = self.make_prompt(
+            user_flags={"query": False, "expected_output": False},
+            system_flags={"agent_info": True},
+        )
+        instructions = ""
+        if self._decision_instructions_func is not None:
+            instructions = self._decision_instructions_func(session_id)
+        return decision_system_prompt(system_prompt, instructions)
 
     def create_system_policy(self) -> str:
         """Create a system message block with constraints."""
@@ -305,7 +335,9 @@ class ContextEngine:
 
     # ─────────────── USER PROMPT DYNAMIC COMPONENTS ───────────────
 
-    def get_event_stream(self, session_id: Optional[str] = None) -> str:
+    def get_event_stream(
+        self, session_id: Optional[str] = None, up_to: Optional[int] = None
+    ) -> str:
         """Get the event stream content for inclusion in user prompts.
 
         Sessions are fully isolated: the prompt contains ONLY this session's
@@ -318,6 +350,8 @@ class ContextEngine:
                         If provided, reads DIRECTLY from EventStreamManager's
                         per-session stream. Reading from StateSession.event_stream
                         would return a stale snapshot, not live events.
+            up_to: Only the first ``up_to`` tail events (the events a request
+                carries); None for all of them.
 
         Returns:
             Formatted <event_stream> block for this session.
@@ -334,7 +368,9 @@ class ContextEngine:
                 if event_stream_manager:
                     stream = event_stream_manager.get_stream_by_id(session_id)
                     if stream:
-                        event_stream = stream.to_prompt_snapshot(include_summary=True)
+                        event_stream = stream.to_prompt_snapshot(
+                            include_summary=True, up_to=up_to
+                        )
             except Exception:
                 pass
 
@@ -355,7 +391,10 @@ class ContextEngine:
         return "\n\n".join(sections)
 
     def get_event_stream_delta(
-        self, call_type: str, session_id: Optional[str] = None
+        self,
+        call_type: str,
+        session_id: Optional[str] = None,
+        up_to: Optional[int] = None,
     ) -> tuple[str, bool]:
         """Get only new events since the last session sync.
 
@@ -364,6 +403,8 @@ class ContextEngine:
             session_id: Optional session ID for session-specific stream lookup.
                         CRITICAL for concurrent task execution - without this,
                         events from other tasks may leak into this task's context.
+            up_to: Only events before this tail index (the events a request
+                carries); None for all of them.
         """
         try:
             event_stream_manager = self.state_manager.event_stream_manager
@@ -377,13 +418,16 @@ class ContextEngine:
             if not stream:
                 return "", False
 
-            delta_str, has_delta = stream.get_delta_events(call_type)
+            delta_str, has_delta = stream.get_delta_events(call_type, up_to=up_to)
             return (delta_str, True) if has_delta else ("", False)
         except Exception:
             return "", False
 
     def mark_event_stream_synced(
-        self, call_type: str, session_id: Optional[str] = None
+        self,
+        call_type: str,
+        session_id: Optional[str] = None,
+        up_to: Optional[int] = None,
     ) -> None:
         """Mark that the event stream has been synced to a session cache.
 
@@ -391,6 +435,8 @@ class ContextEngine:
             call_type: Type of LLM call for sync tracking.
             session_id: Optional session ID for session-specific stream lookup.
                         CRITICAL for concurrent task execution.
+            up_to: How many tail events the request carried; events logged
+                while it was in flight stay unsent. None: all of them.
         """
         try:
             event_stream_manager = self.state_manager.event_stream_manager
@@ -402,12 +448,15 @@ class ContextEngine:
                 stream = event_stream_manager.get_stream()
 
             if stream:
-                stream.mark_session_synced(call_type)
+                stream.mark_session_synced(call_type, up_to=up_to)
         except Exception:
             pass
 
     def reset_event_stream_sync(
-        self, call_type: str, session_id: Optional[str] = None
+        self,
+        call_type: str,
+        session_id: Optional[str] = None,
+        reason: str = "reset",
     ) -> None:
         """Reset the session sync point for the event stream.
 
@@ -415,6 +464,8 @@ class ContextEngine:
             call_type: Type of LLM call for sync tracking.
             session_id: Optional session ID for session-specific stream lookup.
                         CRITICAL for concurrent task execution.
+            reason: Why the session history starts anew (EventStream
+                .unsynced_reason); it labels the next full request.
         """
         try:
             event_stream_manager = self.state_manager.event_stream_manager
@@ -426,7 +477,7 @@ class ContextEngine:
                 stream = event_stream_manager.get_stream()
 
             if stream:
-                stream.reset_session_sync(call_type)
+                stream.reset_session_sync(call_type, reason=reason)
         except Exception:
             pass
 
@@ -480,64 +531,14 @@ class ContextEngine:
                     f"AND write it to keep working notes that must survive "
                     f"event-stream summarization."
                 )
-            if session.selected_skills:
-                lines.append(f"Loaded Skills: {list(session.selected_skills)}")
-
-            skill_instructions = self.get_skill_instructions(session_id=session_id)
-            if skill_instructions:
-                lines.append("")
-                lines.append(skill_instructions)
+            # Loaded skills are not listed here: this block sits ahead of the
+            # event stream in the cached prefix, so a load would break it. A
+            # skill's instructions enter the stream when it is loaded
+            # (SessionManager.add_skill), and a fold keeps them verbatim.
 
             lines.append("</session>")
             return "\n".join(lines)
         return "<session>\n(session state unavailable)\n</session>"
-
-    def get_skill_instructions(self, session_id: Optional[str] = None) -> str:
-        """Get instructions from skills loaded into the session.
-
-        Args:
-            session_id: Optional session ID for session-specific state lookup.
-        """
-        # Try session-specific state first
-        state_session = get_session_or_none(session_id)
-        if state_session and state_session.current_session:
-            session = state_session.current_session
-        else:
-            # CRITICAL: Log warning when falling back to global state
-            if session_id:
-                logger.warning(
-                    f"[CONTEXT_ENGINE] get_skill_instructions: Session not found for "
-                    f"session_id={session_id!r}, falling back to global STATE. "
-                    f"This may cause context leakage!"
-                )
-            session = get_state().current_session
-
-        if not session:
-            return ""
-
-        selected_skills = getattr(session, "selected_skills", [])
-        if not selected_skills:
-            return ""
-
-        try:
-            from app.skill import skill_manager
-
-            instructions = skill_manager.get_skill_instructions(selected_skills)
-
-            if not instructions:
-                return ""
-
-            return (
-                "<active_skills>\n"
-                "Follow these skill instructions for the current work:\n\n"
-                f"{instructions}\n"
-                "</active_skills>"
-            )
-        except ImportError:
-            return ""
-        except Exception as e:
-            logger.warning(f"[SKILLS] Failed to get skill instructions: {e}")
-            return ""
 
     def get_agent_state(self, session_id: Optional[str] = None) -> str:
         """Get the current agent state for inclusion in user prompts.

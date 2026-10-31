@@ -56,11 +56,13 @@ _STYLE_DESC = (
     input_schema={
         "output_path": {
             "type": "string",
+            "required": True,
             "example": "C:/path/out.pdf",
             "description": "Absolute output path; must end with .pdf. Parent dirs are created.",
         },
         "source_path": {
             "type": "string",
+            "required": False,
             "example": "C:/path/in.md",
             "description": (
                 "Absolute path to the input file. Extension drives format detection: .md→markdown, "
@@ -70,6 +72,7 @@ _STYLE_DESC = (
         },
         "content": {
             "type": "string",
+            "required": False,
             "example": "# Title\n\nBody.",
             "description": (
                 "Inline string for markdown/text/html input. Format defaults to markdown; pass "
@@ -79,17 +82,20 @@ _STYLE_DESC = (
         },
         "url": {
             "type": "string",
+            "required": False,
             "example": "https://example.com",
             "description": "Live web page URL (http/https) to render via Chromium. Sets format to 'url'.",
         },
         "image_paths": {
             "type": "array",
+            "required": False,
             "items": {"type": "string"},
             "example": ["C:/path/a.png", "C:/path/b.jpg"],
             "description": "Ordered list of absolute image paths; sets format to 'images'. Each becomes one page.",
         },
         "source_format": {
             "type": "string",
+            "required": False,
             "example": "markdown",
             "description": (
                 "Optional explicit format override. One of: markdown, text, csv, xlsx, html, url, "
@@ -98,31 +104,37 @@ _STYLE_DESC = (
         },
         "title": {
             "type": "string",
+            "required": False,
             "example": "Sales Q3",
             "description": "Optional banner heading for text/csv/xlsx formats.",
         },
         "subtitle": {
             "type": "string",
+            "required": False,
             "example": "Confidential",
             "description": "Optional subtitle below the banner (markdown only).",
         },
         "has_header": {
             "type": "boolean",
+            "required": False,
             "example": True,
             "description": "csv/xlsx: treat the first row as the header. Defaults to true.",
         },
         "delimiter": {
             "type": "string",
+            "required": False,
             "example": ",",
             "description": "csv: field delimiter. Defaults to ','.",
         },
         "sheet": {
             "type": "string",
+            "required": False,
             "example": "Sheet1",
             "description": "xlsx: a sheet name or 1-based index. Omit to render all sheets.",
         },
         "style": {
             "type": "object",
+            "required": False,
             "description": _STYLE_DESC,
         },
     },

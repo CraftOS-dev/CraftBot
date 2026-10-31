@@ -53,6 +53,18 @@ def fake_registry(monkeypatch):
 
     monkeypatch.setattr(action_set_manager, "actions_in_sets", actions_in_sets)
     monkeypatch.setattr(action_set_manager, "list_all_sets", list_all_sets)
+    # Which provider each integration set serves, as the integration adapter
+    # declares it for the actions it generates.
+    monkeypatch.setattr(
+        action_set_manager,
+        "integration_sets",
+        lambda: {
+            "gmail": ["gmail_mail", "gmail", "gmail_admin"],
+            "github": ["github_workflows"],
+            "stripe": ["stripe_disputes"],
+            "jira": ["jira_attachments"],
+        },
+    )
 
 
 @pytest.fixture
@@ -156,7 +168,7 @@ def test_loading_delivers_schemas_without_touching_actions(loader):
     assert session.compiled_actions == before
     (event,) = _schema_events(stream)
     assert event.schema_actions == ["send_gmail", "list_gmail"]
-    assert '"name": "send_gmail"' in event.message
+    assert '{"name":"send_gmail"' in event.message
     assert "Recipient." in event.message
     # The integration named in the actions' own sets brings its guidance.
     assert "### gmail" in event.message

@@ -1200,6 +1200,11 @@ UI in {project.path}/frontend/src/app/."""
         pb_log_path = (
             shadow.log_dir if shadow is not None else project_dir / "logs"
         ) / "pocketbase.log"
+        # Rotate before measuring: runner.start would otherwise rotate after
+        # this offset was taken, and the read below would start past the end.
+        from app.agent_app.runner import cap_log
+
+        cap_log(pb_log_path)
         pb_log_offset = pb_log_path.stat().st_size if pb_log_path.exists() else 0
 
         def _pb_log_since_boot(limit_lines: int = 30) -> str:
