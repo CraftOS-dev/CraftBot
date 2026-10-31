@@ -17,13 +17,8 @@ from agent_core import action
     description=(
         "Schedule a task for execution. Supports immediate, one-time, and recurring schedules. "
         "One-time tasks are auto-removed after firing.\n"
-        "IMPORTANT: The 'schedule' field must use one of these EXACT formats:\n"
-        "- Immediate: 'immediate'\n"
-        "- One-time: 'at 3pm', 'at 3:30pm', 'at 3:30pm today', 'tomorrow at 9am', 'in 2 hours', 'in 30 minutes'\n"
-        "- Recurring: 'every day at 7am', 'every day at 3:30pm', 'every monday at 9am', "
-        "'every 3 hours', 'every 30 minutes', or cron like '0 7 * * *'\n"
-        "DO NOT use: 'daily at', 'every weekday', 'every morning', 'weekly', or other freeform text. "
-        "Only the exact patterns listed above are supported."
+        "IMPORTANT: The 'schedule' field must use one of the EXACT patterns listed "
+        "in its description; no other freeform text is supported."
     ),
     action_sets=["scheduler", "core", "proactive"],
     input_schema={
