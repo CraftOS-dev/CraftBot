@@ -1014,13 +1014,20 @@ class InternalActionInterface:
         return result
 
     @classmethod
-    def list_action_sets(cls, session_id: Optional[str] = None) -> Dict[str, Any]:
+    def list_action_sets(
+        cls, session_id: Optional[str] = None, sets: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
         """
         List all available action sets and their descriptions.
 
+        Args:
+            session_id: The session whose <actions> sets to report.
+            sets: Optional set names whose actions to list as well.
+
         Returns:
-            Dictionary with available sets and the sets this session prints
-            in <actions> (fixed by its type; core is always included).
+            Dictionary with available sets, the sets this session prints in
+            <actions> (fixed by its type; core is always included), and for
+            each requested set the names of its actions.
         """
         from app.action.action_set import action_set_manager
 
@@ -1032,10 +1039,19 @@ class InternalActionInterface:
             if session is not None:
                 current_sets = ["core"] + session.base_action_sets
 
-        return {
+        result: Dict[str, Any] = {
             "available_sets": available_sets,
             "current_sets": current_sets,
         }
+        if isinstance(sets, str):
+            sets = [sets]
+        if sets:
+            result["set_actions"] = {
+                name: action_set_manager.get_actions_in_set(name)
+                for name in sets
+                if isinstance(name, str)
+            }
+        return result
 
     # ───────────────── Skill Management ─────────────────
 
