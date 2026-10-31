@@ -3077,6 +3077,10 @@ class AgentBase:
         """
         if self._interface_mode == "browser":
             prompt = (
+                "\n\n## Replies\n"
+                "The chat renders the messages you send (send_message, "
+                "send_message_with_attachment) as Markdown: bold, lists, tables, "
+                "links and code blocks show formatted, and a single line break is kept."
                 "\n\n## File Sharing\n"
                 "You can send files to the user using the `send_message_with_attachment` action. "
                 "Use this when the user asks you to share, send, or provide a file from the workspace."
@@ -3094,7 +3098,12 @@ class AgentBase:
                     "chat as your final message. Ask for a 2FA code in chat; never guess one."
                 )
             return prompt
-        return ""
+        return (
+            "\n\n## Replies\n"
+            "The terminal prints the messages you send (send_message) as they are: "
+            "write plain text without Markdown (no **bold**, # headings, tables or "
+            "[text](url) links; write URLs out in full)."
+        )
 
     @staticmethod
     def _mini_browser_usable() -> bool:
