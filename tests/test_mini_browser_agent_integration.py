@@ -1002,7 +1002,8 @@ def test_browser_mode_prompt_explains_the_live_view(bare_agent, monkeypatch):
     assert "## Mini Browser" in prompt
     assert "for_user=true" in prompt and "continue_work=true" in prompt
     bare_agent._interface_mode = "cli"
-    assert bare_agent._get_interface_capabilities_prompt() == ""
+    cli_prompt = bare_agent._get_interface_capabilities_prompt()
+    assert "## File Sharing" not in cli_prompt and "Mini Browser" not in cli_prompt
 
 
 def test_browser_mode_note_is_left_out_while_the_browser_is_unusable(

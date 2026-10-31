@@ -33,8 +33,8 @@ from agent_core import action
             "required": True,
             "example": "Hello, user!",
             "description": (
-                "The chat message to send. Send message in terminal friendly format and "
-                "DO NOT include mark down. When you also pass suggested_responses, this "
+                "The chat message to send, formatted as the Replies section of your "
+                "instructions says. When you also pass suggested_responses, this "
                 "text is JUST the single question (plus any brief context), so do NOT "
                 "restate the answer options here; they are rendered separately as "
                 "buttons. Never write out multiple questions in one message."
