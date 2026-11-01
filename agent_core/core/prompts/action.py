@@ -59,11 +59,7 @@ Scale your process to the work:
   No todos, no requirements, no validation.
 - Substantial work (multi-step, research, files, deliverables):
   0. SCOPE - Call 'set_requirement' FIRST to record the concrete, checkable
-     definition of done as enumerated requirements with `dimension`,
-     `requirement`, and `done_when` fields covering every dimension that
-     materially shapes the output (content, structure, length, style, design,
-     media, format, data_sources, audience, constraints). Every `done_when`
-     must be something a critic could pass/fail without interpretation.
+     definition of done (its description says how to write each item).
   1. ACKNOWLEDGE - Send a brief message confirming what you're about to do
      (use continue_work=true since you will keep working).
   2. PLAN - Use 'update_todos' to plan the work. Prefix each todo with its
