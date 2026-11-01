@@ -294,44 +294,38 @@ class ContextEngine:
     def create_system_capability_catalog(self) -> str:
         """Create the Capability Catalog system block.
 
-        Lists every available action set and every enabled skill with a
-        one-line description, so any session can discover and load
-        capabilities on demand (add_action_sets / use_skill). The catalog
-        is stable per boot, so it lives in the cached system prefix.
+        Names every available action set and every enabled skill, so any
+        session can load capabilities on demand (add_action_sets /
+        use_skill); list_action_sets / list_skills give their descriptions.
+        Sorted: the catalog is stable per boot, so it lives in the cached
+        system prefix.
         """
         lines = ["<capability_catalog>"]
 
         try:
             from app.action.action_set import action_set_manager
 
-            sets_text = action_set_manager.format_sets_for_prompt(exclude_core=True)
+            sets = sorted(n for n in action_set_manager.list_all_sets() if n != "core")
             lines.append(
                 "Action sets you can load with 'add_action_sets' "
                 "(your session always has 'core'):"
             )
-            lines.append(sets_text if sets_text else "(no additional action sets)")
+            lines.append(", ".join(sets) if sets else "(no additional action sets)")
         except Exception as e:
             logger.debug(f"[CONTEXT] Capability catalog: action sets failed: {e}")
 
         try:
             from app.skill import skill_manager
 
-            skills = skill_manager.list_skills_for_selection()
+            skills = sorted(skill_manager.list_skills_for_selection())
             lines.append("")
             lines.append("Skills you can load with 'use_skill':")
-            if skills:
-                lines.extend(f"- {name}: {desc}" for name, desc in skills.items())
-            else:
-                lines.append("(no skills available)")
+            lines.append(", ".join(skills) if skills else "(no skills available)")
         except Exception as e:
             logger.debug(f"[CONTEXT] Capability catalog: skills failed: {e}")
 
         lines.append("</capability_catalog>")
         return "\n".join(lines)
-
-    def create_system_base_instruction(self) -> str:
-        """Create a system message of instruction."""
-        return "Please assist the user using the context given in the conversation or event stream."
 
     # ─────────────── USER PROMPT DYNAMIC COMPONENTS ───────────────
 
@@ -606,7 +600,6 @@ class ContextEngine:
             "environment": True,
             "file_system": True,
             "capability_catalog": True,
-            "base_instruction": True,
         }
         user_default_flags = {
             "query": True,
@@ -626,7 +619,6 @@ class ContextEngine:
             ("environment", self.create_system_environmental_context),
             ("file_system", self.create_system_file_system_context),
             ("capability_catalog", self.create_system_capability_catalog),
-            ("base_instruction", self.create_system_base_instruction),
         ]
 
         system_content_list = []
