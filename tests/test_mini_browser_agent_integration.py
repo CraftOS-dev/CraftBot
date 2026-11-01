@@ -268,10 +268,8 @@ def test_set_descriptions(registry):
     for phrase in ("logins", "own tab", "take control", "web_fetch", "NOT for plain"):
         assert phrase in desc
     assert "mini_browser" in DEFAULT_SET_DESCRIPTIONS["mcp_playwright-mcp"]
-    # The catalog line the LLM reads is the curated text, not "Custom action set".
+    # What list_action_sets tells the LLM is the curated text, not "Custom action set".
     assert action_set_manager.list_all_sets()["mini_browser"] == desc
-    catalog = action_set_manager.format_sets_for_prompt(exclude_core=True)
-    assert f"- mini_browser: {desc}" in catalog
 
 
 @pytest.mark.parametrize("mode", ["CLI", "GUI"])
@@ -1082,7 +1080,7 @@ def test_action_prompt_rule_is_dropped_while_the_browser_is_unusable(
     assert MINI_BROWSER_RULE not in filtered
     assert "mini_browser" not in filtered and "Mini Browser" not in filtered
     # The bullet list stays intact around the gap.
-    assert "http_request can do.\n- Your system prompt contains" in filtered
+    assert "(catalog + dynamic loading):\n- Your system prompt contains" in filtered
 
 
 def test_agent_routes_its_action_prompt_through_the_filter():

@@ -1,19 +1,22 @@
 # -*- coding: utf-8 -*-
-"""The capability catalog describes every action set (prompt audit T7).
+"""Every action set is described, and the catalog names them all (prompt
+audit T7, then the 2026-11-01 prompt benchmark).
 
-183 of the catalog's sets used to read "Custom action set: <name>", one line
-per integration sub-set. Every set is now described from data that already
-exists: an application set by its declaration, an MCP server's set by its
-config, an integration's sets by its provider, listed together on one line.
-Which integration owns a set is read from where its actions come from (the
+183 sets used to read "Custom action set: <name>". Every set is now described
+from data that already exists: an application set by its declaration, an MCP
+server's set by its config, an integration's sets by its provider. Which
+integration owns a set is read from where its actions come from (the
 adapter's declarations, the bridged platform directories), never from the
-set's name. These tests pin:
+set's name. The descriptions reach the agent through list_action_sets; the
+Capability Catalog in the system prompt lists set and skill names only (the
+benchmark found the descriptions there added tokens and no quality). These
+tests pin:
 
-* on the real registry: every set is described, every set name is still in
-  the catalog, ownership is right where names mislead, and the catalog is
-  the same on every render;
+* on the real registry: every set is described, the catalog names every set
+  (names only) and renders the same every time, and ownership is right where
+  names mislead;
 * a set described nowhere is described by its actions, an MCP set by its
-  server's config;
+  server's config, a bridged platform's sets by the platform;
 * list_action_sets can list the actions of the sets asked for.
 """
 
@@ -38,10 +41,12 @@ sys.path.insert(0, ".")
 from agent_core.core.action_framework.loader import load_actions_from_directories
 load_actions_from_directories(paths_to_scan=["app/data/action"])
 from app.action.action_set import action_set_manager
+from agent_core.core.impl.context.engine import ContextEngine
+engine = ContextEngine.__new__(ContextEngine)
 print("CATALOG-JSON " + json.dumps({
     "sets": action_set_manager.list_all_sets(),
-    "catalog": action_set_manager.format_sets_for_prompt(exclude_core=True),
-    "again": action_set_manager.format_sets_for_prompt(exclude_core=True),
+    "catalog": engine.create_system_capability_catalog(),
+    "again": engine.create_system_capability_catalog(),
 }))
 """
 
@@ -77,32 +82,26 @@ def test_every_real_set_is_described(real):
     assert not any("Custom action set" in text for text in real["sets"].values())
 
 
-def _listed_sets(catalog: str) -> set:
-    """The set names a catalog lists: "- <set>: <description>" lines, and
-    "- <Integration> (<what it does>): <set>, <set>, ..." lines."""
-    names = set()
-    for line in catalog.splitlines():
-        if not line.startswith("- "):
-            continue
-        head, _, rest = line[2:].partition(": ")
-        if " " not in head and "(" not in head:
-            names.add(head)
-        else:
-            names.update(line.rpartition("): ")[2].split(", "))
-    return names
+def _catalog_set_names(catalog: str) -> list:
+    """The set names on the catalog's action-set line."""
+    lines = catalog.splitlines()
+    i = next(n for n, line in enumerate(lines) if line.startswith("Action sets you can load"))
+    return lines[i + 1].split(", ")
 
 
-def test_every_set_name_is_still_in_the_catalog(real):
-    assert _listed_sets(real["catalog"]) == set(real["sets"]) - {"core"}
+def test_the_catalog_names_every_set_and_nothing_else(real):
+    names = _catalog_set_names(real["catalog"])
+    assert names == sorted(set(real["sets"]) - {"core"})
+    for description in real["sets"].values():
+        assert description not in real["catalog"]
 
 
 def test_ownership_comes_from_where_the_actions_live(real):
-    lines = {line.split(" (")[0]: line for line in real["catalog"].splitlines()}
-    assert "lark_sheets" in lines["- Lark Drive"]
-    assert "lark_sheets" not in lines["- Lark"]
-    telegram = lines["- Telegram"]
+    sets = real["sets"]
+    assert sets["lark_sheets"].startswith("Lark Drive:")
+    assert sets["lark"].startswith("Lark:")
+    telegram = sets["telegram_user"]
     assert "Telegram Bot" in telegram and "Telegram (User)" in telegram
-    assert "telegram_user" in telegram
 
 
 def test_the_catalog_renders_the_same_every_time(real):
@@ -168,12 +167,10 @@ def test_an_mcp_set_is_described_by_its_server(fake):
     assert fake.list_all_sets()["mcp_fs"] == "Read files of the workspace"
 
 
-def test_a_bridged_platform_lists_all_its_sets_on_one_line(fake):
-    catalog = fake.format_sets_for_prompt(exclude_core=True)
-    (line,) = [ln for ln in catalog.splitlines() if ln.startswith("- Telegram")]
-    assert line.endswith(": telegram, telegram_messages")  # its own set first
-    assert "- telegram_messages:" not in catalog
-    assert "- core:" not in catalog
+def test_a_bridged_platform_describes_all_its_sets(fake):
+    sets = fake.list_all_sets()
+    assert sets["telegram"] == sets["telegram_messages"]
+    assert sets["telegram"].startswith("Telegram")
 
 
 def test_a_declared_provider_set_is_listed_under_its_provider(fake):

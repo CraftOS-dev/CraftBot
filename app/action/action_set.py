@@ -359,54 +359,6 @@ class ActionSetManager:
         """
         return list(self.list_all_sets().keys())
 
-    def format_sets_for_prompt(self, exclude_core: bool = False) -> str:
-        """
-        Format action set information for inclusion in prompts.
-
-        Args:
-            exclude_core: If True, don't include core set (it's always auto-included)
-
-        Returns:
-            Formatted string describing available action sets: one line per
-            set, then one line per integration naming all of its sets
-            (described once, by the integration's provider). Sorted, so the
-            catalog (part of the cached system prompt) renders the same on
-            every boot.
-        """
-        all_sets = self.list_all_sets()
-        integrations = {
-            integration: [s for s in sets if s in all_sets]
-            for integration, sets in self.integration_sets().items()
-        }
-        owned = {s for sets in integrations.values() for s in sets}
-
-        lines = []
-        for set_name, description in sorted(all_sets.items()):
-            if set_name in owned or (exclude_core and set_name == "core"):
-                continue
-            if set_name == "core":
-                lines.append(f"- {set_name}: {description} (always included)")
-            else:
-                lines.append(f"- {set_name}: {description}")
-
-        rows = []
-        for integration, sets in integrations.items():
-            if not sets:
-                continue
-            name, what = self.integration_description(integration)
-            # The set named after the integration first: its high-value actions.
-            ordered = sorted(sets, key=lambda s: (s != integration, s))
-            label = f"{name} ({what})" if what else name
-            rows.append((name.lower(), f"- {label}: {', '.join(ordered)}"))
-        if rows:
-            lines.append(
-                "Integration action sets. Load the set named after an "
-                "integration for its high-value actions; load a narrower set "
-                "when the task needs a specific area:"
-            )
-            lines.extend(row for _, row in sorted(rows))
-        return "\n".join(lines)
-
 
 # Global singleton instance
 action_set_manager = ActionSetManager()
