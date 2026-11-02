@@ -148,18 +148,25 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   const getIcon = (type: ToastType, category?: string) => {
     if (type === 'error' && category) {
       const { icon: CategoryIcon } = getErrorCategoryStyle(category)
-      return <CategoryIcon size={16} />
+      return <CategoryIcon size={13} strokeWidth={2.25} />
     }
     switch (type) {
       case 'success':
-        return <Check size={16} />
+        return <Check size={13} strokeWidth={2.75} />
       case 'error':
-        return <X size={16} />
+        return <X size={13} strokeWidth={2.75} />
       case 'warning':
-        return <AlertTriangle size={16} />
+        return <AlertTriangle size={13} strokeWidth={2.25} />
       case 'info':
-        return <Info size={16} />
+        return <Info size={13} strokeWidth={2.25} />
     }
+  }
+
+  // A categorized error takes its category's color, as chat bubbles do (a
+  // rate limit or out-of-credit reads as a warning, not a failure).
+  const getTone = (type: ToastType, category?: string): ToastType => {
+    if (type !== 'error' || !category) return type
+    return getErrorCategoryStyle(category).colorVar === '--color-warning' ? 'warning' : 'error'
   }
 
   return (
@@ -169,7 +176,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
         {toasts.map(toast => (
           <div
             key={toast.id}
-            className={`${styles.toast} ${styles[toast.type]}`}
+            className={`${styles.toast} ${styles[getTone(toast.type, toast.category)]}`}
             onClick={() => dismissToast(toast.id)}
           >
             <span className={styles.icon}>{getIcon(toast.type, toast.category)}</span>
