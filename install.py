@@ -1589,6 +1589,15 @@ def _check_mac_python() -> None:
 # MAIN
 # ==========================================
 if __name__ == "__main__":
+    from app import paths, provision
+    from app.provision.default_agent_app import is_new_install, prepare_install
+
+    # Capture this before saving config or creating the runtime. A receipt
+    # lets a failed first install resume without treating upgrades as new.
+    _new_install = is_new_install(str(paths.STATE_ROOT), BASE_DIR)
+    _ctx = provision.default_context(new_install=_new_install)
+    prepare_install(_ctx)
+
     # ── Python version gate ────────────────────────────────────────────────
     _ver = sys.version_info
     # --skip-python-check is passed by _auto_install_python_310 when it
@@ -1777,17 +1786,13 @@ if __name__ == "__main__":
     # installer never ran the Node sidecar download at all, so an
     # installer-only machine had no Node and Agent App could not start.
     # See docs/plans/unified-install-architecture.md.
-    from app import provision
-
     _service_python = (
         [get_conda_command(), "run", "-n", env_name, "python"]
         if use_conda
         else [sys.executable]
     )
-    _ctx = provision.default_context(
-        service_python=_service_python,
-        conda_env=env_name if use_conda else None,
-    )
+    _ctx.service_python = _service_python
+    _ctx.conda_env = env_name if use_conda else None
     _report = provision.install(log=print, ctx=_ctx)
 
     # The python stage may have resolved a DIFFERENT interpreter than the one
@@ -1812,7 +1817,15 @@ if __name__ == "__main__":
             name
             for name, res in _report.results
             if not res.ok
-            and name in ("python", "python-deps", "native-runtime", "smoke", "frontend")
+            and name
+            in (
+                "python",
+                "python-deps",
+                "native-runtime",
+                "smoke",
+                "frontend",
+                "default-agent-app",
+            )
         ]
         if _required_failed:
             sys.exit(1)

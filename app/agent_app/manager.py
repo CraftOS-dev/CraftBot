@@ -297,10 +297,10 @@ class AgentAppManager:
 
         # Runner (PocketBase single-process projects). New projects are native;
         # V1 projects keep launching through the legacy pipeline.
-        from app.config import PROJECT_ROOT
+        from app.paths import CODE_ROOT
         from app.agent_app.runner import AgentAppRunner
 
-        self.runner = AgentAppRunner(Path(PROJECT_ROOT) / "agent-app")
+        self.runner = AgentAppRunner(Path(CODE_ROOT) / "agent-app")
 
         # Unified dev/live lifecycle: every code change (first build or
         # modify) develops and verifies in a DEV environment (code copy +
