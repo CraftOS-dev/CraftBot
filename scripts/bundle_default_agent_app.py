@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Refresh the included Kanban from its pinned upstream revision.
+"""Refresh the included Kanban from the configured marketplace ref.
 
-Run from any directory with Python (stdlib only). This is a maintainer task;
-installation reads the resulting bundle and never downloads marketplace code.
+Run with CraftBot's Python environment. Repository aliases and the ref come
+from the existing marketplace configuration. source.json supplies the app ID
+and records the resulting commit/checksum; installation uses the bundled ZIP.
 """
 
 from __future__ import annotations
@@ -11,14 +12,14 @@ import hashlib
 import io
 import json
 from pathlib import Path
-import urllib.request
+import sys
+import urllib.error
+from urllib.parse import quote
 import zipfile
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DESTINATION = REPO_ROOT / "app" / "data" / "default_agent_app"
-REPOSITORY = "CraftOS-dev/living-ui-marketplace"
-REVISION = "b09584c6bb858237e8eaa6f2d4a0dc0d558a10eb"
-APP_ID = "kanban-board"
+APP_ID = json.loads((DESTINATION / "source.json").read_text(encoding="utf-8"))["appId"]
 
 
 def build_bundle(upstream: bytes) -> bytes:
@@ -67,22 +68,39 @@ def build_bundle(upstream: bytes) -> bytes:
 
 
 def main() -> None:
-    url = f"https://codeload.github.com/{REPOSITORY}/zip/{REVISION}"
-    request = urllib.request.Request(url, headers={"User-Agent": "CraftBot"})
-    with urllib.request.urlopen(request, timeout=120) as response:
-        bundle = build_bundle(response.read())
+    sys.path.insert(0, str(REPO_ROOT))
+    from app.agent_app import marketplace_source
+
+    selected_ref = quote(marketplace_source.ref(), safe="")
+    for index, repository in enumerate(marketplace_source.REPOS):
+        try:
+            commit = json.loads(
+                marketplace_source._read_url(
+                    f"https://api.github.com/repos/{repository}/commits/{selected_ref}",
+                    120,
+                )
+            )
+            revision = commit["sha"]
+            upstream = marketplace_source._read_url(
+                f"https://codeload.github.com/{repository}/zip/{revision}", 120
+            )
+            break
+        except (urllib.error.URLError, OSError):
+            if index == len(marketplace_source.REPOS) - 1:
+                raise
+    bundle = build_bundle(upstream)
     DESTINATION.mkdir(parents=True, exist_ok=True)
-    (DESTINATION / "kanban-board.zip").write_bytes(bundle)
+    (DESTINATION / f"{APP_ID}.zip").write_bytes(bundle)
     provenance = {
-        "repository": REPOSITORY,
-        "revision": REVISION,
+        "repository": repository,
+        "revision": revision,
         "appId": APP_ID,
         "sha256": hashlib.sha256(bundle).hexdigest(),
     }
     (DESTINATION / "source.json").write_text(
         json.dumps(provenance, indent=2) + "\n", encoding="utf-8"
     )
-    print(f"Bundled {APP_ID} at {REVISION}: {len(bundle):,} bytes")
+    print(f"Bundled {APP_ID} from {repository} at {revision}: {len(bundle):,} bytes")
 
 
 if __name__ == "__main__":
