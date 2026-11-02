@@ -510,6 +510,82 @@ def update_model_settings(
         }
 
 
+def remove_api_key(provider: str) -> Dict[str, Any]:
+    """Delete a provider's stored API key from settings.json.
+
+    Refused while the key is the only credential of the active LLM/VLM
+    provider (the rule validate_can_save applies on Save), because the agent
+    would be left unable to reach its model. A connected subscription is a
+    credential of its own, so that provider's key can always be removed.
+
+    Returns the updated settings (without live subscription status), or
+    {success: False, error}.
+    """
+    from app.i18n import tui
+
+    info = PROVIDER_INFO.get(provider, {})
+    settings_key = info.get("settings_key")
+    if not settings_key:
+        return {
+            "success": False,
+            "error": f"{info.get('name', provider)} has no API key to remove",
+        }
+
+    try:
+        with settings_write_lock:
+            settings = _load_settings()
+            model = settings.get("model", {})
+            llm_provider = model.get("llm_provider", "anthropic")
+            vlm_provider = model.get("vlm_provider") or llm_provider
+            for active in {llm_provider, vlm_provider}:
+                if PROVIDER_INFO.get(active, {}).get(
+                    "settings_key"
+                ) == settings_key and not _subscription_connected(active):
+                    return {
+                        "success": False,
+                        "error": tui(
+                            "model_api_key_in_use",
+                            provider=PROVIDER_INFO[active]["name"],
+                        ),
+                    }
+
+            settings.setdefault("api_keys", {})[settings_key] = ""
+            if not _save_settings(settings):
+                return {
+                    "success": False,
+                    "error": "Failed to save settings.json",
+                }
+
+            from app.config import reload_settings
+
+            reload_settings()
+
+        return get_model_settings(include_subscription_status=False)
+
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Failed to remove API key: {str(e)}",
+        }
+
+
+def _subscription_connected(provider: str) -> bool:
+    """True when a subscription sign-in exists for ``provider``.
+
+    The model factory uses it instead of the stored API key whenever it
+    exists. Imported lazily so a broken integrations package only disables
+    the subscription path instead of failing the settings call.
+    """
+    if not PROVIDER_INFO.get(provider, {}).get("supports_subscription_oauth"):
+        return False
+    try:
+        from craftos_integrations.llm_oauth.tokens import has_credential
+
+        return has_credential(provider)
+    except Exception:
+        return False
+
+
 def test_connection(
     provider: str,
     api_key: Optional[str] = None,
@@ -741,20 +817,9 @@ def validate_can_save(
 
         # A connected subscription OAuth fulfills the credential requirement —
         # the factory will use the OAuth bearer instead of an API key.
-        # Imported lazily so a broken integrations package doesn't 500 the
-        # whole settings page; just falls back to api-key-only validation.
-        connected_subscriptions: set[str] = set()
-        try:
-            from craftos_integrations.llm_oauth.tokens import (
-                has_credential,
-            )
-
-            for prov in providers_to_check:
-                info = PROVIDER_INFO.get(prov, {})
-                if info.get("supports_subscription_oauth") and has_credential(prov):
-                    connected_subscriptions.add(prov)
-        except Exception:
-            pass
+        connected_subscriptions = {
+            prov for prov in providers_to_check if _subscription_connected(prov)
+        }
 
         for provider in providers_to_check:
             info = PROVIDER_INFO.get(provider, {})

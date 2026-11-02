@@ -91,6 +91,12 @@
   animation: spin 0.9s linear infinite;
 }
 
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .log {
   width: 100%;
   max-height: 220px;

@@ -5,9 +5,9 @@ import {
   Loader2,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { Button, Badge } from '../../components/ui'
+import { Button, Badge, ConfirmModal } from '../../components/ui'
 import { useToast } from '../../contexts/ToastContext'
-import { usePersistedState, useServerDraft } from '../../hooks'
+import { useConfirmModal, usePersistedState, useServerDraft } from '../../hooks'
 import styles from './SettingsPage.module.css'
 import { useSettingsWebSocket } from './useSettingsWebSocket'
 import { RemoteChangeHint } from './RemoteChangeHint'
@@ -152,6 +152,9 @@ export function ModelSettings() {
   const [hasChanges, setHasChanges] = useState(false)
   const [testResult, setTestResult] = useState<TestResult | null>(null)
   const [testBeforeSave, setTestBeforeSave] = useState(false)
+  // Provider whose saved API key this tab is removing (spinner + result toast).
+  const [removingKeyFor, setRemovingKeyFor] = useState<string | null>(null)
+  const { modalProps: confirmModalProps, confirm } = useConfirmModal()
 
   // Ollama list loading flag (transient). Models + availability are slice-backed.
   const [ollamaModelsLoading, setOllamaModelsLoading] = useState(false)
@@ -265,6 +268,17 @@ export function ModelSettings() {
           setTestBeforeSave(false)
         }
       }),
+      onMessage('model_api_key_remove', (data: unknown) => {
+        const d = data as { provider?: string; success: boolean; error?: string }
+        // Every tab receives every removal; only the tab that asked toasts.
+        if (!d.provider || d.provider !== removingKeyFor) return
+        setRemovingKeyFor(null)
+        if (d.success) {
+          showToast('success', t('settings:model.toast.apiKeyRemoved'))
+        } else {
+          showToast('error', d.error || t('settings:model.toast.apiKeyRemoveFailed'))
+        }
+      }),
       onMessage('model_subscription_connect', (data: unknown) => {
         const d = data as { provider?: string; success: boolean; message?: string; error?: string }
         if (d.provider === provider && !d.success) {
@@ -372,7 +386,7 @@ export function ModelSettings() {
     ]
 
     return () => cleanups.forEach(cleanup => cleanup())
-  }, [isConnected, onMessage, send, dispatch, testBeforeSave, provider, newApiKey, newBaseUrl, baseUrls, selectedPullModel, showToast, newAwsAccessKeyId, newAwsSecretAccessKey, newAwsSessionToken, newAwsRegion, llmModel, vlmModel, setProvider, setLlmModel, setVlmModel, settleProvider, settleLlmModel, settleVlmModel])
+  }, [isConnected, onMessage, send, dispatch, testBeforeSave, provider, newApiKey, newBaseUrl, baseUrls, selectedPullModel, showToast, newAwsAccessKeyId, newAwsSecretAccessKey, newAwsSessionToken, newAwsRegion, llmModel, vlmModel, setProvider, setLlmModel, setVlmModel, settleProvider, settleLlmModel, settleVlmModel, removingKeyFor])
 
   // Cached in the slice. Providers only change with a backend update; settings
   // and slow mode are refetched whenever they change (a save in any tab, a
@@ -551,6 +565,48 @@ export function ModelSettings() {
         providerForKey: effectiveProvider,
       } : {}),
     })
+  }
+
+  // The model factory prefers a subscription sign-in over the stored API key
+  // whenever one exists. A Claude sign-in that fails its auth check still
+  // owns routing (`configured`) until it is disconnected.
+  const subscriptionOwnsAuth = (providerId: string) => {
+    const status = subscriptionOauth[providerId]
+    return !!(status?.connected || status?.configured)
+  }
+
+  // Saved key + Remove. The active model's only credential can't be removed
+  // (the backend refuses it too): the agent would be left without a model.
+  const renderStoredKey = (keyProvider: string) => {
+    const locked = keyProvider === savedProvider && !subscriptionOwnsAuth(keyProvider)
+    const providerName = providers.find(p => p.id === keyProvider)?.name || keyProvider
+    return (
+      <div className={styles.storedKeyRow}>
+        <div className={styles.maskedKey}>{apiKeys[keyProvider].masked_key}</div>
+        <Button
+          variant="secondary"
+          size="sm"
+          disabled={locked || removingKeyFor !== null}
+          title={locked ? t('settings:model.apiKey.removeLocked') : undefined}
+          onClick={() => confirm(
+            {
+              title: t('settings:model.apiKey.removeTitle'),
+              message: t('settings:model.apiKey.removeConfirm', { provider: providerName }),
+              confirmText: t('common:actions.remove'),
+              variant: 'danger',
+            },
+            () => {
+              setRemovingKeyFor(keyProvider)
+              send('model_api_key_remove', { provider: keyProvider })
+            },
+          )}
+        >
+          {removingKeyFor === keyProvider
+            ? <Loader2 size={14} className={styles.spinning} />
+            : t('common:actions.remove')}
+        </Button>
+      </div>
+    )
   }
 
   const handleDownloadModelClick = () => {
@@ -877,6 +933,8 @@ export function ModelSettings() {
             const codeValue = pastebackInput[provider] || ''
             const hasStoredKey = !!apiKeys[provider]?.has_key
             const requiresKey = !!currentProvider?.requires_api_key
+            // With both a sign-in and a saved key, say which one is used.
+            const subscriptionInUse = supportsSub && hasStoredKey && subscriptionOwnsAuth(provider)
             // When the subscription is connected, the API-key block collapses
             // by default under a subtle toggle. The user can still expand it
             // to change / clear a stored key without disconnecting first.
@@ -895,6 +953,9 @@ export function ModelSettings() {
                   ) : pb?.awaiting ? (
                     <Badge variant="default" style={{ marginLeft: 8 }}>{t('settings:model.subscription.awaitingCode')}</Badge>
                   ) : null}
+                  {subscriptionInUse && (
+                    <Badge variant="primary" style={{ marginLeft: 8 }}>{t('settings:model.inUse')}</Badge>
+                  )}
                 </label>
 
                 {isSubConnected ? (
@@ -1036,7 +1097,9 @@ export function ModelSettings() {
               <div className={styles.formGroup}>
                 <label>
                   {t('settings:model.apiKey.label')}
-                  {hasStoredKey ? (
+                  {subscriptionInUse ? (
+                    <Badge variant="default" style={{ marginLeft: 8 }}>{t('settings:model.notInUse')}</Badge>
+                  ) : hasStoredKey ? (
                     <Badge variant="success" style={{ marginLeft: 8 }}>{t('settings:model.apiKey.configured')}</Badge>
                   ) : isSubConnected ? (
                     <Badge variant="default" style={{ marginLeft: 8 }}>{t('settings:model.apiKey.optional')}</Badge>
@@ -1044,9 +1107,7 @@ export function ModelSettings() {
                     <Badge variant="warning" style={{ marginLeft: 8 }}>{t('settings:model.apiKey.required')}</Badge>
                   )}
                 </label>
-                {hasStoredKey && (
-                  <div className={styles.maskedKey}>{apiKeys[provider].masked_key}</div>
-                )}
+                {hasStoredKey && renderStoredKey(provider)}
                 <input
                   type="password"
                   value={newApiKey}
@@ -1279,9 +1340,7 @@ export function ModelSettings() {
                         <Badge variant="warning" style={{ marginLeft: 8 }}>{t('settings:model.apiKey.required')}</Badge>
                       )}
                     </label>
-                    {apiKeys[effectiveImgProvider]?.has_key && (
-                      <div className={styles.maskedKey}>{apiKeys[effectiveImgProvider].masked_key}</div>
-                    )}
+                    {apiKeys[effectiveImgProvider]?.has_key && renderStoredKey(effectiveImgProvider)}
                     <input
                       type="password"
                       value={newImageGenApiKey}
@@ -1363,9 +1422,7 @@ export function ModelSettings() {
                         <Badge variant="warning" style={{ marginLeft: 8 }}>{t('settings:model.apiKey.required')}</Badge>
                       )}
                     </label>
-                    {apiKeys[effectiveVidProvider]?.has_key && (
-                      <div className={styles.maskedKey}>{apiKeys[effectiveVidProvider].masked_key}</div>
-                    )}
+                    {apiKeys[effectiveVidProvider]?.has_key && renderStoredKey(effectiveVidProvider)}
                     <input
                       type="password"
                       value={newVideoGenApiKey}
@@ -1491,6 +1548,8 @@ export function ModelSettings() {
           </div>
         </div>
       )}
+
+      <ConfirmModal {...confirmModalProps} />
     </div>
   )
 }

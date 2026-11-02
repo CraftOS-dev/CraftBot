@@ -126,7 +126,9 @@
       "slowModeDisabled": "Modo lento desactivado",
       "slowModeFailed": "Error al actualizar el modo lento",
       "installFailed": "Error de instalación",
-      "openingBrowser": "Abriendo el navegador para iniciar sesión con {{provider}}…"
+      "openingBrowser": "Abriendo el navegador para iniciar sesión con {{provider}}…",
+      "apiKeyRemoved": "Clave de API quitada",
+      "apiKeyRemoveFailed": "No se pudo quitar la clave de API"
     },
     "ollama": {
       "notDetected": "Ollama no detectado",
@@ -162,7 +164,10 @@
       "replacePlaceholder": "Introduce una nueva clave para reemplazarla...",
       "enterPlaceholder": "Introduce la clave de API...",
       "proxyConfigured": "OpenRouter está configurado y se usará automáticamente si la API directa no está disponible en tu región.",
-      "proxyFallback": "Este proveedor puede estar restringido geográficamente. Si la API directa falla, configura OpenRouter como alternativa: se usará automáticamente."
+      "proxyFallback": "Este proveedor puede estar restringido geográficamente. Si la API directa falla, configura OpenRouter como alternativa: se usará automáticamente.",
+      "removeLocked": "Tu modelo activo usa esta clave. Cambia a otro proveedor antes de quitarla.",
+      "removeTitle": "Quitar clave de API",
+      "removeConfirm": "¿Eliminar la clave de API de {{provider}} guardada? Tendrás que introducirla de nuevo para usarla."
     },
     "bedrock": {
       "accessKeyId": "ID de clave de acceso de AWS",
@@ -235,7 +240,9 @@
       "priceUnit": "/M",
       "seeOpenRouter": "ver openrouter.ai",
       "pasteSlug": "O pega un slug:"
-    }
+    },
+    "inUse": "En uso",
+    "notInUse": "Sin usar"
   },
   "proactive": {
     "title": "Comportamiento proactivo",

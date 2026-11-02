@@ -20,6 +20,7 @@ Order matters and is expressed once, here:
   node        → the one Node runtime
   agent-app-tools → CLI dependencies, including the ZIP reader
   pocketbase  → the pinned executable used by Agent Apps
+  default-app → install the bundled Kanban Board on new installations only
   frontend    → browser UI's npm tree (default UI, so required)
   whatsapp    → bridge's npm tree
   ripgrep     → the bundled search binary grep_files runs, checked not fetched
@@ -35,6 +36,7 @@ import sys
 from typing import List, Optional
 
 from app import paths
+from app.provision.default_agent_app import DefaultAgentAppStage, prepare_install
 from app.provision.deps import (
     AgentAppToolsStage,
     FrontendStage,
@@ -85,6 +87,7 @@ def default_stages() -> List[Stage]:
         NodeStage(),
         AgentAppToolsStage(),
         PocketBaseStage(),
+        DefaultAgentAppStage(),
         FrontendStage(),
         WhatsAppBridgeStage(),
         RipgrepStage(),
@@ -96,6 +99,7 @@ def default_context(
     service_python: Optional[List[str]] = None,
     conda_env: Optional[str] = None,
     offline: bool = False,
+    new_install: bool = False,
 ) -> Context:
     return Context(
         code_root=str(paths.CODE_ROOT),
@@ -103,6 +107,7 @@ def default_context(
         conda_env=conda_env,
         service_python=list(service_python) if service_python else [sys.executable],
         offline=offline,
+        new_install=new_install,
     )
 
 
@@ -113,7 +118,9 @@ def install(
 ) -> PipelineReport:
     """Provision everything. Idempotent — safe to re-run, which is what makes
     `repair` the same code path as a first install."""
-    return run(stages or default_stages(), ctx or default_context(), log=log)
+    context = ctx or default_context()
+    prepare_install(context)
+    return run(stages or default_stages(), context, log=log)
 
 
 def doctor(

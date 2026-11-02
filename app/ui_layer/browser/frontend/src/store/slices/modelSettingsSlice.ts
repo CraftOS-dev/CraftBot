@@ -296,6 +296,11 @@ register('model_settings_update', (data, dispatch) => {
   if (d.aws_credentials !== undefined) dispatch(setAwsCredentials(d.aws_credentials))
 })
 
+register('model_api_key_remove', (data, dispatch) => {
+  const d = data as { success: boolean; api_keys?: Record<string, ApiKeyStatus> }
+  if (d.success && d.api_keys) dispatch(setApiKeys(d.api_keys))
+})
+
 register('slow_mode_get', (data, dispatch) => {
   const d = data as { success: boolean; enabled: boolean }
   if (d.success) dispatch(setSlowModeEnabled(d.enabled))

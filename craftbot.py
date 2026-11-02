@@ -1528,6 +1528,17 @@ def _full_install_frozen(
 
     target_dir = os.path.normpath(target_dir)
 
+    from app import paths, provision
+    from app.provision.default_agent_app import is_new_install, prepare_install
+
+    install_context = provision.Context(
+        code_root=target_dir,
+        state_root=str(paths.STATE_ROOT),
+        new_install=read_install_metadata() is None
+        and is_new_install(str(paths.STATE_ROOT)),
+    )
+    prepare_install(install_context)
+
     # 0. Stop anything running from this location first — on Windows an open
     #    file cannot be replaced, so extraction would fail midway and leave a
     #    half-written tree.
@@ -1567,13 +1578,9 @@ def _full_install_frozen(
     #    CRAFTBOT_HOME is not set here: state belongs in the per-user data
     #    dir (app/paths.py), separate from this install dir, so an upgrade
     #    that replaces the source tree cannot take the user's data with it.
-    from app import provision
-
     print("  Setting up the runtime — this takes a few minutes on first install.")
-    ctx = provision.Context(
-        code_root=src_root,
-        state_root=str(paths.STATE_ROOT),
-    )
+    ctx = install_context
+    ctx.code_root = src_root
     report = provision.install(log=print, ctx=ctx)
 
     resolved_python = None
