@@ -30,6 +30,13 @@
   animation: slideUp 0.15s ease-out;
 }
 
+/* The dialog takes focus on open to contain the keyboard; it is not a
+   control, so it never shows a focus ring (dialogs opened without a click
+   would otherwise get the browser's outline). */
+.content:focus {
+  outline: none;
+}
+
 @keyframes slideUp {
   from {
     opacity: 0;

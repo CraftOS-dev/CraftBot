@@ -4,6 +4,8 @@ const declined = {
   revision: 'feedback-v1', required: true, needsReview: false,
   triggers: [{ name: 'summarize', description: 'Summarize a recording', instruction: 'Summarize the selected recording.', change: 'new' }],
 }
+// Requests nobody has decided on yet; "declined" is after "Don't allow".
+const pending = { ...declined, needsReview: true }
 const receive = (page: Page, type: string, data: unknown) => page.evaluate(({ type, data }) => (window as any).panelReceive({ type, data }), { type, data })
 const warningText = (name = 'Notes') => `${name} couldn't run a request because permission is required.`
 const warning = (page: Page, name = 'Notes') => page.getByRole('status').filter({ hasText: warningText(name) })
@@ -17,6 +19,14 @@ async function blocked(page: Page, projectId = 'notes', consent = declined, requ
   await receive(page, 'agent_app_trigger_blocked', {
     projectId, projectName: projectId === 'notes' ? 'Notes' : 'Calendar', trigger: 'summarize', requestId, consent,
   })
+}
+// Closing the review is "Don't allow": it saves a decline, then closes.
+async function closeDeclining(page: Page, projectId = 'notes', consent = declined) {
+  await dialog(page).getByRole('button', { name: 'Close', exact: true }).click()
+  const sent = await page.evaluate(() => (window as any).panelRequests.filter((r: any) => r.type === 'agent_app_trigger_consent').at(-1))
+  expect(sent).toMatchObject({ projectId, allow: false })
+  await receive(page, 'agent_app_trigger_consent', { projectId, requestId: sent.requestId, success: true, consent })
+  await expect(dialog(page)).toHaveCount(0)
 }
 async function catalogConsent(page: Page, consent = declined) {
   await page.evaluate(consent => {
@@ -38,10 +48,11 @@ test('a blocked request in another chat shows one actionable notification per ap
   const screenshot = testInfo.outputPath('blocked-request-chat.png')
   await page.screenshot({ path: screenshot })
   await warning(page).getByRole('button', { name: 'Review requests' }).click()
-  await expect(dialog(page)).toHaveAccessibleName('Allow requests from Notes?')
+  await expect(dialog(page)).toHaveAccessibleName('Agent App requesting access to CraftBot')
+  await expect(dialog(page).getByRole('heading', { name: 'Notes', exact: true })).toBeVisible()
   expect(await page.evaluate(() => (window as any).panelRequests.some((r: any) => r.type === 'agent_app_list'))).toBe(true)
   expect(await page.evaluate(() => (window as any).panelRequests.filter((r: any) => r.type === 'agent_app_trigger_consent'))).toEqual([])
-  await dialog(page).getByRole('button', { name: 'Close', exact: true }).click()
+  await closeDeclining(page)
   await blocked(page)
   await expect(warning(page)).toHaveCount(0)
   await blocked(page, 'notes', { ...declined, revision: 'feedback-v2' })
@@ -63,37 +74,48 @@ for (const width of [320, 390]) {
     expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width)
     await page.screenshot({ path: testInfo.outputPath('blocked-request-phone.png') })
     await warning(page).getByRole('button', { name: 'Review requests' }).press('Enter')
-    await expect(dialog(page)).toHaveAccessibleName('Allow requests from Notes?')
+    await expect(dialog(page)).toHaveAccessibleName('Agent App requesting access to CraftBot')
+    await expect(dialog(page).getByRole('heading', { name: 'Notes', exact: true })).toBeVisible()
   })
 }
 
 for (const width of [1280, 390]) {
-  test(`permission banner appears in the panel and full app page without reloading its frame at ${width}px`, async ({ page }, testInfo) => {
+  test(`permission banner shows only while a decision is pending, without reloading the frame, at ${width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 844 })
     await open(page)
     await page.getByRole('button', { name: 'Show an agent app', exact: true }).click()
     await page.getByRole('menuitemradio', { name: 'Notes', exact: true }).click()
     const note = page.frameLocator('iframe[title="Notes"]').getByRole('textbox', { name: 'App note' })
     await note.fill('Preserved while reviewing permissions')
-    await catalogConsent(page)
+    await catalogConsent(page, pending)
+    await expect(dialog(page)).toBeVisible()
+    // A review left undecided (closed while offline) keeps the banner.
+    await page.evaluate(() => (window as any).panelStore.dispatch({ type: 'agentApp/dismissTriggerReview',
+      payload: { projectId: 'notes', revision: 'feedback-v1' } }))
+    await expect(dialog(page)).toHaveCount(0)
     await expect(banner(page)).toContainText('Agent requests are off until you review and allow them.')
     await expect(banner(page)).toHaveCount(1)
     await expect(note).toHaveValue('Preserved while reviewing permissions')
     await expect(banner(page).getByRole('button', { name: 'Review requests' })).toBeInViewport()
     await page.screenshot({ path: testInfo.outputPath('permission-banner-panel.png') })
     await banner(page).getByRole('button', { name: 'Review requests' }).click()
-    await expect(dialog(page)).toHaveAccessibleName('Allow requests from Notes?')
-    await dialog(page).getByRole('button', { name: 'Close', exact: true }).click()
+    await expect(dialog(page)).toHaveAccessibleName('Agent App requesting access to CraftBot')
+    await expect(dialog(page).getByRole('heading', { name: 'Notes', exact: true })).toBeVisible()
+    // "Don't allow" is a decision: the banner goes, in the panel and on the page.
+    await closeDeclining(page)
+    await expect(banner(page)).toHaveCount(0)
     await page.getByRole('button', { name: 'Notes app page', exact: true }).click()
-    await expect(banner(page)).toHaveCount(1)
-    await expect(banner(page).getByRole('button', { name: 'Review requests' })).toBeInViewport()
+    await expect(banner(page)).toHaveCount(0)
     await expect(note).toHaveValue('Preserved while reviewing permissions')
-    await page.screenshot({ path: testInfo.outputPath('permission-banner-page.png') })
-    await banner(page).getByRole('button', { name: 'Review requests' }).click()
+
+    // Changed requests ask again; allowing them keeps the banner away.
+    await catalogConsent(page, { ...pending, revision: 'feedback-v2' })
     await expect(dialog(page)).toBeVisible()
-    await dialog(page).getByRole('button', { name: 'Allow requests', exact: true }).click()
-    const requestId = await page.evaluate(() => (window as any).panelRequests.find((r: any) => r.type === 'agent_app_trigger_consent').requestId)
-    const allowed = { ...declined, required: false, triggers: [{ ...declined.triggers[0], change: 'approved' }] }
+    await expect(banner(page)).toHaveCount(1)
+    await page.screenshot({ path: testInfo.outputPath('permission-banner-page.png') })
+    await dialog(page).getByRole('button', { name: 'Allow', exact: true }).click()
+    const requestId = await page.evaluate(() => (window as any).panelRequests.filter((r: any) => r.type === 'agent_app_trigger_consent').at(-1).requestId)
+    const allowed = { ...declined, revision: 'feedback-v2', required: false, triggers: [{ ...declined.triggers[0], change: 'approved' }] }
     await receive(page, 'agent_app_trigger_consent', { projectId: 'notes', requestId, success: true, consent: allowed })
     await expect(dialog(page)).toHaveCount(0)
     await expect(banner(page)).toHaveCount(0)
@@ -104,7 +126,7 @@ for (const width of [1280, 390]) {
     await expect(banner(page)).toHaveCount(0)
     await expect(note).toHaveValue('Preserved while reviewing permissions')
     await page.screenshot({ path: testInfo.outputPath('approved-panel-no-banner.png') })
-    await catalogConsent(page, { ...declined, revision: 'feedback-v2', triggers: [allowed.triggers[0],
+    await catalogConsent(page, { ...pending, revision: 'feedback-v3', triggers: [allowed.triggers[0],
       { name: 'send', description: 'Send a summary', instruction: 'Send it.', change: 'new' }] })
     await expect(banner(page)).toContainText('New or changed agent requests are off until you review them.')
   })
@@ -130,7 +152,7 @@ test('an already open approval dialog avoids a duplicate blocked notification', 
   await blocked(page, 'notes', { ...declined, needsReview: true })
   await expect(dialog(page)).toBeVisible()
   await expect(warning(page)).toHaveCount(0)
-  await dialog(page).getByRole('button', { name: 'Close', exact: true }).click()
+  await closeDeclining(page)
   await blocked(page)
   await expect(warning(page)).toHaveCount(0)
 })
@@ -144,7 +166,8 @@ test('notification can review an app not yet present in this browser catalog', a
   await page.evaluate(consent => (window as any).panelReceive({ type: 'agent_app_list', data: {
     success: true, projects: (window as any).panelProjects.map((p: any) => p.id === 'calendar' ? { ...p, triggerConsent: consent } : p),
   } }), declined)
-  await expect(dialog(page)).toHaveAccessibleName('Allow requests from Calendar?')
+  await expect(dialog(page)).toHaveAccessibleName('Agent App requesting access to CraftBot')
+  await expect(dialog(page).getByRole('heading', { name: 'Calendar', exact: true })).toBeVisible()
 })
 
 test('a partial grant clears only the warning for the request that became allowed', async ({ page }) => {
@@ -166,7 +189,7 @@ test('the permission banner leaves stopped-app controls reachable in a small pho
     fixture.panelReceive({ type: 'agent_app_list', data: { success: true,
       projects: fixture.panelProjects.map((p: any) => p.id === 'weather' ? { ...p, triggerConsent: consent } : p),
     } })
-  }, declined)
+  }, pending)
   await page.getByRole('button', { name: 'Show an agent app', exact: true }).click()
   await page.getByRole('menuitemradio', { name: 'Weather', exact: true }).click()
   await expect(banner(page).getByRole('button', { name: 'Review requests' })).toBeInViewport()
@@ -187,10 +210,11 @@ test('approved app permissions can still be reviewed and revoked from its sideba
   await row.getByRole('button', { name: 'Options', exact: true }).click()
   await page.screenshot({ path: testInfo.outputPath('review-requests-app-menu.png') })
   await page.getByRole('menu').getByRole('button', { name: 'Review requests', exact: true }).click()
-  await expect(dialog(page)).toHaveAccessibleName('Allow requests from Notes?')
-  await expect(dialog(page).getByText('Already allowed', { exact: true })).toBeVisible()
-  await dialog(page).getByRole('button', { name: 'Keep requests off' }).click()
-  const requestId = await page.evaluate(() => (window as any).panelRequests.find((r: any) => r.type === 'agent_app_trigger_consent').requestId)
+  await expect(dialog(page)).toHaveAccessibleName('Agent App requesting access to CraftBot')
+  await expect(dialog(page).getByRole('heading', { name: 'Notes', exact: true })).toBeVisible()
+  await expect(dialog(page).getByText('Allowed', { exact: true })).toBeVisible()
+  await dialog(page).getByRole('button', { name: "Don't allow" }).click()
+  const requestId = await page.evaluate(() => (window as any).panelRequests.filter((r: any) => r.type === 'agent_app_trigger_consent').at(-1).requestId)
   await receive(page, 'agent_app_trigger_consent', { projectId: 'notes', requestId, success: true, consent: declined })
   await expect(dialog(page)).toHaveCount(0)
   await expect(row).toBeVisible()

@@ -10,9 +10,11 @@ import {
   ChevronRight,
   Archive,
   RotateCcw,
+  MessageSquareText,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { Button, ConfirmModal } from '../../components/ui'
+import { Badge, Button, ConfirmModal, type BadgeVariant } from '../../components/ui'
+import { newTriggerConsentRequestId, sendTriggerConsent } from '../../features/agentApps/triggerConsent'
 import { useConfirmModal, usePersistedSet, usePersistedState } from '../../hooks'
 import i18n from '../../i18n/config'
 import { formatNumber, formatDateTime } from '../../i18n/format'
@@ -519,6 +521,13 @@ function ProjectCard({
         </div>
       </div>
 
+      {/* Zone 3a — Requests the app may send to CraftBot */}
+      <RequestsSection
+        projectId={project.id}
+        labelStyle={sectionLabelStyle}
+        onMessage={onMessage}
+      />
+
       {/* Zone 3b — Backups (native apps only: externals have no pb_data) */}
       {project.projectType !== 'external' && (
         <div
@@ -554,6 +563,150 @@ function ProjectCard({
       )}
 
       </>}
+    </div>
+  )
+}
+
+
+// ── Requests Section ───────────────────────────────────────────
+
+const REQUEST_BADGE: Record<'new' | 'changed' | 'approved', BadgeVariant> = {
+  new: 'info',
+  changed: 'warning',
+  approved: 'success',
+}
+
+/** Allow or stop an app's requests at any time after the first review. Reads
+ *  the consent snapshot the app catalog keeps live for every client. */
+function RequestsSection({
+  projectId,
+  labelStyle,
+  onMessage,
+}: {
+  projectId: string
+  labelStyle: React.CSSProperties
+  onMessage: (type: string, handler: (data: unknown) => void) => () => void
+}) {
+  const { t } = useTranslation('agentapp')
+  const consent = useAppSelector(s => s.agentApp.projects.find(p => p.id === projectId)?.triggerConsent)
+  const connected = useAppSelector(s => s.connection.connected)
+  const [pending, setPending] = useState<{ requestId: string; allow: boolean } | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  // The switch is the setting; the list is reference, shown on request.
+  const [listOpen, setListOpen] = useState(false)
+
+  useEffect(() => {
+    if (!pending) return
+    return onMessage('agent_app_trigger_consent', raw => {
+      const data = raw as { requestId?: string; error?: string | null }
+      if (data.requestId !== pending.requestId) return
+      setPending(null)
+      setError(data.error || null)
+    })
+  }, [pending, onMessage])
+
+  // A reply can't arrive over a dropped connection; free the switch.
+  useEffect(() => {
+    if (!connected) setPending(null)
+  }, [connected])
+
+  if (!consent || (consent.triggers.length === 0 && !consent.error)) return null
+  const allowed = !consent.required && consent.triggers.length > 0
+  // Only an update leaves some requests allowed and others not; those that
+  // still need a choice are listed first.
+  const showChange = consent.required && consent.triggers.some(trigger => trigger.change === 'approved')
+  const ordered = showChange
+    ? [...consent.triggers.filter(trigger => trigger.change !== 'approved'), ...consent.triggers.filter(trigger => trigger.change === 'approved')]
+    : consent.triggers
+  const disabled = !!pending || !connected || (!allowed && !!consent.error)
+
+  const choose = (allow: boolean) => {
+    const requestId = newTriggerConsentRequestId()
+    setError(null)
+    setPending({ requestId, allow })
+    sendTriggerConsent(projectId, consent.revision, allow, requestId)
+  }
+
+  return (
+    <div
+      style={{
+        padding: 'var(--space-3)',
+        borderTop: '1px solid var(--border-primary)',
+      }}
+    >
+      <div style={{ ...labelStyle, marginBottom: 'var(--space-2)' }}>
+        {t('triggerConsent.settingsTitle')}
+      </div>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 'var(--space-3)',
+          padding: 'var(--space-2) 0',
+        }}
+      >
+        <div className={styles.toggleInfo}>
+          <span className={styles.toggleLabel}>{t('triggerConsent.settingsLabel')}</span>
+          {consent.triggers.length > 0 && (
+            <button
+              type="button"
+              className={styles.requestsLink}
+              aria-expanded={listOpen}
+              onClick={() => setListOpen(open => !open)}
+            >
+              {listOpen ? t('triggerConsent.hideRequests') : t('triggerConsent.viewRequests', { count: consent.triggers.length })}
+            </button>
+          )}
+        </div>
+        <input
+          type="checkbox"
+          className={styles.toggle}
+          aria-label={t('triggerConsent.settingsLabel')}
+          checked={pending ? pending.allow : allowed}
+          disabled={disabled}
+          style={disabled ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}
+          onChange={e => choose(e.target.checked)}
+        />
+      </div>
+      {listOpen && (
+        <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+          {ordered.map(trigger => (
+            <li
+              key={trigger.name}
+              style={{
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: 'var(--space-3)',
+                padding: 'var(--space-2) 0',
+                borderTop: '1px solid var(--border-primary)',
+              }}
+            >
+              <MessageSquareText size={14} style={{ flexShrink: 0, marginTop: 3, color: 'var(--text-secondary)' }} aria-hidden />
+              <span
+                style={{
+                  flex: 1,
+                  minWidth: 0,
+                  fontSize: 'var(--text-sm)',
+                  lineHeight: 1.5,
+                  color: 'var(--text-primary)',
+                  overflowWrap: 'anywhere',
+                }}
+              >
+                {trigger.description || trigger.name}
+              </span>
+              {showChange && (
+                <Badge variant={REQUEST_BADGE[trigger.change]}>{t(`triggerConsent.${trigger.change}`)}</Badge>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {(error || consent.error) && (
+        <p role="alert" style={{ margin: 'var(--space-2) 0 0', fontSize: 'var(--text-sm)', color: 'var(--color-error)' }}>
+          {error || consent.error}
+        </p>
+      )}
     </div>
   )
 }
