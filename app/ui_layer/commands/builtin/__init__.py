@@ -2,6 +2,7 @@
 
 from app.ui_layer.commands.builtin.help import HelpCommand
 from app.ui_layer.commands.builtin.clear import ClearCommand
+from app.ui_layer.commands.builtin.fold import FoldCommand
 from app.ui_layer.commands.builtin.reset import ResetCommand
 from app.ui_layer.commands.builtin.exit import ExitCommand
 from app.ui_layer.commands.builtin.menu import MenuCommand
@@ -18,6 +19,7 @@ from app.ui_layer.commands.builtin.skill_invoke import SkillInvokeCommand
 __all__ = [
     "HelpCommand",
     "ClearCommand",
+    "FoldCommand",
     "ResetCommand",
     "ExitCommand",
     "MenuCommand",

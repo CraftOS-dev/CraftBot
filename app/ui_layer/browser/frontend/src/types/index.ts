@@ -130,9 +130,14 @@ export interface SessionInfo {
   /** The session's last decision request as the provider reported it; null
    *  until its first request (also after a restart). */
   lastRequest: LastRequest | null
+  /** The event stream's latest fold; null when it has none since it was
+   *  created, restored or cleared. */
+  lastFold: LastFold | null
+  /** A fold the user asked for (/fold) is summarizing the event stream. */
+  folding: boolean
 }
 
-/** One LLM request's context size and cache use (the reasoning menu readout). */
+/** One LLM request's context size and cache use (the context menu readout). */
 export interface LastRequest {
   /** Input tokens the request carried, cached ones included. */
   inputTokens: number
@@ -143,6 +148,15 @@ export interface LastRequest {
   /** Where it was served and by which model: its cache belongs to them. */
   surface: string
   model: string
+}
+
+/** A fold that shrank a session's event stream. Until a request after it
+ *  reports its size, the context readout takes it off the last request's. */
+export interface LastFold {
+  /** Epoch ms when it was made. */
+  at: number
+  /** How many tokens the stream shrank by (the summary's growth subtracted). */
+  freedTokens: number
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -865,7 +879,30 @@ export interface OnboardingCompleteResponse {
 export type AgentAppStatus = 'creating' | 'launching' | 'ready' | 'running' | 'stopping' | 'stopped' | 'error'
 export type AgentAppCreationPhase = 'initializing' | 'scaffolding' | 'coding' | 'testing' | 'building' | 'launching'
 
+export interface AgentAppTriggerConsent {
+  revision: string
+  required: boolean
+  needsReview: boolean
+  error?: string
+  triggers: Array<{
+    name: string
+    description: string
+    instruction: string
+    params?: Record<string, unknown>
+    change: 'new' | 'changed' | 'approved'
+  }>
+}
+
+export interface AgentAppTriggerBlocked {
+  projectId: string
+  projectName: string
+  trigger: string
+  requestId: string
+  consent: AgentAppTriggerConsent
+}
+
 export interface AgentAppProject {
+  triggerConsent?: AgentAppTriggerConsent
   id: string
   name: string
   description: string
@@ -972,6 +1009,7 @@ export interface AgentAppListResponse {
 }
 
 export interface AgentAppLaunchResponse {
+  triggerConsent?: AgentAppTriggerConsent
   success: boolean
   projectId?: string
   url?: string

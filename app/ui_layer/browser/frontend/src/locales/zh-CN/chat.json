@@ -40,9 +40,28 @@
     "defaultTag": "默认",
     "notConfigurable": "{{model}} 不支持调整推理",
     "clamped": "此模型不支持“{{requested}}”，因此使用“{{effective}}”。",
+    "choice": {
+      "provider_default": "服务商默认",
+      "off": "关闭",
+      "minimal": "最低",
+      "low": "低",
+      "medium": "中",
+      "high": "高",
+      "xhigh": "超高",
+      "max": "最高"
+    }
+  },
+  "contextWindow": {
+    "title": "上下文窗口",
+    "tooltip": "上下文 {{used}} / {{max}}（{{percent}}）",
+    "header": "上下文 · {{model}}",
+    "fold": "立即总结",
+    "folding": "正在总结…",
+    "foldHint": "立即总结较早的事件以释放上下文",
     "context": {
       "label": "上下文",
-      "summarizesAt": "达到 {{max}} 时总结"
+      "summarizesAt": "达到 {{max}} 时总结",
+      "estimate": "~{{value}}"
     },
     "cache": {
       "label": "缓存",
@@ -53,16 +72,6 @@
       "about": "~{{time}}",
       "expired": "已过期",
       "noExpiry": "无固定有效期"
-    },
-    "choice": {
-      "provider_default": "服务商默认",
-      "off": "关闭",
-      "minimal": "最低",
-      "low": "低",
-      "medium": "中",
-      "high": "高",
-      "xhigh": "超高",
-      "max": "最高"
     }
   },
   "reply": {

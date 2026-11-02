@@ -176,6 +176,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
         {toasts.map(toast => (
           <div
             key={toast.id}
+            role="status"
             className={`${styles.toast} ${styles[getTone(toast.type, toast.category)]}`}
             onClick={() => dismissToast(toast.id)}
           >

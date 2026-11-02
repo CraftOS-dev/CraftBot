@@ -50,6 +50,7 @@ import {
   selectPendingQuestions,
 } from '../../store/selectors/messages'
 import { QuestionBox } from './QuestionBox'
+import { ContextButton } from './ContextButton'
 import { ReasoningPicker } from './ReasoningPicker'
 import { mergeTimeline, type TimelineEntry } from './timeline'
 import { selectSessionActivity } from '../../store/selectors/activity'
@@ -107,7 +108,7 @@ type DisplayRow =
   | { kind: 'activity'; ts: number; item: ActionItem }
 
 // Narrower than this, the composer's reasoning button shows only its icon so
-// the controls row (+, reasoning, mic, send) still fits.
+// the controls row (+, reasoning, context, mic, send) still fits.
 const COMPOSER_COMPACT_WIDTH = 420
 
 const SUGGESTED_PLAYBOOK_COUNT = 3
@@ -1706,6 +1707,7 @@ export function Chat({ sessionId, placeholder, panelLayout = 'side', panelVisibl
             </div>
 
             <div className={styles.controlsRight}>
+              <ContextButton sessionId={sessionId} />
               <div className={styles.micGroup} ref={langDropdownRef}>
                 <button
                   type="button"

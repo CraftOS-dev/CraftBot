@@ -4,6 +4,7 @@
 
   "model_no_model_specified": "No model specified",
   "model_test_failed": "Test failed",
+  "model_api_key_in_use": "This key is the only credential for {provider}, your active model provider. Choose another provider before removing it.",
 
   "agentapp_name_desc_required": "Name and description are required",
   "agentapp_project_created": "Project created, starting development...",

@@ -155,10 +155,12 @@ def _adapter(llm, sent):
     async def send_to(_ws, message):
         sent.append(message)
 
-    return SimpleNamespace(
-        _controller=SimpleNamespace(agent=SimpleNamespace(llm=llm)),
-        _send_to=send_to,
+    agent = SimpleNamespace(
+        llm=llm,
+        event_stream_manager=SimpleNamespace(has_stream=lambda _id: False),
+        folding_sessions=set(),
     )
+    return SimpleNamespace(_controller=SimpleNamespace(agent=agent), _send_to=send_to)
 
 
 def test_the_reasoning_options_carry_budgets_and_cache_facts(monkeypatch, fake_catalog):

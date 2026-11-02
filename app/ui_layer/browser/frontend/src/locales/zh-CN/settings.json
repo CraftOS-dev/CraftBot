@@ -126,7 +126,9 @@
       "slowModeDisabled": "已禁用慢速模式",
       "slowModeFailed": "更新慢速模式失败",
       "installFailed": "安装失败",
-      "openingBrowser": "正在打开浏览器以使用 {{provider}} 登录…"
+      "openingBrowser": "正在打开浏览器以使用 {{provider}} 登录…",
+      "apiKeyRemoved": "已移除 API 密钥",
+      "apiKeyRemoveFailed": "无法移除 API 密钥"
     },
     "ollama": {
       "notDetected": "未检测到 Ollama",
@@ -162,7 +164,10 @@
       "replacePlaceholder": "输入新密钥以替换…",
       "enterPlaceholder": "输入 API 密钥…",
       "proxyConfigured": "OpenRouter 已配置，当直连 API 在你所在地区不可用时将自动使用它。",
-      "proxyFallback": "此供应商可能受地区限制。如果直连 API 失败，可将 OpenRouter 配置为后备方案——系统将自动使用它。"
+      "proxyFallback": "此供应商可能受地区限制。如果直连 API 失败，可将 OpenRouter 配置为后备方案——系统将自动使用它。",
+      "removeLocked": "当前模型正在使用此密钥。移除前请先切换到其他供应商。",
+      "removeTitle": "移除 API 密钥",
+      "removeConfirm": "要删除已保存的 {{provider}} API 密钥吗？之后需要重新输入才能使用。"
     },
     "bedrock": {
       "accessKeyId": "AWS Access Key ID",
@@ -235,7 +240,9 @@
       "priceUnit": "/M",
       "seeOpenRouter": "查看 openrouter.ai",
       "pasteSlug": "或粘贴一个 slug："
-    }
+    },
+    "inUse": "使用中",
+    "notInUse": "未使用"
   },
   "proactive": {
     "title": "主动行为",

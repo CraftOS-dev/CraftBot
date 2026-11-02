@@ -126,7 +126,9 @@
       "slowModeDisabled": "Slow mode disabled",
       "slowModeFailed": "Failed to update slow mode",
       "installFailed": "Installation failed",
-      "openingBrowser": "Opening browser to sign in with {{provider}}…"
+      "openingBrowser": "Opening browser to sign in with {{provider}}…",
+      "apiKeyRemoved": "API key removed",
+      "apiKeyRemoveFailed": "Could not remove the API key"
     },
     "ollama": {
       "notDetected": "Ollama not detected",
@@ -166,7 +168,10 @@
       "replacePlaceholder": "Enter new key to replace...",
       "enterPlaceholder": "Enter API key...",
       "proxyConfigured": "OpenRouter is configured and will be used automatically if the direct API is unavailable in your region.",
-      "proxyFallback": "This provider may be geo-restricted. If the direct API fails, configure OpenRouter as a fallback — it will be used automatically."
+      "proxyFallback": "This provider may be geo-restricted. If the direct API fails, configure OpenRouter as a fallback — it will be used automatically.",
+      "removeLocked": "Your active model uses this key. Switch to another provider before removing it.",
+      "removeTitle": "Remove API key",
+      "removeConfirm": "Delete the saved {{provider}} API key? You will need to enter it again to use it."
     },
     "bedrock": {
       "accessKeyId": "AWS Access Key ID",
@@ -239,7 +244,9 @@
       "priceUnit": "/M",
       "seeOpenRouter": "see openrouter.ai",
       "pasteSlug": "Or paste a slug:"
-    }
+    },
+    "inUse": "In use",
+    "notInUse": "Not in use"
   },
   "proactive": {
     "title": "Proactive Behavior",

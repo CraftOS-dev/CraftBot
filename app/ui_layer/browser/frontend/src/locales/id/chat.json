@@ -40,9 +40,28 @@
     "defaultTag": "Bawaan",
     "notConfigurable": "Penalaran tidak dapat diatur untuk {{model}}",
     "clamped": "{{requested}} tidak tersedia pada model ini, jadi {{effective}} yang digunakan.",
+    "choice": {
+      "provider_default": "Bawaan penyedia",
+      "off": "Mati",
+      "minimal": "Minimal",
+      "low": "Rendah",
+      "medium": "Sedang",
+      "high": "Tinggi",
+      "xhigh": "Sangat tinggi",
+      "max": "Maksimum"
+    }
+  },
+  "contextWindow": {
+    "title": "Jendela konteks",
+    "tooltip": "Konteks {{used}} / {{max}} ({{percent}})",
+    "header": "Konteks · {{model}}",
+    "fold": "Ringkas sekarang",
+    "folding": "Meringkas…",
+    "foldHint": "Ringkas peristiwa lama sekarang untuk membebaskan konteks",
     "context": {
       "label": "Konteks",
-      "summarizesAt": "Diringkas pada {{max}}"
+      "summarizesAt": "Diringkas pada {{max}}",
+      "estimate": "~{{value}}"
     },
     "cache": {
       "label": "Cache",
@@ -53,16 +72,6 @@
       "about": "~{{time}}",
       "expired": "Kedaluwarsa",
       "noExpiry": "Tanpa batas waktu tetap"
-    },
-    "choice": {
-      "provider_default": "Bawaan penyedia",
-      "off": "Mati",
-      "minimal": "Minimal",
-      "low": "Rendah",
-      "medium": "Sedang",
-      "high": "Tinggi",
-      "xhigh": "Sangat tinggi",
-      "max": "Maksimum"
     }
   },
   "reply": {

@@ -4,6 +4,7 @@
 
   "model_no_model_specified": "未指定模型",
   "model_test_failed": "測試失敗",
+  "model_api_key_in_use": "此金鑰是目前模型供應商 {provider} 的唯一憑證。請先選擇其他供應商，再移除它。",
 
   "agentapp_name_desc_required": "必須填寫名稱與描述",
   "agentapp_project_created": "專案已建立，正在開始開發…",

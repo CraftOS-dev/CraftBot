@@ -75,6 +75,7 @@ from app.ui_layer.settings import (
     get_available_providers,
     get_model_settings,
     update_model_settings,
+    remove_api_key,
     test_connection,
     validate_can_save,
     get_ollama_models,
@@ -1220,7 +1221,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         # Integration bridge routes (Agent App → external APIs)
         from app.agent_app.integration_bridge import IntegrationBridge
 
-        self._integration_bridge = IntegrationBridge(self._agent_app_manager)
+        self._integration_bridge = IntegrationBridge(
+            self._agent_app_manager,
+            on_trigger_blocked=self._broadcast_agent_app_trigger_blocked,
+        )
         self._integration_bridge.register_routes(self._app)
 
         # Serve Vite-built frontend (production)
@@ -1902,6 +1906,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         elif msg_type == "model_settings_update":
             await self._handle_model_settings_update(data)
 
+        elif msg_type == "model_api_key_remove":
+            await self._handle_model_api_key_remove(data.get("provider", ""))
+
         elif msg_type == "model_connection_test":
             provider = data.get("provider", "")
             api_key = data.get("apiKey")
@@ -2249,6 +2256,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
         elif msg_type == "agent_app_list":
             await self._handle_agent_app_list()
+
+        elif msg_type == "agent_app_trigger_consent":
+            await self._handle_agent_app_trigger_consent(data)
 
         elif msg_type == "agent_app_launch":
             project_id = data.get("projectId", "")
@@ -3505,6 +3515,60 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
             )
 
+    async def _broadcast_agent_app_trigger_blocked(
+        self, project_id: str, trigger: str, request_id: str
+    ) -> None:
+        from app.agent_app.trigger_consent import status
+
+        project = self._agent_app_manager.get_project(project_id)
+        if project is None:
+            return
+        await self._broadcast(
+            {
+                "type": "agent_app_trigger_blocked",
+                "data": {
+                    "projectId": project_id,
+                    "projectName": project.name,
+                    "trigger": trigger,
+                    "requestId": request_id,
+                    "consent": status(project),
+                },
+            }
+        )
+
+    async def _handle_agent_app_trigger_consent(self, data: dict) -> None:
+        """An authenticated UI decision about the definitions actually displayed."""
+        from app.agent_app.trigger_consent import decide, status
+
+        project_id = data.get("projectId", "")
+        project = self._agent_app_manager.get_project(project_id)
+        error = None
+        consent = None
+        try:
+            if project is None:
+                raise ValueError("App not found.")
+            if not isinstance(data.get("allow"), bool):
+                raise ValueError("Choose whether to allow agent requests.")
+            consent = decide(project, data.get("revision", ""), data["allow"])
+        except Exception as exc:
+            error = str(exc)
+            if project is not None:
+                consent = status(project)
+        await self._broadcast(
+            {
+                "type": "agent_app_trigger_consent",
+                "data": {
+                    "success": error is None,
+                    "projectId": project_id,
+                    "requestId": data.get("requestId"),
+                    "consent": consent,
+                    "error": error,
+                },
+            }
+        )
+        if error is None:
+            await self._handle_agent_app_list()
+
     async def _handle_agent_app_launch(self, project_id: str) -> None:
         """Launch a Agent App project."""
         try:
@@ -3520,6 +3584,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                             "projectId": project_id,
                             "url": project.url,
                             "port": project.port,
+                            "triggerConsent": project.trigger_consent_status(),
                         },
                     }
                 )
@@ -4246,6 +4311,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         "url": project.url if project else url,
                         "port": project.port if project else port,
                         "sessionId": project.session_id if project else None,
+                        "triggerConsent": project.trigger_consent_status()
+                        if project
+                        else None,
                     },
                 }
             )
@@ -4500,8 +4568,13 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         """SessionInfo wire shape for a Session."""
         from agent_core.core.impl.llm import LLMCallType
 
-        usage = self._controller.agent.llm.last_request(
-            session.id, LLMCallType.ACTION_SELECTION
+        agent = self._controller.agent
+        usage = agent.llm.last_request(session.id, LLMCallType.ACTION_SELECTION)
+        streams = agent.event_stream_manager
+        fold = (
+            streams.get_stream_by_id(session.id).last_fold
+            if streams.has_stream(session.id)
+            else None
         )
         return {
             "id": session.id,
@@ -4511,7 +4584,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             "lastActiveAt": session.last_active_at,
             "agentAppProjectId": session.agent_app_project_id,
             "reasoningEffort": session.reasoning_effort,
-            # The last decision request, for the reasoning menu's context and
+            # The last decision request, for the context menu's context and
             # cache readout; null until the session's first request.
             "lastRequest": (
                 {
@@ -4524,6 +4597,15 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 if usage is not None
                 else None
             ),
+            # The stream's latest fold: until a request after it reports its
+            # size, the readout takes it off the last request's.
+            "lastFold": (
+                {"at": round(fold.at * 1000), "freedTokens": fold.freed_tokens}
+                if fold is not None
+                else None
+            ),
+            # A fold the user asked for (/fold) is summarizing the stream.
+            "folding": session.id in agent.folding_sessions,
         }
 
     @staticmethod
@@ -6556,6 +6638,56 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         "success": False,
                         "error": str(e),
                     },
+                }
+            )
+
+    async def _handle_model_api_key_remove(self, provider: str) -> None:
+        """Delete a provider's stored API key.
+
+        The LLM/VLM needs no reinit: remove_api_key refuses the active
+        provider's only credential, so the active model is either another
+        provider or signed in with a subscription, which the factory prefers
+        over the key. Fallback providers re-check their key on every walk.
+        Image and video generation hold the key in their live client, so they
+        are rebuilt from the updated settings even when that leaves them
+        without a credential.
+        """
+        try:
+            async with self._model_change_lock():
+                result = await asyncio.to_thread(remove_api_key, provider)
+                if result.get("success"):
+                    agent = self._controller.agent
+                    if result.get("image_gen_provider") == provider:
+                        try:
+                            agent.reinitialize_image_gen(
+                                provider, keep_live_on_failure=False
+                            )
+                        except Exception as e:
+                            logger.warning(
+                                f"[BROWSER] Image gen rebuild after {provider} "
+                                f"API key removal failed: {e}"
+                            )
+                    if result.get("video_gen_provider") == provider:
+                        try:
+                            agent.reinitialize_video_gen(
+                                provider, keep_live_on_failure=False
+                            )
+                        except Exception as e:
+                            logger.warning(
+                                f"[BROWSER] Video gen rebuild after {provider} "
+                                f"API key removal failed: {e}"
+                            )
+            await self._broadcast(
+                {
+                    "type": "model_api_key_remove",
+                    "data": {**result, "provider": provider},
+                }
+            )
+        except Exception as e:
+            await self._broadcast(
+                {
+                    "type": "model_api_key_remove",
+                    "data": {"success": False, "provider": provider, "error": str(e)},
                 }
             )
 
@@ -8759,6 +8891,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         "url": result.get("url"),
                         "port": result["project"].get("port"),
                         "sessionId": result["project"].get("sessionId"),
+                        "triggerConsent": result["project"].get("triggerConsent"),
                     },
                 }
             )

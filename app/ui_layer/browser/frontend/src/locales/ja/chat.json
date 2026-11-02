@@ -40,9 +40,28 @@
     "defaultTag": "既定",
     "notConfigurable": "{{model}} では推論を調整できません",
     "clamped": "{{requested}} はこのモデルでは使えないため、{{effective}} を使用します。",
+    "choice": {
+      "provider_default": "プロバイダーの既定",
+      "off": "オフ",
+      "minimal": "最小",
+      "low": "低",
+      "medium": "中",
+      "high": "高",
+      "xhigh": "超高",
+      "max": "最大"
+    }
+  },
+  "contextWindow": {
+    "title": "コンテキストウィンドウ",
+    "tooltip": "コンテキスト {{used}} / {{max}}（{{percent}}）",
+    "header": "コンテキスト · {{model}}",
+    "fold": "今すぐ要約",
+    "folding": "要約中…",
+    "foldHint": "古いイベントを今すぐ要約してコンテキストを空ける",
     "context": {
       "label": "コンテキスト",
-      "summarizesAt": "{{max}} で要約"
+      "summarizesAt": "{{max}} で要約",
+      "estimate": "~{{value}}"
     },
     "cache": {
       "label": "キャッシュ",
@@ -53,16 +72,6 @@
       "about": "~{{time}}",
       "expired": "期限切れ",
       "noExpiry": "有効期限なし"
-    },
-    "choice": {
-      "provider_default": "プロバイダーの既定",
-      "off": "オフ",
-      "minimal": "最小",
-      "low": "低",
-      "medium": "中",
-      "high": "高",
-      "xhigh": "超高",
-      "max": "最大"
     }
   },
   "reply": {
