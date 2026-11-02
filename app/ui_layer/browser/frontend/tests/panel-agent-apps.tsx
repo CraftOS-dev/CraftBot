@@ -8,6 +8,8 @@ import { ToastProvider } from '../src/contexts/ToastContext'
 import { ThemeProvider } from '../src/contexts/ThemeContext'
 import { WebSocketProvider } from '../src/contexts/WebSocketContext'
 import { setConnected } from '../src/store/slices/connectionSlice'
+import { AgentAppTriggerConsentModal } from '../src/components/ui/AgentAppTriggerConsentModal'
+import { AgentAppTriggerBlockedToast } from '../src/components/ui/AgentAppTriggerBlockedToast'
 import i18n from '../src/i18n/config'
 import '../src/styles/global.css'
 
@@ -21,6 +23,9 @@ const { store } = await import('../src/store')
 const { Chat } = await import('../src/components/Chat/Chat')
 const { AgentAppPage } = await import('../src/pages/AgentApp/AgentAppPage')
 const { dispatchInbound } = await import('../src/store/socket/messageRegistry')
+const permissionsMenu = new URLSearchParams(location.search).has('permissions-menu')
+const NavBar = permissionsMenu ? (await import('../src/components/layout/NavBar')).NavBar : null
+const TourProvider = permissionsMenu ? (await import('../src/tour')).TourProvider : null
 const receive = (envelope: { type: string; data: unknown }) => dispatchInbound(envelope, store.dispatch, store.getState)
 const projects = [
   { id: 'notes', name: 'Notes', description: 'Write notes', path: '', status: 'running', url: 'http://localhost:7935/tests/fixtures/panel-app.html', readyAt: 1, createdAt: 1, sessionId: 'notes-chat', uiTheme: { themeId: 'craftbot' } },
@@ -36,6 +41,9 @@ Object.assign(window, { panelRequests: requests, panelReceive: receive, panelPro
 function Fixture() {
   const navigate = useNavigate()
   return <>
+    <AgentAppTriggerConsentModal />
+    <AgentAppTriggerBlockedToast />
+    {NavBar && TourProvider && <TourProvider autoStartEnabled={false}><NavBar /></TourProvider>}
     <nav style={{ height: 40 }}><button onClick={() => navigate('/session/dest')}>Back to chat</button><button onClick={() => navigate('/session/other')}>Other chat</button><button onClick={() => navigate('/agent-app/notes')}>Notes app page</button></nav>
     <div style={{ height: 'calc(100dvh - 40px)' }}><Routes>
       <Route path="/session/dest" element={<Chat sessionId="dest" />} />

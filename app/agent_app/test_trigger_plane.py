@@ -1,5 +1,5 @@
 """Trigger-plane acceptance (spec TRIGGERS-PLAN): app→agent fires pass the
-capability/consent/era gates, the brief is composed from disk, and nothing
+capability/era gates, the brief is composed from disk, and nothing
 app-controlled can steer the agent beyond the build-time declaration.
 
 Run:  python3 -m app.agent_app.test_trigger_plane
@@ -18,6 +18,7 @@ from pathlib import Path
 
 import app.factory.host_craftbot as host_mod
 import app.agent_app as agent_app_mod
+from app.agent_app import trigger_consent
 from app.agent_app.integration_bridge import IntegrationBridge
 from app.agent_app.manager import AgentAppManager
 from app.agent_app.walk_verify import parse_check_report
@@ -90,14 +91,6 @@ class _MgrStub:
         self.notified.append((project_id, trigger, request_id))
         return {"status": "success", "session_id": "agentapp_x"}
 
-    async def notify_trigger_consent_needed(self, project_id, trigger):
-        self.consent_asks = getattr(self, "consent_asks", [])
-        self.consent_asks.append((project_id, trigger))
-        if getattr(self, "fail_next_consent_ask", False):
-            self.fail_next_consent_ask = False
-            return {"status": "error", "message": "session runtime hiccup"}
-        return {"status": "success"}
-
 
 def _bridge(mgr) -> IntegrationBridge:
     bridge = IntegrationBridge.__new__(IntegrationBridge)
@@ -113,22 +106,24 @@ def _fire(bridge, token="good", trigger="restock_needed", request_id="row1"):
     )
 
 
-# ── §1 consent flag round-trip (sidecar-backed, fail-closed) ───────────────
+# ── §1 UI review precedes dispatch; legacy flags never authorize requests ──
 with tempfile.TemporaryDirectory() as tmp:
-    living = Path(tmp) / "agent_app"
-    project = _make_project(living, "consent01")
-    agent_app_mod.get_agent_app_manager = lambda: _MgrStub(project)
-    host_mod._HOST = None
-    host = host_mod.get_factory_host()
-
-    assert host.is_triggers_approved("consent01") is False, "default must be closed"
-    host.set_triggers_approved("consent01")
-    assert host.is_triggers_approved("consent01") is True
-    side = _json.loads((Path(project.path) / ".factory" / "host.json").read_text())
-    assert side["triggers_approved"] is True, "consent must persist in the sidecar"
-    host.set_triggers_approved("consent01", False)
-    assert host.is_triggers_approved("consent01") is False
-print("§1 consent flag round-trip: OK")
+    project = _make_project(Path(tmp) / "agent_app", "consent01")
+    mgr = _MgrStub(project)
+    agent_app_mod.get_agent_app_manager = lambda: mgr
+    bridge = _bridge(mgr)
+    sidecar = Path(project.path) / ".factory" / "host.json"
+    for legacy in (None, False, True):
+        if legacy is not None:
+            sidecar.write_text(_json.dumps({"triggers_approved": legacy}))
+        assert _fire(bridge).status == 403
+        assert mgr.notified == []
+    review = trigger_consent.status(project)
+    assert review["needsReview"]
+    trigger_consent.decide(project, review["revision"], True)
+    assert _fire(bridge).status == 200
+    assert len(mgr.notified) == 1
+print("§1 UI review before dispatch, no legacy auto-approval: OK")
 
 
 # ── §2 capability gate: derived manifest list, fail-closed ─────────────────
@@ -151,47 +146,27 @@ with tempfile.TemporaryDirectory() as tmp:
 print("§2 capability gate fail-closed: OK")
 
 
-# ── §3 handler gate order: token → capability → consent → era → dispatch ───
+# ── §3 handler gate order: token → capability → era → dispatch ───
 with tempfile.TemporaryDirectory() as tmp:
     living = Path(tmp) / "agent_app"
     project = _make_project(living, "gates001")
     mgr = _MgrStub(project)
     agent_app_mod.get_agent_app_manager = lambda: mgr
-    host_mod._HOST = None
-    host = host_mod.get_factory_host()
     bridge = _bridge(mgr)
 
     assert _fire(bridge, token="bad").status == 401, "unknown token must 401"
     assert _fire(bridge, trigger="undeclared_one").status == 403, (
         "undeclared trigger must 403"
     )
-    # Declared but unconsented (fresh sidecar): refused before any dispatch —
-    # but the USER gets asked, exactly once per hour (a silent refusal reads
-    # as a broken button; observed live 2026-08-06). A FAILED ask must not
-    # consume the hourly slot (also observed live: a silent failure
-    # suppressed every retry for an hour).
-    mgr.fail_next_consent_ask = True
-    assert _fire(bridge).status == 403, "missing consent must 403"
-    assert mgr.notified == [], "nothing may reach the agent before consent"
-    assert len(getattr(mgr, "consent_asks", [])) == 1, "ask must be attempted"
-    assert _fire(bridge).status == 403
-    assert len(mgr.consent_asks) == 2, "a FAILED ask must not consume the hourly slot"
-    assert _fire(bridge).status == 403
-    assert len(mgr.consent_asks) == 2, "a SUCCESSFUL ask must be hourly-capped"
-
-    # Consented + a DEV environment active: fires are agent/verifier test
-    # traffic (the walker clicks ⚡ in the dev instance, which aliases to the
-    # real project id through the shared bridge token) — must defer.
-    host.set_triggers_approved("gates001")
+    # A DEV environment still defers test traffic without any approval state.
     mgr.instances.create_shadow("gates001", token="t", boot_id="b1", dir="/tmp/x")
     resp = _fire(bridge)
     assert resp.status == 200 and b"deferred" in resp.body, "dev-env fire must defer"
     assert mgr.notified == []
 
-    # Live era: consented, no dev env → dispatch exactly once. (No stored
-    # "delivered" flag any more — with no dev env in flight, a consented
-    # fire from a running app is legitimate operation.)
+    # Live era: no dev env → dispatch exactly once.
     mgr.instances.clear_project("gates001")
+    trigger_consent.decide(project, trigger_consent.status(project)["revision"], True)
     resp = _fire(bridge)
     assert resp.status == 200 and b"deferred" not in resp.body
     assert mgr.notified == [("gates001", "restock_needed", "row1")], (
@@ -227,6 +202,7 @@ with tempfile.TemporaryDirectory() as tmp:
     mgr._trigger_service = _TriggerService()
     mgr.ensure_project_session = lambda p: _Session()
 
+    trigger_consent.decide(project, trigger_consent.status(project)["revision"], True)
     result = asyncio.run(mgr.notify_app_trigger("brief001", "restock_needed", "rowXYZ"))
     assert result["status"] == "success", result
     (spec,) = mgr._trigger_service.emitted
@@ -257,27 +233,16 @@ with tempfile.TemporaryDirectory() as tmp:
 print("§4 brief from disk + project-session emit: OK")
 
 
-# ── §5 consent surfacing: declared_triggers_brief for third-party installs ──
+# ── §5 import brief never asks for trigger approval ──────────────────────
 with tempfile.TemporaryDirectory() as tmp:
     living = Path(tmp) / "agent_app"
-    project = _make_project(living, "surface1")
-    agent_app_mod.get_agent_app_manager = lambda: _MgrStub(project)
-    host_mod._HOST = None
-    host = host_mod.get_factory_host()
-
     mgr = AgentAppManager.__new__(AgentAppManager)
-    brief = mgr.declared_triggers_brief(project)
-    assert "CONSENT NEEDED" in brief and "restock_needed" in brief
-    assert "agent_app_approve_triggers" in brief and "surface1" in brief
-
-    host.set_triggers_approved("surface1")
-    assert mgr.declared_triggers_brief(project) == "", (
-        "approved apps must not re-prompt"
-    )
-
-    bare = _make_project(living, "surface2", triggers=False)
-    assert mgr.declared_triggers_brief(bare) == "", "no triggers → no consent ask"
-print("§5 consent surfacing: OK")
+    for triggers in (False, True):
+        project = _make_project(living, f"surface{int(triggers)}", triggers=triggers)
+        brief = mgr.post_import_brief(project)
+        assert "IMPORT COMPLETE" in brief and "agent_app_notify_ready" in brief
+        assert "CONSENT NEEDED" not in brief and "approve_triggers" not in brief
+print("§5 import brief needs no trigger approval: OK")
 
 # ── §6 structured verdict: typed classification, throttle told apart ───────
 from app.agent_app.walk_verify import _LLM_ABORT_SENTINEL  # noqa: E402
@@ -320,40 +285,20 @@ with tempfile.TemporaryDirectory() as tmp:
 print("§6 throttled-verifier classification + bounded retries: OK")
 
 
-# ── §7 consent ask: composed for the user, from the declaration ────────────
+# ── §7 era gate still fails closed when its registry is unavailable ──────
 with tempfile.TemporaryDirectory() as tmp:
-    living = Path(tmp) / "agent_app"
-    project = _make_project(living, "ask00001")
-    agent_app_mod.get_agent_app_manager = lambda: _MgrStub(project)
-    host_mod._HOST = None
+    project = _make_project(Path(tmp) / "agent_app", "era00001")
+    mgr = _MgrStub(project)
+    agent_app_mod.get_agent_app_manager = lambda: mgr
 
-    class _Session:
-        id = "agentapp_ask00001"
+    class _BrokenRegistry:
+        def shadow(self, project_id):
+            raise RuntimeError("registry unavailable")
 
-    class _TriggerService:
-        def __init__(self):
-            self.emitted = []
-
-        async def emit(self, spec):
-            self.emitted.append(spec)
-
-    mgr = AgentAppManager.__new__(AgentAppManager)
-    mgr.projects = {"ask00001": project}
-    mgr._session_manager = object()
-    mgr._trigger_service = _TriggerService()
-    mgr.ensure_project_session = lambda p: _Session()
-
-    result = asyncio.run(
-        mgr.notify_trigger_consent_needed("ask00001", "restock_needed")
-    )
-    assert result["status"] == "success", result
-    (spec,) = mgr._trigger_service.emitted
-    assert spec.session_id == "agentapp_ask00001"
-    assert "NOT approved" in spec.description and "refused" in spec.description
-    assert "agent_app_approve_triggers" in spec.description
-    assert "Do NOT act on the trigger itself" in spec.description
-    assert spec.payload.get("consent_ask") is True
-print("§7 consent ask composition: OK")
+    mgr.instances = _BrokenRegistry()
+    resp = _fire(_bridge(mgr))
+    assert resp.status == 503 and mgr.notified == []
+print("§7 unavailable era gate fails closed: OK")
 
 
 # -- §9 action gates: a DRY RUN is not a send ---------------------------
