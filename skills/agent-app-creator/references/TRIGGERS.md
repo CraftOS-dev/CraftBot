@@ -83,9 +83,12 @@ Both are no-ops with an honest error/pending state when no agent is attached
 1. The in-app guard validates name, params, cooldown, and hourly cap, then a
    row lands in the `agent_requests` collection with `status=pending`.
 2. The app nudges the CraftBot host (fire-and-forget). The host checks the
-   manifest capability, the user's consent (apps built here are
-   pre-approved; marketplace/imported apps need
-   `agent_app_approve_triggers`), and that no build/modify is mid-arc.
+   bridge token, the manifest capability, and that no dev environment is
+   active. Before requests can run, CraftBot shows the user a review modal
+   at launch or after new/changed trigger definitions are delivered. This
+   applies to imports, marketplace apps, and apps created or evolved here.
+   An unchanged approved definition stays allowed across restarts. Refused
+   fires never start an agent run to ask for consent; approval is in the UI.
 3. A visible "⚡ <app> fired trigger '<name>'" line appears in the project
    feed — agent work started by an app is never silent.
 4. The agent claims the row (`status=claimed`), does the work via the `agent-app`

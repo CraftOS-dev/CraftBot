@@ -4,7 +4,7 @@
  * Fire a declared trigger of the RUNNING app — the same path the app itself
  * uses (a POST into agent_requests through the in-app guard), not a side
  * door: the fire proves the guard, the cooldown, and — when a CraftBot host
- * is attached and has approved the app — the agent dispatch, end to end.
+ * is attached and the user allowed its declared requests — the agent dispatch, end to end.
  * Spec TRIGGERS-PLAN: "test each trigger after launch".
  */
 import { existsSync, readFileSync } from 'node:fs';
@@ -110,7 +110,7 @@ export async function run(args: string[]): Promise<number> {
   log.ok(`Fired "${name}" — request ${row.id} is pending.`);
   log.raw(
     `Watch it: node tools/src/cli.ts requests ${project.dir}\n` +
-      'If a CraftBot host is attached (and has approved this app), the agent claims the row and writes result/status.',
+      'Once the user allows the app requests in CraftBot, the agent claims the row and writes result/status.',
   );
   return 0;
 }

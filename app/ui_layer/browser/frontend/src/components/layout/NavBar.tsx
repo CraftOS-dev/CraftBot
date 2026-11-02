@@ -25,6 +25,7 @@ import {
   Play,
   Square,
   Palette,
+  ShieldCheck,
 } from 'lucide-react'
 import { useWebSocket } from '../../contexts/WebSocketContext'
 import { useTheme } from '../../contexts/ThemeContext'
@@ -36,7 +37,8 @@ import { CreateAgentAppModal } from '../ui/CreateAgentAppModal'
 import { SkillCreatorModal } from '../ui/SkillCreatorModal'
 import { AgentAppIcon } from '../ui/AgentAppIcon'
 import type { SessionInfo } from '../../types'
-import { useAppSelector } from '../../store/hooks'
+import { useAppDispatch, useAppSelector } from '../../store/hooks'
+import { openTriggerReview } from '../../store/slices/agentAppSlice'
 import { UI_STATE } from '../../store/uiState'
 import { selectAgentAppProjects } from '../../store/selectors/agentApp'
 import { selectSkillMeta } from '../../store/selectors/agent'
@@ -162,6 +164,7 @@ const GROUP_PREVIEW_COUNT = 5
 const CHAT_PAGE_SIZE = 30
 
 export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
+  const dispatch = useAppDispatch()
   const { t } = useTranslation(['nav', 'common', 'agentapp'])
   const location = useLocation()
   const navigate = useNavigate()
@@ -666,7 +669,9 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
     // Theme edits happen on the mounted (active) page, which owns the iframe
     // bridge — so it's only offered for the active app.
     const showTheme = active
-    const showKebab = lifecycle !== null || showTheme || canDelete
+    const showRequestReview = !!project.triggerConsent
+      && (project.triggerConsent.required || project.triggerConsent.triggers.length > 0)
+    const showKebab = lifecycle !== null || showTheme || canDelete || showRequestReview
     const dragging = agentAppSortable.draggingId === project.id
 
     return (
@@ -730,6 +735,14 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
                 }}
               >
                 <Play size={13} /> {t('agentapp:page.launch')}
+              </button>
+            )}
+            {showRequestReview && (
+              <button className={styles.sessionMenuItem} onClick={() => {
+                setAgentMenu(null)
+                dispatch(openTriggerReview(project.id))
+              }}>
+                <ShieldCheck size={13} /> {t('agentapp:triggerConsent.review')}
               </button>
             )}
             {showTheme && (

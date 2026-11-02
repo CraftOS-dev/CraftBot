@@ -248,39 +248,6 @@ class FactoryHost:
         except (TypeError, ValueError):
             return None
 
-    # ── trigger-plane consent (spec TRIGGERS-PLAN) ─────────────────────────
-    # An app that can fire the agent can drive a session holding the user's
-    # integrations, so fires are gated on consent. First-party builds are
-    # approved at creation; marketplace/imported apps stay unapproved until
-    # the user explicitly says yes. Fails closed.
-    def is_triggers_approved(self, project_id: str) -> bool:
-        return bool(self._sidecar_read(project_id).get("triggers_approved"))
-
-    def set_triggers_approved(self, project_id: str, approved: bool = True) -> None:
-        side = self._sidecar_read(project_id)
-        if bool(side.get("triggers_approved")) == bool(approved):
-            return
-        side["triggers_approved"] = bool(approved)
-        self._sidecar_write(project_id, side)
-        logger.info(f"[FACTORY] {project_id} trigger consent set to {bool(approved)}")
-
-    def consent_nudge_due(self, project_id: str) -> bool:
-        """True at most once per hour per project: gates the 'this app needs
-        trigger approval' ask so a user clicking a refused ⚡ button five
-        times gets ONE prompt, not five. READ-ONLY — call mark_consent_nudged
-        only after the ask actually queued."""
-        side = self._sidecar_read(project_id)
-        try:
-            last = float(side.get("consent_nudge_at") or 0)
-        except (TypeError, ValueError):
-            last = 0.0
-        return time.time() - last >= 3600
-
-    def mark_consent_nudged(self, project_id: str) -> None:
-        side = self._sidecar_read(project_id)
-        side["consent_nudge_at"] = time.time()
-        self._sidecar_write(project_id, side)
-
     def bump_throttle_retry(self, project_id: str) -> int:
         """Count LLM-throttled verifier deaths within a rolling hour and
         return the new count. Lets walk_verify say 'wait and retry' a few
