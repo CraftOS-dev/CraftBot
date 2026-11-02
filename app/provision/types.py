@@ -82,6 +82,9 @@ class Context:
     service_python: Optional[List[str]] = None
     # Skip work that needs the network; used by --offline and by tests.
     offline: bool = False
+    # Captured BEFORE installation writes config/state. Upgrades and repairs
+    # must not acquire an app just because the user has no Agent Apps.
+    new_install: bool = False
 
     def python(self) -> List[str]:
         """The interpreter command every stage should install into and probe.
