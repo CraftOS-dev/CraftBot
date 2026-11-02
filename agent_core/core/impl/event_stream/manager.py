@@ -17,7 +17,7 @@ timestamp order (see app/memory/unprocessed_queue.py).
 from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Tuple
 import threading
 
 from agent_core.core.impl.event_stream.event_stream import EventStream
@@ -183,10 +183,16 @@ class EventStreamManager:
             include_summary=include_summary
         )
 
-    def snapshot_by_id(self, session_id: str, include_summary: bool = True) -> str:
+    def snapshot_by_id(
+        self,
+        session_id: str,
+        include_summary: bool = True,
+        *,
+        message_overrides: Optional[Dict[Tuple[str, str], str]] = None,
+    ) -> str:
         """Snapshot a specific session's stream."""
         return self.get_stream_by_id(session_id).to_prompt_snapshot(
-            include_summary=include_summary
+            include_summary=include_summary, message_overrides=message_overrides
         )
 
     def get_all_streams(self) -> list[EventStream]:

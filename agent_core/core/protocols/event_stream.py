@@ -5,7 +5,7 @@ Protocol definitions for EventStream and EventStreamManager.
 This module defines protocols for event stream operations.
 """
 
-from typing import List, Optional, Protocol, Tuple, TYPE_CHECKING
+from typing import Dict, List, Optional, Protocol, Tuple, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from agent_core import EventRecord
@@ -48,15 +48,18 @@ class EventStreamProtocol(Protocol):
 
     def to_prompt_snapshot(
         self,
-        max_events: int = 60,
         include_summary: bool = True,
+        up_to: Optional[int] = None,
+        *,
+        message_overrides: Optional[Dict[Tuple[str, str], str]] = None,
     ) -> str:
         """
         Build compact history for LLM prompts.
 
         Args:
-            max_events: Maximum number of recent events to include.
             include_summary: Whether to include the head summary.
+            up_to: Only include events before this index.
+            message_overrides: Render-only substitutions by exact kind and message.
 
         Returns:
             Formatted string of event history.
