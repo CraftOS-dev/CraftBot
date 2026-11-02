@@ -3,6 +3,7 @@ import { Sparkles, Download, Loader2, Package, Store, FolderInput, Upload, Check
 import { useTranslation } from 'react-i18next'
 import { Button } from './Button'
 import { Modal } from './Modal'
+import { AgentAppIcon } from './AgentAppIcon'
 import { CreateCustomWizard } from './CreateCustomWizard'
 import { useSettingsWebSocket } from '../../pages/Settings/useSettingsWebSocket'
 import { tourAnchorProps, useTourEnvAction, type TourAnchorId } from '../../tour'
@@ -14,6 +15,9 @@ const TAB_TOUR_ANCHORS: Record<'marketplace' | 'custom' | 'import', TourAnchorId
   custom: 'agentapp-tab-custom',
   import: 'agentapp-tab-import',
 }
+
+// Must match THUMBNAIL_WIDTHS in app/agent_app/marketplace_source.py.
+const THUMBNAIL_WIDTHS = [480, 720, 960, 1440]
 
 export interface CreateAgentAppModalProps {
   isOpen: boolean
@@ -34,6 +38,10 @@ interface MarketplaceApp {
   name: string
   description: string
   preview?: string
+  // Backend-resized copy of `preview`; append ?w=<width>.
+  thumbnail?: string
+  // "lucide:<Name>" like a project's icon; none yet → the default cube.
+  icon?: string
   folder: string
   tags?: string[]
   version?: string
@@ -66,7 +74,6 @@ export function CreateAgentAppModal({ isOpen, onClose, onInstalled }: CreateAgen
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set())
   const [thumbFailures, setThumbFailures] = useState<Set<string>>(new Set())
-  const [tagsExpanded, setTagsExpanded] = useState(false)
 
   const onCloseRef = useRef(onClose)
   const onInstalledRef = useRef(onInstalled)
@@ -261,18 +268,13 @@ export function CreateAgentAppModal({ isOpen, onClose, onInstalled }: CreateAgen
     send('agent_app_marketplace_list')
   }, [send, t])
 
-  // Derive tag list from catalogue, sorted by frequency (popular first)
+  // Derive [tag, app count] list from catalogue, sorted by frequency (popular first)
   const allTags = useMemo(() => {
     const counts = new Map<string, number>()
     apps.forEach(a => a.tags?.forEach(t => counts.set(t, (counts.get(t) || 0) + 1)))
     return Array.from(counts.entries())
       .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-      .map(([t]) => t)
   }, [apps])
-
-  const TAG_COLLAPSE_LIMIT = 6
-  const visibleTags = tagsExpanded ? allTags : allTags.slice(0, TAG_COLLAPSE_LIMIT)
-  const hiddenTagCount = Math.max(0, allTags.length - TAG_COLLAPSE_LIMIT)
 
   const filteredApps = useMemo(() => {
     const q = searchQuery.trim().toLowerCase()
@@ -417,113 +419,113 @@ export function CreateAgentAppModal({ isOpen, onClose, onInstalled }: CreateAgen
                   onChange={e => setSearchQuery(e.target.value)}
                 />
               </div>
-              {allTags.length > 0 && (
-                <div className={styles.tagsRow}>
-                  <span className={styles.tagsLabel}>{t('components:createAgentApp.tagsLabel')}</span>
-                  <button
-                    className={`${styles.tagChip} ${selectedTags.size === 0 ? styles.tagChipActive : ''}`}
-                    onClick={() => setSelectedTags(new Set())}
-                  >
-                    {t('components:createAgentApp.filterAll')}
-                  </button>
-                  {visibleTags.map(tag => (
-                    <button
-                      key={tag}
-                      className={`${styles.tagChip} ${selectedTags.has(tag) ? styles.tagChipActive : ''}`}
-                      onClick={() => toggleTag(tag)}
-                    >
-                      {tag}
-                    </button>
-                  ))}
-                  {hiddenTagCount > 0 && (
-                    <button
-                      className={styles.tagChip}
-                      onClick={() => setTagsExpanded(v => !v)}
-                    >
-                      {tagsExpanded ? t('common:actions.showLess') : t('components:createAgentApp.moreCount', { count: hiddenTagCount })}
-                    </button>
-                  )}
-                </div>
-              )}
             </div>
 
-            <div className={styles.marketplaceContent}>
-              {marketplaceLoading ? (
-                <div className={styles.stateCenter}>
-                  <Loader2 size={24} className={styles.spinner} />
-                </div>
-              ) : marketplaceError ? (
-                <div className={styles.stateCenter}>
-                  <p className={styles.stateText}>{marketplaceError}</p>
-                  <Button size="sm" variant="secondary" onClick={fetchMarketplace}>{t('common:actions.retry')}</Button>
-                </div>
-              ) : apps.length === 0 ? (
-                <div className={styles.stateCenter}>
-                  <Package size={32} className={styles.stateIcon} />
-                  <p className={styles.stateText}>{t('components:createAgentApp.emptyNone')}</p>
-                </div>
-              ) : filteredApps.length === 0 ? (
-                <div className={styles.stateCenter}>
-                  <Search size={32} className={styles.stateIcon} />
-                  <p className={styles.stateText}>{t('components:createAgentApp.emptyFiltered')}</p>
-                </div>
-              ) : (
-                <div className={styles.appsGrid}>
-                  {filteredApps.map(app => {
-                    const appKey = app.folder || app.id
-                    const installing = installingIds.has(appKey)
-                    const installedCount = installCounts.get(appKey) || 0
-                    return (
-                      <div key={app.id} className={styles.appCard}>
-                        {app.preview && !thumbFailures.has(appKey) ? (
-                          <img
-                            src={app.preview}
-                            alt={app.name}
-                            referrerPolicy="no-referrer"
-                            className={styles.appCardThumb}
-                            onError={() => setThumbFailures(prev => new Set(prev).add(appKey))}
-                          />
-                        ) : (
-                          <div className={styles.appCardPlaceholder}>
-                            <Package size={32} className={styles.appCardPlaceholderIcon} />
-                          </div>
-                        )}
-                        <div className={styles.appCardBody}>
-                          <div className={styles.appCardHeader}>
-                            <span className={styles.appCardName}>{app.name}</span>
-                            {app.version && <span className={styles.appCardVersion}>v{app.version}</span>}
-                          </div>
-                          {app.tags && app.tags.length > 0 && (
-                            <div className={styles.appCardTags}>
-                              {app.tags.map(tag => (
-                                <span key={tag} className={styles.tag}>{tag}</span>
-                              ))}
+            <div className={styles.marketplaceMain}>
+              {allTags.length > 0 && (
+                <nav className={styles.tagSidebar}>
+                  <button
+                    className={`${styles.tagItem} ${selectedTags.size === 0 ? styles.tagItemActive : ''}`}
+                    onClick={() => setSelectedTags(new Set())}
+                  >
+                    <span className={styles.tagLabel}>{t('components:createAgentApp.filterAll')}</span>
+                    <span className={styles.tagCount}>{apps.length}</span>
+                  </button>
+                  {allTags.map(([tag, count]) => (
+                    <button
+                      key={tag}
+                      className={`${styles.tagItem} ${selectedTags.has(tag) ? styles.tagItemActive : ''}`}
+                      onClick={() => toggleTag(tag)}
+                    >
+                      <span className={styles.tagLabel}>{tag}</span>
+                      <span className={styles.tagCount}>{count}</span>
+                    </button>
+                  ))}
+                </nav>
+              )}
+
+              <div className={styles.marketplaceContent}>
+                {marketplaceLoading ? (
+                  <div className={styles.stateCenter}>
+                    <Loader2 size={24} className={styles.spinner} />
+                  </div>
+                ) : marketplaceError ? (
+                  <div className={styles.stateCenter}>
+                    <p className={styles.stateText}>{marketplaceError}</p>
+                    <Button size="sm" variant="secondary" onClick={fetchMarketplace}>{t('common:actions.retry')}</Button>
+                  </div>
+                ) : apps.length === 0 ? (
+                  <div className={styles.stateCenter}>
+                    <Package size={32} className={styles.stateIcon} />
+                    <p className={styles.stateText}>{t('components:createAgentApp.emptyNone')}</p>
+                  </div>
+                ) : filteredApps.length === 0 ? (
+                  <div className={styles.stateCenter}>
+                    <Search size={32} className={styles.stateIcon} />
+                    <p className={styles.stateText}>{t('components:createAgentApp.emptyFiltered')}</p>
+                  </div>
+                ) : (
+                  <div className={styles.appsGrid}>
+                    {filteredApps.map(app => {
+                      const appKey = app.folder || app.id
+                      const installing = installingIds.has(appKey)
+                      const installedCount = installCounts.get(appKey) || 0
+                      const addLabel = installing
+                        ? t('common:status.installing')
+                        : installedCount > 0
+                          ? t('components:createAgentApp.installedBadge', { count: installedCount })
+                          : t('common:actions.add')
+                      return (
+                        <div key={app.id} className={styles.appCard}>
+                          {app.preview && !thumbFailures.has(appKey) ? (
+                            <img
+                              src={app.thumbnail ? `${app.thumbnail}?w=720` : app.preview}
+                              srcSet={app.thumbnail
+                                ? THUMBNAIL_WIDTHS.map(w => `${app.thumbnail}?w=${w} ${w}w`).join(', ')
+                                : undefined}
+                              sizes="(max-width: 768px) 100vw, 300px"
+                              alt={app.name}
+                              referrerPolicy="no-referrer"
+                              className={styles.appCardThumb}
+                              onError={() => setThumbFailures(prev => new Set(prev).add(appKey))}
+                            />
+                          ) : (
+                            <div className={styles.appCardPlaceholder}>
+                              <Package size={32} className={styles.appCardPlaceholderIcon} />
                             </div>
                           )}
-                          <div className={styles.appCardDesc}>{app.description}</div>
-                        </div>
-                        <div className={styles.appCardFooter}>
-                          {installedCount > 0 && !installing ? (
-                            <span className={styles.installedBadge}>
-                              <Check size={10} />
-                              {t('components:createAgentApp.installedBadge', { count: installedCount })}
+                          <div className={styles.appCardFooter}>
+                            <span className={styles.appCardTitle}>
+                              <AgentAppIcon
+                                // file: icons belong to installed projects; a catalogue entry has none
+                                icon={app.icon?.startsWith('lucide:') ? app.icon : undefined}
+                                projectId={appKey}
+                                size={14}
+                                className={styles.appCardIcon}
+                              />
+                              <span className={styles.appCardName} title={app.name}>{app.name}</span>
                             </span>
-                          ) : <span />}
-                          <Button
-                            size="sm"
-                            variant="primary"
-                            icon={installing ? <Loader2 size={14} className={styles.spinner} /> : <Download size={14} />}
-                            onClick={() => !installing && handleAddClick(app)}
-                            disabled={installing}
-                          >
-                            {installing ? t('common:status.installing') : t('common:actions.add')}
-                          </Button>
+                            <button
+                              type="button"
+                              className={styles.appCardAdd}
+                              onClick={() => !installing && handleAddClick(app)}
+                              disabled={installing}
+                              aria-label={addLabel}
+                              title={addLabel}
+                            >
+                              {installing
+                                ? <Loader2 size={14} className={styles.spinner} />
+                                : installedCount > 0
+                                  ? <Check size={14} />
+                                  : <Download size={14} />}
+                            </button>
+                          </div>
                         </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}

@@ -118,6 +118,31 @@ def thumbnail_url(folder: str, repository: str = REPO) -> str:
     )
 
 
+# Widths the marketplace card thumbnails are served at; the card's srcset
+# picks one per screen density. Source thumbnails are ~2800px wide, and a
+# browser shrinking those ~7x into a card blurs every screenshot into mush.
+THUMBNAIL_WIDTHS = (480, 720, 960, 1440)
+
+
+def fetch_thumbnail(url: str, width: int, timeout: float = 20) -> bytes:
+    """Download a thumbnail and return it Lanczos-downscaled to `width` as WebP.
+
+    Blocking; async callers must run this off the event loop.
+    """
+    import io
+
+    from PIL import Image
+
+    image = Image.open(io.BytesIO(_read_url(url, timeout)))
+    image = image.convert("RGBA" if "A" in image.getbands() else "RGB")
+    if image.width > width:
+        height = max(1, round(image.height * width / image.width))
+        image = image.resize((width, height), Image.LANCZOS)
+    out = io.BytesIO()
+    image.save(out, "WEBP", quality=88, method=6)
+    return out.getvalue()
+
+
 def _read_url(url: str, timeout: float) -> bytes:
     """Blocking download; async callers must run this off the event loop."""
     import certifi

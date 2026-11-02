@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import functools
+import hashlib
 import json
 import os
 import re
@@ -15,7 +16,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path, PurePosixPath, PureWindowsPath
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple
 
 from aiohttp.client_exceptions import ClientConnectionResetError
 
@@ -964,6 +965,10 @@ class BrowserAdapter(InterfaceAdapter):
         # Wizard: reference-image VLM notes cached between interview and
         # finalize (keyed by wizardId) so images are described only once.
         self._wizard_image_notes: Dict[str, List[str]] = {}
+        # Marketplace card thumbnails: the catalogue's preview URLs keyed by
+        # their hash (only these are proxied), and the resized WebP bytes.
+        self._marketplace_previews: Dict[str, str] = {}
+        self._marketplace_thumbnails: Dict[Tuple[str, int], bytes] = {}
         # Bind session manager and trigger service for project sessions
         agent = self._controller.agent
         self._agent_app_manager.bind_session_manager(
@@ -1193,6 +1198,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         self._app.router.add_post("/api/agent-app/stage", self._agent_app_stage_handler)
         self._app.router.add_get(
             "/api/agent-app/icon/{project_id}", self._agent_app_icon_handler
+        )
+        self._app.router.add_get(
+            "/api/agent-app/marketplace-thumbnail/{key}",
+            self._marketplace_thumbnail_handler,
         )
 
         # Workspace and chat HTTP upload routes
@@ -3743,6 +3752,47 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             ):
                 return web.FileResponse(icon_path)
         return web.json_response({"error": "no icon"}, status=404)
+
+    async def _marketplace_thumbnail_handler(
+        self, request: "web.Request"
+    ) -> "web.Response":
+        """Serve a marketplace card thumbnail downscaled to the requested width.
+
+        Only preview URLs from a catalogue this process listed are proxied;
+        the key is a hash of that URL.
+        """
+        from aiohttp import web
+
+        from app.agent_app import marketplace_source
+
+        source = self._marketplace_previews.get(request.match_info.get("key", ""))
+        if not source:
+            return web.json_response({"error": "unknown thumbnail"}, status=404)
+        try:
+            requested = int(request.query.get("w", "720"))
+        except ValueError:
+            requested = 720
+        widths = marketplace_source.THUMBNAIL_WIDTHS
+        width = next((w for w in widths if w >= requested), widths[-1])
+
+        data = self._marketplace_thumbnails.get((source, width))
+        if data is None:
+            try:
+                data = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        marketplace_source.fetch_thumbnail, source, width
+                    ),
+                    timeout=30,
+                )
+            except Exception as e:
+                logger.debug(f"[MARKETPLACE] thumbnail {source} failed: {e}")
+                return web.json_response({"error": "thumbnail unavailable"}, status=502)
+            self._marketplace_thumbnails[(source, width)] = data
+        return web.Response(
+            body=data,
+            content_type="image/webp",
+            headers={"Cache-Control": "public, max-age=86400"},
+        )
 
     async def _agent_app_import_handler(self, request: "web.Request") -> "web.Response":
         """HTTP handler: stage a ZIP file upload and return the temp path.
@@ -8590,6 +8640,14 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             # The shared fetcher resolves thumbnails against the repository
             # and branch that actually supplied the catalogue.
             apps = catalogue.get("apps", [])
+            # Cards load a resized copy through the backend; the full-size
+            # preview is far too large to downscale well in the browser.
+            for app in apps:
+                preview = app.get("preview") if isinstance(app, dict) else None
+                if isinstance(preview, str) and preview.startswith("https://"):
+                    key = hashlib.sha1(preview.encode("utf-8")).hexdigest()[:16]
+                    self._marketplace_previews[key] = preview
+                    app["thumbnail"] = f"/api/agent-app/marketplace-thumbnail/{key}"
             await self._broadcast(
                 {
                     "type": "agent_app_marketplace_list",
