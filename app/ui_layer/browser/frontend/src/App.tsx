@@ -15,7 +15,9 @@ import { useAppSelector } from './store/hooks'
 import { selectNeedsHardOnboarding } from './store/selectors/onboarding'
 import { TourProvider } from './tour'
 import { LoadingMascot } from '@mascot'
+import { AgentAppTriggerConsentModal } from './components/ui/AgentAppTriggerConsentModal'
 import { AgentAppImportToast } from './components/ui/AgentAppImportToast'
+import { AgentAppTriggerBlockedToast } from './components/ui/AgentAppTriggerBlockedToast'
 
 // Forces AgentAppPage to remount per-project so useState initializers
 // (theme, custom colors) always start fresh - not carried over from a previous project.
@@ -147,6 +149,8 @@ function App() {
         progress/outcome toast has to be mounted somewhere that never
         unmounts. Renders nothing. */}
     <AgentAppImportToast />
+    <AgentAppTriggerBlockedToast />
+    <AgentAppTriggerConsentModal />
     <Layout>
       <Routes>
         <Route path="/" element={<ChatPage key="main" sessionId="main" />} />

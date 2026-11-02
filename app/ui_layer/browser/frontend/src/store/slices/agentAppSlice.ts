@@ -3,6 +3,8 @@ import { reconcileIframes, removeIframe } from '../../features/agentApps/frameHo
 import { setConnected } from './connectionSlice'
 import type {
   AgentAppProject,
+  AgentAppTriggerConsent,
+  AgentAppTriggerBlocked,
   AgentAppStatus,
   AgentAppStatusUpdate,
   AgentAppStateUpdate,
@@ -41,6 +43,12 @@ export interface AgentAppSnapshot {
 }
 
 interface AgentAppState {
+  blockedTriggerRequests: Record<string, AgentAppTriggerBlocked>
+  triggerReviewId: string | null
+  dismissedTriggerReviews: Record<string, string>
+  triggerConsentRequest: { projectId: string; requestId: string; allow: boolean } | null
+  triggerConsentError: { projectId: string; message: string } | null
+  triggerConsentApproval: { projectId: string; requestId: string } | null
   projects: AgentAppProject[]
   creating: AgentAppStatusUpdate | null
   todos: Record<string, AgentAppTodo[]>
@@ -64,6 +72,12 @@ function settlesInFlight(inFlight: AgentAppStatus, server: AgentAppStatus): bool
 }
 
 const initialState: AgentAppState = {
+  blockedTriggerRequests: {},
+  triggerReviewId: null,
+  dismissedTriggerReviews: {},
+  triggerConsentRequest: null,
+  triggerConsentError: null,
+  triggerConsentApproval: null,
   listIsAuthoritative: true,
   catalogLoaded: false,
   projects: [],
@@ -75,11 +89,72 @@ const initialState: AgentAppState = {
   states: {},
 }
 
+function clearResolvedTriggerBlock(state: AgentAppState, projectId: string, consent: AgentAppTriggerConsent) {
+  const blocked = state.blockedTriggerRequests[projectId]
+  if (blocked && (blocked.consent.revision !== consent.revision || !consent.required
+    || consent.triggers.some(trigger => trigger.name === blocked.trigger && trigger.change === 'approved'))) {
+    delete state.blockedTriggerRequests[projectId]
+  }
+}
+
 const agentAppSlice = createSlice({
   name: 'agentApp',
   initialState,
   reducers: {
+    receiveTriggerBlocked(state, action: PayloadAction<AgentAppTriggerBlocked>) {
+      const blocked = action.payload
+      state.projects = state.projects.map(p => p.id === blocked.projectId ? { ...p, triggerConsent: blocked.consent } : p)
+      // One notification per app/review revision, even after its toast is
+      // dismissed. A successful allowance or a new revision starts a new group.
+      if (state.blockedTriggerRequests[blocked.projectId]?.consent.revision !== blocked.consent.revision) {
+        state.blockedTriggerRequests[blocked.projectId] = blocked
+      }
+      clearResolvedTriggerBlock(state, blocked.projectId, blocked.consent)
+    },
+    openTriggerReview(state, action: PayloadAction<string | null>) {
+      state.triggerReviewId = action.payload
+      state.triggerConsentError = null
+    },
+    dismissTriggerReview(state, action: PayloadAction<{ projectId: string; revision: string }>) {
+      const { projectId, revision } = action.payload
+      // Session-only suppression: no permission changes, and a new revision
+      // still prompts. This also lets the app open after a failed save.
+      state.dismissedTriggerReviews[projectId] = revision
+      if (state.triggerReviewId === projectId) state.triggerReviewId = null
+      if (state.triggerConsentError?.projectId === projectId) state.triggerConsentError = null
+    },
+    savingTriggerConsent(state, action: PayloadAction<{ projectId: string; requestId: string; allow: boolean }>) {
+      state.triggerReviewId = action.payload.projectId
+      state.triggerConsentRequest = action.payload
+      state.triggerConsentError = null
+      state.triggerConsentApproval = null
+    },
+    receiveTriggerConsent(state, action: PayloadAction<{ projectId: string; requestId?: string; consent?: AgentAppTriggerConsent; success: boolean; error?: string }>) {
+      const result = action.payload
+      const pending = state.triggerConsentRequest
+      // Snapshots are shared across clients; completion/error state belongs
+      // only to the browser decision that produced this response.
+      if (result.consent) {
+        state.projects = state.projects.map(p => p.id === result.projectId ? { ...p, triggerConsent: result.consent } : p)
+        clearResolvedTriggerBlock(state, result.projectId, result.consent)
+      }
+      if (!pending || pending.projectId !== result.projectId || pending.requestId !== result.requestId) return
+      if (pending.allow && result.success && !result.error && result.consent && !result.consent.required) {
+        state.triggerConsentApproval = { projectId: pending.projectId, requestId: pending.requestId }
+      }
+      state.triggerConsentRequest = null
+      state.triggerConsentError = result.error ? { projectId: result.projectId, message: result.error } : null
+      if (result.success) {
+        if (state.triggerReviewId === result.projectId) state.triggerReviewId = null
+        delete state.dismissedTriggerReviews[result.projectId]
+      }
+    },
     setProjects(state, action: PayloadAction<AgentAppProject[]>) {
+      for (const projectId of Object.keys(state.blockedTriggerRequests)) {
+        const project = action.payload.find(p => p.id === projectId)
+        if (!project) delete state.blockedTriggerRequests[projectId]
+        else if (project.triggerConsent) clearResolvedTriggerBlock(state, projectId, project.triggerConsent)
+      }
       state.catalogLoaded = true
       // The list is the server's saved state, which says "stopped" until a
       // build or launch actually finishes; the in-flight state is only known
@@ -108,6 +183,7 @@ const agentAppSlice = createSlice({
       // project keeps its live status and address (never downgraded by a late
       // event) but still takes renames, icon changes and other fields.
       const incoming = action.payload
+      if (incoming.triggerConsent) clearResolvedTriggerBlock(state, incoming.id, incoming.triggerConsent)
       const idx = findIndexInDraft(state.projects, p => p.id === incoming.id)
       if (idx === -1) {
         state.projects.push(incoming)
@@ -129,8 +205,9 @@ const agentAppSlice = createSlice({
         return { ...p, status: status.phase === 'launching' ? 'ready' : 'creating' }
       })
     },
-    markReady(state, action: PayloadAction<{ projectId: string; url: string; port: number; sessionId?: string }>) {
-      const { projectId, url, port, sessionId } = action.payload
+    markReady(state, action: PayloadAction<{ projectId: string; url: string; port: number; sessionId?: string; triggerConsent?: AgentAppTriggerConsent }>) {
+      const { projectId, url, port, sessionId, triggerConsent } = action.payload
+      if (triggerConsent) clearResolvedTriggerBlock(state, projectId, triggerConsent)
       state.creating = null
       delete state.buildEvents[projectId]
       delete state.snapshots[projectId]
@@ -147,16 +224,18 @@ const agentAppSlice = createSlice({
               // (which kept showing the previous build after deploys).
               readyAt: Date.now(),
               ...(sessionId ? { sessionId } : {}),
+              ...(triggerConsent ? { triggerConsent } : {}),
             }
           : p,
       )
     },
-    markRunning(state, action: PayloadAction<{ projectId: string; url?: string; port?: number }>) {
-      const { projectId, url, port } = action.payload
+    markRunning(state, action: PayloadAction<{ projectId: string; url?: string; port?: number; triggerConsent?: AgentAppTriggerConsent }>) {
+      const { projectId, url, port, triggerConsent } = action.payload
+      if (triggerConsent) clearResolvedTriggerBlock(state, projectId, triggerConsent)
       delete state.buildEvents[projectId]
       delete state.snapshots[projectId]
       state.projects = state.projects.map(p =>
-        p.id === projectId ? { ...p, status: 'running', url, port, readyAt: Date.now() } : p,
+        p.id === projectId ? { ...p, status: 'running', url, port, readyAt: Date.now(), ...(triggerConsent ? { triggerConsent } : {}) } : p,
       )
     },
     // Optimistic transition set the instant the user clicks Launch, so the UI
@@ -202,6 +281,7 @@ const agentAppSlice = createSlice({
     },
     removeProject(state, action: PayloadAction<{ projectId: string }>) {
       const id = action.payload.projectId
+      delete state.blockedTriggerRequests[id]
       state.projects = state.projects.filter(p => p.id !== id)
       delete state.todos[id]
       delete state.buildEvents[id]
@@ -264,12 +344,22 @@ const agentAppSlice = createSlice({
   extraReducers: (builder) => {
     // Events may be missed while disconnected; trust the next list fully.
     builder.addCase(setConnected, (state, action) => {
-      if (!action.payload) { state.listIsAuthoritative = true; state.catalogLoaded = false }
+      if (!action.payload) {
+        state.listIsAuthoritative = true
+        state.catalogLoaded = false
+        state.triggerConsentRequest = null
+        state.triggerConsentApproval = null
+      }
     })
   },
 })
 
 export const {
+  receiveTriggerBlocked,
+  openTriggerReview,
+  dismissTriggerReview,
+  savingTriggerConsent,
+  receiveTriggerConsent,
   setProjects,
   addProject,
   applyStatus,
@@ -321,7 +411,7 @@ register('agent_app_status', (data, dispatch) => {
 })
 
 register('agent_app_ready', (data, dispatch, getState) => {
-  const ready = data as { projectId: string; url: string; port: number; sessionId?: string }
+  const ready = data as { projectId: string; url: string; port: number; sessionId?: string; triggerConsent?: AgentAppTriggerConsent }
   const exists = getState().agentApp.projects.some(p => p.id === ready.projectId)
   if (exists) {
     dispatch(markReady(ready))
@@ -336,7 +426,7 @@ register('agent_app_launch', (data, dispatch) => {
   const r = data as AgentAppLaunchResponse
   if (!r.projectId) return
   if (r.success) {
-    dispatch(markRunning({ projectId: r.projectId, url: r.url, port: r.port }))
+    dispatch(markRunning({ projectId: r.projectId, url: r.url, port: r.port, triggerConsent: r.triggerConsent }))
   } else {
     // Clear the optimistic 'launching' state so the UI doesn't hang on the spinner.
     dispatch(markLaunchFailed({ projectId: r.projectId, error: r.error }))
@@ -386,3 +476,11 @@ register('agent_app_error', (data, dispatch) => {
   dispatch(markError(data as { projectId: string; error: string }))
 })
 
+
+register('agent_app_trigger_consent', (data, dispatch) => {
+  dispatch(receiveTriggerConsent(data as { projectId: string; requestId?: string; consent?: AgentAppTriggerConsent; success: boolean; error?: string }))
+})
+
+register('agent_app_trigger_blocked', (data, dispatch) => {
+  dispatch(receiveTriggerBlocked(data as AgentAppTriggerBlocked))
+})

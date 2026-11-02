@@ -31,7 +31,6 @@ RESOURCE_BY_ACTION: Dict[str, Resource] = {
     "agent_app_scaffold": Resource.AGENT_APPS,
     "agent_app_notify_ready": Resource.AGENT_APPS,
     "agent_app_restart": Resource.AGENT_APPS,
-    "agent_app_approve_triggers": Resource.AGENT_APPS,
     "agent_app_marketplace_install": Resource.AGENT_APPS,
     "agent_app_import_zip": Resource.AGENT_APPS,
     "agent_app_import": Resource.AGENT_APPS,
