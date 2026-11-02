@@ -1,58 +1,52 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { MessageSquareText } from 'lucide-react'
 import { useToast } from '../../contexts/ToastContext'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { dismissTriggerReview, savingTriggerConsent } from '../../store/slices/agentAppSlice'
 import { selectTriggerReviewProject } from '../../store/selectors/agentApp'
-import { getSocketClient } from '../../store/socket/socketInstance'
+import { newTriggerConsentRequestId, sendTriggerConsent } from '../../features/agentApps/triggerConsent'
+import type { AgentAppTriggerConsent } from '../../types'
+import { AgentAppIcon } from './AgentAppIcon'
+import { Badge, type BadgeVariant } from './Badge'
 import { Button } from './Button'
 import { Modal, ModalBody, ModalFooter } from './Modal'
 import styles from './AgentAppTriggerConsentModal.module.css'
 
-function RequestInputs({ params }: { params?: Record<string, unknown> }) {
-  const { t } = useTranslation('agentapp')
-  const entries = Object.entries(params || {})
-  if (!entries.length) return null
-  const valueText = (value: unknown): string => typeof value === 'string'
-    ? value || t('triggerConsent.emptyText')
-    : JSON.stringify(value) ?? String(value)
+type TriggerChange = AgentAppTriggerConsent['triggers'][number]['change']
 
-  return (
-    <section aria-label={t('triggerConsent.inputs')} className={styles.inputs}>
-      <h4>{t('triggerConsent.inputs')}</h4>
-      <p className={styles.note}>{t('triggerConsent.defaultsHint')}</p>
-      <dl className={styles.parameters}>
-        {entries.map(([name, definition]) => {
-          if (!definition || typeof definition !== 'object' || Array.isArray(definition)) {
-            return <div key={name}><dt>{name}</dt><dd>{valueText(definition)}</dd></div>
-          }
-          const parameter = definition as Record<string, unknown>
-          const type = typeof parameter.type === 'string' ? parameter.type : 'string'
-          return (
-            <div key={name}>
-              <dt>{name}</dt>
-              <dd>
-                {typeof parameter.description === 'string' && <p>{parameter.description}</p>}
-                <p className={styles.note}>
-                  {t(`triggerConsent.inputTypes.${type}`, { defaultValue: type })}
-                  {' · '}{t(parameter.required ? 'triggerConsent.required' : 'triggerConsent.optional')}
-                </p>
-                {'default' in parameter && <p>{t('triggerConsent.defaultValue')}{' '}
-                  <span className={styles.value}>{valueText(parameter.default)}</span>
-                </p>}
-                {Array.isArray(parameter.enum) && parameter.enum.length > 0 && <p>
-                  {t('triggerConsent.allowedValues')}{' '}
-                  <span className={styles.value}>{parameter.enum.map(value => JSON.stringify(value)).join(', ')}</span>
-                </p>}
-                {Object.entries(parameter).filter(([key]) => !['type', 'required', 'description', 'default', 'enum'].includes(key))
-                  .map(([key, value]) => <p key={key}>{key}: <span className={styles.value}>{valueText(value)}</span></p>)}
-              </dd>
-            </div>
-          )
-        })}
-      </dl>
-    </section>
-  )
+const CHANGE_BADGE: Record<TriggerChange, BadgeVariant> = { new: 'info', changed: 'warning', approved: 'success' }
+const COLLAPSED_COUNT = 3
+
+function RequestList({ triggers }: { triggers: AgentAppTriggerConsent['triggers'] }) {
+  const { t } = useTranslation('agentapp')
+  const [expanded, setExpanded] = useState(false)
+  // A first review marks every request new; the badge only means something
+  // once some requests were already allowed. Those that still need a choice
+  // come first so the collapsed list never hides them.
+  const showChange = triggers.some(trigger => trigger.change !== 'new')
+  const ordered = showChange
+    ? [...triggers.filter(trigger => trigger.change !== 'approved'), ...triggers.filter(trigger => trigger.change === 'approved')]
+    : triggers
+  const hidden = expanded ? 0 : Math.max(0, ordered.length - COLLAPSED_COUNT)
+  const shown = hidden ? ordered.slice(0, COLLAPSED_COUNT) : ordered
+
+  return <>
+    <ul className={styles.list}>
+      {shown.map(trigger => (
+        <li key={trigger.name} className={styles.item}>
+          <MessageSquareText size={16} className={styles.icon} aria-hidden />
+          <span className={styles.label}>{trigger.description || trigger.name}</span>
+          {showChange && <Badge variant={CHANGE_BADGE[trigger.change]}>{t(`triggerConsent.${trigger.change}`)}</Badge>}
+        </li>
+      ))}
+    </ul>
+    {hidden > 0 && (
+      <button type="button" className={styles.seeMore} onClick={() => setExpanded(true)}>
+        {t('triggerConsent.seeMore', { count: hidden })}
+      </button>
+    )}
+  </>
 }
 
 // Global so imports, agent-driven builds and updates can request review even
@@ -63,6 +57,7 @@ export function AgentAppTriggerConsentModal() {
   const { triggerConsentRequest, triggerConsentError, triggerConsentApproval } = useAppSelector(s => s.agentApp)
   const { showToast, dismissToastKey } = useToast()
   const announcedApproval = useRef<string | null>(null)
+  const lastChoice = useRef<boolean | null>(null)
   useEffect(() => {
     if (!triggerConsentApproval) {
       dismissToastKey('agent-app-trigger-approved')
@@ -82,39 +77,33 @@ export function AgentAppTriggerConsentModal() {
 
   const choose = (allow: boolean) => {
     if (allow && consent.error) return
-    const requestId = typeof crypto?.randomUUID === 'function'
-      ? crypto.randomUUID()
-      : `trigger-consent-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    const requestId = newTriggerConsentRequestId()
+    lastChoice.current = allow
     dispatch(savingTriggerConsent({ projectId: project.id, requestId, allow }))
-    getSocketClient().send('agent_app_trigger_consent', {
-      projectId: project.id, revision: consent.revision, allow, requestId,
-    })
+    sendTriggerConsent(project.id, consent.revision, allow, requestId)
+  }
+
+  // Closing is "Don't allow". When that can't be saved (offline, or the same
+  // choice just failed), close without a change so the dialog never traps.
+  const close = () => {
+    if (!connected || (error && lastChoice.current === false)) dismiss()
+    else choose(false)
   }
 
   return (
-    <Modal key={project.id} isOpen title={t('triggerConsent.title', { name: project.name })} size="md"
-      onClose={dismiss} closeDisabled={saving}>
-      <ModalBody>
-        <p className={styles.intro}>{t('triggerConsent.intro', { name: project.name })}</p>
-        <p className={styles.note}>{t('triggerConsent.scope')}</p>
-        <ul className={styles.requests}>
-          {consent.triggers.map(trigger => (
-            <li key={trigger.name} className={styles.request}>
-              <div className={styles.heading}>
-                <strong>{trigger.description || trigger.name}</strong>
-                <span className={styles.badge}>{t(`triggerConsent.${trigger.change}`)}</span>
-              </div>
-              <details>
-                <summary>{t('triggerConsent.details')}</summary>
-                <p className={styles.instruction}>{trigger.instruction}</p>
-              </details>
-              <RequestInputs params={trigger.params} />
-            </li>
-          ))}
-        </ul>
-        <p className={styles.note}>{t('triggerConsent.later')}</p>
-        {(error || consent.error) && <p role="alert">{error || consent.error}</p>}
-        {!connected && <p role="alert">{t('triggerConsent.disconnected')}</p>}
+    <Modal key={project.id} isOpen title={t('triggerConsent.title')} size="md"
+      onClose={close} closeDisabled={saving} closeOnOverlayClick={false} closeOnEsc={false}>
+      <ModalBody className={styles.body}>
+        <div className={styles.app}>
+          <h4 className={styles.appName}>
+            <AgentAppIcon icon={project.icon} projectId={project.id} size={16} className={styles.appIcon} />
+            {project.name}
+          </h4>
+          {consent.triggers.length > 0 && <p className={styles.intro}>{t('triggerConsent.intro', { name: project.name })}</p>}
+        </div>
+        {consent.triggers.length > 0 && <RequestList key={consent.revision} triggers={consent.triggers} />}
+        {(error || consent.error) && <p role="alert" className={styles.error}>{error || consent.error}</p>}
+        {!connected && <p role="alert" className={styles.error}>{t('triggerConsent.disconnected')}</p>}
       </ModalBody>
       <ModalFooter>
         <Button variant="secondary" disabled={saving || !connected} onClick={() => choose(false)}>

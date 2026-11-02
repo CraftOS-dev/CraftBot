@@ -1105,6 +1105,24 @@
   color: var(--text-primary);
 }
 
+/* "View requests (n)" under an Agent App's request switch. */
+.requestsLink {
+  align-self: flex-start;
+  margin-top: var(--space-1);
+  padding: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.requestsLink:hover {
+  color: var(--text-primary);
+}
+
 /* Spinning Animation */
 .spinning {
   animation: spin 1s linear infinite;
