@@ -22,6 +22,7 @@ import json
 import pytest
 
 from agent_core.core.impl.llm import LLMCallType
+from agent_core.core.impl.llm.cache import BytePlusContextOverflowError
 
 from .golden.conftest import GOLDEN_SYSTEM_PROMPT, build_interface
 
@@ -108,3 +109,40 @@ def test_without_a_history_there_is_nothing_to_continue(monkeypatch, provider, m
         is None
     )
     assert len(recorder.calls) == calls
+
+
+@pytest.mark.parametrize("side_request", [True, False])
+def test_byteplus_overflow_only_resets_recorded_turns(monkeypatch, side_request):
+    iface, _ = _session(monkeypatch, "byteplus", "seed-2-0-pro-260328")
+    manager = iface._byteplus_cache_manager
+    head = _chain_head(iface)
+    readout = iface.last_request("s1", ACTION)
+    original = manager._call_responses_api
+    attempts = []
+
+    def overflow_on_existing_history(**kwargs):
+        attempts.append(kwargs)
+        if kwargs.get("previous_response_id"):
+            raise BytePlusContextOverflowError("context limit exceeded")
+        return original(**kwargs)
+
+    monkeypatch.setattr(manager, "_call_responses_api", overflow_on_existing_history)
+
+    if side_request:
+        # The fold must receive the error so it can summarize the actual
+        # events, rather than accepting a reply from a fresh, empty session.
+        with pytest.raises(BytePlusContextOverflowError):
+            iface.generate_side_response_with_session(
+                "s1", ACTION, SIDE, GOLDEN_SYSTEM_PROMPT
+            )
+        assert len(attempts) == 1
+        assert _chain_head(iface) == head
+        assert iface.last_request("s1", ACTION) == readout
+    else:
+        # Ordinary recorded turns retain their existing overflow recovery.
+        assert iface.generate_response_with_session(
+            "s1", ACTION, "session turn 2", log_response=False
+        )
+        assert len(attempts) == 2
+        assert attempts[1]["previous_response_id"] is None
+        assert _chain_head(iface) != head
