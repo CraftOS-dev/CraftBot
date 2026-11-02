@@ -2152,7 +2152,7 @@ class LLMInterface:
             if self._byteplus_cache_manager.has_session(task_id, call_type):
                 # Session exists - use it
                 response = self._generate_byteplus_with_session(
-                    task_id, call_type, user_prompt
+                    task_id, call_type, user_prompt, retry_on_overflow=record
                 )
             else:
                 # No session exists - create one and get first response
@@ -2179,6 +2179,10 @@ class LLMInterface:
                 )
 
         except Exception as e:
+            if not record:
+                # A side request needs the history it was asked to summarize.
+                # Let its caller retry with the actual events, not just this prompt.
+                raise
             logger.warning(f"[SESSION CACHE] Failed: {e}, falling back to standard")
             stored_system_prompt = self._session_system_prompts.get(session_key)
             effective_system_prompt = (
@@ -2508,11 +2512,16 @@ class LLMInterface:
                 self._byteplus_cache_manager.set_session_cache(task_id, call_type, head)
 
     def _generate_byteplus_with_session(
-        self, task_id: str, call_type: str, user_prompt: str
+        self,
+        task_id: str,
+        call_type: str,
+        user_prompt: str,
+        *,
+        retry_on_overflow: bool = True,
     ) -> Dict[str, Any]:
         """Delegate to the byteplus_responses transport (Phase 2)."""
         return _transports.byteplus_responses.generate_with_session(
-            self, task_id, call_type, user_prompt
+            self, task_id, call_type, user_prompt, retry_on_overflow=retry_on_overflow
         )
 
     # ──────────── Provider-specific delegates (bodies live in transports/) ────────────
