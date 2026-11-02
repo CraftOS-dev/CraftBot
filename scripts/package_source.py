@@ -152,6 +152,9 @@ def build(output: Path) -> int:
             "agent-app/tools/src/cli.ts",
             "agent-app/spec/pocketbase.version",
             "agent-app/spec/pocketbase-checksums.json",
+            "app/provision/default_agent_app.py",
+            "app/data/default_agent_app/kanban-board.zip",
+            "app/data/default_agent_app/source.json",
             "app/ui_layer/browser/frontend/dist/index.html",
             "craftos_integrations/providers/whatsapp_web/bridge.js",
             # craftbot.py imports these at module scope; without them every
