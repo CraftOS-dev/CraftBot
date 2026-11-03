@@ -35,6 +35,8 @@ slint = { version = "1.17", default-features = false, features = [
 ureq = { version = "2.12", default-features = false, features = ["tls", "native-certs", "json"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha2 = "0.10"
+tempfile = "3"
 
 # Archives. The source payload is a zip; python-build-standalone is .tar.gz.
 zip = { version = "2.4", default-features = false, features = ["deflate"] }

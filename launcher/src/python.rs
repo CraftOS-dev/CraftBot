@@ -8,9 +8,8 @@
 //! module puts it. When install.py later runs its own `python` stage it
 //! finds this one already there and accepts it; nothing is downloaded twice.
 //!
-//! The release tag, patch version and platform triple are resolved from the
-//! GitHub API rather than hardcoded, for the reason recorded in runtimes.py:
-//! a hardcoded asset name went stale and produced a silent 404.
+//! Download pins are shared with Python provisioning and embedded at build
+//! time: the launcher needs them before the source payload or Python exists.
 
 use crate::download;
 use crate::logger;
@@ -21,15 +20,28 @@ use std::path::PathBuf;
 /// are generated for, not a minimum.
 pub const TARGET: (u32, u32) = (3, 10);
 
-const PBS_API: &str =
-    "https://api.github.com/repos/astral-sh/python-build-standalone/releases/latest";
+const RUNTIMES: &str = include_str!("../../app/runtime-manifest.json");
+
+#[derive(serde::Deserialize)]
+struct Asset {
+    url: String,
+    sha256: String,
+}
 
 /// The interpreter to run CraftBot with, downloading it if needed.
 pub fn ensure(
     say: &mut dyn FnMut(&str),
     progress: &mut dyn FnMut(u64, Option<u64>),
 ) -> Result<PathBuf, String> {
-    let exe = paths::python_exe();
+    ensure_in(&paths::python_runtime_dir(), say, progress)
+}
+
+fn ensure_in(
+    dest_dir: &std::path::Path,
+    say: &mut dyn FnMut(&str),
+    progress: &mut dyn FnMut(u64, Option<u64>),
+) -> Result<PathBuf, String> {
+    let exe = paths::python_exe_in(dest_dir);
     if exe.is_file() {
         if let Some(v) = probe(&exe) {
             if v == TARGET {
@@ -48,9 +60,6 @@ pub fn ensure(
                 exe.display()
             ));
         }
-        // A wrong or broken sidecar is removed wholesale; a partial tree is
-        // worse than none.
-        let _ = std::fs::remove_dir_all(paths::python_runtime_dir().join("python"));
     }
 
     let triple = triple().ok_or_else(|| {
@@ -60,25 +69,46 @@ pub fn ensure(
         )
     })?;
     say(&format!("Downloading Python {}.{}…", TARGET.0, TARGET.1));
-    let url = resolve_url(&triple)?;
-    logger::log(&format!("python: {url}"));
+    let asset = resolve_asset(&triple)?;
+    logger::log(&format!("python: {}", asset.url));
 
-    let dest_dir = paths::python_runtime_dir();
-    std::fs::create_dir_all(&dest_dir)
+    std::fs::create_dir_all(dest_dir)
         .map_err(|e| format!("cannot create {}: {e}", dest_dir.display()))?;
-    let archive = dest_dir.join("_download.tar.gz");
-    download::to_file(&url, &archive, progress)?;
+    let stage = tempfile::tempdir_in(dest_dir).map_err(|e| e.to_string())?;
+    let archive = stage.path().join("_download.tar.gz");
+    download::verified_to_file(&asset.url, &archive, &asset.sha256, progress)?;
 
     say("Unpacking Python…");
-    let result = extract_tar_gz(&archive, &dest_dir);
+    let result = extract_tar_gz(&archive, stage.path());
     let _ = std::fs::remove_file(&archive);
     result?;
 
-    if !exe.is_file() {
-        return Err(format!("Python unpacked, but {} is missing", exe.display()));
+    let candidate = paths::python_exe_in(stage.path());
+    if !candidate.is_file() {
+        return Err(format!(
+            "Python unpacked, but {} is missing",
+            candidate.display()
+        ));
     }
-    match probe(&exe) {
+    match probe(&candidate) {
         Some(v) if v == TARGET => {
+            let installed = dest_dir.join("python");
+            let backup = dest_dir.join(".python-previous");
+            if backup.exists() {
+                std::fs::remove_dir_all(&backup).map_err(|e| e.to_string())?;
+            }
+            if installed.exists() {
+                std::fs::rename(&installed, &backup).map_err(|e| e.to_string())?;
+            }
+            if let Err(e) = std::fs::rename(stage.path().join("python"), &installed) {
+                if backup.exists() {
+                    let _ = std::fs::rename(&backup, &installed);
+                }
+                return Err(format!("cannot finish Python installation: {e}"));
+            }
+            if backup.exists() {
+                let _ = std::fs::remove_dir_all(&backup);
+            }
             say(&format!("Python {}.{} ready", v.0, v.1));
             Ok(exe)
         }
@@ -115,8 +145,10 @@ pub fn probe(exe: &std::path::Path) -> Option<(u32, u32)> {
 fn triple() -> Option<String> {
     let arch = if cfg!(target_arch = "aarch64") {
         "aarch64"
-    } else {
+    } else if cfg!(target_arch = "x86_64") {
         "x86_64"
+    } else {
+        return None;
     };
     if cfg!(target_os = "windows") {
         Some("x86_64-pc-windows-msvc".to_string())
@@ -129,28 +161,17 @@ fn triple() -> Option<String> {
     }
 }
 
-fn resolve_url(triple: &str) -> Result<String, String> {
-    let data = download::get_json(PBS_API)
-        .map_err(|e| format!("could not reach the Python download index: {e}"))?;
-    let prefix = format!("cpython-{}.{}.", TARGET.0, TARGET.1);
-    let suffix = format!("-{triple}-install_only.tar.gz");
-    let assets = data
-        .get("assets")
-        .and_then(|a| a.as_array())
-        .cloned()
-        .unwrap_or_default();
-    for asset in &assets {
-        let name = asset.get("name").and_then(|n| n.as_str()).unwrap_or("");
-        if name.starts_with(&prefix) && name.ends_with(&suffix) {
-            if let Some(url) = asset.get("browser_download_url").and_then(|u| u.as_str()) {
-                return Ok(url.to_string());
-            }
-        }
+fn resolve_asset(triple: &str) -> Result<Asset, String> {
+    let data: serde_json::Value = serde_json::from_str(RUNTIMES).map_err(|e| e.to_string())?;
+    let asset: Asset = serde_json::from_value(data["python"]["assets"][triple].clone())
+        .map_err(|_| format!("No approved Python download for {triple}"))?;
+    if !asset.url.starts_with("https://")
+        || asset.sha256.len() != 64
+        || !asset.sha256.bytes().all(|c| c.is_ascii_hexdigit())
+    {
+        return Err("Invalid Python runtime download manifest".into());
     }
-    let tag = data.get("tag_name").and_then(|t| t.as_str()).unwrap_or("?");
-    Err(format!(
-        "no {prefix}*{suffix} in python-build-standalone release {tag}"
-    ))
+    Ok(asset)
 }
 
 /// Extract a .tar.gz, preserving permissions — the executable bit on
@@ -173,4 +194,50 @@ pub fn free_space(path: &std::path::Path) -> Option<u64> {
         probe = probe.parent()?.to_path_buf();
     }
     fs4::available_space(&probe).ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[ignore = "downloads and executes the release-pinned Python"]
+    fn live_python_bootstrap() {
+        let temp = tempfile::tempdir().unwrap();
+        let dest = temp.path().join("User Name & caf\u{e9}");
+        let executable = ensure_in(&dest, &mut |_| {}, &mut |_, _| {}).unwrap();
+        assert_eq!(probe(&executable), Some(TARGET));
+        assert_eq!(
+            ensure_in(&dest, &mut |_| {}, &mut |_, _| panic!(
+                "ready runtime must be reused"
+            ))
+            .unwrap(),
+            executable
+        );
+    }
+
+    #[test]
+    fn manifest_resolves_all_platforms_without_network() {
+        for target in [
+            "x86_64-pc-windows-msvc",
+            "x86_64-apple-darwin",
+            "aarch64-apple-darwin",
+            "x86_64-unknown-linux-gnu",
+            "aarch64-unknown-linux-gnu",
+        ] {
+            let asset = resolve_asset(target).unwrap();
+            assert!(asset.url.contains("/20261009/cpython-3.10.22%2B"));
+            assert_eq!(asset.sha256.len(), 64);
+        }
+        assert!(resolve_asset("unsupported").is_err());
+    }
+
+    #[test]
+    fn manifest_matches_dependency_lock_python() {
+        let data: serde_json::Value = serde_json::from_str(RUNTIMES).unwrap();
+        assert!(data["python"]["version"]
+            .as_str()
+            .unwrap()
+            .starts_with(&format!("{}.{}.", TARGET.0, TARGET.1)));
+    }
 }
