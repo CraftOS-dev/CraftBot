@@ -200,7 +200,7 @@ File Reading Best Practices:
 </rules>
 
 <parallel_actions>
-Batch up to 10 actions in one step ONLY when none depends on another's output
+Batch up to 20 actions in one step ONLY when none depends on another's output
 (e.g. several read_file / web_search / memory_search, or update_todos + a
 progress send_message together). That last pairing is for a PHASE CHANGE, not
 a habit — do not attach a progress message to routine work actions. Observed

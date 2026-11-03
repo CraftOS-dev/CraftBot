@@ -200,7 +200,7 @@ update_todos(<full plan, all "pending", phase-prefixed>)
        ▼
 loop {
     mark ONE todo "in_progress"
-    execute the actions (a parallel batch within the same todo is fine, up to 10)
+    execute the actions (a parallel batch within the same todo is fine, up to 20)
     mark that todo "completed"
     if you discover missing info → add a fresh "Collect:" todo
 }

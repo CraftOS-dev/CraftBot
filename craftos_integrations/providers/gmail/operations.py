@@ -178,7 +178,9 @@ def build_operations() -> List[Operation]:
             "send_email",
             description="Send an email via Gmail.",
             destructive=True,  # outward-facing send — hosts confirm/clarify
-            parallelizable=False,
+            # Batchable for outreach: the irreversible-action ledger dedups
+            # identical sends by content hash, so distinct emails can fan out.
+            parallelizable=True,
             tags=("gmail_mail", "gmail"),
             unwrap_envelope=True,
             success_message="Email sent.",
@@ -674,7 +676,7 @@ def build_operations() -> List[Operation]:
             "send_draft",
             description="Send a previously-created Gmail draft.",
             destructive=True,  # outward-facing send
-            parallelizable=False,
+            parallelizable=True,  # batchable, same as send_gmail
             tags=("gmail_drafts", "gmail"),
             unwrap_envelope=True,
             fail_message="Failed to send draft.",
