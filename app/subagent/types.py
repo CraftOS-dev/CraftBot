@@ -65,6 +65,11 @@ class SubAgent:
     # Mode marker — always ``SUBAGENT_MODE`` so downstream code can detect it.
     mode: str = SUBAGENT_MODE
 
+    @property
+    def bootstrap_message(self) -> str:
+        """The full diagnostic event, also used for exact prompt deduplication."""
+        return f"Sub-agent of type '{self.agent_type}' started.\nQuery: {self.query}"
+
     def is_terminal(self) -> bool:
         """True once the sub-agent has reached any terminal status."""
         return self.status in SUBAGENT_TERMINAL_STATUSES

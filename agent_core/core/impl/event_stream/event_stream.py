@@ -905,7 +905,11 @@ class EventStream:
     # ───────────────────────── prompt accessors ──────────────────────────
 
     def to_prompt_snapshot(
-        self, include_summary: bool = True, up_to: Optional[int] = None
+        self,
+        include_summary: bool = True,
+        up_to: Optional[int] = None,
+        *,
+        message_overrides: Optional[Dict[Tuple[str, str], str]] = None,
     ) -> str:
         """
         Build a compact, human-readable history for inclusion in LLM prompts.
@@ -919,6 +923,8 @@ class EventStream:
             include_summary: Whether to prepend the rolled-up ``head_summary``.
             up_to: Only the first ``up_to`` tail events (the events a request
                 carries, see get_event_count); None for all of them.
+            message_overrides: Render-only substitutions keyed by exact event
+                kind and message. Stored events and cached messages are untouched.
 
         Returns:
             A newline-delimited string ready to embed in an LLM request.
@@ -931,7 +937,11 @@ class EventStream:
             recent = self.tail_events[:up_to]
             if recent:
                 lines.append("Recent Event: ")
-                lines.extend(r.compact_line() for r in recent)
+                overrides = message_overrides or {}
+                lines.extend(
+                    r.compact_line(overrides.get((r.event.kind, r.event.message)))
+                    for r in recent
+                )
 
             return "\n".join(lines) if lines else "(no events)"
 

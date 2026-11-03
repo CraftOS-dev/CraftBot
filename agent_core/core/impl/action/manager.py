@@ -132,10 +132,11 @@ except Exception as _compat_ct_exc:
 # ============================================================================
 
 
-def _to_pretty_json(value: Any) -> str:
-    """Serialize a value to pretty-printed JSON for readable logs and event streams."""
+def _to_json(value: Any, *, compact: bool = False) -> str:
+    """Serialize event data; compact new results without changing string contents."""
     try:
-        return json.dumps(value, indent=2, ensure_ascii=False, default=str)
+        layout = {"separators": (",", ":")} if compact else {"indent": 2}
+        return json.dumps(value, ensure_ascii=False, default=str, **layout)
     except (TypeError, ValueError):
         return str(value)
 
@@ -354,7 +355,7 @@ class ActionManager:
         # Log to event stream
         # Only pass session_id when is_running_task=True (task stream exists)
         # When no task exists, use global stream by not passing task_id
-        pretty_input = _to_pretty_json(input_data)
+        pretty_input = _to_json(input_data)
         self._log_event_stream(
             is_gui_task=is_gui_task,
             event_kind="action_start",
@@ -478,12 +479,12 @@ class ActionManager:
         display_status = (
             "failed" if (status == "error" or output_has_error) else "completed"
         )
-        pretty_output = _to_pretty_json(outputs)
+        rendered_output = _to_json(outputs, compact=True)
         self._log_event_stream(
             is_gui_task=is_gui_task,
             event_kind="action_end",
             event_type=EventType.ACTION_END,
-            event=f"Action {action.name} completed with output: {pretty_output}.",
+            event=f"Action {action.name} completed with output: {rendered_output}.",
             display_message=f"{action.display_name} → {display_status}",
             action_name=action.name,
             action_display_name=action.display_name,
