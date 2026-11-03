@@ -10,6 +10,7 @@ on:
       - 'agent-app/**'
       - 'install.py'
       - 'craftbot.py'
+      - 'run.py'
       - 'tests/install_bootstrap/**'
       - 'scripts/test_runtime_bootstrap.py'
       - '.github/workflows/runtime-bootstrap.yml'

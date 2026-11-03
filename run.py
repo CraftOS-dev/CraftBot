@@ -1081,10 +1081,15 @@ def launch_agent_background(
     # skips re-resolution and both processes agree on the same binary. Not
     # in conda mode: there the env's own node (>= 24 via environment.yml,
     # first on PATH under conda run) is the intended runtime.
-    if not use_conda and "CRAFTBOT_NODE" not in agent_env:
-        _rt = node_runtime.resolve()
-        if _rt:
-            agent_env["CRAFTBOT_NODE"] = _rt.node
+    if not use_conda:
+        # MCP servers invoke bare npx/node too. Passing only CRAFTBOT_NODE
+        # helps our wrappers but leaves those subprocesses unable to start
+        # on a machine without a system Node installation.
+        agent_env.update(node_runtime.path_env())
+        if "CRAFTBOT_NODE" not in agent_env:
+            _rt = node_runtime.resolve()
+            if _rt:
+                agent_env["CRAFTBOT_NODE"] = _rt.node
 
     # When running as a PyInstaller frozen binary, run main() in a thread
     # instead of spawning a subprocess (sys.executable is the binary itself)
