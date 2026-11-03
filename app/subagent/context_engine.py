@@ -158,7 +158,7 @@ class SubAgentContextEngine:
 
     def make_first_turn_user_prompt(self, sub: SubAgent) -> str:
         """First-turn user prompt: query + initial event log + decision nudge."""
-        event_log = self._snapshot_event_log(sub.id)
+        event_log = self._snapshot_event_log(sub)
         return (
             f"QUERY FROM SPAWNING AGENT:\n{sub.query}\n\n"
             f"YOUR EVENT LOG SO FAR (most recent last):\n{event_log}\n\n"
@@ -180,9 +180,21 @@ class SubAgentContextEngine:
     # Helpers
     # ------------------------------------------------------------------
 
-    def _snapshot_event_log(self, sub_id: str) -> str:
+    def _snapshot_event_log(self, sub: SubAgent) -> str:
+        # The complete current query is above this snapshot, including after
+        # a fold or restore. Abbreviate only an exact match; never edit storage.
         return (
-            self.event_stream_manager.snapshot_by_id(sub_id, include_summary=True)
+            self.event_stream_manager.snapshot_by_id(
+                sub.id,
+                include_summary=True,
+                message_overrides={
+                    (
+                        "subagent_start",
+                        sub.bootstrap_message,
+                    ): f"Sub-agent of type '{sub.agent_type}' started. "
+                    "Query: see QUERY FROM SPAWNING AGENT above."
+                },
+            )
             or "(no events yet)"
         )
 
