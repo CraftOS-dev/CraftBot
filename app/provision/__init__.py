@@ -13,17 +13,20 @@ Order matters and is expressed once, here:
 
   disk        → enough free space to finish at all
   python      → the interpreter everything else installs into
+  pip         → the package installer compatible with the locks
   python-deps → the locked package set
   native      → prove the embedding stack loads (not merely installed)
   smoke       → prove what actions import is importable
   node        → the one Node runtime
+  agent-app-tools → CLI dependencies, including the ZIP reader
+  pocketbase  → the pinned executable used by Agent Apps
   frontend    → browser UI's npm tree (default UI, so required)
   whatsapp    → bridge's npm tree
   ripgrep     → the bundled search binary grep_files runs, checked not fetched
   playwright  → chromium for browser-automation actions
 
-Node comes after Python deps because nothing before it needs Node, and a slow
-optional download should not delay the failure of a required stage.
+Node comes after Python deps because nothing before it needs Node. Node,
+the Agent App tooling and PocketBase are required for a complete installation.
 """
 
 from __future__ import annotations
@@ -33,10 +36,12 @@ from typing import List, Optional
 
 from app import paths
 from app.provision.deps import (
+    AgentAppToolsStage,
     FrontendStage,
     PipStage,
     PlaywrightStage,
     PythonDepsStage,
+    PocketBaseStage,
     WhatsAppBridgeStage,
 )
 from app.provision.pipeline import format_report, run
@@ -78,6 +83,8 @@ def default_stages() -> List[Stage]:
         NativeRuntimeStage(),
         SmokeStage(),
         NodeStage(),
+        AgentAppToolsStage(),
+        PocketBaseStage(),
         FrontendStage(),
         WhatsAppBridgeStage(),
         RipgrepStage(),

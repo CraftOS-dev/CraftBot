@@ -2,6 +2,7 @@
 //! already on the worker thread, and a blocking read loop is the simplest
 //! thing that reports bytes as they arrive.
 
+use sha2::{Digest, Sha256};
 use std::io::{Read, Write};
 use std::path::Path;
 use std::time::Duration;
@@ -21,15 +22,42 @@ fn agent() -> ureq::Agent {
         .build()
 }
 
-/// Fetch a small JSON document (a GitHub release listing).
-pub fn get_json(url: &str) -> Result<serde_json::Value, String> {
-    let resp = agent()
-        .get(url)
-        .set("Accept", "application/vnd.github+json")
-        .call()
-        .map_err(|e| describe(url, e))?;
-    resp.into_json()
-        .map_err(|e| format!("{url}: bad JSON: {e}"))
+/// Runtime pins carry a digest. Check it before anything can execute.
+pub fn verified_to_file(
+    url: &str,
+    dest: &Path,
+    sha256: &str,
+    progress: Progress,
+) -> Result<(), String> {
+    for attempt in 0..3 {
+        match to_file(url, dest, progress) {
+            Ok(()) => return verify_sha256(dest, sha256),
+            Err(e) if attempt == 2 => return Err(e),
+            Err(_) => std::thread::sleep(Duration::from_secs(attempt + 1)),
+        }
+    }
+    unreachable!()
+}
+
+fn verify_sha256(path: &Path, expected: &str) -> Result<(), String> {
+    let mut source = std::fs::File::open(path).map_err(|e| e.to_string())?;
+    let mut digest = Sha256::new();
+    let mut buf = [0; 256 * 1024];
+    loop {
+        let count = source.read(&mut buf).map_err(|e| e.to_string())?;
+        if count == 0 {
+            break;
+        }
+        digest.update(&buf[..count]);
+    }
+    if format!("{:x}", digest.finalize()) != expected {
+        let _ = std::fs::remove_file(path);
+        return Err(format!(
+            "SHA-256 verification failed for {}",
+            path.display()
+        ));
+    }
+    Ok(())
 }
 
 /// Download `url` to `dest`, writing to a `.part` file first so a partial
@@ -92,4 +120,30 @@ fn describe(url: &str, e: ureq::Error) -> String {
 
 pub fn mb(bytes: u64) -> String {
     format!("{:.0}", bytes as f64 / (1024.0 * 1024.0))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn corrupted_download_is_rejected_and_removed() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("runtime");
+        std::fs::write(&file, b"truncated").unwrap();
+        assert!(verify_sha256(&file, &"0".repeat(64)).is_err());
+        assert!(!file.exists());
+    }
+
+    #[test]
+    fn complete_download_matches_digest() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("runtime");
+        std::fs::write(&file, b"abc").unwrap();
+        assert!(verify_sha256(
+            &file,
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        )
+        .is_ok());
+    }
 }

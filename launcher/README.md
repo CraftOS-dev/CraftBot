@@ -27,7 +27,8 @@ two things onto the disk that Python cannot fetch for itself:
 
 1. **A Python interpreter.** It downloads
    [python-build-standalone](https://github.com/astral-sh/python-build-standalone)
-   3.10 — the same build `app/provision/runtimes.py` uses — into the same
+   3.10 — pinned with its checksum in `app/runtime-manifest.json`, embedded
+   in the launcher and shared with `app/provision/runtimes.py` — into the same
    location (`<user data>/runtime/python/python/`). When install.py's own
    `python` stage runs later, it finds this one and accepts it.
 2. **The source payload.** `CraftBot-src.zip` from the GitHub release
@@ -49,6 +50,24 @@ Everything after that is `craftbot.py` in the installed tree, run with
 State is read the same way `craftbot.py` writes it in source mode:
 `craftbot.pid` beside `craftbot.py`, and `.agent-ready` under the user data
 directory for "running and actually serving" versus "still starting".
+
+Node/npm, the Agent App tooling dependencies and PocketBase are required
+provisioning stages. Setup only completes when those stages succeed. Node
+is pinned in the same runtime manifest; PocketBase keeps its version pin
+and per-asset checksums under `agent-app/spec/`. ZIP extraction does not
+require Git, tar or unzip on the user's machine.
+
+Python remains on 3.10 to match the existing dependency locks. Its portable
+build is pinned to the last verified release that includes this version;
+migrating off this end-of-life Python line also requires regenerating and
+testing the application locks. Runtime pins must be updated with their
+official SHA-256 digests, not by resolving upstream `latest` at install time.
+
+Run `python -m unittest discover -s tests/install_bootstrap -v` for the
+stdlib-only bootstrap regressions. `python scripts/test_runtime_bootstrap.py`
+exercises fresh runtime downloads, app scaffolding/build/serving and reuse
+in a temporary installation with an empty PATH. It does not install the
+full Python application dependencies or register the CraftBot service.
 
 ### Files the launcher owns
 
