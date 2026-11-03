@@ -367,6 +367,12 @@ class AgentBase:
             self.context_engine,
             prompt_filter=self._filter_action_prompt,
         )
+        # Session caches register the system prompt decisions send, which
+        # ends with the session's decision instructions. Set before any
+        # session is created or restored below.
+        self.context_engine.set_decision_instructions_hook(
+            self.action_router.decision_instructions
+        )
 
         self.session_manager = SessionManager(
             event_stream_manager=self.event_stream_manager,
@@ -470,6 +476,8 @@ class AgentBase:
         # Sessions whose event stream a user-requested fold is summarizing
         # (fold_session); the chat input's context button shows it.
         self.folding_sessions: set[str] = set()
+        # Chat sessions with an auto-title request in flight: one at a time.
+        self.titling_sessions: set[str] = set()
         self._extra_system_prompt: str = self._load_extra_system_prompt()
 
         # Scheduler for periodic tasks (memory processing, proactive checks, etc.)
@@ -975,8 +983,6 @@ class AgentBase:
                 sets.append(set_name)
         for skill_name in skills:
             self.session_manager.add_skill(session.id, skill_name)
-        if skills:
-            self._invalidate_session_caches(session.id)
         if sets:
             InternalActionInterface.load_action_sets(sets, session_id=session.id)
 
@@ -1015,8 +1021,6 @@ class AgentBase:
         skills = payload.get("workflow_skills") or []
         for skill_name in skills:
             self.session_manager.remove_skill(session.id, skill_name)
-        if skills:
-            self._invalidate_session_caches(session.id)
 
     @staticmethod
     def _drop_aggregated_source(trigger: Trigger, source: str) -> None:
@@ -1245,28 +1249,6 @@ class AgentBase:
         except Exception as e:
             logger.warning(
                 f"[PERSIST] LLM session persist failed for {session_id}: {e}"
-            )
-
-    def _invalidate_session_caches(self, session_id: str) -> None:
-        """Rebuild a session's LLM caches after a capability change."""
-        try:
-            self.llm.remove_session_caches(session_id)
-        except Exception:
-            pass
-        try:
-            self.session_manager.rebuild_session_caches(session_id)
-            for call_type in (
-                LLMCallType.REASONING,
-                LLMCallType.ACTION_SELECTION,
-                LLMCallType.GUI_REASONING,
-                LLMCallType.GUI_ACTION_SELECTION,
-            ):
-                self.context_engine.reset_event_stream_sync(
-                    call_type, session_id=session_id
-                )
-        except Exception as e:
-            logger.warning(
-                f"[AGENT] Failed to rebuild session caches for {session_id}: {e}"
             )
 
     # ----- Trigger data -----
@@ -1885,11 +1867,25 @@ class AgentBase:
         passes it directly when the first message arrives (so the sidebar
         updates while the run is still working). The run-end fallback call
         passes nothing and falls back to the event-stream snapshot.
+
+        One request per session at a time: a call made while another is in
+        flight (the run-end fallback of a quick run, a second message) does
+        nothing, and a title is only written while the chat has none, so it
+        never replaces another title or the user's own rename.
         """
         session = self.session_manager.get(session_id)
-        if not session:
+        if not session or session_id in self.titling_sessions:
             return
+        self.titling_sessions.add(session_id)
+        try:
+            await self._write_session_title(session_id, first_request)
+        finally:
+            self.titling_sessions.discard(session_id)
 
+    async def _write_session_title(
+        self, session_id: str, first_request: Optional[str]
+    ) -> None:
+        """_auto_title_session's work, with the session's request in flight."""
         basis = (first_request or "").strip()
         if not basis:
             try:
@@ -1927,6 +1923,11 @@ class AgentBase:
         if not title:
             title = self._fallback_session_title(first_request or "")
         if not title:
+            return
+
+        # Renamed (by the user) or titled meanwhile: keep that title.
+        session = self.session_manager.get(session_id)
+        if session is None or session.title not in ("", "New chat"):
             return
 
         try:
@@ -3076,6 +3077,10 @@ class AgentBase:
         """
         if self._interface_mode == "browser":
             prompt = (
+                "\n\n## Replies\n"
+                "The chat renders the messages you send (send_message, "
+                "send_message_with_attachment) as Markdown: bold, lists, tables, "
+                "links and code blocks show formatted, and a single line break is kept."
                 "\n\n## File Sharing\n"
                 "You can send files to the user using the `send_message_with_attachment` action. "
                 "Use this when the user asks you to share, send, or provide a file from the workspace."
@@ -3093,7 +3098,12 @@ class AgentBase:
                     "chat as your final message. Ask for a 2FA code in chat; never guess one."
                 )
             return prompt
-        return ""
+        return (
+            "\n\n## Replies\n"
+            "The terminal prints the messages you send (send_message) as they are: "
+            "write plain text without Markdown (no **bold**, # headings, tables or "
+            "[text](url) links; write URLs out in full)."
+        )
 
     @staticmethod
     def _mini_browser_usable() -> bool:
@@ -3611,7 +3621,9 @@ class AgentBase:
                                 LLMCallType.GUI_ACTION_SELECTION,
                             ):
                                 self.context_engine.reset_event_stream_sync(
-                                    call_type, session_id=session_id
+                                    call_type,
+                                    session_id=session_id,
+                                    reason="provider_change",
                                 )
                     logger.info(
                         f"[AGENT] Rebuilt session caches for "
@@ -4268,6 +4280,9 @@ class AgentBase:
         # Initialize skills system
         step(5, 7, "Loading skills")
         await self._initialize_skills()
+        # Sessions restored before skills were initialized: every loaded
+        # skill gets its instructions in its session's stream.
+        self.session_manager.restore_skill_instructions()
 
         # Start usage reporter background flush
         from app.usage import get_usage_reporter

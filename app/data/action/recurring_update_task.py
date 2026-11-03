@@ -8,16 +8,19 @@ from agent_core import action
     input_schema={
         "task_id": {
             "type": "string",
+            "required": True,
             "description": "ID of the task to update",
             "example": "daily_morning_briefing",
         },
         "updates": {
             "type": "object",
+            "required": False,
             "description": "Fields to update. Can include: enabled, priority, permission_tier, instruction, time, day",
             "example": {"enabled": False, "priority": 30},
         },
         "add_outcome": {
             "type": "object",
+            "required": False,
             "description": "Optional outcome to add to task history. Include 'result' (string) and optionally 'success' (boolean, default true)",
             "example": {"result": "Task completed successfully", "success": True},
         },

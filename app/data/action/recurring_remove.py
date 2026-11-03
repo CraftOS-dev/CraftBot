@@ -8,6 +8,7 @@ from agent_core import action
     input_schema={
         "task_id": {
             "type": "string",
+            "required": True,
             "description": "ID of the task to remove",
             "example": "daily_morning_briefing",
         }

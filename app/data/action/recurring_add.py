@@ -8,46 +8,55 @@ from agent_core import action
     input_schema={
         "name": {
             "type": "string",
+            "required": True,
             "description": "Human-readable task name (e.g., 'Morning Briefing', 'Weekly Review')",
             "example": "Morning Briefing",
         },
         "frequency": {
             "type": "string",
+            "required": True,
             "description": "Execution frequency: 'hourly', 'daily', 'weekly', 'monthly'",
             "example": "daily",
         },
         "instruction": {
             "type": "string",
+            "required": True,
             "description": "What the agent should do when this task fires. Be specific and actionable.",
             "example": "Check the weather and prepare a morning briefing with today's calendar and priority tasks.",
         },
         "time": {
             "type": "string",
+            "required": False,
             "description": "Time of day for daily/weekly/monthly tasks in HH:MM format (24-hour). Optional for hourly.",
             "example": "07:00",
         },
         "day": {
             "type": "string",
+            "required": False,
             "description": "Day of week for weekly tasks (e.g., 'sunday', 'monday'). Optional for other frequencies.",
             "example": "sunday",
         },
         "priority": {
             "type": "integer",
+            "required": False,
             "description": "Task priority (lower = higher priority). Default is 50.",
             "example": 50,
         },
         "permission_tier": {
             "type": "integer",
+            "required": False,
             "description": "Permission level 0-4. 0=silent, 1=suggest, 2=low-risk, 3=high-risk, 4=prohibited. Default is 1.",
             "example": 1,
         },
         "enabled": {
             "type": "boolean",
+            "required": False,
             "description": "Whether to enable the task immediately. Default is true.",
             "example": True,
         },
         "conditions": {
             "type": "array",
+            "required": False,
             "description": "Optional list of conditions for task execution. Each condition has a 'type' field.",
             "example": [{"type": "market_hours_only"}],
         },

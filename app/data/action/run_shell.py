@@ -10,32 +10,38 @@ from agent_core import action
     input_schema={
         "command": {
             "type": "string",
+            "required": True,
             "example": "dir C:\\\\Windows\\\\System32",
             "description": "The shell command to execute.",
         },
         "shell": {
             "type": "string",
+            "required": False,
             "example": "auto",
             "description": "Shell to use. Windows: 'cmd' (default), 'powershell', or 'pwsh' — bash/zsh are NOT available, and an unsupported value returns an error. macOS: 'bash' (default) or 'zsh'. Linux: ignored (runs via the system shell).",
         },
         "timeout": {
             "type": "integer",
+            "required": False,
             "example": 600,
             "description": "Optional timeout (seconds). If exceeded, the process is terminated.",
         },
         "cwd": {
             "type": "string",
+            "required": False,
             "example": "/home/user",
             "description": "Optional working directory for the command.",
         },
         "env": {
             "type": "object",
+            "required": False,
             "additionalProperties": {"type": "string"},
             "example": {"MY_VAR": "123"},
             "description": "Optional environment variable overrides.",
         },
         "background": {
             "type": "boolean",
+            "required": False,
             "example": False,
             "description": "Set to true for long-running processes (dev servers, watchers, etc.). The command will start in the background and return immediately with the process ID. Required for commands like 'npm run dev', 'npm start', 'python -m http.server'.",
         },
@@ -237,27 +243,32 @@ def shell_exec(input_data: dict) -> dict:
     input_schema={
         "command": {
             "type": "string",
+            "required": True,
             "example": "dir C:\\\\Windows\\\\System32",
             "description": "The cmd.exe command line to execute.",
         },
         "timeout": {
             "type": "integer",
+            "required": False,
             "example": 600,
             "description": "Optional timeout (seconds). If exceeded, the process is terminated.",
         },
         "cwd": {
             "type": "string",
+            "required": False,
             "example": "/home/user",
             "description": "Optional working directory for the command.",
         },
         "env": {
             "type": "object",
+            "required": False,
             "additionalProperties": {"type": "string"},
             "example": {"MY_VAR": "123"},
             "description": "Optional environment variable overrides.",
         },
         "background": {
             "type": "boolean",
+            "required": False,
             "example": False,
             "description": "Set to true for long-running processes (dev servers, watchers, etc.). The command will start in the background and return immediately with the process ID. Required for commands like 'npm run dev', 'npm start', 'python -m http.server'.",
         },
@@ -484,32 +495,38 @@ def shell_exec_windows(input_data: dict) -> dict:
     input_schema={
         "command": {
             "type": "string",
+            "required": True,
             "example": "dir C:\\\\Windows\\\\System32",
             "description": "The shell command to execute.",
         },
         "shell": {
             "type": "string",
+            "required": False,
             "example": "auto",
             "description": "Shell to use. Windows: 'cmd' (default), 'powershell', or 'pwsh' — bash/zsh are NOT available, and an unsupported value returns an error. macOS: 'bash' (default) or 'zsh'. Linux: ignored (runs via the system shell).",
         },
         "timeout": {
             "type": "integer",
+            "required": False,
             "example": 600,
             "description": "Optional timeout (seconds). If exceeded, the process is terminated.",
         },
         "cwd": {
             "type": "string",
+            "required": False,
             "example": "/home/user",
             "description": "Optional working directory for the command.",
         },
         "env": {
             "type": "object",
+            "required": False,
             "additionalProperties": {"type": "string"},
             "example": {"MY_VAR": "123"},
             "description": "Optional environment variable overrides.",
         },
         "background": {
             "type": "boolean",
+            "required": False,
             "example": False,
             "description": "Set to true for long-running processes (dev servers, watchers, etc.). The command will start in the background and return immediately with the process ID. Required for commands like 'npm run dev', 'npm start', 'python -m http.server'.",
         },

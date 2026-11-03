@@ -38,6 +38,18 @@ class ContextEngineProtocol(Protocol):
         """
         ...
 
+    def make_decision_system_prompt(self, session_id: Optional[str] = None) -> str:
+        """
+        Build the system prompt of a session's action-selection calls.
+
+        Args:
+            session_id: The session whose decision instructions to include.
+
+        Returns:
+            The system prompt string.
+        """
+        ...
+
     def get_event_stream(self) -> str:
         """
         Get formatted event stream.

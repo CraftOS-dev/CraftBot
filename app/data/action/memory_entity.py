@@ -4,6 +4,7 @@ from agent_core import action
 _INPUT_SCHEMA = {
     "name": {
         "type": "string",
+        "required": True,
         "example": "Agent App",
         "description": "The entity to look up (a person, project, tool, or concept). Case-insensitive.",
     },

@@ -4,29 +4,20 @@ from agent_core import action
 @action(
     name="set_requirement",
     description=(
-        "Record (or update) the concrete, checkable requirements that define DONE for the current deliverable. "
-        "This is the SCOPE of the output, NOT a plan of work — for work-tracking, use 'update_todos'. "
-        "Call this in the very first step of substantial work (BEFORE acknowledging the user) to lock in WHAT the "
-        "finished deliverable must contain and look like; call it again during Collect if new information forces a scope update; "
-        "call it again during Verify to mark each item satisfied or violated.\n\n"
-        "Every requirement MUST be concrete and falsifiable. A reader who has never seen this task should be able to look at the "
-        "deliverable, read your `done_when`, and decide pass/fail without further interpretation.\n\n"
-        "BANNED phrasing (these are aspirations, not requirements): 'high quality', 'good design', 'comprehensive', 'professional', "
-        "'polished', 'thorough', 'appropriate', 'well-structured', 'beautiful', 'engaging', 'detailed enough', 'as needed'. "
-        "If a requirement reads like a compliment instead of a check, REWRITE it.\n\n"
-        "Cover every dimension that materially shapes the output. Typical dimensions include but are not limited to: "
-        "content (what specific topics/sections/data must be included), "
-        "structure (ordering, section hierarchy, navigation), "
-        "length (per section, per page, total), "
-        "style/tone (voice, register, reading level, vocabulary), "
-        "design (typography choices, color, spacing, hierarchy, layout rules), "
-        "media (which images, charts, diagrams, tables — and where), "
-        "format (file type, output target, encoding), "
-        "data_sources (which sources must be cited, freshness requirements), "
-        "audience (who reads this and what they need), "
-        "constraints (what is forbidden, banned, or limited).\n\n"
-        "Always provide the COMPLETE current requirement list. This action can be executed in parallel with send_message, but do not "
-        "call multiple set_requirement actions at the same time."
+        "Record the definition of done: the measurable checks the finished result must pass. Verify tests the "
+        "result against it, and it is kept verbatim when older events are summarized. It is the scope of the "
+        "result, not a work plan (update_todos). Call it before substantial work, when the scope changes, and in "
+        "Verify to set each status. Always send the full list.\n"
+        "Rules:\n"
+        "1. Each instruction or constraint the user gave is an item, in their words, with their numbers and the "
+        "tolerance an expert would accept (1,500 words: 1,400 to 1,600).\n"
+        "2. Add every check an expert in the field would apply, including ones the user did not ask for.\n"
+        "3. One measurement per item; many items may share a dimension.\n"
+        "4. Each done_when has a number that separates expert from mediocre work: a minimum, range, age limit, "
+        "duration, size or count of parts. Never a count of 1, never a quality word (comprehensive, concise, "
+        "readable); if the user gave no number, set the expert's.\n"
+        "5. An item that would fit any other task is too generic.\n"
+        "Substantial work usually needs 10 or more items."
     ),
     mode="ALL",
     default=True,
@@ -36,16 +27,15 @@ from agent_core import action
         "requirements": {
             "type": "array",
             "description": (
-                "Array of requirement objects. Each object MUST have these keys: "
-                '"dimension" (string: which aspect of the deliverable — e.g. "content", "structure", "length", "style", '
-                '"design", "media", "tone", "format", "data_sources", "audience", "constraints"), '
-                '"requirement" (string: the SPECIFIC requirement, written so a critic can check it. '
-                "Concrete and falsifiable. NEVER vague praise.), "
-                '"done_when" (string: the concrete test the deliverable must pass to satisfy this requirement). '
-                'Optional: "status" — one of "pending" (default, not yet checked), "satisfied" (Verify confirmed), '
-                '"violated" (Verify found it failing — triggers rework).\n\n'
-                'Good example: {"dimension":"content","requirement":"Include a chronological version history covering every major release from launch through the latest patch","done_when":"A markdown table exists with one row per major version, each row listing version number, release date, and the headline feature/change"}.\n\n'
-                'Bad example (DO NOT WRITE): {"dimension":"content","requirement":"Comprehensive history of the game","done_when":"All major events are covered"}.'
+                'Items {"dimension", "requirement", "done_when", "status": "pending" (default) | "satisfied" | '
+                '"violated" (fix before delivering)}. For a relaxed Kyoto trip under ¥200,000:\n'
+                'Good: {"dimension":"budget","requirement":"Total under ¥200,000","done_when":"Itemized costs sum '
+                'to at most ¥200,000"}\n'
+                'Good: {"dimension":"budget","requirement":"Current prices","done_when":"Every price from a source '
+                'checked within 14 days"}\n'
+                'Good: {"dimension":"pace","requirement":"Relaxed","done_when":"At most 3 timed activities per day"}\n'
+                'Bad: {"dimension":"content","requirement":"Comprehensive itinerary","done_when":"All key '
+                'attractions covered"}'
             ),
             "required": True,
         }

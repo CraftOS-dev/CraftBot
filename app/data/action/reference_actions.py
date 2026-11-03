@@ -12,16 +12,19 @@ from agent_core import action
     input_schema={
         "kind": {
             "type": "string",
+            "required": True,
             "description": "session or agent_app",
             "example": "session",
         },
         "target_id": {
             "type": "string",
+            "required": True,
             "description": "targetId from the reference context",
             "example": "chat-123",
         },
         "cursor": {
             "type": "string",
+            "required": False,
             "description": "Optional nextCursor from an earlier page",
             "example": "",
         },

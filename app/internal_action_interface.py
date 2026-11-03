@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 from typing import Dict, Any, Iterable, Optional, List, Tuple, TYPE_CHECKING
-from app.llm import LLMInterface, LLMCallType
+from app.llm import LLMInterface
 from app.vlm_interface import VLMInterface
 from app.image_gen_interface import ImageGenInterface
 from app.video_gen_interface import VideoGenInterface
@@ -888,65 +888,6 @@ class InternalActionInterface:
         """Get the current turn's session id from the global state mirror."""
         return STATE.get_agent_property("current_task_id", "") or None
 
-    @classmethod
-    def _invalidate_action_selection_caches(
-        cls, session_id: Optional[str] = None
-    ) -> None:
-        """
-        Invalidate and re-create action selection session caches when the
-        session's capabilities change.
-
-        When action sets or skills change, the cached prompt becomes stale.
-        This method clears the old session caches, resets event stream sync
-        points, and re-creates fresh session caches so the next action
-        selection call sees the updated capabilities.
-        """
-        sid = session_id or cls._get_current_session_id()
-        if not sid or not cls.llm_interface:
-            return
-
-        try:
-            # End old action selection caches (both CLI and GUI)
-            cls.llm_interface.end_session_cache(sid, LLMCallType.ACTION_SELECTION)
-            cls.llm_interface.end_session_cache(sid, LLMCallType.GUI_ACTION_SELECTION)
-
-            # Reset event stream sync points
-            if cls.context_engine:
-                cls.context_engine.reset_event_stream_sync(
-                    LLMCallType.ACTION_SELECTION, session_id=sid
-                )
-                cls.context_engine.reset_event_stream_sync(
-                    LLMCallType.GUI_ACTION_SELECTION, session_id=sid
-                )
-
-            # Re-create session caches with fresh system prompt so the next
-            # action selection call establishes a new session with updated actions
-            if cls.context_engine:
-                system_prompt, _ = cls.context_engine.make_prompt(
-                    user_flags={"query": False, "expected_output": False},
-                    system_flags={},
-                )
-                for call_type in [
-                    LLMCallType.ACTION_SELECTION,
-                    LLMCallType.GUI_ACTION_SELECTION,
-                ]:
-                    cache_id = cls.llm_interface.create_session_cache(
-                        sid, call_type, system_prompt
-                    )
-                    if cache_id:
-                        logger.debug(
-                            f"[CACHE] Re-created session cache {cache_id} for {sid}:{call_type}"
-                        )
-
-            logger.info(
-                f"[CACHE] Invalidated and re-created action selection caches "
-                f"for session {sid} due to capability change"
-            )
-        except Exception as e:
-            logger.warning(
-                f"[CACHE] Failed to invalidate/re-create caches for {sid}: {e}"
-            )
-
     # ───────────────── Action Set Management ─────────────────
 
     @classmethod
@@ -1073,13 +1014,20 @@ class InternalActionInterface:
         return result
 
     @classmethod
-    def list_action_sets(cls, session_id: Optional[str] = None) -> Dict[str, Any]:
+    def list_action_sets(
+        cls, session_id: Optional[str] = None, sets: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
         """
         List all available action sets and their descriptions.
 
+        Args:
+            session_id: The session whose <actions> sets to report.
+            sets: Optional set names whose actions to list as well.
+
         Returns:
-            Dictionary with available sets and the sets this session prints
-            in <actions> (fixed by its type; core is always included).
+            Dictionary with available sets, the sets this session prints in
+            <actions> (fixed by its type; core is always included), and for
+            each requested set the names of its actions.
         """
         from app.action.action_set import action_set_manager
 
@@ -1091,10 +1039,19 @@ class InternalActionInterface:
             if session is not None:
                 current_sets = ["core"] + session.base_action_sets
 
-        return {
+        result: Dict[str, Any] = {
             "available_sets": available_sets,
             "current_sets": current_sets,
         }
+        if isinstance(sets, str):
+            sets = [sets]
+        if sets:
+            result["set_actions"] = {
+                name: action_set_manager.get_actions_in_set(name)
+                for name in sets
+                if isinstance(name, str)
+            }
+        return result
 
     # ───────────────── Skill Management ─────────────────
 
@@ -1174,9 +1131,6 @@ class InternalActionInterface:
         except Exception:
             pass
 
-        # The skill's instructions changed the session block of the prompt.
-        cls._invalidate_action_selection_caches(sid)
-
         # Deliver the schemas of the skill's recommended action sets.
         added_action_sets = []
         recommended_sets = skill_manager.get_skill_action_sets([skill_name])
@@ -1225,7 +1179,6 @@ class InternalActionInterface:
             }
 
         cls.session_manager.remove_skill(sid, skill_name)
-        cls._invalidate_action_selection_caches(sid)
 
         logger.info(f"[SKILL] Unloaded skill '{skill_name}' from session {sid}")
 

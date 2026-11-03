@@ -42,6 +42,7 @@ from app.subagent import list_subagent_names, get_subagent_definition
     input_schema={
         "agent_type": {
             "type": "string",
+            "required": True,
             # Enum built from the registry so new types are picked up
             # automatically. The per-type description above tells the
             # spawning agent how each one behaves.
@@ -53,6 +54,7 @@ from app.subagent import list_subagent_names, get_subagent_definition
         },
         "query": {
             "type": "string",
+            "required": True,
             "description": (
                 "Fully self-contained instruction for the sub-agent. NO "
                 "context from your task carries over — include every file "
