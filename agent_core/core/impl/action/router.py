@@ -908,7 +908,7 @@ class ActionRouter:
         Validate and filter parallel actions.
 
         Rules:
-        - Max 10 actions per batch
+        - Max 20 actions per batch
         - If any action is non-parallelizable (action.parallelizable=False), return only first action
         - Validate each action exists and is visible in current mode
 
@@ -922,8 +922,8 @@ class ActionRouter:
         if not actions:
             return []
 
-        # Cap at 10 actions
-        actions = actions[:10]
+        # Cap at 20 actions
+        actions = actions[:20]
 
         # A standalone end_turn is non-parallelizable and otherwise wins
         # over the reply, discarding it. Telegram auto-replies end the run
