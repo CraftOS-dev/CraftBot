@@ -108,7 +108,11 @@ def _router(monkeypatch, stream):
         router_module, "get_event_stream_manager", lambda: _Streams(stream)
     )
     context = SimpleNamespace(make_prompt=lambda **kw: ("SYSTEM", ""))
-    llm = SimpleNamespace(input_budget=lambda: 900_000)
+    # No session history: the summary goes to the standalone call.
+    llm = SimpleNamespace(
+        input_budget=lambda: 900_000,
+        generate_side_response_with_session=lambda *a, **k: None,
+    )
     return router_module.ActionRouter(None, llm, context)
 
 

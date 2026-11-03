@@ -17,21 +17,25 @@ _NO_CRED_MSG = "No Jira credential. Use /jira login first."
     input_schema={
         "jql": {
             "type": "string",
+            "required": True,
             "description": "JQL query string.",
             "example": 'project = PROJ AND status = "In Progress"',
         },
         "max_results": {
             "type": "integer",
+            "required": False,
             "description": "Max issues to return (max 100).",
             "example": 20,
         },
         "fields": {
             "type": "string",
+            "required": False,
             "description": "Comma-separated fields to return. Leave empty for lean defaults.",
             "example": "summary,status,assignee,priority",
         },
         "include_metadata": {
             "type": "boolean",
+            "required": False,
             "description": "Return every field (incl. customfield_*) with full nested objects.",
             "example": False,
         },
@@ -66,16 +70,19 @@ async def search_jira_issues(input_data: dict) -> dict:
     input_schema={
         "issue_key": {
             "type": "string",
+            "required": True,
             "description": "Issue key.",
             "example": "PROJ-123",
         },
         "fields": {
             "type": "string",
+            "required": False,
             "description": "Comma-separated fields to return. Leave empty for lean defaults.",
             "example": "summary,status,assignee,description",
         },
         "include_metadata": {
             "type": "boolean",
+            "required": False,
             "description": "Return every field (incl. customfield_*) with full nested objects.",
             "example": False,
         },
@@ -110,36 +117,43 @@ async def get_jira_issue(input_data: dict) -> dict:
     input_schema={
         "project_key": {
             "type": "string",
+            "required": True,
             "description": "Project key.",
             "example": "PROJ",
         },
         "summary": {
             "type": "string",
+            "required": True,
             "description": "Issue title/summary.",
             "example": "Fix login bug",
         },
         "issue_type": {
             "type": "string",
+            "required": False,
             "description": "Issue type name.",
             "example": "Task",
         },
         "description": {
             "type": "string",
+            "required": False,
             "description": "Issue description (plain text).",
             "example": "",
         },
         "assignee_id": {
             "type": "string",
+            "required": False,
             "description": "Atlassian account ID of the assignee. Leave empty for unassigned.",
             "example": "",
         },
         "labels": {
             "type": "string",
+            "required": False,
             "description": "Comma-separated labels.",
             "example": "bug,urgent",
         },
         "priority": {
             "type": "string",
+            "required": False,
             "description": "Priority name (e.g. High, Medium, Low).",
             "example": "Medium",
         },
@@ -172,21 +186,25 @@ async def create_jira_issue(input_data: dict) -> dict:
     input_schema={
         "issue_key": {
             "type": "string",
+            "required": True,
             "description": "Issue key.",
             "example": "PROJ-123",
         },
         "summary": {
             "type": "string",
+            "required": False,
             "description": "New summary. Leave empty to keep current.",
             "example": "",
         },
         "priority": {
             "type": "string",
+            "required": False,
             "description": "New priority name. Leave empty to keep current.",
             "example": "",
         },
         "labels": {
             "type": "string",
+            "required": False,
             "description": "Comma-separated labels to SET (replaces all). Leave empty to keep current.",
             "example": "",
         },
@@ -220,11 +238,13 @@ async def update_jira_issue(input_data: dict) -> dict:
     input_schema={
         "issue_key": {
             "type": "string",
+            "required": True,
             "description": "Issue key.",
             "example": "PROJ-123",
         },
         "delete_subtasks": {
             "type": "boolean",
+            "required": False,
             "description": "Also delete subtasks.",
             "example": False,
         },
@@ -250,6 +270,7 @@ async def delete_jira_issue(input_data: dict) -> dict:
     input_schema={
         "issue_key": {
             "type": "string",
+            "required": True,
             "description": "Issue key.",
             "example": "PROJ-123",
         },
@@ -271,16 +292,19 @@ async def get_jira_transitions(input_data: dict) -> dict:
     input_schema={
         "issue_key": {
             "type": "string",
+            "required": True,
             "description": "Issue key.",
             "example": "PROJ-123",
         },
         "transition_id": {
             "type": "string",
+            "required": True,
             "description": "Transition ID from get_jira_transitions.",
             "example": "31",
         },
         "comment": {
             "type": "string",
+            "required": False,
             "description": "Optional comment to add with the transition.",
             "example": "",
         },
@@ -308,11 +332,13 @@ async def transition_jira_issue(input_data: dict) -> dict:
     input_schema={
         "issue_key": {
             "type": "string",
+            "required": True,
             "description": "Issue key.",
             "example": "PROJ-123",
         },
         "account_id": {
             "type": "string",
+            "required": False,
             "description": "Atlassian account ID. Leave empty to unassign.",
             "example": "",
         },
@@ -339,11 +365,13 @@ async def assign_jira_issue(input_data: dict) -> dict:
     input_schema={
         "issue_key": {
             "type": "string",
+            "required": True,
             "description": "Issue key.",
             "example": "PROJ-123",
         },
         "labels": {
             "type": "string",
+            "required": True,
             "description": "Comma-separated labels to add.",
             "example": "urgent,backend",
         },
@@ -371,11 +399,13 @@ async def add_jira_labels(input_data: dict) -> dict:
     input_schema={
         "issue_key": {
             "type": "string",
+            "required": True,
             "description": "Issue key.",
             "example": "PROJ-123",
         },
         "labels": {
             "type": "string",
+            "required": True,
             "description": "Comma-separated labels to remove.",
             "example": "urgent",
         },
@@ -403,6 +433,7 @@ async def remove_jira_labels(input_data: dict) -> dict:
     input_schema={
         "issue_key": {
             "type": "string",
+            "required": True,
             "description": "Issue key.",
             "example": "PROJ-123",
         },
@@ -422,11 +453,13 @@ async def get_jira_issue_watchers(input_data: dict) -> dict:
     input_schema={
         "issue_key": {
             "type": "string",
+            "required": True,
             "description": "Issue key.",
             "example": "PROJ-123",
         },
         "account_id": {
             "type": "string",
+            "required": True,
             "description": "Atlassian account ID of user to add.",
             "example": "557058:...",
         },
@@ -452,11 +485,13 @@ async def add_jira_issue_watcher(input_data: dict) -> dict:
     input_schema={
         "issue_key": {
             "type": "string",
+            "required": True,
             "description": "Issue key.",
             "example": "PROJ-123",
         },
         "account_id": {
             "type": "string",
+            "required": True,
             "description": "Atlassian account ID of user to remove.",
             "example": "557058:...",
         },
@@ -488,11 +523,13 @@ async def remove_jira_issue_watcher(input_data: dict) -> dict:
     input_schema={
         "issue_key": {
             "type": "string",
+            "required": True,
             "description": "Issue key.",
             "example": "PROJ-123",
         },
         "body": {
             "type": "string",
+            "required": True,
             "description": "Comment text.",
             "example": "Fixed in latest commit.",
         },
@@ -516,11 +553,13 @@ async def add_jira_comment(input_data: dict) -> dict:
     input_schema={
         "issue_key": {
             "type": "string",
+            "required": True,
             "description": "Issue key.",
             "example": "PROJ-123",
         },
         "max_results": {
             "type": "integer",
+            "required": False,
             "description": "Max comments to return.",
             "example": 20,
         },
@@ -546,16 +585,19 @@ async def get_jira_comments(input_data: dict) -> dict:
     input_schema={
         "issue_key": {
             "type": "string",
+            "required": True,
             "description": "Issue key.",
             "example": "PROJ-123",
         },
         "comment_id": {
             "type": "string",
+            "required": True,
             "description": "Comment ID.",
             "example": "10001",
         },
         "body": {
             "type": "string",
+            "required": True,
             "description": "New comment text.",
             "example": "Edited comment.",
         },
@@ -582,11 +624,13 @@ async def update_jira_comment(input_data: dict) -> dict:
     input_schema={
         "issue_key": {
             "type": "string",
+            "required": True,
             "description": "Issue key.",
             "example": "PROJ-123",
         },
         "comment_id": {
             "type": "string",
+            "required": True,
             "description": "Comment ID.",
             "example": "10001",
         },
@@ -618,16 +662,19 @@ async def delete_jira_comment(input_data: dict) -> dict:
     input_schema={
         "issue_key": {
             "type": "string",
+            "required": True,
             "description": "Issue key.",
             "example": "PROJ-123",
         },
         "file_path": {
             "type": "string",
+            "required": True,
             "description": "Local file path to upload.",
             "example": "/tmp/screenshot.png",
         },
         "filename": {
             "type": "string",
+            "required": False,
             "description": "Optional override filename.",
             "example": "screenshot.png",
         },
@@ -654,6 +701,7 @@ async def add_jira_attachment(input_data: dict) -> dict:
     input_schema={
         "attachment_id": {
             "type": "string",
+            "required": True,
             "description": "Attachment ID.",
             "example": "10001",
         },
@@ -675,6 +723,7 @@ async def get_jira_attachment(input_data: dict) -> dict:
     input_schema={
         "attachment_id": {
             "type": "string",
+            "required": True,
             "description": "Attachment ID.",
             "example": "10001",
         },
@@ -697,11 +746,13 @@ async def delete_jira_attachment(input_data: dict) -> dict:
     input_schema={
         "attachment_id": {
             "type": "string",
+            "required": True,
             "description": "Attachment ID.",
             "example": "10001",
         },
         "dest_path": {
             "type": "string",
+            "required": True,
             "description": "Local destination path.",
             "example": "/tmp/saved.png",
         },
@@ -732,26 +783,31 @@ async def download_jira_attachment(input_data: dict) -> dict:
     input_schema={
         "issue_key": {
             "type": "string",
+            "required": True,
             "description": "Issue key.",
             "example": "PROJ-123",
         },
         "time_spent": {
             "type": "string",
+            "required": False,
             "description": "Jira-style duration (e.g. '2h 30m', '1d').",
             "example": "2h 30m",
         },
         "time_spent_seconds": {
             "type": "integer",
+            "required": False,
             "description": "Alternative to time_spent: total seconds.",
             "example": 9000,
         },
         "comment": {
             "type": "string",
+            "required": False,
             "description": "Optional worklog comment.",
             "example": "Implemented feature",
         },
         "started": {
             "type": "string",
+            "required": False,
             "description": "Optional ISO start time, e.g. '2026-05-21T09:00:00.000+0000'.",
             "example": "",
         },
@@ -780,6 +836,7 @@ async def add_jira_worklog(input_data: dict) -> dict:
     input_schema={
         "issue_key": {
             "type": "string",
+            "required": True,
             "description": "Issue key.",
             "example": "PROJ-123",
         },
@@ -799,26 +856,30 @@ async def get_jira_worklogs(input_data: dict) -> dict:
     input_schema={
         "issue_key": {
             "type": "string",
+            "required": True,
             "description": "Issue key.",
             "example": "PROJ-123",
         },
         "worklog_id": {
             "type": "string",
+            "required": True,
             "description": "Worklog ID.",
             "example": "10010",
         },
         "time_spent": {
             "type": "string",
+            "required": False,
             "description": "Jira-style duration.",
             "example": "3h",
         },
         "time_spent_seconds": {
             "type": "integer",
+            "required": False,
             "description": "Total seconds.",
             "example": 10800,
         },
-        "comment": {"type": "string", "description": "New comment.", "example": ""},
-        "started": {"type": "string", "description": "ISO start time.", "example": ""},
+        "comment": {"type": "string", "required": False, "description": "New comment.", "example": ""},
+        "started": {"type": "string", "required": False, "description": "ISO start time.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -845,11 +906,13 @@ async def update_jira_worklog(input_data: dict) -> dict:
     input_schema={
         "issue_key": {
             "type": "string",
+            "required": True,
             "description": "Issue key.",
             "example": "PROJ-123",
         },
         "worklog_id": {
             "type": "string",
+            "required": True,
             "description": "Worklog ID.",
             "example": "10010",
         },
@@ -881,21 +944,25 @@ async def delete_jira_worklog(input_data: dict) -> dict:
     input_schema={
         "link_type": {
             "type": "string",
+            "required": True,
             "description": "Link type name (e.g. 'Blocks', 'Relates').",
             "example": "Blocks",
         },
         "inward_issue_key": {
             "type": "string",
+            "required": True,
             "description": "Issue on the inward side.",
             "example": "PROJ-1",
         },
         "outward_issue_key": {
             "type": "string",
+            "required": True,
             "description": "Issue on the outward side.",
             "example": "PROJ-2",
         },
         "comment": {
             "type": "string",
+            "required": False,
             "description": "Optional comment on the source.",
             "example": "",
         },
@@ -923,11 +990,13 @@ async def create_jira_issue_link(input_data: dict) -> dict:
     input_schema={
         "link_id": {
             "type": "string",
+            "required": True,
             "description": "Issue link ID.",
             "example": "10000",
         },
         "include_metadata": {
             "type": "boolean",
+            "required": False,
             "description": "Return the full raw API payload instead of lean fields.",
             "example": False,
         },
@@ -958,6 +1027,7 @@ async def get_jira_issue_link(input_data: dict) -> dict:
     input_schema={
         "link_id": {
             "type": "string",
+            "required": True,
             "description": "Issue link ID.",
             "example": "10000",
         },
@@ -997,6 +1067,7 @@ async def list_jira_issue_link_types(input_data: dict) -> dict:
     input_schema={
         "max_results": {
             "type": "integer",
+            "required": False,
             "description": "Max projects to return.",
             "example": 50,
         },
@@ -1020,6 +1091,7 @@ async def list_jira_projects(input_data: dict) -> dict:
     input_schema={
         "project_key": {
             "type": "string",
+            "required": True,
             "description": "Project key.",
             "example": "PROJ",
         },
@@ -1041,11 +1113,13 @@ async def get_jira_project(input_data: dict) -> dict:
     input_schema={
         "query": {
             "type": "string",
+            "required": True,
             "description": "Search string (name or email).",
             "example": "john",
         },
         "max_results": {
             "type": "integer",
+            "required": False,
             "description": "Max results.",
             "example": 10,
         },
@@ -1096,6 +1170,7 @@ async def list_jira_issue_types(input_data: dict) -> dict:
     input_schema={
         "project_key": {
             "type": "string",
+            "required": True,
             "description": "Project key.",
             "example": "PROJ",
         },
@@ -1117,27 +1192,32 @@ async def list_jira_versions(input_data: dict) -> dict:
     input_schema={
         "project_key": {
             "type": "string",
+            "required": True,
             "description": "Project key.",
             "example": "PROJ",
         },
-        "name": {"type": "string", "description": "Version name.", "example": "v1.0"},
+        "name": {"type": "string", "required": True, "description": "Version name.", "example": "v1.0"},
         "description": {
             "type": "string",
+            "required": False,
             "description": "Optional description.",
             "example": "",
         },
         "release_date": {
             "type": "string",
+            "required": False,
             "description": "Optional release date (YYYY-MM-DD).",
             "example": "2026-06-30",
         },
         "start_date": {
             "type": "string",
+            "required": False,
             "description": "Optional start date (YYYY-MM-DD).",
             "example": "",
         },
         "released": {
             "type": "boolean",
+            "required": False,
             "description": "Mark as released.",
             "example": False,
         },
@@ -1167,27 +1247,32 @@ async def create_jira_version(input_data: dict) -> dict:
     input_schema={
         "version_id": {
             "type": "string",
+            "required": True,
             "description": "Version ID.",
             "example": "10001",
         },
-        "name": {"type": "string", "description": "New name.", "example": ""},
+        "name": {"type": "string", "required": False, "description": "New name.", "example": ""},
         "description": {
             "type": "string",
+            "required": False,
             "description": "New description.",
             "example": "",
         },
         "release_date": {
             "type": "string",
+            "required": False,
             "description": "New release date.",
             "example": "",
         },
         "released": {
             "type": "boolean",
+            "required": False,
             "description": "Set released flag.",
             "example": True,
         },
         "archived": {
             "type": "boolean",
+            "required": False,
             "description": "Set archived flag.",
             "example": False,
         },
@@ -1224,6 +1309,7 @@ async def update_jira_version(input_data: dict) -> dict:
     input_schema={
         "version_id": {
             "type": "string",
+            "required": True,
             "description": "Version ID.",
             "example": "10001",
         },
@@ -1246,6 +1332,7 @@ async def delete_jira_version(input_data: dict) -> dict:
     input_schema={
         "project_key": {
             "type": "string",
+            "required": True,
             "description": "Project key.",
             "example": "PROJ",
         },
@@ -1267,21 +1354,25 @@ async def list_jira_components(input_data: dict) -> dict:
     input_schema={
         "project_key": {
             "type": "string",
+            "required": True,
             "description": "Project key.",
             "example": "PROJ",
         },
         "name": {
             "type": "string",
+            "required": True,
             "description": "Component name.",
             "example": "Backend",
         },
         "description": {
             "type": "string",
+            "required": False,
             "description": "Optional description.",
             "example": "",
         },
         "lead_account_id": {
             "type": "string",
+            "required": False,
             "description": "Optional component lead account ID.",
             "example": "",
         },
@@ -1309,6 +1400,7 @@ async def create_jira_component(input_data: dict) -> dict:
     input_schema={
         "component_id": {
             "type": "string",
+            "required": True,
             "description": "Component ID.",
             "example": "10100",
         },
@@ -1331,6 +1423,7 @@ async def delete_jira_component(input_data: dict) -> dict:
     input_schema={
         "project_key": {
             "type": "string",
+            "required": True,
             "description": "Project key.",
             "example": "PROJ",
         },
@@ -1358,16 +1451,19 @@ async def list_jira_project_statuses(input_data: dict) -> dict:
     input_schema={
         "project_key": {
             "type": "string",
+            "required": False,
             "description": "Optional project key filter.",
             "example": "PROJ",
         },
         "board_type": {
             "type": "string",
+            "required": False,
             "description": "Optional 'scrum' or 'kanban'.",
             "example": "scrum",
         },
         "max_results": {
             "type": "integer",
+            "required": False,
             "description": "Max boards to return.",
             "example": 50,
         },
@@ -1391,7 +1487,7 @@ async def list_jira_boards(input_data: dict) -> dict:
     description="Get details of a specific Agile board.",
     action_sets=["jira_sprints"],
     input_schema={
-        "board_id": {"type": "integer", "description": "Board ID.", "example": 1},
+        "board_id": {"type": "integer", "required": True, "description": "Board ID.", "example": 1},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -1406,11 +1502,12 @@ async def get_jira_board(input_data: dict) -> dict:
     description="List issues currently on a board. Returns lean issues (summary, description, status, assignee, priority, issuetype, labels, dates) by default; set include_metadata=true for all fields incl. custom fields.",
     action_sets=["jira_sprints"],
     input_schema={
-        "board_id": {"type": "integer", "description": "Board ID.", "example": 1},
-        "jql": {"type": "string", "description": "Optional JQL filter.", "example": ""},
-        "max_results": {"type": "integer", "description": "Max issues.", "example": 50},
+        "board_id": {"type": "integer", "required": True, "description": "Board ID.", "example": 1},
+        "jql": {"type": "string", "required": False, "description": "Optional JQL filter.", "example": ""},
+        "max_results": {"type": "integer", "required": False, "description": "Max issues.", "example": 50},
         "include_metadata": {
             "type": "boolean",
+            "required": False,
             "description": "Return every field (incl. customfield_*) with full nested objects.",
             "example": False,
         },
@@ -1441,14 +1538,16 @@ async def get_jira_board_issues(input_data: dict) -> dict:
     description="List sprints on a board (optionally filter by state).",
     action_sets=["jira_sprints", "jira"],
     input_schema={
-        "board_id": {"type": "integer", "description": "Board ID.", "example": 1},
+        "board_id": {"type": "integer", "required": True, "description": "Board ID.", "example": 1},
         "state": {
             "type": "string",
+            "required": False,
             "description": "Comma-separated states: 'active,closed,future'.",
             "example": "active",
         },
         "max_results": {
             "type": "integer",
+            "required": False,
             "description": "Max sprints.",
             "example": 50,
         },
@@ -1472,10 +1571,11 @@ async def get_jira_board_sprints(input_data: dict) -> dict:
     description="Get the backlog issues for a board (issues not yet in any sprint). Returns lean issues by default; set include_metadata=true for all fields incl. custom fields.",
     action_sets=["jira_sprints"],
     input_schema={
-        "board_id": {"type": "integer", "description": "Board ID.", "example": 1},
-        "max_results": {"type": "integer", "description": "Max issues.", "example": 50},
+        "board_id": {"type": "integer", "required": True, "description": "Board ID.", "example": 1},
+        "max_results": {"type": "integer", "required": False, "description": "Max issues.", "example": 50},
         "include_metadata": {
             "type": "boolean",
+            "required": False,
             "description": "Return every field (incl. customfield_*) with full nested objects.",
             "example": False,
         },
@@ -1505,7 +1605,7 @@ async def get_jira_board_backlog(input_data: dict) -> dict:
     description="Get details of a specific sprint.",
     action_sets=["jira_sprints"],
     input_schema={
-        "sprint_id": {"type": "integer", "description": "Sprint ID.", "example": 42},
+        "sprint_id": {"type": "integer", "required": True, "description": "Sprint ID.", "example": 42},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -1520,11 +1620,12 @@ async def get_jira_sprint(input_data: dict) -> dict:
     description="List issues in a sprint. Returns lean issues by default; set include_metadata=true for all fields incl. custom fields.",
     action_sets=["jira_sprints", "jira"],
     input_schema={
-        "sprint_id": {"type": "integer", "description": "Sprint ID.", "example": 42},
-        "jql": {"type": "string", "description": "Optional JQL filter.", "example": ""},
-        "max_results": {"type": "integer", "description": "Max issues.", "example": 50},
+        "sprint_id": {"type": "integer", "required": True, "description": "Sprint ID.", "example": 42},
+        "jql": {"type": "string", "required": False, "description": "Optional JQL filter.", "example": ""},
+        "max_results": {"type": "integer", "required": False, "description": "Max issues.", "example": 50},
         "include_metadata": {
             "type": "boolean",
+            "required": False,
             "description": "Return every field (incl. customfield_*) with full nested objects.",
             "example": False,
         },
@@ -1557,26 +1658,31 @@ async def get_jira_sprint_issues(input_data: dict) -> dict:
     input_schema={
         "board_id": {
             "type": "integer",
+            "required": True,
             "description": "Origin board ID.",
             "example": 1,
         },
         "name": {
             "type": "string",
+            "required": True,
             "description": "Sprint name.",
             "example": "Sprint 23",
         },
         "goal": {
             "type": "string",
+            "required": False,
             "description": "Optional sprint goal.",
             "example": "",
         },
         "start_date": {
             "type": "string",
+            "required": False,
             "description": "ISO start date.",
             "example": "2026-05-21T00:00:00.000Z",
         },
         "end_date": {
             "type": "string",
+            "required": False,
             "description": "ISO end date.",
             "example": "2026-06-04T00:00:00.000Z",
         },
@@ -1603,20 +1709,22 @@ async def create_jira_sprint(input_data: dict) -> dict:
     description="Update a sprint's name, state (active/closed/future), goal, or dates. Returns id, name, state.",
     action_sets=["jira_sprints"],
     input_schema={
-        "sprint_id": {"type": "integer", "description": "Sprint ID.", "example": 42},
-        "name": {"type": "string", "description": "New name.", "example": ""},
+        "sprint_id": {"type": "integer", "required": True, "description": "Sprint ID.", "example": 42},
+        "name": {"type": "string", "required": False, "description": "New name.", "example": ""},
         "state": {
             "type": "string",
+            "required": False,
             "description": "'active' (start) or 'closed' (complete).",
             "example": "",
         },
-        "goal": {"type": "string", "description": "New goal.", "example": ""},
+        "goal": {"type": "string", "required": False, "description": "New goal.", "example": ""},
         "start_date": {
             "type": "string",
+            "required": False,
             "description": "ISO start date.",
             "example": "",
         },
-        "end_date": {"type": "string", "description": "ISO end date.", "example": ""},
+        "end_date": {"type": "string", "required": False, "description": "ISO end date.", "example": ""},
     },
     output_schema={
         "status": {"type": "string", "example": "success"},
@@ -1648,7 +1756,7 @@ async def update_jira_sprint(input_data: dict) -> dict:
     description="Delete a sprint.",
     action_sets=["jira_sprints"],
     input_schema={
-        "sprint_id": {"type": "integer", "description": "Sprint ID.", "example": 42},
+        "sprint_id": {"type": "integer", "required": True, "description": "Sprint ID.", "example": 42},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -1666,11 +1774,13 @@ async def delete_jira_sprint(input_data: dict) -> dict:
     input_schema={
         "sprint_id": {
             "type": "integer",
+            "required": True,
             "description": "Target sprint ID.",
             "example": 42,
         },
         "issue_keys": {
             "type": "string",
+            "required": True,
             "description": "Comma-separated issue keys.",
             "example": "PROJ-1,PROJ-2",
         },
@@ -1700,6 +1810,7 @@ async def move_issues_to_jira_sprint(input_data: dict) -> dict:
     input_schema={
         "issue_keys": {
             "type": "string",
+            "required": True,
             "description": "Comma-separated issue keys.",
             "example": "PROJ-1,PROJ-2",
         },
@@ -1724,6 +1835,7 @@ async def move_issues_to_jira_backlog(input_data: dict) -> dict:
     input_schema={
         "epic_key": {
             "type": "string",
+            "required": True,
             "description": "Epic key or ID.",
             "example": "PROJ-100",
         },
@@ -1743,12 +1855,14 @@ async def get_jira_epic(input_data: dict) -> dict:
     input_schema={
         "epic_key": {
             "type": "string",
+            "required": True,
             "description": "Epic key or ID.",
             "example": "PROJ-100",
         },
-        "max_results": {"type": "integer", "description": "Max issues.", "example": 50},
+        "max_results": {"type": "integer", "required": False, "description": "Max issues.", "example": 50},
         "include_metadata": {
             "type": "boolean",
+            "required": False,
             "description": "Return every field (incl. customfield_*) with full nested objects.",
             "example": False,
         },
@@ -1780,11 +1894,13 @@ async def get_jira_epic_issues(input_data: dict) -> dict:
     input_schema={
         "epic_key": {
             "type": "string",
+            "required": True,
             "description": "Epic key, or 'none' to unlink.",
             "example": "PROJ-100",
         },
         "issue_keys": {
             "type": "string",
+            "required": True,
             "description": "Comma-separated issue keys.",
             "example": "PROJ-1,PROJ-2",
         },
@@ -1820,6 +1936,7 @@ async def move_issues_to_jira_epic(input_data: dict) -> dict:
     input_schema={
         "tag": {
             "type": "string",
+            "required": True,
             "description": "The mention tag to watch for in comments. e.g. '@craftbot'. Empty = disabled.",
             "example": "@craftbot",
         },
@@ -1886,6 +2003,7 @@ def get_jira_watch_tag(input_data: dict) -> dict:
     input_schema={
         "labels": {
             "type": "string",
+            "required": True,
             "description": "Comma-separated labels to watch. Empty string = watch all issues.",
             "example": "craftos,agent-task",
         },

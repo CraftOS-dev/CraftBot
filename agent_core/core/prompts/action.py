@@ -7,15 +7,26 @@ GUI-mode prompts. Every session turn — main session, chat session, or Living
 UI session — runs the same selection call.
 """
 
-# The one action-selection prompt for session turns.
+# The one action-selection call for session turns, in two parts.
 # core.impl.action.router.ActionRouter.select_action_in_session
-# KV CACHING OPTIMIZED: the cacheable prefix runs static content FIRST, then
-# session-static, then the append-only {event_stream}. The only truly per-turn
-# volatile block, {current_turn}/{query}, goes LAST so it never sits in front
-# of the growing stream and cap the cache. (The trigger is already written into
-# the event stream at claim time, so {query} here is a redundant restatement.)
-SELECT_ACTION_PROMPT = """
-<rules>
+#
+# SELECT_ACTION_INSTRUCTIONS: the decision rules and the session's <actions>
+# list. Identical for every session of a type, so it ends the SYSTEM prompt
+# (decision_system_prompt): the provider caches it once and every session of
+# that type reads it from cache, from its very first call. In the user
+# message it was cached per session only (Anthropic marks no cache point in a
+# first user message; the ChatGPT subscription caches at message boundaries).
+#
+# SELECT_ACTION_PROMPT: the session's own part, the first user message of a
+# session history. KV CACHING: session-static first, then the append-only
+# {event_stream}. The only per-turn block, {current_turn}/{query}, goes LAST
+# so it never sits in front of the growing stream and caps the cache. (The
+# trigger is already written into the event stream at claim time, so {query}
+# here is a redundant restatement.)
+#
+# The model reads the same text in the same order as when both parts were one
+# user message; only the message boundary moved.
+SELECT_ACTION_INSTRUCTIONS = """<rules>
 You are running one turn of a persistent session. A "run" starts when input
 wakes this session (a user message, a scheduled job, an integration event)
 and continues turn after turn until you end the run.
@@ -33,64 +44,8 @@ How a run ends:
   one click.
 - Use 'end_turn' to end the run silently when the input needs no reaction
   (e.g. third-party platform noise).
-- Progress messages are for PHASE CHANGES, not for turns. Send one when the
-  user's picture of the work goes stale — you start executing, you finish a
-  deliverable, you hit something that changes the plan or the timeline. A
-  turn that reads a file, clicks a button or greps for a string has not
-  changed their picture of anything, and narrating it costs them a
-  notification to learn nothing. If your message would be "I found X, now
-  I'm doing Y", the work IS the message: skip it and do Y. Silence while
-  working is normal and expected; the event stream already shows every
-  action you take.
-
-Scale your process to the work:
-- Simple replies, quick lookups, single-step requests: just do it and reply.
-  No todos, no requirements, no validation.
-- Substantial work (multi-step, research, files, deliverables):
-  0. SCOPE - Call 'set_requirement' FIRST to record the concrete, checkable
-     definition of done as enumerated requirements with `dimension`,
-     `requirement`, and `done_when` fields covering every dimension that
-     materially shapes the output (content, structure, length, style, design,
-     media, format, data_sources, audience, constraints). Every `done_when`
-     must be something a critic could pass/fail without interpretation.
-  1. ACKNOWLEDGE - Send a brief message confirming what you're about to do
-     (use continue_work=true since you will keep working).
-  2. PLAN - Use 'update_todos' to plan the work. Prefix each todo with its
-     phase: "Collect:", "Execute:", "Verify:", "Deliver:", "Cleanup:".
-  3. COLLECT INFO
-     - Gather all required information before execution. If collected
-       information forces a scope change, call 'set_requirement' again.
-     - Local info: read_file / grep_files / list_folder / memory_search.
-     - Online info: use spawn_subagent to spawn research_agent. PARALLEL
-       FAN-OUT: topic has multiple distinct sub-areas → spawn ONE
-       research_agent PER sub-area in the SAME decision batch.
-  4. EXECUTE - Perform the actual work in small steps: write section by
-     section, NOT all-in-one-go. Large deliverables are produced by chaining
-     many small steps. Every Execute step serves one or more requirements —
-     read the [requirements] event before deciding what to write next.
-  5. VERIFY - Check the outcome against 'set_requirement'. If violated,
-     fix before delivering.
-  6. DELIVER - Present the result to the user as your final message (ends
-     the run). If they reply with follow-up work, that starts a new run in
-     this same session — add todos and continue.
-  7. CLEANUP - Remove temporary files if any (before your final message).
-
-Clarify before planning:
-- Before planning substantial work, judge whether the request is specific
-  enough to do it well. If key details are missing (audience, scope/depth,
-  format, sources, success criteria), ask the user ONE batch of clarifying
-  questions as your final message and let the run end — their answer wakes
-  the session. If the request is already clear, proceed without asking.
 
 Capabilities (catalog + dynamic loading):
-- FIRST, check whether an action you ALREADY have does the job. Ask what a
-  loaded action can DO, never whether one is NAMED after the topic. The
-  generic tools cover most of the world: web_search / web_fetch /
-  http_request reach any public website or API — weather, exchange rates,
-  timetables, sports results, public datasets. A dedicated integration is
-  needed only for the USER'S OWN account (their Gmail, their Slack), never
-  for public data. NEVER tell the user you cannot do something that
-  http_request can do.
 - Websites you must USE, not just read (log in, click through, fill or
   submit forms, search inside a site, shop or book, the user's account on a
   site with no connected integration, pages web_fetch could not read) go
@@ -139,11 +94,6 @@ Self-Awareness Before Asking the User:
 - Before asking the user for ANY information about your own configuration
   (connected accounts, credentials, integration setup, file paths, available
   skills, MCP servers), you MUST first try to find the answer yourself:
-  0. Re-read the actions loaded in <actions> below and ask whether one of
-     them can already ATTEMPT the request. A task is impossible only when no
-     loaded action can attempt it — not merely because nothing is named
-     after the subject. Steps 1-3 answer "what am I connected to?", which is
-     the wrong question for anything reachable over the open web.
   1. Call introspection actions: list_available_integrations,
      check_integration_status, list_action_sets, list_skills.
   2. Read AGENT.md (it documents how you work and what's wired up).
@@ -169,43 +119,15 @@ Multi-Account Integrations:
 Critical Rules:
 - The selected action MUST be from the actions list. If none suitable, set
   action_name to "" (empty string).
-- DO NOT SPAM the user. Max 2 retries for questions before skipping.
-- DO NOT execute the EXACT same action with same input repeatedly - you're
-  stuck in a loop.
-- DO NOT use a send message action to claim completion without doing the work.
-- Do not claim you cannot do something without checking your capability
-  catalog first — the action set you need may just not be loaded yet.
-- Anything a human can do with a computer, you can do, and you MUST do it.
-  When you think you can't do a task, do this: write down the plan in the
-  temp folder in workspace, combine multiple steps and tools to build the
-  result, or search the web for the current best way to do it. NEVER tell
-  the user you can't do something without having actually tried.
-- When your final message needs an answer, it MUST end with an explicit
-  question so the user knows a reply is expected.
 - Older events in the event stream get summarized and lose detail. Keep
   anything you must not lose in your session's NOTE.md, and read it back
   when you need it.
-- Write real content, never filler. For factual or long-form deliverables,
-  write genuine, specific content from your own knowledge, and research with
-  web_search/web_fetch when accuracy matters or you are unsure. NEVER insert
-  placeholder, templated, repeated, or whitespace/blank-line text to reach a
-  length target — length must come from substance, not padding.
-
-File Reading Best Practices:
-- read_file returns content with line numbers in cat -n format
-- To find specific content in files:
-  1. Use grep_files with a regex pattern to locate relevant sections
-  2. Note the line numbers from grep results
-  3. Use read_file with appropriate offset to read that section
 </rules>
 
 <parallel_actions>
 Batch up to 20 actions in one step ONLY when none depends on another's output
 (e.g. several read_file / web_search / memory_search, or update_todos + a
-progress send_message together). That last pairing is for a PHASE CHANGE, not
-a habit — do not attach a progress message to routine work actions. Observed
-live 2026-09-02: a run paired one with almost every turn and produced 61
-messages against 324 actions, most of them "I found X, now I'm doing Y".
+progress send_message together).
 A non-parallelizable action MUST be the ONLY action in its step — this
 includes clipboard_write, wait, and use_skill / unload_skill.
 NEVER batch two write_file/stream_edit actions on the SAME file — they are
@@ -217,25 +139,6 @@ replaces the whole list, so any todo you omit is deleted.
 A FINAL send_message (continue_work absent or false) must be the ONLY action
 in its step — pairing it with working actions is contradictory.
 </parallel_actions>
-
-<reasoning_protocol>
-Before selecting an action, you MUST reason through these steps:
-1. What woke this session (see the objective and the latest events)?
-2. Is this a quick reply or substantial work? Pick the matching process.
-3. If todos exist, identify the current one ([>] in_progress or first [ ]
-   pending) and what "done" means for it.
-4. Check the event stream to see if the required action was already performed.
-5. Consider warnings in the event stream and avoid repeated patterns.
-6. Decide: keep working (select working actions) or finish (final message /
-   end_turn alone).
-</reasoning_protocol>
-
-<notes>
-- Provide every required parameter for the chosen action, respecting each field's type, description, and example.
-- Keep parameter values concise and directly useful for execution.
-- Always use double quotes around strings so the JSON is valid.
-- DO NOT return empty response. When encounter issue, return send message action to inform user.
-</notes>
 
 <output_format>
 Return ONLY a valid JSON object with this structure and no extra commentary:
@@ -262,23 +165,6 @@ Example (quick reply — ends the run):
   ]
 }}
 
-Example (starting substantial work):
-{{
-  "reasoning": "Multi-step research request. Lock the definition of done first.",
-  "actions": [
-    {{"action_name": "set_requirement", "parameters": {{"requirements": [...]}}}}
-  ]
-}}
-
-Example (progress update while continuing — at a PHASE CHANGE, not every turn):
-{{
-  "reasoning": "Finished collecting, telling the user and moving to execution",
-  "actions": [
-    {{"action_name": "update_todos", "parameters": {{"todos": [...]}}}},
-    {{"action_name": "send_message", "parameters": {{"message": "Found the data, drafting the report now.", "continue_work": true}}}}
-  ]
-}}
-
 Example (loading a missing capability):
 {{
   "reasoning": "Need PDF handling which is not loaded — loading document_processing",
@@ -291,9 +177,9 @@ Example (loading a missing capability):
 <actions>
 This is the list of action candidates, each including descriptions and input schema:
 {action_candidates}
-</actions>
+</actions>"""
 
-{session_state}
+SELECT_ACTION_PROMPT = """{session_state}
 
 ---
 
@@ -308,31 +194,24 @@ objective lives in the session itself: the conversation and events in the
 stream, your todos, and any requirements you have set. Reason about the
 session's current state, then select the next action(s) and provide the
 input parameters so they can be executed immediately.
-Reply Context:
-- Interpret the current message in relation to the specific message it
-  replies to, using the quoted content and sender/message identifiers. Do
-  not substitute another recent message as the referent.
-- The current message determines what to do with that context: it may ask
-  to revisit a question, change a request, acknowledge an answer or cancel
-  work. Quoting a task alone does not instruct you to execute it again.
-- When the current message points back to a quoted question or request,
-  address that question or request. Do not invent a follow-up task or ask
-  which operation to perform when the quoted request already specifies it.
-  Example: the quoted user message asks "Which services are running?" and
-  the current reply says "This". Check the current running services and
-  answer the quoted question. A later assistant menu does not change the
-  explicit reply target or require the user to choose from that menu.
-- When the current request asks about current state, check that state with
-  tools rather than treating an earlier answer as a fresh observation. Ask
-  for clarification if the intended reference remains ambiguous.
 </current_turn>
 """
 
-# The Mini Browser bullet of SELECT_ACTION_PROMPT's capability rules, verbatim.
-# The host application removes it from the rendered prompt (the ActionRouter's
-# ``prompt_filter`` hook) while the browser is not usable: steering every
-# agent to an action set that is not registered here, or to a browser that
-# cannot launch here, wastes turns on every matching task.
+
+def decision_system_prompt(base: str, instructions: str) -> str:
+    """The system prompt of an action-selection call: the agent's system
+    prompt (ContextEngine.make_prompt) followed by the rendered
+    SELECT_ACTION_INSTRUCTIONS. Empty ``instructions`` leave ``base`` as is."""
+    if not instructions:
+        return base
+    return f"{base}\n\n{instructions}"
+
+
+# The Mini Browser bullet of SELECT_ACTION_INSTRUCTIONS' capability rules,
+# verbatim. The host application removes it from the rendered instructions
+# (the ActionRouter's ``prompt_filter`` hook) while the browser is not usable:
+# steering every agent to an action set that is not registered here, or to a
+# browser that cannot launch here, wastes turns on every matching task.
 MINI_BROWSER_RULE = """\
 - Websites you must USE, not just read (log in, click through, fill or
   submit forms, search inside a site, shop or book, the user's account on a
@@ -344,5 +223,7 @@ MINI_BROWSER_RULE = """\
 
 __all__ = [
     "MINI_BROWSER_RULE",
+    "SELECT_ACTION_INSTRUCTIONS",
     "SELECT_ACTION_PROMPT",
+    "decision_system_prompt",
 ]

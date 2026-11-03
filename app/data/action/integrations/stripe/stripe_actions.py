@@ -37,36 +37,43 @@ from agent_core import action
     input_schema={
         "limit": {
             "type": "integer",
+            "required": False,
             "description": "Max results (1-100, default 10).",
             "example": 10,
         },
         "starting_after": {
             "type": "string",
+            "required": False,
             "description": "Cursor — ID of the last item from the previous page.",
             "example": "cus_NffrFeUfNV2Hib",
         },
         "ending_before": {
             "type": "string",
+            "required": False,
             "description": "Cursor for backwards pagination.",
             "example": "",
         },
         "email": {
             "type": "string",
+            "required": False,
             "description": "Exact-match email filter.",
             "example": "jane@example.com",
         },
         "created_gte": {
             "type": "integer",
+            "required": False,
             "description": "Created at or after this UNIX timestamp.",
             "example": 1717200000,
         },
         "created_lte": {
             "type": "integer",
+            "required": False,
             "description": "Created at or before this UNIX timestamp.",
             "example": 1719792000,
         },
         "expand": {
             "type": "string",
+            "required": False,
             "description": "Comma-separated fields to expand (e.g. 'default_source,subscriptions').",
             "example": "",
         },
@@ -114,11 +121,13 @@ async def list_stripe_customers(input_data: dict) -> dict:
     input_schema={
         "customer_id": {
             "type": "string",
+            "required": True,
             "description": "Customer ID.",
             "example": "cus_NffrFeUfNV2Hib",
         },
         "expand": {
             "type": "string",
+            "required": False,
             "description": "Comma-separated fields to expand.",
             "example": "default_source,invoice_settings.default_payment_method",
         },
@@ -161,31 +170,37 @@ async def get_stripe_customer(input_data: dict) -> dict:
     input_schema={
         "email": {
             "type": "string",
+            "required": False,
             "description": "Customer email.",
             "example": "jane@example.com",
         },
         "name": {
             "type": "string",
+            "required": False,
             "description": "Customer full name.",
             "example": "Jane Doe",
         },
         "phone": {
             "type": "string",
+            "required": False,
             "description": "Phone number (E.164 recommended).",
             "example": "+15551234567",
         },
         "description": {
             "type": "string",
+            "required": False,
             "description": "Internal description / note.",
             "example": "Imported from CSV 2026-06-14",
         },
         "address": {
             "type": "object",
+            "required": False,
             "description": "Billing address (line1, line2, city, state, postal_code, country).",
             "example": {"line1": "1 Main St", "city": "Springfield", "country": "US"},
         },
         "shipping": {
             "type": "object",
+            "required": False,
             "description": "Shipping object: {name, phone, address}.",
             "example": {
                 "name": "Jane Doe",
@@ -194,26 +209,31 @@ async def get_stripe_customer(input_data: dict) -> dict:
         },
         "metadata": {
             "type": "object",
+            "required": False,
             "description": "Arbitrary key/value labels.",
             "example": {"crm_id": "12345"},
         },
         "payment_method": {
             "type": "string",
+            "required": False,
             "description": "Default payment method to attach.",
             "example": "",
         },
         "invoice_settings": {
             "type": "object",
+            "required": False,
             "description": "Defaults applied to future invoices.",
             "example": {"default_payment_method": "pm_xxx"},
         },
         "tax_exempt": {
             "type": "string",
+            "required": False,
             "description": "'none' | 'exempt' | 'reverse'.",
             "example": "none",
         },
         "idempotency_key": {
             "type": "string",
+            "required": False,
             "description": "Optional idempotency key — pass the same key on a retry to dedupe.",
             "example": "",
         },
@@ -252,16 +272,19 @@ async def create_stripe_customer(input_data: dict) -> dict:
     input_schema={
         "customer_id": {
             "type": "string",
+            "required": True,
             "description": "Customer ID.",
             "example": "cus_NffrFeUfNV2Hib",
         },
         "properties": {
             "type": "object",
+            "required": True,
             "description": "Properties to update.",
             "example": {"email": "new@example.com", "metadata": {"vip": "true"}},
         },
         "idempotency_key": {
             "type": "string",
+            "required": False,
             "description": "Optional idempotency key.",
             "example": "",
         },
@@ -292,6 +315,7 @@ async def update_stripe_customer(input_data: dict) -> dict:
     input_schema={
         "customer_id": {
             "type": "string",
+            "required": True,
             "description": "Customer ID.",
             "example": "cus_NffrFeUfNV2Hib",
         },
@@ -316,21 +340,25 @@ async def delete_stripe_customer(input_data: dict) -> dict:
     input_schema={
         "query": {
             "type": "string",
+            "required": True,
             "description": "Stripe query language clause. Operators: ':' (equal), '~' (contains), AND, OR.",
             "example": "email:'jane@example.com'",
         },
         "limit": {
             "type": "integer",
+            "required": False,
             "description": "Max results (1-100, default 10).",
             "example": 10,
         },
         "page": {
             "type": "string",
+            "required": False,
             "description": "Pagination page token from previous response.next_page.",
             "example": "",
         },
         "expand": {
             "type": "string",
+            "required": False,
             "description": "Comma-separated fields to expand.",
             "example": "",
         },
@@ -380,28 +408,33 @@ async def search_stripe_customers(input_data: dict) -> dict:
     input_schema={
         "limit": {
             "type": "integer",
+            "required": False,
             "description": "Max results (1-100, default 10).",
             "example": 10,
         },
-        "starting_after": {"type": "string", "description": "Cursor.", "example": ""},
-        "ending_before": {"type": "string", "description": "Cursor.", "example": ""},
+        "starting_after": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
+        "ending_before": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
         "customer": {
             "type": "string",
+            "required": False,
             "description": "Filter to a specific customer.",
             "example": "cus_NffrFeUfNV2Hib",
         },
         "created_gte": {
             "type": "integer",
+            "required": False,
             "description": "Created >= UNIX timestamp.",
             "example": 0,
         },
         "created_lte": {
             "type": "integer",
+            "required": False,
             "description": "Created <= UNIX timestamp.",
             "example": 0,
         },
         "expand": {
             "type": "string",
+            "required": False,
             "description": "Comma-separated fields to expand.",
             "example": "data.customer,data.latest_charge",
         },
@@ -449,11 +482,13 @@ async def list_stripe_payment_intents(input_data: dict) -> dict:
     input_schema={
         "payment_intent_id": {
             "type": "string",
+            "required": True,
             "description": "PaymentIntent ID.",
             "example": "pi_3MtwBwLkdIwHu7ix28a3tqPa",
         },
         "expand": {
             "type": "string",
+            "required": False,
             "description": "Comma-separated fields to expand.",
             "example": "customer,latest_charge",
         },
@@ -496,71 +531,85 @@ async def get_stripe_payment_intent(input_data: dict) -> dict:
     input_schema={
         "amount": {
             "type": "integer",
+            "required": True,
             "description": "Amount in smallest currency unit (cents for USD).",
             "example": 2000,
         },
         "currency": {
             "type": "string",
+            "required": False,
             "description": "ISO 4217 lowercase. Defaults to integration 'default_currency'.",
             "example": "usd",
         },
         "customer": {
             "type": "string",
+            "required": False,
             "description": "Customer ID for off-session future payments.",
             "example": "cus_NffrFeUfNV2Hib",
         },
         "payment_method": {
             "type": "string",
+            "required": False,
             "description": "Existing payment method to attach.",
             "example": "",
         },
         "payment_method_types": {
             "type": "array",
+            "required": False,
             "description": "Allowed payment method types. Mutually exclusive with automatic_payment_methods.",
             "example": ["card"],
         },
         "automatic_payment_methods": {
             "type": "object",
+            "required": False,
             "description": "Enable Stripe's automatic method picker.",
             "example": {"enabled": True},
         },
         "confirm": {
             "type": "boolean",
+            "required": False,
             "description": "Confirm immediately. Requires payment_method.",
             "example": False,
         },
         "capture_method": {
             "type": "string",
+            "required": False,
             "description": "'automatic' or 'manual' (capture later).",
             "example": "automatic",
         },
         "description": {
             "type": "string",
+            "required": False,
             "description": "Internal description.",
             "example": "Order #42",
         },
         "receipt_email": {
             "type": "string",
+            "required": False,
             "description": "Email to send receipt to on success.",
             "example": "",
         },
         "setup_future_usage": {
             "type": "string",
+            "required": False,
             "description": "'on_session' | 'off_session' — save method for later.",
             "example": "",
         },
         "statement_descriptor": {
             "type": "string",
+            "required": False,
             "description": "Appears on customer's bank statement.",
             "example": "",
         },
         "metadata": {
             "type": "object",
+            "required": False,
             "description": "Arbitrary key/value labels.",
             "example": {"order_id": "42"},
         },
         "idempotency_key": {
             "type": "string",
+            "required": False,
             "description": "Optional idempotency key.",
             "example": "",
         },
@@ -602,16 +651,19 @@ async def create_stripe_payment_intent(input_data: dict) -> dict:
     input_schema={
         "payment_intent_id": {
             "type": "string",
+            "required": True,
             "description": "PaymentIntent ID.",
             "example": "pi_…",
         },
         "properties": {
             "type": "object",
+            "required": True,
             "description": "Properties to update.",
             "example": {"amount": 3000, "metadata": {"updated_by": "agent"}},
         },
         "idempotency_key": {
             "type": "string",
+            "required": False,
             "description": "Optional idempotency key.",
             "example": "",
         },
@@ -642,31 +694,37 @@ async def update_stripe_payment_intent(input_data: dict) -> dict:
     input_schema={
         "payment_intent_id": {
             "type": "string",
+            "required": True,
             "description": "PaymentIntent ID.",
             "example": "pi_…",
         },
         "payment_method": {
             "type": "string",
+            "required": False,
             "description": "Payment method to use.",
             "example": "pm_…",
         },
         "return_url": {
             "type": "string",
+            "required": False,
             "description": "URL to redirect to after authentication.",
             "example": "https://example.com/return",
         },
         "off_session": {
             "type": "boolean",
+            "required": False,
             "description": "True for charging a saved method without customer present.",
             "example": True,
         },
         "setup_future_usage": {
             "type": "string",
+            "required": False,
             "description": "'on_session' | 'off_session'.",
             "example": "",
         },
         "idempotency_key": {
             "type": "string",
+            "required": False,
             "description": "Optional idempotency key.",
             "example": "",
         },
@@ -700,21 +758,25 @@ async def confirm_stripe_payment_intent(input_data: dict) -> dict:
     input_schema={
         "payment_intent_id": {
             "type": "string",
+            "required": True,
             "description": "PaymentIntent ID.",
             "example": "pi_…",
         },
         "amount_to_capture": {
             "type": "integer",
+            "required": False,
             "description": "Partial capture amount in smallest unit. Omit to capture the full amount.",
             "example": 0,
         },
         "statement_descriptor": {
             "type": "string",
+            "required": False,
             "description": "Override statement descriptor for this capture.",
             "example": "",
         },
         "idempotency_key": {
             "type": "string",
+            "required": False,
             "description": "Optional idempotency key.",
             "example": "",
         },
@@ -746,16 +808,19 @@ async def capture_stripe_payment_intent(input_data: dict) -> dict:
     input_schema={
         "payment_intent_id": {
             "type": "string",
+            "required": True,
             "description": "PaymentIntent ID.",
             "example": "pi_…",
         },
         "cancellation_reason": {
             "type": "string",
+            "required": False,
             "description": "'duplicate' | 'fraudulent' | 'requested_by_customer' | 'abandoned'.",
             "example": "requested_by_customer",
         },
         "idempotency_key": {
             "type": "string",
+            "required": False,
             "description": "Optional idempotency key.",
             "example": "",
         },
@@ -786,21 +851,25 @@ async def cancel_stripe_payment_intent(input_data: dict) -> dict:
     input_schema={
         "query": {
             "type": "string",
+            "required": True,
             "description": "Stripe query clause.",
             "example": "status:'succeeded' AND amount>1000",
         },
         "limit": {
             "type": "integer",
+            "required": False,
             "description": "Max results (1-100).",
             "example": 10,
         },
         "page": {
             "type": "string",
+            "required": False,
             "description": "Pagination page token.",
             "example": "",
         },
         "expand": {
             "type": "string",
+            "required": False,
             "description": "Comma-separated fields to expand.",
             "example": "",
         },
@@ -845,28 +914,33 @@ async def search_stripe_payment_intents(input_data: dict) -> dict:
     input_schema={
         "limit": {
             "type": "integer",
+            "required": False,
             "description": "Max results (1-100).",
             "example": 10,
         },
-        "starting_after": {"type": "string", "description": "Cursor.", "example": ""},
-        "ending_before": {"type": "string", "description": "Cursor.", "example": ""},
+        "starting_after": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
+        "ending_before": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
         "customer": {
             "type": "string",
+            "required": False,
             "description": "Filter to a specific customer.",
             "example": "",
         },
         "payment_intent": {
             "type": "string",
+            "required": False,
             "description": "Filter to a specific PaymentIntent.",
             "example": "",
         },
         "transfer_group": {
             "type": "string",
+            "required": False,
             "description": "Filter to a transfer_group label.",
             "example": "",
         },
         "expand": {
             "type": "string",
+            "required": False,
             "description": "Comma-separated fields to expand.",
             "example": "",
         },
@@ -914,11 +988,13 @@ async def list_stripe_charges(input_data: dict) -> dict:
     input_schema={
         "charge_id": {
             "type": "string",
+            "required": True,
             "description": "Charge ID.",
             "example": "ch_3MtwBwLkdIwHu7ix28a3tqPa",
         },
         "expand": {
             "type": "string",
+            "required": False,
             "description": "Comma-separated fields to expand.",
             "example": "customer,payment_intent",
         },
@@ -961,31 +1037,37 @@ async def get_stripe_charge(input_data: dict) -> dict:
     input_schema={
         "payment_intent": {
             "type": "string",
+            "required": False,
             "description": "PaymentIntent ID to refund. Mutually exclusive with 'charge'.",
             "example": "pi_…",
         },
         "charge": {
             "type": "string",
+            "required": False,
             "description": "Charge ID to refund. Mutually exclusive with 'payment_intent'.",
             "example": "",
         },
         "amount": {
             "type": "integer",
+            "required": False,
             "description": "Partial refund amount in smallest currency unit. Omit for full refund.",
             "example": 0,
         },
         "reason": {
             "type": "string",
+            "required": False,
             "description": "'duplicate' | 'fraudulent' | 'requested_by_customer'.",
             "example": "requested_by_customer",
         },
         "metadata": {
             "type": "object",
+            "required": False,
             "description": "Arbitrary labels.",
             "example": {"ticket_id": "T-42"},
         },
         "idempotency_key": {
             "type": "string",
+            "required": False,
             "description": "Optional idempotency key.",
             "example": "",
         },
@@ -1019,11 +1101,13 @@ async def create_stripe_refund(input_data: dict) -> dict:
     input_schema={
         "refund_id": {
             "type": "string",
+            "required": True,
             "description": "Refund ID.",
             "example": "re_3MtwBwLkdIwHu7ix28a3tqPa",
         },
         "expand": {
             "type": "string",
+            "required": False,
             "description": "Comma-separated fields to expand.",
             "example": "",
         },
@@ -1066,23 +1150,27 @@ async def get_stripe_refund(input_data: dict) -> dict:
     input_schema={
         "limit": {
             "type": "integer",
+            "required": False,
             "description": "Max results (1-100).",
             "example": 10,
         },
-        "starting_after": {"type": "string", "description": "Cursor.", "example": ""},
-        "ending_before": {"type": "string", "description": "Cursor.", "example": ""},
+        "starting_after": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
+        "ending_before": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
         "payment_intent": {
             "type": "string",
+            "required": False,
             "description": "Filter to a specific PaymentIntent.",
             "example": "",
         },
         "charge": {
             "type": "string",
+            "required": False,
             "description": "Filter to a specific Charge.",
             "example": "",
         },
         "expand": {
             "type": "string",
+            "required": False,
             "description": "Comma-separated fields to expand.",
             "example": "",
         },
@@ -1134,23 +1222,27 @@ async def list_stripe_refunds(input_data: dict) -> dict:
     input_schema={
         "customer": {
             "type": "string",
+            "required": False,
             "description": "Filter to a customer's attached methods.",
             "example": "cus_NffrFeUfNV2Hib",
         },
         "type": {
             "type": "string",
+            "required": False,
             "description": "Payment method type ('card', 'us_bank_account', 'sepa_debit', …). Default 'card'.",
             "example": "card",
         },
         "limit": {
             "type": "integer",
+            "required": False,
             "description": "Max results (1-100).",
             "example": 10,
         },
-        "starting_after": {"type": "string", "description": "Cursor.", "example": ""},
-        "ending_before": {"type": "string", "description": "Cursor.", "example": ""},
+        "starting_after": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
+        "ending_before": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
         "expand": {
             "type": "string",
+            "required": False,
             "description": "Comma-separated fields to expand.",
             "example": "",
         },
@@ -1197,11 +1289,13 @@ async def list_stripe_payment_methods(input_data: dict) -> dict:
     input_schema={
         "payment_method_id": {
             "type": "string",
+            "required": True,
             "description": "PaymentMethod ID.",
             "example": "pm_…",
         },
         "expand": {
             "type": "string",
+            "required": False,
             "description": "Comma-separated fields to expand.",
             "example": "",
         },
@@ -1244,16 +1338,19 @@ async def get_stripe_payment_method(input_data: dict) -> dict:
     input_schema={
         "payment_method_id": {
             "type": "string",
+            "required": True,
             "description": "PaymentMethod ID.",
             "example": "pm_…",
         },
         "customer": {
             "type": "string",
+            "required": True,
             "description": "Customer to attach to.",
             "example": "cus_NffrFeUfNV2Hib",
         },
         "idempotency_key": {
             "type": "string",
+            "required": False,
             "description": "Optional idempotency key.",
             "example": "",
         },
@@ -1284,11 +1381,13 @@ async def attach_stripe_payment_method(input_data: dict) -> dict:
     input_schema={
         "payment_method_id": {
             "type": "string",
+            "required": True,
             "description": "PaymentMethod ID.",
             "example": "pm_…",
         },
         "idempotency_key": {
             "type": "string",
+            "required": False,
             "description": "Optional idempotency key.",
             "example": "",
         },
@@ -1318,11 +1417,13 @@ async def detach_stripe_payment_method(input_data: dict) -> dict:
     input_schema={
         "payment_method_id": {
             "type": "string",
+            "required": True,
             "description": "PaymentMethod ID.",
             "example": "pm_…",
         },
         "properties": {
             "type": "object",
+            "required": True,
             "description": "Properties to update.",
             "example": {
                 "billing_details": {"email": "new@example.com"},
@@ -1331,6 +1432,7 @@ async def detach_stripe_payment_method(input_data: dict) -> dict:
         },
         "idempotency_key": {
             "type": "string",
+            "required": False,
             "description": "Optional idempotency key.",
             "example": "",
         },
@@ -1366,23 +1468,27 @@ async def update_stripe_payment_method(input_data: dict) -> dict:
     input_schema={
         "limit": {
             "type": "integer",
+            "required": False,
             "description": "Max results (1-100).",
             "example": 10,
         },
-        "starting_after": {"type": "string", "description": "Cursor.", "example": ""},
-        "ending_before": {"type": "string", "description": "Cursor.", "example": ""},
+        "starting_after": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
+        "ending_before": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
         "active": {
             "type": "boolean",
+            "required": False,
             "description": "Only active or only inactive.",
             "example": True,
         },
         "ids": {
             "type": "array",
+            "required": False,
             "description": "Explicit list of product IDs to fetch.",
             "example": ["prod_…"],
         },
         "expand": {
             "type": "string",
+            "required": False,
             "description": "Comma-separated fields to expand.",
             "example": "data.default_price",
         },
@@ -1429,11 +1535,13 @@ async def list_stripe_products(input_data: dict) -> dict:
     input_schema={
         "product_id": {
             "type": "string",
+            "required": True,
             "description": "Product ID.",
             "example": "prod_NWjs8kKbJWmuuc",
         },
         "expand": {
             "type": "string",
+            "required": False,
             "description": "Comma-separated fields to expand.",
             "example": "default_price",
         },
@@ -1476,31 +1584,37 @@ async def get_stripe_product(input_data: dict) -> dict:
     input_schema={
         "name": {
             "type": "string",
+            "required": True,
             "description": "Product name (required).",
             "example": "Standard Plan",
         },
         "description": {
             "type": "string",
+            "required": False,
             "description": "Marketing description.",
             "example": "Up to 5 seats",
         },
         "active": {
             "type": "boolean",
+            "required": False,
             "description": "Whether the product is active. Default True.",
             "example": True,
         },
         "images": {
             "type": "array",
+            "required": False,
             "description": "Image URLs.",
             "example": ["https://example.com/img.png"],
         },
         "metadata": {
             "type": "object",
+            "required": False,
             "description": "Arbitrary labels.",
             "example": {"sku": "SP-001"},
         },
         "default_price_data": {
             "type": "object",
+            "required": False,
             "description": "Inline price to create alongside the product.",
             "example": {
                 "currency": "usd",
@@ -1510,27 +1624,32 @@ async def get_stripe_product(input_data: dict) -> dict:
         },
         "shippable": {
             "type": "boolean",
+            "required": False,
             "description": "Whether the product is shippable.",
             "example": False,
         },
         "statement_descriptor": {
             "type": "string",
+            "required": False,
             "description": "Appears on bank statements.",
             "example": "",
         },
         "tax_code": {
             "type": "string",
+            "required": False,
             "description": "Stripe Tax code (txcd_…).",
             "example": "",
         },
         "unit_label": {
             "type": "string",
+            "required": False,
             "description": "Singular noun for a unit (e.g. 'seat').",
             "example": "seat",
         },
-        "url": {"type": "string", "description": "Public product URL.", "example": ""},
+        "url": {"type": "string", "required": False, "description": "Public product URL.", "example": ""},
         "idempotency_key": {
             "type": "string",
+            "required": False,
             "description": "Optional idempotency key.",
             "example": "",
         },
@@ -1570,16 +1689,19 @@ async def create_stripe_product(input_data: dict) -> dict:
     input_schema={
         "product_id": {
             "type": "string",
+            "required": True,
             "description": "Product ID.",
             "example": "prod_…",
         },
         "properties": {
             "type": "object",
+            "required": True,
             "description": "Properties to update.",
             "example": {"name": "Pro Plan", "active": True},
         },
         "idempotency_key": {
             "type": "string",
+            "required": False,
             "description": "Optional idempotency key.",
             "example": "",
         },
@@ -1610,6 +1732,7 @@ async def update_stripe_product(input_data: dict) -> dict:
     input_schema={
         "product_id": {
             "type": "string",
+            "required": True,
             "description": "Product ID.",
             "example": "prod_…",
         },
@@ -1634,38 +1757,45 @@ async def delete_stripe_product(input_data: dict) -> dict:
     input_schema={
         "limit": {
             "type": "integer",
+            "required": False,
             "description": "Max results (1-100).",
             "example": 10,
         },
-        "starting_after": {"type": "string", "description": "Cursor.", "example": ""},
-        "ending_before": {"type": "string", "description": "Cursor.", "example": ""},
+        "starting_after": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
+        "ending_before": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
         "active": {
             "type": "boolean",
+            "required": False,
             "description": "Only active or only inactive.",
             "example": True,
         },
         "product": {
             "type": "string",
+            "required": False,
             "description": "Filter to a specific product.",
             "example": "prod_…",
         },
         "currency": {
             "type": "string",
+            "required": False,
             "description": "ISO 4217 lowercase filter.",
             "example": "usd",
         },
         "type": {
             "type": "string",
+            "required": False,
             "description": "'one_time' | 'recurring'.",
             "example": "recurring",
         },
         "recurring_interval": {
             "type": "string",
+            "required": False,
             "description": "'day' | 'week' | 'month' | 'year'.",
             "example": "month",
         },
         "expand": {
             "type": "string",
+            "required": False,
             "description": "Comma-separated fields to expand.",
             "example": "data.product",
         },
@@ -1715,11 +1845,13 @@ async def list_stripe_prices(input_data: dict) -> dict:
     input_schema={
         "price_id": {
             "type": "string",
+            "required": True,
             "description": "Price ID.",
             "example": "price_1MoBy5LkdIwHu7ixZhnattbh",
         },
         "expand": {
             "type": "string",
+            "required": False,
             "description": "Comma-separated fields to expand.",
             "example": "product",
         },
@@ -1762,61 +1894,73 @@ async def get_stripe_price(input_data: dict) -> dict:
     input_schema={
         "currency": {
             "type": "string",
+            "required": False,
             "description": "ISO 4217 lowercase. Defaults to integration default_currency.",
             "example": "usd",
         },
         "product": {
             "type": "string",
+            "required": False,
             "description": "Existing Product ID. Mutually exclusive with product_data.",
             "example": "prod_…",
         },
         "product_data": {
             "type": "object",
+            "required": False,
             "description": "Inline product to create.",
             "example": {"name": "New product"},
         },
         "unit_amount": {
             "type": "integer",
+            "required": False,
             "description": "Price in smallest currency unit.",
             "example": 1000,
         },
         "unit_amount_decimal": {
             "type": "string",
+            "required": False,
             "description": "Decimal price (e.g. '1000.5'). Use when sub-cent precision is needed.",
             "example": "",
         },
         "active": {
             "type": "boolean",
+            "required": False,
             "description": "Whether the price is active.",
             "example": True,
         },
         "nickname": {
             "type": "string",
+            "required": False,
             "description": "Internal label.",
             "example": "Monthly Standard",
         },
         "recurring": {
             "type": "object",
+            "required": False,
             "description": "Recurring config: {interval: 'month', interval_count: 1, usage_type: 'licensed'}.",
             "example": {"interval": "month"},
         },
         "tax_behavior": {
             "type": "string",
+            "required": False,
             "description": "'inclusive' | 'exclusive' | 'unspecified'.",
             "example": "unspecified",
         },
         "billing_scheme": {
             "type": "string",
+            "required": False,
             "description": "'per_unit' | 'tiered'.",
             "example": "per_unit",
         },
         "metadata": {
             "type": "object",
+            "required": False,
             "description": "Arbitrary labels.",
             "example": {"plan_id": "monthly_v2"},
         },
         "idempotency_key": {
             "type": "string",
+            "required": False,
             "description": "Optional idempotency key.",
             "example": "",
         },
@@ -1856,16 +2000,19 @@ async def create_stripe_price(input_data: dict) -> dict:
     input_schema={
         "price_id": {
             "type": "string",
+            "required": True,
             "description": "Price ID.",
             "example": "price_…",
         },
         "properties": {
             "type": "object",
+            "required": True,
             "description": "Properties to update.",
             "example": {"active": False, "nickname": "Legacy"},
         },
         "idempotency_key": {
             "type": "string",
+            "required": False,
             "description": "Optional idempotency key.",
             "example": "",
         },
@@ -1901,43 +2048,51 @@ async def update_stripe_price(input_data: dict) -> dict:
     input_schema={
         "limit": {
             "type": "integer",
+            "required": False,
             "description": "Max results (1-100).",
             "example": 10,
         },
-        "starting_after": {"type": "string", "description": "Cursor.", "example": ""},
-        "ending_before": {"type": "string", "description": "Cursor.", "example": ""},
+        "starting_after": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
+        "ending_before": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
         "customer": {
             "type": "string",
+            "required": False,
             "description": "Filter to a specific customer.",
             "example": "",
         },
         "subscription": {
             "type": "string",
+            "required": False,
             "description": "Filter to a specific subscription.",
             "example": "",
         },
         "status": {
             "type": "string",
+            "required": False,
             "description": "'draft' | 'open' | 'paid' | 'uncollectible' | 'void'.",
             "example": "open",
         },
         "collection_method": {
             "type": "string",
+            "required": False,
             "description": "'charge_automatically' | 'send_invoice'.",
             "example": "",
         },
         "created_gte": {
             "type": "integer",
+            "required": False,
             "description": "Created >= UNIX timestamp.",
             "example": 0,
         },
         "created_lte": {
             "type": "integer",
+            "required": False,
             "description": "Created <= UNIX timestamp.",
             "example": 0,
         },
         "expand": {
             "type": "string",
+            "required": False,
             "description": "Comma-separated fields to expand.",
             "example": "data.customer,data.subscription",
         },
@@ -1988,11 +2143,13 @@ async def list_stripe_invoices(input_data: dict) -> dict:
     input_schema={
         "invoice_id": {
             "type": "string",
+            "required": True,
             "description": "Invoice ID.",
             "example": "in_1MtwBwLkdIwHu7ix28a3tqPa",
         },
         "expand": {
             "type": "string",
+            "required": False,
             "description": "Comma-separated fields to expand.",
             "example": "customer,subscription,charge",
         },
@@ -2035,61 +2192,73 @@ async def get_stripe_invoice(input_data: dict) -> dict:
     input_schema={
         "customer": {
             "type": "string",
+            "required": True,
             "description": "Customer ID.",
             "example": "cus_NffrFeUfNV2Hib",
         },
         "auto_advance": {
             "type": "boolean",
+            "required": False,
             "description": "Stripe finalizes + collects automatically.",
             "example": False,
         },
         "collection_method": {
             "type": "string",
+            "required": False,
             "description": "'charge_automatically' | 'send_invoice'.",
             "example": "send_invoice",
         },
         "days_until_due": {
             "type": "integer",
+            "required": False,
             "description": "Required if collection_method='send_invoice'.",
             "example": 30,
         },
         "due_date": {
             "type": "integer",
+            "required": False,
             "description": "Explicit due date (UNIX timestamp). Alternative to days_until_due.",
             "example": 0,
         },
         "description": {
             "type": "string",
+            "required": False,
             "description": "Invoice description.",
             "example": "June consulting",
         },
         "footer": {
             "type": "string",
+            "required": False,
             "description": "Footer on the rendered invoice.",
             "example": "",
         },
         "default_payment_method": {
             "type": "string",
+            "required": False,
             "description": "PaymentMethod to use for charge_automatically.",
             "example": "",
         },
         "statement_descriptor": {
             "type": "string",
+            "required": False,
             "description": "Appears on bank statement.",
             "example": "",
         },
         "metadata": {
             "type": "object",
+            "required": False,
             "description": "Arbitrary labels.",
             "example": {"project_id": "P-42"},
         },
         "pending_invoice_items_behavior": {
             "type": "string",
+            "required": False,
             "description": "'include' | 'exclude' pending invoice items.",
             "example": "include",
         },
         "idempotency_key": {
             "type": "string",
+            "required": False,
             "description": "Optional idempotency key.",
             "example": "",
         },
@@ -2130,16 +2299,19 @@ async def create_stripe_invoice(input_data: dict) -> dict:
     input_schema={
         "invoice_id": {
             "type": "string",
+            "required": True,
             "description": "Invoice ID.",
             "example": "in_…",
         },
         "properties": {
             "type": "object",
+            "required": True,
             "description": "Properties to update.",
             "example": {"description": "Updated", "metadata": {"updated_by": "agent"}},
         },
         "idempotency_key": {
             "type": "string",
+            "required": False,
             "description": "Optional idempotency key.",
             "example": "",
         },
@@ -2170,6 +2342,7 @@ async def update_stripe_invoice(input_data: dict) -> dict:
     input_schema={
         "invoice_id": {
             "type": "string",
+            "required": True,
             "description": "Invoice ID.",
             "example": "in_…",
         },
@@ -2194,16 +2367,19 @@ async def delete_stripe_invoice(input_data: dict) -> dict:
     input_schema={
         "invoice_id": {
             "type": "string",
+            "required": True,
             "description": "Invoice ID (must be draft).",
             "example": "in_…",
         },
         "auto_advance": {
             "type": "boolean",
+            "required": False,
             "description": "After finalize, let Stripe handle collection automatically.",
             "example": True,
         },
         "idempotency_key": {
             "type": "string",
+            "required": False,
             "description": "Optional idempotency key.",
             "example": "",
         },
@@ -2237,11 +2413,13 @@ async def finalize_stripe_invoice(input_data: dict) -> dict:
     input_schema={
         "invoice_id": {
             "type": "string",
+            "required": True,
             "description": "Invoice ID (must be open / finalized).",
             "example": "in_…",
         },
         "idempotency_key": {
             "type": "string",
+            "required": False,
             "description": "Optional idempotency key.",
             "example": "",
         },
@@ -2274,31 +2452,37 @@ async def send_stripe_invoice(input_data: dict) -> dict:
     input_schema={
         "invoice_id": {
             "type": "string",
+            "required": True,
             "description": "Invoice ID (must be open).",
             "example": "in_…",
         },
         "payment_method": {
             "type": "string",
+            "required": False,
             "description": "Override default payment method.",
             "example": "",
         },
         "off_session": {
             "type": "boolean",
+            "required": False,
             "description": "True for charging a saved method without customer present.",
             "example": True,
         },
         "paid_out_of_band": {
             "type": "boolean",
+            "required": False,
             "description": "Mark as paid without actually charging (offline payment).",
             "example": False,
         },
         "forgive": {
             "type": "boolean",
+            "required": False,
             "description": "Forgive any remaining balance after partial payment.",
             "example": False,
         },
         "idempotency_key": {
             "type": "string",
+            "required": False,
             "description": "Optional idempotency key.",
             "example": "",
         },
@@ -2332,11 +2516,13 @@ async def pay_stripe_invoice(input_data: dict) -> dict:
     input_schema={
         "invoice_id": {
             "type": "string",
+            "required": True,
             "description": "Invoice ID (must be open).",
             "example": "in_…",
         },
         "idempotency_key": {
             "type": "string",
+            "required": False,
             "description": "Optional idempotency key.",
             "example": "",
         },
@@ -2366,11 +2552,13 @@ async def void_stripe_invoice(input_data: dict) -> dict:
     input_schema={
         "invoice_id": {
             "type": "string",
+            "required": True,
             "description": "Invoice ID (must be open).",
             "example": "in_…",
         },
         "idempotency_key": {
             "type": "string",
+            "required": False,
             "description": "Optional idempotency key.",
             "example": "",
         },
@@ -2400,26 +2588,31 @@ async def mark_stripe_invoice_uncollectible(input_data: dict) -> dict:
     input_schema={
         "customer": {
             "type": "string",
+            "required": False,
             "description": "Customer ID.",
             "example": "cus_…",
         },
         "subscription": {
             "type": "string",
+            "required": False,
             "description": "Subscription ID (alternative to customer).",
             "example": "",
         },
         "subscription_items": {
             "type": "array",
+            "required": False,
             "description": "Hypothetical items to simulate a change.",
             "example": [],
         },
         "coupon": {
             "type": "string",
+            "required": False,
             "description": "Coupon to apply to the simulated invoice.",
             "example": "",
         },
         "expand": {
             "type": "string",
+            "required": False,
             "description": "Comma-separated fields to expand.",
             "example": "",
         },
@@ -2465,28 +2658,33 @@ async def get_stripe_upcoming_invoice(input_data: dict) -> dict:
     input_schema={
         "limit": {
             "type": "integer",
+            "required": False,
             "description": "Max results (1-100).",
             "example": 10,
         },
-        "starting_after": {"type": "string", "description": "Cursor.", "example": ""},
-        "ending_before": {"type": "string", "description": "Cursor.", "example": ""},
+        "starting_after": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
+        "ending_before": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
         "customer": {
             "type": "string",
+            "required": False,
             "description": "Filter to a specific customer.",
             "example": "",
         },
         "invoice": {
             "type": "string",
+            "required": False,
             "description": "Filter to a specific invoice.",
             "example": "",
         },
         "pending": {
             "type": "boolean",
+            "required": False,
             "description": "Only items not yet on an invoice.",
             "example": True,
         },
         "expand": {
             "type": "string",
+            "required": False,
             "description": "Comma-separated fields to expand.",
             "example": "",
         },
@@ -2534,56 +2732,67 @@ async def list_stripe_invoice_items(input_data: dict) -> dict:
     input_schema={
         "customer": {
             "type": "string",
+            "required": True,
             "description": "Customer ID.",
             "example": "cus_…",
         },
         "invoice": {
             "type": "string",
+            "required": False,
             "description": "Draft invoice to attach to. Omit for pending.",
             "example": "",
         },
         "amount": {
             "type": "integer",
+            "required": False,
             "description": "Amount in smallest currency unit. Mutually exclusive with price.",
             "example": 2500,
         },
         "currency": {
             "type": "string",
+            "required": False,
             "description": "ISO 4217 lowercase. Required when 'amount' is set.",
             "example": "usd",
         },
         "price": {
             "type": "string",
+            "required": False,
             "description": "Price ID. Mutually exclusive with amount.",
             "example": "",
         },
         "quantity": {
             "type": "integer",
+            "required": False,
             "description": "Quantity (default 1).",
             "example": 1,
         },
         "description": {
             "type": "string",
+            "required": False,
             "description": "Line item description.",
             "example": "Consulting hour",
         },
         "discountable": {
             "type": "boolean",
+            "required": False,
             "description": "Whether discounts apply.",
             "example": True,
         },
         "metadata": {
             "type": "object",
+            "required": False,
             "description": "Arbitrary labels.",
             "example": {},
         },
         "tax_rates": {
             "type": "array",
+            "required": False,
             "description": "Stripe tax rate IDs to apply.",
             "example": [],
         },
         "idempotency_key": {
             "type": "string",
+            "required": False,
             "description": "Optional idempotency key.",
             "example": "",
         },
@@ -2622,6 +2831,7 @@ async def create_stripe_invoice_item(input_data: dict) -> dict:
     input_schema={
         "invoice_item_id": {
             "type": "string",
+            "required": True,
             "description": "Invoice Item ID.",
             "example": "ii_…",
         },
@@ -2651,33 +2861,39 @@ async def delete_stripe_invoice_item(input_data: dict) -> dict:
     input_schema={
         "limit": {
             "type": "integer",
+            "required": False,
             "description": "Max results (1-100).",
             "example": 10,
         },
-        "starting_after": {"type": "string", "description": "Cursor.", "example": ""},
-        "ending_before": {"type": "string", "description": "Cursor.", "example": ""},
+        "starting_after": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
+        "ending_before": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
         "customer": {
             "type": "string",
+            "required": False,
             "description": "Filter to a customer.",
             "example": "",
         },
         "price": {
             "type": "string",
+            "required": False,
             "description": "Filter to subscriptions containing a price.",
             "example": "",
         },
         "status": {
             "type": "string",
+            "required": False,
             "description": "'active' | 'past_due' | 'unpaid' | 'canceled' | 'incomplete' | 'incomplete_expired' | 'trialing' | 'paused' | 'all'.",
             "example": "active",
         },
         "collection_method": {
             "type": "string",
+            "required": False,
             "description": "'charge_automatically' | 'send_invoice'.",
             "example": "",
         },
         "expand": {
             "type": "string",
+            "required": False,
             "description": "Comma-separated fields to expand.",
             "example": "data.customer,data.default_payment_method",
         },
@@ -2726,11 +2942,13 @@ async def list_stripe_subscriptions(input_data: dict) -> dict:
     input_schema={
         "subscription_id": {
             "type": "string",
+            "required": True,
             "description": "Subscription ID.",
             "example": "sub_1MowQVLkdIwHu7ixeRlqHVzs",
         },
         "expand": {
             "type": "string",
+            "required": False,
             "description": "Comma-separated fields to expand.",
             "example": "customer,latest_invoice,default_payment_method",
         },
@@ -2773,76 +2991,91 @@ async def get_stripe_subscription(input_data: dict) -> dict:
     input_schema={
         "customer": {
             "type": "string",
+            "required": True,
             "description": "Customer ID.",
             "example": "cus_NffrFeUfNV2Hib",
         },
         "items": {
             "type": "array",
+            "required": True,
             "description": "Line items: [{price, quantity}].",
             "example": [{"price": "price_xxx", "quantity": 1}],
         },
         "cancel_at_period_end": {
             "type": "boolean",
+            "required": False,
             "description": "Schedule cancellation at end of current period.",
             "example": False,
         },
         "collection_method": {
             "type": "string",
+            "required": False,
             "description": "'charge_automatically' | 'send_invoice'.",
             "example": "charge_automatically",
         },
         "days_until_due": {
             "type": "integer",
+            "required": False,
             "description": "Required if collection_method='send_invoice'.",
             "example": 0,
         },
         "default_payment_method": {
             "type": "string",
+            "required": False,
             "description": "PaymentMethod ID.",
             "example": "",
         },
         "default_tax_rates": {
             "type": "array",
+            "required": False,
             "description": "Tax rate IDs applied to all items.",
             "example": [],
         },
         "coupon": {
             "type": "string",
+            "required": False,
             "description": "Coupon code to apply.",
             "example": "",
         },
         "promotion_code": {
             "type": "string",
+            "required": False,
             "description": "Promotion code ID.",
             "example": "",
         },
         "trial_period_days": {
             "type": "integer",
+            "required": False,
             "description": "Trial length in days.",
             "example": 0,
         },
         "trial_end": {
             "type": "integer",
+            "required": False,
             "description": "Explicit trial end (UNIX timestamp).",
             "example": 0,
         },
         "payment_behavior": {
             "type": "string",
+            "required": False,
             "description": "'default_incomplete' | 'allow_incomplete' | 'error_if_incomplete' | 'pending_if_incomplete'.",
             "example": "default_incomplete",
         },
         "proration_behavior": {
             "type": "string",
+            "required": False,
             "description": "'create_prorations' | 'none' | 'always_invoice'.",
             "example": "",
         },
         "metadata": {
             "type": "object",
+            "required": False,
             "description": "Arbitrary labels.",
             "example": {},
         },
         "idempotency_key": {
             "type": "string",
+            "required": False,
             "description": "Optional idempotency key.",
             "example": "",
         },
@@ -2885,16 +3118,19 @@ async def create_stripe_subscription(input_data: dict) -> dict:
     input_schema={
         "subscription_id": {
             "type": "string",
+            "required": True,
             "description": "Subscription ID.",
             "example": "sub_…",
         },
         "properties": {
             "type": "object",
+            "required": True,
             "description": "Properties to update.",
             "example": {"cancel_at_period_end": True},
         },
         "idempotency_key": {
             "type": "string",
+            "required": False,
             "description": "Optional idempotency key.",
             "example": "",
         },
@@ -2925,26 +3161,31 @@ async def update_stripe_subscription(input_data: dict) -> dict:
     input_schema={
         "subscription_id": {
             "type": "string",
+            "required": True,
             "description": "Subscription ID.",
             "example": "sub_…",
         },
         "invoice_now": {
             "type": "boolean",
+            "required": False,
             "description": "Invoice unbilled metered usage immediately.",
             "example": False,
         },
         "prorate": {
             "type": "boolean",
+            "required": False,
             "description": "Generate proration credits.",
             "example": True,
         },
         "cancellation_details": {
             "type": "object",
+            "required": False,
             "description": "{comment, feedback}.",
             "example": {"feedback": "too_expensive"},
         },
         "idempotency_key": {
             "type": "string",
+            "required": False,
             "description": "Optional idempotency key.",
             "example": "",
         },
@@ -2977,21 +3218,25 @@ async def cancel_stripe_subscription(input_data: dict) -> dict:
     input_schema={
         "subscription_id": {
             "type": "string",
+            "required": True,
             "description": "Subscription ID.",
             "example": "sub_…",
         },
         "billing_cycle_anchor": {
             "type": "string",
+            "required": False,
             "description": "'now' | 'unchanged'.",
             "example": "now",
         },
         "proration_behavior": {
             "type": "string",
+            "required": False,
             "description": "'create_prorations' | 'none' | 'always_invoice'.",
             "example": "create_prorations",
         },
         "idempotency_key": {
             "type": "string",
+            "required": False,
             "description": "Optional idempotency key.",
             "example": "",
         },
@@ -3028,33 +3273,39 @@ async def resume_stripe_subscription(input_data: dict) -> dict:
     input_schema={
         "limit": {
             "type": "integer",
+            "required": False,
             "description": "Max results (1-100).",
             "example": 10,
         },
-        "starting_after": {"type": "string", "description": "Cursor.", "example": ""},
-        "ending_before": {"type": "string", "description": "Cursor.", "example": ""},
+        "starting_after": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
+        "ending_before": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
         "customer": {
             "type": "string",
+            "required": False,
             "description": "Filter to a customer.",
             "example": "",
         },
         "payment_intent": {
             "type": "string",
+            "required": False,
             "description": "Filter to a PaymentIntent.",
             "example": "",
         },
         "subscription": {
             "type": "string",
+            "required": False,
             "description": "Filter to a subscription.",
             "example": "",
         },
         "status": {
             "type": "string",
+            "required": False,
             "description": "'open' | 'complete' | 'expired'.",
             "example": "complete",
         },
         "expand": {
             "type": "string",
+            "required": False,
             "description": "Comma-separated fields to expand.",
             "example": "",
         },
@@ -3103,11 +3354,13 @@ async def list_stripe_checkout_sessions(input_data: dict) -> dict:
     input_schema={
         "session_id": {
             "type": "string",
+            "required": True,
             "description": "Checkout Session ID.",
             "example": "cs_test_…",
         },
         "expand": {
             "type": "string",
+            "required": False,
             "description": "Comma-separated fields to expand.",
             "example": "line_items,customer",
         },
@@ -3150,71 +3403,85 @@ async def get_stripe_checkout_session(input_data: dict) -> dict:
     input_schema={
         "mode": {
             "type": "string",
+            "required": True,
             "description": "'payment' | 'subscription' | 'setup'.",
             "example": "payment",
         },
         "line_items": {
             "type": "array",
+            "required": False,
             "description": "Line items: [{price: 'price_xxx', quantity: 1}] or [{price_data: {…}, quantity: 1}].",
             "example": [{"price": "price_xxx", "quantity": 1}],
         },
         "success_url": {
             "type": "string",
+            "required": False,
             "description": "Redirect on success. Use {CHECKOUT_SESSION_ID} placeholder for the session ID.",
             "example": "https://example.com/success?session_id={CHECKOUT_SESSION_ID}",
         },
         "cancel_url": {
             "type": "string",
+            "required": False,
             "description": "Redirect on cancel.",
             "example": "https://example.com/cancel",
         },
         "ui_mode": {
             "type": "string",
+            "required": False,
             "description": "'hosted' (default) | 'embedded'.",
             "example": "hosted",
         },
         "customer": {
             "type": "string",
+            "required": False,
             "description": "Existing customer to attach the session to.",
             "example": "",
         },
         "customer_email": {
             "type": "string",
+            "required": False,
             "description": "Pre-fill the customer's email.",
             "example": "",
         },
         "client_reference_id": {
             "type": "string",
+            "required": False,
             "description": "Your internal ID for reconciliation via webhook.",
             "example": "order_42",
         },
         "allow_promotion_codes": {
             "type": "boolean",
+            "required": False,
             "description": "Show a 'have a promo code' field.",
             "example": True,
         },
         "automatic_tax": {
             "type": "object",
+            "required": False,
             "description": "{enabled: true} to compute Stripe Tax.",
             "example": {"enabled": True},
         },
         "billing_address_collection": {
             "type": "string",
+            "required": False,
             "description": "'auto' | 'required'.",
             "example": "auto",
         },
         "payment_method_types": {
             "type": "array",
+            "required": False,
             "description": "Allowed payment method types.",
             "example": ["card"],
         },
         "metadata": {
             "type": "object",
+            "required": False,
             "description": "Arbitrary labels.",
             "example": {},
         },
         "idempotency_key": {
             "type": "string",
+            "required": False,
             "description": "Optional idempotency key.",
             "example": "",
         },
@@ -3256,11 +3523,13 @@ async def create_stripe_checkout_session(input_data: dict) -> dict:
     input_schema={
         "session_id": {
             "type": "string",
+            "required": True,
             "description": "Checkout Session ID.",
             "example": "cs_test_…",
         },
         "idempotency_key": {
             "type": "string",
+            "required": False,
             "description": "Optional idempotency key.",
             "example": "",
         },
@@ -3290,18 +3559,21 @@ async def expire_stripe_checkout_session(input_data: dict) -> dict:
     input_schema={
         "session_id": {
             "type": "string",
+            "required": True,
             "description": "Checkout Session ID.",
             "example": "cs_test_…",
         },
         "limit": {
             "type": "integer",
+            "required": False,
             "description": "Max results (1-100).",
             "example": 10,
         },
-        "starting_after": {"type": "string", "description": "Cursor.", "example": ""},
-        "ending_before": {"type": "string", "description": "Cursor.", "example": ""},
+        "starting_after": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
+        "ending_before": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
         "expand": {
             "type": "string",
+            "required": False,
             "description": "Comma-separated fields to expand.",
             "example": "",
         },
@@ -3352,18 +3624,21 @@ async def list_stripe_checkout_line_items(input_data: dict) -> dict:
     input_schema={
         "limit": {
             "type": "integer",
+            "required": False,
             "description": "Max results (1-100).",
             "example": 10,
         },
-        "starting_after": {"type": "string", "description": "Cursor.", "example": ""},
-        "ending_before": {"type": "string", "description": "Cursor.", "example": ""},
+        "starting_after": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
+        "ending_before": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
         "active": {
             "type": "boolean",
+            "required": False,
             "description": "Only active or only inactive.",
             "example": True,
         },
         "expand": {
             "type": "string",
+            "required": False,
             "description": "Comma-separated fields to expand.",
             "example": "",
         },
@@ -3409,11 +3684,13 @@ async def list_stripe_payment_links(input_data: dict) -> dict:
     input_schema={
         "payment_link_id": {
             "type": "string",
+            "required": True,
             "description": "Payment Link ID.",
             "example": "pl_1MoBy5LkdIwHu7ixZhnattbh",
         },
         "expand": {
             "type": "string",
+            "required": False,
             "description": "Comma-separated fields to expand.",
             "example": "line_items",
         },
@@ -3456,51 +3733,61 @@ async def get_stripe_payment_link(input_data: dict) -> dict:
     input_schema={
         "line_items": {
             "type": "array",
+            "required": True,
             "description": "Line items: [{price: 'price_xxx', quantity: 1}].",
             "example": [{"price": "price_xxx", "quantity": 1}],
         },
         "after_completion": {
             "type": "object",
+            "required": False,
             "description": "What happens after success: {type: 'redirect', redirect: {url: '…'}} or {type: 'hosted_confirmation', hosted_confirmation: {custom_message: '…'}}.",
             "example": {"type": "hosted_confirmation"},
         },
         "allow_promotion_codes": {
             "type": "boolean",
+            "required": False,
             "description": "Show a 'have a promo code' field.",
             "example": True,
         },
         "automatic_tax": {
             "type": "object",
+            "required": False,
             "description": "{enabled: true}.",
             "example": {"enabled": True},
         },
         "billing_address_collection": {
             "type": "string",
+            "required": False,
             "description": "'auto' | 'required'.",
             "example": "auto",
         },
         "customer_creation": {
             "type": "string",
+            "required": False,
             "description": "'always' | 'if_required'.",
             "example": "always",
         },
         "metadata": {
             "type": "object",
+            "required": False,
             "description": "Arbitrary labels.",
             "example": {},
         },
         "payment_method_types": {
             "type": "array",
+            "required": False,
             "description": "Allowed payment method types.",
             "example": [],
         },
         "shipping_address_collection": {
             "type": "object",
+            "required": False,
             "description": "{allowed_countries: [...]}.",
             "example": {},
         },
         "idempotency_key": {
             "type": "string",
+            "required": False,
             "description": "Optional idempotency key.",
             "example": "",
         },
@@ -3539,16 +3826,19 @@ async def create_stripe_payment_link(input_data: dict) -> dict:
     input_schema={
         "payment_link_id": {
             "type": "string",
+            "required": True,
             "description": "Payment Link ID.",
             "example": "pl_…",
         },
         "properties": {
             "type": "object",
+            "required": True,
             "description": "Properties to update.",
             "example": {"active": False},
         },
         "idempotency_key": {
             "type": "string",
+            "required": False,
             "description": "Optional idempotency key.",
             "example": "",
         },
@@ -3579,26 +3869,31 @@ async def update_stripe_payment_link(input_data: dict) -> dict:
     input_schema={
         "customer": {
             "type": "string",
+            "required": True,
             "description": "Customer ID.",
             "example": "cus_…",
         },
         "return_url": {
             "type": "string",
+            "required": False,
             "description": "Where the customer returns when they're done.",
             "example": "https://example.com/account",
         },
         "configuration": {
             "type": "string",
+            "required": False,
             "description": "Specific portal configuration ID.",
             "example": "",
         },
         "locale": {
             "type": "string",
+            "required": False,
             "description": "BCP-47 locale (e.g. 'en', 'de-DE').",
             "example": "",
         },
         "idempotency_key": {
             "type": "string",
+            "required": False,
             "description": "Optional idempotency key.",
             "example": "",
         },
@@ -3636,13 +3931,15 @@ async def create_stripe_billing_portal_session(input_data: dict) -> dict:
     input_schema={
         "limit": {
             "type": "integer",
+            "required": False,
             "description": "Max results (1-100).",
             "example": 10,
         },
-        "starting_after": {"type": "string", "description": "Cursor.", "example": ""},
-        "ending_before": {"type": "string", "description": "Cursor.", "example": ""},
+        "starting_after": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
+        "ending_before": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
         "expand": {
             "type": "string",
+            "required": False,
             "description": "Comma-separated fields to expand.",
             "example": "",
         },
@@ -3687,11 +3984,13 @@ async def list_stripe_coupons(input_data: dict) -> dict:
     input_schema={
         "coupon_id": {
             "type": "string",
+            "required": True,
             "description": "Coupon ID (user-chosen, e.g. 'SUMMER25').",
             "example": "SUMMER25",
         },
         "expand": {
             "type": "string",
+            "required": False,
             "description": "Comma-separated fields to expand.",
             "example": "",
         },
@@ -3734,56 +4033,67 @@ async def get_stripe_coupon(input_data: dict) -> dict:
     input_schema={
         "id": {
             "type": "string",
+            "required": False,
             "description": "Optional user-chosen ID (e.g. 'SUMMER25'). Auto-generated if omitted.",
             "example": "SUMMER25",
         },
         "name": {
             "type": "string",
+            "required": False,
             "description": "Customer-facing label.",
             "example": "Summer 25%",
         },
         "duration": {
             "type": "string",
+            "required": False,
             "description": "'once' | 'repeating' | 'forever'.",
             "example": "once",
         },
         "amount_off": {
             "type": "integer",
+            "required": False,
             "description": "Amount off in smallest currency unit. Mutually exclusive with percent_off.",
             "example": 0,
         },
         "percent_off": {
             "type": "number",
+            "required": False,
             "description": "Percentage off (e.g. 25 = 25%). Mutually exclusive with amount_off.",
             "example": 25,
         },
         "currency": {
             "type": "string",
+            "required": False,
             "description": "ISO 4217 lowercase. Required if amount_off is set.",
             "example": "usd",
         },
         "duration_in_months": {
             "type": "integer",
+            "required": False,
             "description": "Required if duration='repeating'.",
             "example": 3,
         },
         "max_redemptions": {
             "type": "integer",
+            "required": False,
             "description": "Cap on total redemptions across all customers.",
             "example": 0,
         },
         "redeem_by": {
             "type": "integer",
+            "required": False,
             "description": "UNIX timestamp after which the coupon can no longer be redeemed.",
             "example": 0,
         },
         "metadata": {
             "type": "object",
+            "required": False,
             "description": "Arbitrary labels.",
             "example": {},
         },
         "idempotency_key": {
             "type": "string",
+            "required": False,
             "description": "Optional idempotency key.",
             "example": "",
         },
@@ -3822,16 +4132,19 @@ async def create_stripe_coupon(input_data: dict) -> dict:
     input_schema={
         "coupon_id": {
             "type": "string",
+            "required": True,
             "description": "Coupon ID.",
             "example": "SUMMER25",
         },
         "properties": {
             "type": "object",
+            "required": True,
             "description": "Mutable properties (name, metadata).",
             "example": {"name": "Summer (extended)"},
         },
         "idempotency_key": {
             "type": "string",
+            "required": False,
             "description": "Optional idempotency key.",
             "example": "",
         },
@@ -3862,6 +4175,7 @@ async def update_stripe_coupon(input_data: dict) -> dict:
     input_schema={
         "coupon_id": {
             "type": "string",
+            "required": True,
             "description": "Coupon ID.",
             "example": "SUMMER25",
         },
@@ -3886,29 +4200,34 @@ async def delete_stripe_coupon(input_data: dict) -> dict:
     input_schema={
         "limit": {
             "type": "integer",
+            "required": False,
             "description": "Max results (1-100).",
             "example": 10,
         },
-        "starting_after": {"type": "string", "description": "Cursor.", "example": ""},
-        "ending_before": {"type": "string", "description": "Cursor.", "example": ""},
+        "starting_after": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
+        "ending_before": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
         "active": {
             "type": "boolean",
+            "required": False,
             "description": "Only active or only inactive.",
             "example": True,
         },
         "code": {
             "type": "string",
+            "required": False,
             "description": "Exact code filter.",
             "example": "FRIENDS50",
         },
-        "coupon": {"type": "string", "description": "Parent coupon ID.", "example": ""},
+        "coupon": {"type": "string", "required": False, "description": "Parent coupon ID.", "example": ""},
         "customer": {
             "type": "string",
+            "required": False,
             "description": "Promotion codes allowlisted to this customer.",
             "example": "",
         },
         "expand": {
             "type": "string",
+            "required": False,
             "description": "Comma-separated fields to expand.",
             "example": "",
         },
@@ -3957,46 +4276,55 @@ async def list_stripe_promotion_codes(input_data: dict) -> dict:
     input_schema={
         "coupon": {
             "type": "string",
+            "required": True,
             "description": "Parent Coupon ID.",
             "example": "SUMMER25",
         },
         "code": {
             "type": "string",
+            "required": False,
             "description": "Code string. Auto-generated if omitted.",
             "example": "FRIENDS50",
         },
         "customer": {
             "type": "string",
+            "required": False,
             "description": "Restrict to a specific customer.",
             "example": "",
         },
         "active": {
             "type": "boolean",
+            "required": False,
             "description": "Whether the code is redeemable.",
             "example": True,
         },
         "expires_at": {
             "type": "integer",
+            "required": False,
             "description": "UNIX timestamp expiry.",
             "example": 0,
         },
         "max_redemptions": {
             "type": "integer",
+            "required": False,
             "description": "Total redemption cap.",
             "example": 0,
         },
         "restrictions": {
             "type": "object",
+            "required": False,
             "description": "{first_time_transaction: bool, minimum_amount: int, minimum_amount_currency: str}.",
             "example": {"first_time_transaction": True},
         },
         "metadata": {
             "type": "object",
+            "required": False,
             "description": "Arbitrary labels.",
             "example": {},
         },
         "idempotency_key": {
             "type": "string",
+            "required": False,
             "description": "Optional idempotency key.",
             "example": "",
         },
@@ -4033,16 +4361,19 @@ async def create_stripe_promotion_code(input_data: dict) -> dict:
     input_schema={
         "promotion_code_id": {
             "type": "string",
+            "required": True,
             "description": "Promotion Code ID.",
             "example": "promo_…",
         },
         "properties": {
             "type": "object",
+            "required": True,
             "description": "Properties to update.",
             "example": {"active": False},
         },
         "idempotency_key": {
             "type": "string",
+            "required": False,
             "description": "Optional idempotency key.",
             "example": "",
         },
@@ -4078,23 +4409,27 @@ async def update_stripe_promotion_code(input_data: dict) -> dict:
     input_schema={
         "limit": {
             "type": "integer",
+            "required": False,
             "description": "Max results (1-100).",
             "example": 10,
         },
-        "starting_after": {"type": "string", "description": "Cursor.", "example": ""},
-        "ending_before": {"type": "string", "description": "Cursor.", "example": ""},
+        "starting_after": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
+        "ending_before": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
         "charge": {
             "type": "string",
+            "required": False,
             "description": "Filter to a specific charge.",
             "example": "",
         },
         "payment_intent": {
             "type": "string",
+            "required": False,
             "description": "Filter to a specific PaymentIntent.",
             "example": "",
         },
         "expand": {
             "type": "string",
+            "required": False,
             "description": "Comma-separated fields to expand.",
             "example": "",
         },
@@ -4141,11 +4476,13 @@ async def list_stripe_disputes(input_data: dict) -> dict:
     input_schema={
         "dispute_id": {
             "type": "string",
+            "required": True,
             "description": "Dispute ID.",
             "example": "di_…",
         },
         "expand": {
             "type": "string",
+            "required": False,
             "description": "Comma-separated fields to expand.",
             "example": "charge,payment_intent",
         },
@@ -4188,11 +4525,13 @@ async def get_stripe_dispute(input_data: dict) -> dict:
     input_schema={
         "dispute_id": {
             "type": "string",
+            "required": True,
             "description": "Dispute ID.",
             "example": "di_…",
         },
         "evidence": {
             "type": "object",
+            "required": False,
             "description": "Evidence fields (see Stripe docs for the full schema — receipt, shipping_documentation, customer_email_address, etc.).",
             "example": {
                 "customer_email_address": "jane@example.com",
@@ -4201,16 +4540,19 @@ async def get_stripe_dispute(input_data: dict) -> dict:
         },
         "submit": {
             "type": "boolean",
+            "required": False,
             "description": "True submits to card network. Omit/False saves as draft.",
             "example": False,
         },
         "metadata": {
             "type": "object",
+            "required": False,
             "description": "Arbitrary labels.",
             "example": {},
         },
         "idempotency_key": {
             "type": "string",
+            "required": False,
             "description": "Optional idempotency key.",
             "example": "",
         },
@@ -4243,11 +4585,13 @@ async def update_stripe_dispute(input_data: dict) -> dict:
     input_schema={
         "dispute_id": {
             "type": "string",
+            "required": True,
             "description": "Dispute ID.",
             "example": "di_…",
         },
         "idempotency_key": {
             "type": "string",
+            "required": False,
             "description": "Optional idempotency key.",
             "example": "",
         },
@@ -4282,23 +4626,27 @@ async def close_stripe_dispute(input_data: dict) -> dict:
     input_schema={
         "limit": {
             "type": "integer",
+            "required": False,
             "description": "Max results (1-100).",
             "example": 10,
         },
-        "starting_after": {"type": "string", "description": "Cursor.", "example": ""},
-        "ending_before": {"type": "string", "description": "Cursor.", "example": ""},
+        "starting_after": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
+        "ending_before": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
         "status": {
             "type": "string",
+            "required": False,
             "description": "'pending' | 'in_transit' | 'paid' | 'failed' | 'canceled'.",
             "example": "paid",
         },
         "destination": {
             "type": "string",
+            "required": False,
             "description": "Bank account or card ID.",
             "example": "",
         },
         "expand": {
             "type": "string",
+            "required": False,
             "description": "Comma-separated fields to expand.",
             "example": "",
         },
@@ -4343,9 +4691,10 @@ async def list_stripe_payouts(input_data: dict) -> dict:
     description="Retrieve a Payout by ID.",
     action_sets=["stripe_payouts"],
     input_schema={
-        "payout_id": {"type": "string", "description": "Payout ID.", "example": "po_…"},
+        "payout_id": {"type": "string", "required": True, "description": "Payout ID.", "example": "po_…"},
         "expand": {
             "type": "string",
+            "required": False,
             "description": "Comma-separated fields to expand.",
             "example": "destination,failure_balance_transaction",
         },
@@ -4388,46 +4737,55 @@ async def get_stripe_payout(input_data: dict) -> dict:
     input_schema={
         "amount": {
             "type": "integer",
+            "required": True,
             "description": "Amount in smallest currency unit.",
             "example": 10000,
         },
         "currency": {
             "type": "string",
+            "required": False,
             "description": "ISO 4217 lowercase. Defaults to integration default_currency.",
             "example": "usd",
         },
         "description": {
             "type": "string",
+            "required": False,
             "description": "Internal description.",
             "example": "Weekly payout",
         },
         "statement_descriptor": {
             "type": "string",
+            "required": False,
             "description": "Appears on bank statement.",
             "example": "",
         },
         "method": {
             "type": "string",
+            "required": False,
             "description": "'standard' | 'instant'.",
             "example": "standard",
         },
         "source_type": {
             "type": "string",
+            "required": False,
             "description": "'bank_account' | 'card'.",
             "example": "bank_account",
         },
         "destination": {
             "type": "string",
+            "required": False,
             "description": "Specific bank account or card ID. Omit to use the default.",
             "example": "",
         },
         "metadata": {
             "type": "object",
+            "required": False,
             "description": "Arbitrary labels.",
             "example": {},
         },
         "idempotency_key": {
             "type": "string",
+            "required": False,
             "description": "Optional idempotency key.",
             "example": "",
         },
@@ -4462,9 +4820,10 @@ async def create_stripe_payout(input_data: dict) -> dict:
     description="Cancel a Payout. Only valid if status is 'pending'. Returns only {id, status}.",
     action_sets=["stripe_payouts"],
     input_schema={
-        "payout_id": {"type": "string", "description": "Payout ID.", "example": "po_…"},
+        "payout_id": {"type": "string", "required": True, "description": "Payout ID.", "example": "po_…"},
         "idempotency_key": {
             "type": "string",
+            "required": False,
             "description": "Optional idempotency key.",
             "example": "",
         },
@@ -4520,33 +4879,39 @@ async def get_stripe_balance(input_data: dict) -> dict:
     input_schema={
         "limit": {
             "type": "integer",
+            "required": False,
             "description": "Max results (1-100).",
             "example": 10,
         },
-        "starting_after": {"type": "string", "description": "Cursor.", "example": ""},
-        "ending_before": {"type": "string", "description": "Cursor.", "example": ""},
+        "starting_after": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
+        "ending_before": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
         "type": {
             "type": "string",
+            "required": False,
             "description": "'charge' | 'refund' | 'adjustment' | 'application_fee' | 'payout' | 'transfer' | 'stripe_fee' | etc.",
             "example": "charge",
         },
         "currency": {
             "type": "string",
+            "required": False,
             "description": "ISO 4217 lowercase filter.",
             "example": "",
         },
         "source": {
             "type": "string",
+            "required": False,
             "description": "Filter to a specific source ID (charge, refund, etc.).",
             "example": "",
         },
         "payout": {
             "type": "string",
+            "required": False,
             "description": "Filter to transactions in a specific payout.",
             "example": "",
         },
         "expand": {
             "type": "string",
+            "required": False,
             "description": "Comma-separated fields to expand.",
             "example": "",
         },
@@ -4600,23 +4965,27 @@ async def list_stripe_balance_transactions(input_data: dict) -> dict:
     input_schema={
         "limit": {
             "type": "integer",
+            "required": False,
             "description": "Max results (1-100).",
             "example": 10,
         },
-        "starting_after": {"type": "string", "description": "Cursor.", "example": ""},
-        "ending_before": {"type": "string", "description": "Cursor.", "example": ""},
+        "starting_after": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
+        "ending_before": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
         "customer": {
             "type": "string",
+            "required": False,
             "description": "Filter to a customer.",
             "example": "",
         },
         "status": {
             "type": "string",
+            "required": False,
             "description": "'draft' | 'open' | 'accepted' | 'canceled'.",
             "example": "open",
         },
         "expand": {
             "type": "string",
+            "required": False,
             "description": "Comma-separated fields to expand.",
             "example": "",
         },
@@ -4661,9 +5030,10 @@ async def list_stripe_quotes(input_data: dict) -> dict:
     description="Retrieve a Quote by ID.",
     action_sets=["stripe_quotes"],
     input_schema={
-        "quote_id": {"type": "string", "description": "Quote ID.", "example": "qt_…"},
+        "quote_id": {"type": "string", "required": True, "description": "Quote ID.", "example": "qt_…"},
         "expand": {
             "type": "string",
+            "required": False,
             "description": "Comma-separated fields to expand.",
             "example": "line_items,customer,invoice",
         },
@@ -4706,56 +5076,67 @@ async def get_stripe_quote(input_data: dict) -> dict:
     input_schema={
         "customer": {
             "type": "string",
+            "required": True,
             "description": "Customer ID.",
             "example": "cus_…",
         },
         "line_items": {
             "type": "array",
+            "required": True,
             "description": "Line items: [{price: 'price_xxx', quantity: 1}].",
             "example": [{"price": "price_xxx", "quantity": 1}],
         },
         "description": {
             "type": "string",
+            "required": False,
             "description": "Internal description.",
             "example": "",
         },
         "footer": {
             "type": "string",
+            "required": False,
             "description": "Footer on the rendered quote.",
             "example": "",
         },
         "header": {
             "type": "string",
+            "required": False,
             "description": "Header on the rendered quote.",
             "example": "",
         },
         "expires_at": {
             "type": "integer",
+            "required": False,
             "description": "UNIX timestamp expiry.",
             "example": 0,
         },
         "collection_method": {
             "type": "string",
+            "required": False,
             "description": "'charge_automatically' | 'send_invoice'.",
             "example": "",
         },
         "default_tax_rates": {
             "type": "array",
+            "required": False,
             "description": "Tax rate IDs applied to all items.",
             "example": [],
         },
         "subscription_data": {
             "type": "object",
+            "required": False,
             "description": "Defaults applied to the subscription created on accept.",
             "example": {},
         },
         "metadata": {
             "type": "object",
+            "required": False,
             "description": "Arbitrary labels.",
             "example": {},
         },
         "idempotency_key": {
             "type": "string",
+            "required": False,
             "description": "Optional idempotency key.",
             "example": "",
         },
@@ -4792,14 +5173,16 @@ async def create_stripe_quote(input_data: dict) -> dict:
     description="Update a draft Quote. Once finalized most fields are locked. Returns only {id, status}.",
     action_sets=["stripe_quotes"],
     input_schema={
-        "quote_id": {"type": "string", "description": "Quote ID.", "example": "qt_…"},
+        "quote_id": {"type": "string", "required": True, "description": "Quote ID.", "example": "qt_…"},
         "properties": {
             "type": "object",
+            "required": True,
             "description": "Properties to update.",
             "example": {"description": "Updated"},
         },
         "idempotency_key": {
             "type": "string",
+            "required": False,
             "description": "Optional idempotency key.",
             "example": "",
         },
@@ -4830,16 +5213,19 @@ async def update_stripe_quote(input_data: dict) -> dict:
     input_schema={
         "quote_id": {
             "type": "string",
+            "required": True,
             "description": "Quote ID (must be draft).",
             "example": "qt_…",
         },
         "expires_at": {
             "type": "integer",
+            "required": False,
             "description": "Override expiry at finalize time.",
             "example": 0,
         },
         "idempotency_key": {
             "type": "string",
+            "required": False,
             "description": "Optional idempotency key.",
             "example": "",
         },
@@ -4870,11 +5256,13 @@ async def finalize_stripe_quote(input_data: dict) -> dict:
     input_schema={
         "quote_id": {
             "type": "string",
+            "required": True,
             "description": "Quote ID (must be open).",
             "example": "qt_…",
         },
         "idempotency_key": {
             "type": "string",
+            "required": False,
             "description": "Optional idempotency key.",
             "example": "",
         },
@@ -4902,9 +5290,10 @@ async def accept_stripe_quote(input_data: dict) -> dict:
     description="Cancel a draft or open Quote. Cannot cancel an accepted quote. Returns only {id, status}.",
     action_sets=["stripe_quotes"],
     input_schema={
-        "quote_id": {"type": "string", "description": "Quote ID.", "example": "qt_…"},
+        "quote_id": {"type": "string", "required": True, "description": "Quote ID.", "example": "qt_…"},
         "idempotency_key": {
             "type": "string",
+            "required": False,
             "description": "Optional idempotency key.",
             "example": "",
         },
@@ -4939,43 +5328,51 @@ async def cancel_stripe_quote(input_data: dict) -> dict:
     input_schema={
         "include_metadata": {
             "type": "boolean",
+            "required": False,
             "description": "True returns full event payloads. Default false (lean).",
             "example": False,
         },
         "limit": {
             "type": "integer",
+            "required": False,
             "description": "Max results (1-100).",
             "example": 10,
         },
-        "starting_after": {"type": "string", "description": "Cursor.", "example": ""},
-        "ending_before": {"type": "string", "description": "Cursor.", "example": ""},
+        "starting_after": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
+        "ending_before": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
         "type": {
             "type": "string",
+            "required": False,
             "description": "Single event type filter.",
             "example": "invoice.paid",
         },
         "types": {
             "type": "array",
+            "required": False,
             "description": "List of event types.",
             "example": ["invoice.paid", "invoice.finalized"],
         },
         "delivery_success": {
             "type": "boolean",
+            "required": False,
             "description": "Only events delivered (or not delivered) successfully to a webhook.",
             "example": True,
         },
         "created_gte": {
             "type": "integer",
+            "required": False,
             "description": "Created >= UNIX timestamp.",
             "example": 0,
         },
         "created_lte": {
             "type": "integer",
+            "required": False,
             "description": "Created <= UNIX timestamp.",
             "example": 0,
         },
         "expand": {
             "type": "string",
+            "required": False,
             "description": "Comma-separated fields to expand.",
             "example": "",
         },
@@ -5038,14 +5435,16 @@ async def list_stripe_events(input_data: dict) -> dict:
     description="Retrieve a single Event by ID. Returns lean {id, type, created, data.object.id}; set include_metadata=true for the full payload.",
     action_sets=["stripe_webhooks"],
     input_schema={
-        "event_id": {"type": "string", "description": "Event ID.", "example": "evt_…"},
+        "event_id": {"type": "string", "required": True, "description": "Event ID.", "example": "evt_…"},
         "include_metadata": {
             "type": "boolean",
+            "required": False,
             "description": "True returns the full event payload. Default false (lean).",
             "example": False,
         },
         "expand": {
             "type": "string",
+            "required": False,
             "description": "Comma-separated fields to expand.",
             "example": "",
         },
@@ -5095,13 +5494,15 @@ async def get_stripe_event(input_data: dict) -> dict:
     input_schema={
         "limit": {
             "type": "integer",
+            "required": False,
             "description": "Max results (1-100).",
             "example": 10,
         },
-        "starting_after": {"type": "string", "description": "Cursor.", "example": ""},
-        "ending_before": {"type": "string", "description": "Cursor.", "example": ""},
+        "starting_after": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
+        "ending_before": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
         "expand": {
             "type": "string",
+            "required": False,
             "description": "Comma-separated fields to expand.",
             "example": "",
         },
@@ -5146,11 +5547,13 @@ async def list_stripe_webhook_endpoints(input_data: dict) -> dict:
     input_schema={
         "endpoint_id": {
             "type": "string",
+            "required": True,
             "description": "Webhook Endpoint ID.",
             "example": "we_…",
         },
         "expand": {
             "type": "string",
+            "required": False,
             "description": "Comma-separated fields to expand.",
             "example": "",
         },
@@ -5193,36 +5596,43 @@ async def get_stripe_webhook_endpoint(input_data: dict) -> dict:
     input_schema={
         "url": {
             "type": "string",
+            "required": True,
             "description": "HTTPS URL Stripe will POST events to.",
             "example": "https://example.com/stripe/webhook",
         },
         "enabled_events": {
             "type": "array",
+            "required": True,
             "description": "Event types to subscribe to, or ['*'] for all.",
             "example": ["invoice.paid", "customer.created"],
         },
         "description": {
             "type": "string",
+            "required": False,
             "description": "Internal description.",
             "example": "",
         },
         "connect": {
             "type": "boolean",
+            "required": False,
             "description": "True for Connect events from connected accounts.",
             "example": False,
         },
         "api_version": {
             "type": "string",
+            "required": False,
             "description": "Pin the event payload version.",
             "example": "",
         },
         "metadata": {
             "type": "object",
+            "required": False,
             "description": "Arbitrary labels.",
             "example": {},
         },
         "idempotency_key": {
             "type": "string",
+            "required": False,
             "description": "Optional idempotency key.",
             "example": "",
         },
@@ -5257,16 +5667,19 @@ async def create_stripe_webhook_endpoint(input_data: dict) -> dict:
     input_schema={
         "endpoint_id": {
             "type": "string",
+            "required": True,
             "description": "Webhook Endpoint ID.",
             "example": "we_…",
         },
         "properties": {
             "type": "object",
+            "required": True,
             "description": "Properties to update.",
             "example": {"enabled_events": ["invoice.paid"], "disabled": False},
         },
         "idempotency_key": {
             "type": "string",
+            "required": False,
             "description": "Optional idempotency key.",
             "example": "",
         },
@@ -5297,6 +5710,7 @@ async def update_stripe_webhook_endpoint(input_data: dict) -> dict:
     input_schema={
         "endpoint_id": {
             "type": "string",
+            "required": True,
             "description": "Webhook Endpoint ID.",
             "example": "we_…",
         },
@@ -5330,21 +5744,25 @@ async def delete_stripe_webhook_endpoint(input_data: dict) -> dict:
     input_schema={
         "file_path": {
             "type": "string",
+            "required": True,
             "description": "Absolute path to a local file.",
             "example": "/tmp/receipt.png",
         },
         "purpose": {
             "type": "string",
+            "required": True,
             "description": "'dispute_evidence' | 'identity_document' | 'business_logo' | 'business_icon' | 'tax_document_user_upload' | 'finance_report_run' | 'pci_document' | 'additional_verification' | 'customer_signature'.",
             "example": "dispute_evidence",
         },
         "link_create": {
             "type": "boolean",
+            "required": False,
             "description": "Create a public file link alongside the upload.",
             "example": False,
         },
         "link_expires_at": {
             "type": "integer",
+            "required": False,
             "description": "UNIX timestamp link expiry.",
             "example": 0,
         },
@@ -5374,9 +5792,10 @@ async def upload_stripe_file(input_data: dict) -> dict:
     description="Retrieve a File metadata record by ID.",
     action_sets=["stripe_files"],
     input_schema={
-        "file_id": {"type": "string", "description": "File ID.", "example": "file_…"},
+        "file_id": {"type": "string", "required": True, "description": "File ID.", "example": "file_…"},
         "expand": {
             "type": "string",
+            "required": False,
             "description": "Comma-separated fields to expand.",
             "example": "",
         },
@@ -5419,18 +5838,21 @@ async def get_stripe_file(input_data: dict) -> dict:
     input_schema={
         "limit": {
             "type": "integer",
+            "required": False,
             "description": "Max results (1-100).",
             "example": 10,
         },
-        "starting_after": {"type": "string", "description": "Cursor.", "example": ""},
-        "ending_before": {"type": "string", "description": "Cursor.", "example": ""},
+        "starting_after": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
+        "ending_before": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
         "purpose": {
             "type": "string",
+            "required": False,
             "description": "Filter by file purpose.",
             "example": "dispute_evidence",
         },
         "expand": {
             "type": "string",
+            "required": False,
             "description": "Comma-separated fields to expand.",
             "example": "",
         },

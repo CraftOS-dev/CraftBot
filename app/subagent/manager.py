@@ -113,7 +113,7 @@ class SubAgentManager:
         # The parent stream never sees it.
         self.event_stream_manager.log(
             kind="subagent_start",
-            message=(f"Sub-agent of type '{agent_type}' started.\nQuery: {query}"),
+            message=sub.bootstrap_message,
             display_message=f"subagent[{agent_type}] start",
             task_id=sub_id,
         )

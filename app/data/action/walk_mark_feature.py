@@ -31,11 +31,13 @@ from agent_core import action
     input_schema={
         "project_id": {
             "type": "string",
+            "required": True,
             "example": "abc12345",
             "description": "The Agent App project ID (from the query).",
         },
         "feature": {
             "type": "string",
+            "required": True,
             "example": "Column drag-and-drop reordering",
             "description": "The exact feature name you are about to exercise.",
         },

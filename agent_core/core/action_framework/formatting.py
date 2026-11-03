@@ -5,8 +5,13 @@ Shared formatters for action lists embedded in LLM prompts.
 This module owns the canonical compact representation used to describe
 available actions to the LLM. It is intentionally tight on tokens:
 
-- One JSON object per action with ``name``, ``description``, ``params``.
-- Each parameter collapses to a single string ``"<type>, required|optional - <desc>"``.
+- One JSON object per action with ``name``, ``description``, ``params``,
+  one action per line, without padding whitespace.
+- Each parameter collapses to a single string ``"<type>, required|optional - <desc>"``,
+  required or optional as its schema's ``required`` flag declares.
+- A parameter every action of the list takes, with the same text, is written
+  once above the list instead of in each action (e.g. an integration's
+  ``account``).
 - No ``example`` fields, no nested type-definitions.
 
 Both ``ActionRouter`` (main agent) and ``SubAgentContextEngine`` (sub-agents)
@@ -53,7 +58,8 @@ def format_action_candidates(candidates: List[Dict[str, Any]]) -> str:
             to build entries from ``Action`` objects.
 
     Returns:
-        A JSON-formatted string (pretty-printed) describing the candidates.
+        A JSON array of the candidates, one per line, preceded by a line
+        listing the parameters every candidate takes when there are any.
         Returns ``"[]"`` when the list is empty.
     """
     if not candidates:
@@ -67,13 +73,14 @@ def format_action_candidates(candidates: List[Dict[str, Any]]) -> str:
             if isinstance(param_def, dict):
                 ptype = param_def.get("type", "any")
                 desc = param_def.get("description", "") or ""
-                # Match the heuristic used by ActionRouter._format_candidates:
-                # treat parameters whose description mentions "default" or
-                # "optional" as optional, everything else required.
-                low = desc.lower()
-                is_optional = "default" in low or "optional" in low
-                req = "optional" if is_optional else "required"
-                params[param_name] = f"{ptype}, {req} - {desc}"
+                # Required or optional as the schema declares it. A schema
+                # that declares neither gets no label: nothing is inferred.
+                required = param_def.get("required")
+                if isinstance(required, bool):
+                    req = "required" if required else "optional"
+                    params[param_name] = f"{ptype}, {req} - {desc}"
+                else:
+                    params[param_name] = f"{ptype} - {desc}"
             else:
                 params[param_name] = str(param_def)
 
@@ -85,7 +92,31 @@ def format_action_candidates(candidates: List[Dict[str, Any]]) -> str:
             }
         )
 
-    return json.dumps(compact, indent=2, ensure_ascii=False)
+    shared = _params_every_action_takes(compact)
+    for entry in compact:
+        for param_name in shared:
+            del entry["params"][param_name]
+
+    def dump(value) -> str:
+        return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+
+    block = "[\n" + ",\n".join(dump(entry) for entry in compact) + "\n]"
+    if shared:
+        block = f"Every action below also takes these params: {dump(shared)}\n{block}"
+    return block
+
+
+def _params_every_action_takes(compact: List[Dict[str, Any]]) -> Dict[str, str]:
+    """The parameters (name and rendered text) every action of the list has,
+    in the first action's order. A list of one action shares nothing."""
+    if len(compact) < 2:
+        return {}
+    first, rest = compact[0]["params"], compact[1:]
+    return {
+        name: text
+        for name, text in first.items()
+        if all(entry["params"].get(name) == text for entry in rest)
+    }
 
 
 def format_actions_by_name(

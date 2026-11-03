@@ -68,6 +68,7 @@ def list_skills(input_data: dict) -> dict:
     input_schema={
         "skill_name": {
             "type": "string",
+            "required": True,
             "description": "Name of the skill to load.",
             "example": "pdf",
         },
@@ -142,6 +143,7 @@ def use_skill(input_data: dict) -> dict:
     input_schema={
         "skill_name": {
             "type": "string",
+            "required": True,
             "description": "Name of the skill to unload.",
             "example": "pdf",
         },

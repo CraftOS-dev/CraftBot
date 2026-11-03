@@ -3,31 +3,37 @@ from agent_core import action
 _INPUT_SCHEMA = {
     "pattern": {
         "type": "string",
+        "required": True,
         "example": "def \\w+\\(",
         "description": "Regex to search for (ripgrep syntax). Escape regex characters such as ( [ . to match them literally.",
     },
     "path": {
         "type": "string",
+        "required": False,
         "example": "/workspace/project",
         "description": "File or folder to search. Defaults to the current working directory.",
     },
     "glob": {
         "type": "string",
+        "required": False,
         "example": "*.{ts,tsx}",
         "description": "Optional. Only search files matching this glob, e.g. '*.py', '*.{ts,tsx}' or 'src/**/*.ts'.",
     },
     "ignore_case": {
         "type": "boolean",
+        "required": False,
         "example": False,
         "description": "Case-insensitive search. Default false.",
     },
     "context": {
         "type": "integer",
+        "required": False,
         "example": 0,
         "description": "Lines to show before and after each match. Default 0.",
     },
     "limit": {
         "type": "integer",
+        "required": False,
         "example": 100,
         "description": "Maximum number of matches to return. Default 100.",
     },

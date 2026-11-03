@@ -68,6 +68,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "folder_id": {
                     "type": "string",
+                    "required": True,
                     "description": (
                         "Google Drive folder ID. Use 'root' for the user's My Drive."
                     ),
@@ -90,11 +91,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "query": {
                     "type": "string",
+                    "required": True,
                     "description": "Drive q-query.",
                     "example": "name contains 'budget' and trashed = false",
                 },
                 "max_results": {
                     "type": "integer",
+                    "required": False,
                     "description": "Max results.",
                     "example": 50,
                 },
@@ -114,11 +117,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "file_id": {
                     "type": "string",
+                    "required": True,
                     "description": "File ID.",
                     "example": "",
                 },
                 "fields": {
                     "type": "string",
+                    "required": False,
                     "description": "Comma-separated field list (optional).",
                     "example": "",
                 },
@@ -139,11 +144,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "name": {
                     "type": "string",
+                    "required": True,
                     "description": "Folder name.",
                     "example": "Project Files",
                 },
                 "parent_folder_id": {
                     "type": "string",
+                    "required": False,
                     "description": "Optional parent folder ID.",
                     "example": "",
                 },
@@ -167,21 +174,25 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "file_path": {
                     "type": "string",
+                    "required": True,
                     "description": "Absolute path to the local file.",
                     "example": "C:/Users/me/report.pdf",
                 },
                 "name": {
                     "type": "string",
+                    "required": False,
                     "description": "Drive filename (defaults to local filename).",
                     "example": "",
                 },
                 "mime_type": {
                     "type": "string",
+                    "required": False,
                     "description": "MIME type (defaults to autodetect).",
                     "example": "",
                 },
                 "parent_folder_id": {
                     "type": "string",
+                    "required": False,
                     "description": "Target folder ID (defaults to root).",
                     "example": "",
                 },
@@ -207,16 +218,19 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "file_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Drive file ID to overwrite.",
                     "example": "",
                 },
                 "file_path": {
                     "type": "string",
+                    "required": True,
                     "description": "Absolute path to the new local content.",
                     "example": "C:/Users/me/report_v2.pdf",
                 },
                 "mime_type": {
                     "type": "string",
+                    "required": False,
                     "description": "MIME type (defaults to autodetect).",
                     "example": "",
                 },
@@ -242,11 +256,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "file_id": {
                     "type": "string",
+                    "required": True,
                     "description": "File ID.",
                     "example": "",
                 },
                 "save_to": {
                     "type": "string",
+                    "required": True,
                     "description": (
                         "Local path to save to. Parent directories will be created."
                     ),
@@ -272,16 +288,19 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "file_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Google-native file ID.",
                     "example": "",
                 },
                 "save_to": {
                     "type": "string",
+                    "required": True,
                     "description": "Local path to save to.",
                     "example": "C:/Users/me/report.pdf",
                 },
                 "mime_type": {
                     "type": "string",
+                    "required": True,
                     "description": "Target export MIME type.",
                     "example": "application/pdf",
                 },
@@ -301,16 +320,19 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "file_id": {
                     "type": "string",
+                    "required": True,
                     "description": "File ID to copy.",
                     "example": "",
                 },
                 "name": {
                     "type": "string",
+                    "required": False,
                     "description": "Name for the copy (optional).",
                     "example": "",
                 },
                 "parent_folder_id": {
                     "type": "string",
+                    "required": False,
                     "description": "Target folder ID (optional).",
                     "example": "",
                 },
@@ -332,16 +354,19 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "file_id": {
                     "type": "string",
+                    "required": True,
                     "description": "File ID to move.",
                     "example": "abc123",
                 },
                 "destination_folder_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Destination folder ID.",
                     "example": "def456",
                 },
                 "source_folder_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Current parent folder ID.",
                     "example": "root",
                 },
@@ -366,26 +391,31 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "file_id": {
                     "type": "string",
+                    "required": True,
                     "description": "File ID.",
                     "example": "",
                 },
                 "name": {
                     "type": "string",
+                    "required": False,
                     "description": "New name (optional).",
                     "example": "",
                 },
                 "description": {
                     "type": "string",
+                    "required": False,
                     "description": "New description (optional).",
                     "example": "",
                 },
                 "starred": {
                     "type": "boolean",
+                    "required": False,
                     "description": "Star/unstar (optional).",
                     "example": False,
                 },
                 "trashed": {
                     "type": "boolean",
+                    "required": False,
                     "description": ("Send to trash without deleting (optional)."),
                     "example": False,
                 },
@@ -414,6 +444,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "file_id": {
                     "type": "string",
+                    "required": True,
                     "description": "File ID.",
                     "example": "",
                 },
@@ -446,6 +477,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "include_metadata": {
                     "type": "boolean",
+                    "required": False,
                     "description": (
                         "Include exportFormats/importFormats maps (default false)."
                     ),
@@ -466,11 +498,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "name": {
                     "type": "string",
+                    "required": True,
                     "description": "Name.",
                     "example": "Folder",
                 },
                 "parent_folder_id": {
                     "type": "string",
+                    "required": False,
                     "description": "Parent.",
                     "example": "root",
                 },
@@ -486,6 +520,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "path": {
                     "type": "string",
+                    "required": True,
                     "description": "Path.",
                     "example": "Root/Folder",
                 },
@@ -507,6 +542,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "file_id": {
                     "type": "string",
+                    "required": True,
                     "description": "File or folder ID.",
                     "example": "",
                 },
@@ -522,11 +558,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "file_id": {
                     "type": "string",
+                    "required": True,
                     "description": "File ID.",
                     "example": "",
                 },
                 "permission_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Permission ID.",
                     "example": "",
                 },
@@ -547,36 +585,43 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "file_id": {
                     "type": "string",
+                    "required": True,
                     "description": "File or folder ID.",
                     "example": "",
                 },
                 "role": {
                     "type": "string",
+                    "required": True,
                     "description": "reader, commenter, writer, or owner.",
                     "example": "reader",
                 },
                 "perm_type": {
                     "type": "string",
+                    "required": False,
                     "description": "user, group, domain, or anyone.",
                     "example": "user",
                 },
                 "email_address": {
                     "type": "string",
+                    "required": False,
                     "description": "Email (for user/group types).",
                     "example": "alice@example.com",
                 },
                 "domain": {
                     "type": "string",
+                    "required": False,
                     "description": "Domain (for domain type).",
                     "example": "",
                 },
                 "send_notification": {
                     "type": "boolean",
+                    "required": False,
                     "description": "Email the grantee.",
                     "example": True,
                 },
                 "email_message": {
                     "type": "string",
+                    "required": False,
                     "description": "Custom notification message (optional).",
                     "example": "",
                 },
@@ -603,16 +648,19 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "file_id": {
                     "type": "string",
+                    "required": True,
                     "description": "File ID.",
                     "example": "",
                 },
                 "permission_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Permission ID.",
                     "example": "",
                 },
                 "role": {
                     "type": "string",
+                    "required": True,
                     "description": "New role.",
                     "example": "writer",
                 },
@@ -630,11 +678,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "file_id": {
                     "type": "string",
+                    "required": True,
                     "description": "File ID.",
                     "example": "",
                 },
                 "permission_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Permission ID.",
                     "example": "",
                 },
@@ -651,11 +701,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "file_id": {
                     "type": "string",
+                    "required": True,
                     "description": "File ID.",
                     "example": "",
                 },
                 "include_deleted": {
                     "type": "boolean",
+                    "required": False,
                     "description": "Include soft-deleted comments.",
                     "example": False,
                 },
@@ -675,11 +727,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "file_id": {
                     "type": "string",
+                    "required": True,
                     "description": "File ID.",
                     "example": "",
                 },
                 "comment_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Comment ID.",
                     "example": "",
                 },
@@ -699,16 +753,19 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "file_id": {
                     "type": "string",
+                    "required": True,
                     "description": "File ID.",
                     "example": "",
                 },
                 "content": {
                     "type": "string",
+                    "required": True,
                     "description": "Comment text.",
                     "example": "Please review.",
                 },
                 "anchor": {
                     "type": "string",
+                    "required": False,
                     "description": "Optional anchor (structured format).",
                     "example": "",
                 },
@@ -730,21 +787,25 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "file_id": {
                     "type": "string",
+                    "required": True,
                     "description": "File ID.",
                     "example": "",
                 },
                 "comment_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Comment ID.",
                     "example": "",
                 },
                 "content": {
                     "type": "string",
+                    "required": False,
                     "description": "New content (optional).",
                     "example": "",
                 },
                 "resolved": {
                     "type": "boolean",
+                    "required": False,
                     "description": "Mark as resolved (optional).",
                     "example": True,
                 },
@@ -768,11 +829,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "file_id": {
                     "type": "string",
+                    "required": True,
                     "description": "File ID.",
                     "example": "",
                 },
                 "comment_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Comment ID.",
                     "example": "",
                 },
@@ -788,11 +851,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "file_id": {
                     "type": "string",
+                    "required": True,
                     "description": "File ID.",
                     "example": "",
                 },
                 "comment_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Comment ID.",
                     "example": "",
                 },
@@ -809,16 +874,19 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "file_id": {
                     "type": "string",
+                    "required": True,
                     "description": "File ID.",
                     "example": "",
                 },
                 "comment_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Comment ID.",
                     "example": "",
                 },
                 "content": {
                     "type": "string",
+                    "required": True,
                     "description": "Reply text.",
                     "example": "",
                 },
@@ -835,21 +903,25 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "file_id": {
                     "type": "string",
+                    "required": True,
                     "description": "File ID.",
                     "example": "",
                 },
                 "comment_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Comment ID.",
                     "example": "",
                 },
                 "reply_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Reply ID.",
                     "example": "",
                 },
                 "content": {
                     "type": "string",
+                    "required": True,
                     "description": "New content.",
                     "example": "",
                 },
@@ -867,16 +939,19 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "file_id": {
                     "type": "string",
+                    "required": True,
                     "description": "File ID.",
                     "example": "",
                 },
                 "comment_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Comment ID.",
                     "example": "",
                 },
                 "reply_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Reply ID.",
                     "example": "",
                 },
@@ -893,6 +968,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "file_id": {
                     "type": "string",
+                    "required": True,
                     "description": "File ID.",
                     "example": "",
                 },
@@ -908,11 +984,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "file_id": {
                     "type": "string",
+                    "required": True,
                     "description": "File ID.",
                     "example": "",
                 },
                 "revision_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Revision ID.",
                     "example": "",
                 },
@@ -932,16 +1010,19 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "file_id": {
                     "type": "string",
+                    "required": True,
                     "description": "File ID.",
                     "example": "",
                 },
                 "revision_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Revision ID.",
                     "example": "",
                 },
                 "keep_forever": {
                     "type": "boolean",
+                    "required": False,
                     "description": (
                         "Pin this revision (otherwise Drive auto-prunes after "
                         "100 or 30 days, whichever first)."
@@ -950,11 +1031,13 @@ def build_operations() -> List[Operation]:
                 },
                 "published": {
                     "type": "boolean",
+                    "required": False,
                     "description": "Publish state (Google-native files only).",
                     "example": False,
                 },
                 "publish_auto": {
                     "type": "boolean",
+                    "required": False,
                     "description": "Auto-publish subsequent revisions.",
                     "example": False,
                 },
@@ -979,11 +1062,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "file_id": {
                     "type": "string",
+                    "required": True,
                     "description": "File ID.",
                     "example": "",
                 },
                 "revision_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Revision ID.",
                     "example": "",
                 },
@@ -1000,11 +1085,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "page_size": {
                     "type": "integer",
+                    "required": False,
                     "description": "Max results.",
                     "example": 50,
                 },
                 "q": {
                     "type": "string",
+                    "required": False,
                     "description": "Drive search query (optional).",
                     "example": "",
                 },
@@ -1024,6 +1111,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "drive_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Shared drive ID.",
                     "example": "",
                 },
@@ -1043,6 +1131,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "name": {
                     "type": "string",
+                    "required": True,
                     "description": "Shared drive name.",
                     "example": "Team project",
                 },
@@ -1059,16 +1148,19 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "drive_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Shared drive ID.",
                     "example": "",
                 },
                 "name": {
                     "type": "string",
+                    "required": False,
                     "description": "New name (optional).",
                     "example": "",
                 },
                 "hidden": {
                     "type": "boolean",
+                    "required": False,
                     "description": "Hide from UI (optional).",
                     "example": False,
                 },
@@ -1091,6 +1183,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "drive_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Shared drive ID.",
                     "example": "",
                 },

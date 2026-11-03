@@ -18,17 +18,20 @@ from agent_core import action
     input_schema={
         "method": {
             "type": "string",
+            "required": False,
             "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"],
             "example": "GET",
             "description": "HTTP method to use.",
         },
         "url": {
             "type": "string",
+            "required": True,
             "example": "https://api.example.com/v1/items",
             "description": "Absolute URL to request. Must start with http or https.",
         },
         "headers": {
             "type": "object",
+            "required": False,
             "example": {
                 "Authorization": "Bearer <token>",
                 "Accept": "application/json",
@@ -37,36 +40,43 @@ from agent_core import action
         },
         "params": {
             "type": "object",
+            "required": False,
             "example": {"q": "search", "limit": "10"},
             "description": "Optional query parameters.",
         },
         "json": {
             "type": "object",
+            "required": False,
             "example": {"name": "Widget", "price": 19.99},
             "description": "JSON body to send. Mutually exclusive with 'data'.",
         },
         "data": {
             "type": "string",
+            "required": False,
             "example": "field1=value1&field2=value2",
             "description": "Raw request body (e.g., form-encoded or plain text). Mutually exclusive with 'json'.",
         },
         "timeout": {
             "type": "number",
+            "required": False,
             "example": 30,
             "description": "Timeout in seconds. Defaults to 30.",
         },
         "allow_redirects": {
             "type": "boolean",
+            "required": False,
             "example": True,
             "description": "Whether to follow redirects. Defaults to true.",
         },
         "verify_tls": {
             "type": "boolean",
+            "required": False,
             "example": True,
             "description": "Verify TLS certificates. Defaults to true.",
         },
         "save_to": {
             "type": "string",
+            "required": False,
             "example": "D:/Work/CraftOS/CraftBot/agent_file_system/workspace/tcc.zip",
             "description": (
                 "Optional destination path to save the response body to as raw "
@@ -79,6 +89,7 @@ from agent_core import action
         },
         "include_headers": {
             "type": "boolean",
+            "required": False,
             "example": False,
             "description": (
                 "False (default): 'response_headers' contains only the useful few "

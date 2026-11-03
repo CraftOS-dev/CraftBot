@@ -41,43 +41,44 @@ _MONITORING = "supabase_monitoring"
 # ────────────────────────────────────────────────────────────────────────
 
 
-def _s(description: str, example: str = "") -> Dict[str, Any]:
-    return {"type": "string", "description": description, "example": example}
+def _s(description: str, example: str = "", *, required: bool) -> Dict[str, Any]:
+    return {"type": "string", "required": required, "description": description, "example": example}
 
 
-def _i(description: str, example: int) -> Dict[str, Any]:
-    return {"type": "integer", "description": description, "example": example}
+def _i(description: str, example: int, *, required: bool) -> Dict[str, Any]:
+    return {"type": "integer", "required": required, "description": description, "example": example}
 
 
-def _b(description: str, example: bool = False) -> Dict[str, Any]:
-    return {"type": "boolean", "description": description, "example": example}
+def _b(description: str, example: bool = False, *, required: bool) -> Dict[str, Any]:
+    return {"type": "boolean", "required": required, "description": description, "example": example}
 
 
-def _arr(description: str, example: List[Any]) -> Dict[str, Any]:
-    return {"type": "array", "description": description, "example": example}
+def _arr(description: str, example: List[Any], *, required: bool) -> Dict[str, Any]:
+    return {"type": "array", "required": required, "description": description, "example": example}
 
 
-def _obj(description: str, example: Dict[str, Any]) -> Dict[str, Any]:
-    return {"type": "object", "description": description, "example": example}
+def _obj(description: str, example: Dict[str, Any], *, required: bool) -> Dict[str, Any]:
+    return {"type": "object", "required": required, "description": description, "example": example}
 
 
-def _ref() -> Dict[str, Any]:
+def _ref(*, required: bool) -> Dict[str, Any]:
     return _s(
         "20-character project ref (e.g. from list_supabase_projects). Omit to "
         "use the default project from the integration config.",
         "abcdefghijklmnopqrst",
+        required=required,
     )
 
 
-def _schema() -> Dict[str, Any]:
-    return _s("Postgres schema. Default 'public'.", "public")
+def _schema(*, required: bool) -> Dict[str, Any]:
+    return _s("Postgres schema. Default 'public'.", "public", required=required)
 
 
-def _table() -> Dict[str, Any]:
-    return _s("Table or view name, without the schema prefix.", "orders")
+def _table(*, required: bool) -> Dict[str, Any]:
+    return _s("Table or view name, without the schema prefix.", "orders", required=required)
 
 
-def _filters(example: Dict[str, Any]) -> Dict[str, Any]:
+def _filters(example: Dict[str, Any], *, required: bool) -> Dict[str, Any]:
     return _obj(
         "Row filters in PostgREST syntax: {column: '<op>.<value>'}. Operators: "
         "eq, neq, gt, gte, lt, lte, like, ilike, is, in, cs, cd. Examples: "
@@ -86,25 +87,28 @@ def _filters(example: Dict[str, Any]) -> Dict[str, Any]:
         "(['gte.18', 'lt.65']). Use key 'or' for "
         "'(status.eq.open,priority.gt.3)'.",
         example,
+        required=required,
     )
 
 
-def _bucket() -> Dict[str, Any]:
-    return _s("Storage bucket id (its name).", "avatars")
+def _bucket(*, required: bool) -> Dict[str, Any]:
+    return _s("Storage bucket id (its name).", "avatars", required=required)
 
 
-def _object_path() -> Dict[str, Any]:
+def _object_path(*, required: bool) -> Dict[str, Any]:
     return _s(
         "Object path inside the bucket, '/'-separated, no leading slash.",
         "users/42/profile.png",
+        required=required,
     )
 
 
-def _branch_id() -> Dict[str, Any]:
+def _branch_id(*, required: bool) -> Dict[str, Any]:
     return _s(
         "Branch id (UUID) or the branch's own project ref, from "
         "list_supabase_branches.",
         "0b4c1f9e-2a7d-4c3e-9f10-5d6e7a8b9c0d",
+        required=required,
     )
 
 
@@ -123,7 +127,8 @@ def build_operations() -> List[Operation]:
             ),
             input_schema={
                 "organization_slug": _s(
-                    "Only projects in this organization.", ""
+                    "Only projects in this organization.", "",
+                    required=False,
                 ),
             },
             tags=(_PROJECTS, _UMBRELLA),
@@ -135,7 +140,7 @@ def build_operations() -> List[Operation]:
                 "Get one project by ref: name, region, status (ACTIVE_HEALTHY, "
                 "INACTIVE = paused, …), database host and Postgres version."
             ),
-            input_schema={"project_ref": _ref()},
+            input_schema={"project_ref": _ref(required=False)},
             tags=(_PROJECTS, _UMBRELLA),
         ),
         client_op(
@@ -146,7 +151,7 @@ def build_operations() -> List[Operation]:
                 "values a frontend or mobile app needs to talk to Supabase. "
                 "Never returns the secret/service_role key."
             ),
-            input_schema={"project_ref": _ref()},
+            input_schema={"project_ref": _ref(required=False)},
             tags=(_PROJECTS, _UMBRELLA),
         ),
         client_op(
@@ -160,24 +165,28 @@ def build_operations() -> List[Operation]:
                 "generated_db_password."
             ),
             input_schema={
-                "name": _s("Project name.", "acme-prod"),
+                "name": _s("Project name.", "acme-prod", required=True),
                 "organization_slug": _s(
                     "Organization slug from list_supabase_organizations.",
                     "acme-inc",
+                    required=True,
                 ),
                 "db_pass": _s(
-                    "Database password. Omit to generate a strong one.", ""
+                    "Database password. Omit to generate a strong one.", "",
+                    required=False,
                 ),
                 "region": _s(
                     "Region code (e.g. 'us-east-1', 'eu-central-1') or a "
                     "smart group ('americas', 'emea', 'apac'). See "
                     "list_supabase_regions.",
                     "us-east-1",
+                    required=False,
                 ),
                 "desired_instance_size": _s(
                     "Compute size (nano, micro, small, medium, large, …). "
                     "Omit for the plan default.",
                     "",
+                    required=False,
                 ),
             },
             parallelizable=False,
@@ -188,8 +197,8 @@ def build_operations() -> List[Operation]:
             "update_project",
             description="Rename a Supabase project. Returns its id, ref and new name.",
             input_schema={
-                "name": _s("New project name.", "acme-production"),
-                "project_ref": _ref(),
+                "name": _s("New project name.", "acme-production", required=True),
+                "project_ref": _ref(required=False),
             },
             parallelizable=False,
             tags=(_PROJECTS,),
@@ -207,6 +216,7 @@ def build_operations() -> List[Operation]:
                 "project_ref": _s(
                     "20-character ref of the project to delete. Required.",
                     "abcdefghijklmnopqrst",
+                    required=True,
                 ),
             },
             destructive=True,
@@ -221,7 +231,7 @@ def build_operations() -> List[Operation]:
                 "restored. Data is kept. Use restore_supabase_project to "
                 "bring it back."
             ),
-            input_schema={"project_ref": _ref()},
+            input_schema={"project_ref": _ref(required=False)},
             destructive=True,
             parallelizable=False,
             tags=(_PROJECTS,),
@@ -234,7 +244,7 @@ def build_operations() -> List[Operation]:
                 "minutes; poll get_supabase_project until ACTIVE_HEALTHY. "
                 "This is not a backup restore."
             ),
-            input_schema={"project_ref": _ref()},
+            input_schema={"project_ref": _ref(required=False)},
             parallelizable=False,
             tags=(_PROJECTS,),
         ),
@@ -245,7 +255,7 @@ def build_operations() -> List[Operation]:
                 "Restart a project's services (database, API, auth). Causes a "
                 "short outage. Use after config changes that require it."
             ),
-            input_schema={"project_ref": _ref()},
+            input_schema={"project_ref": _ref(required=False)},
             parallelizable=False,
             tags=(_PROJECTS,),
         ),
@@ -259,9 +269,10 @@ def build_operations() -> List[Operation]:
             ),
             input_schema={
                 "services": _arr(
-                    "Subset of services to check. Omit for all.", ["db", "rest"]
+                    "Subset of services to check. Omit for all.", ["db", "rest"],
+                    required=False,
                 ),
-                "project_ref": _ref(),
+                "project_ref": _ref(required=False),
             },
             tags=(_PROJECTS,),
         ),
@@ -273,9 +284,10 @@ def build_operations() -> List[Operation]:
                 "Supabase's recommendation. Use before create_supabase_project."
             ),
             input_schema={
-                "organization_slug": _s("Organization slug.", "acme-inc"),
+                "organization_slug": _s("Organization slug.", "acme-inc", required=True),
                 "continent": _s(
-                    "Bias the recommendation: NA, SA, EU, AF, AS, OC.", "EU"
+                    "Bias the recommendation: NA, SA, EU, AF, AS, OC.", "EU",
+                    required=False,
                 ),
             },
             tags=(_PROJECTS,),
@@ -298,7 +310,7 @@ def build_operations() -> List[Operation]:
                 "and whether MFA is enabled."
             ),
             input_schema={
-                "organization_slug": _s("Organization slug.", "acme-inc"),
+                "organization_slug": _s("Organization slug.", "acme-inc", required=True),
             },
             tags=(_PROJECTS,),
         ),
@@ -314,9 +326,10 @@ def build_operations() -> List[Operation]:
             ),
             input_schema={
                 "service": _s(
-                    "auth | postgrest | realtime | storage | postgres.", "auth"
+                    "auth | postgrest | realtime | storage | postgres.", "auth",
+                    required=True,
                 ),
-                "project_ref": _ref(),
+                "project_ref": _ref(required=False),
             },
             tags=(_PROJECTS,),
         ),
@@ -332,14 +345,16 @@ def build_operations() -> List[Operation]:
             ),
             input_schema={
                 "service": _s(
-                    "auth | postgrest | realtime | storage | postgres.", "auth"
+                    "auth | postgrest | realtime | storage | postgres.", "auth",
+                    required=True,
                 ),
                 "config": _obj(
                     "Fields to change, using the names from "
                     "get_supabase_service_config.",
                     {"site_url": "https://app.acme.com"},
+                    required=True,
                 ),
-                "project_ref": _ref(),
+                "project_ref": _ref(required=False),
             },
             parallelizable=False,
             tags=(_PROJECTS,),
@@ -361,9 +376,10 @@ def build_operations() -> List[Operation]:
                     "SQL to run. Use $1, $2 placeholders with 'parameters' "
                     "for any user-supplied values.",
                     "select status, count(*) from public.orders group by 1",
+                    required=True,
                 ),
-                "parameters": _arr("Values for $1, $2, … placeholders.", []),
-                "project_ref": _ref(),
+                "parameters": _arr("Values for $1, $2, … placeholders.", [], required=False),
+                "project_ref": _ref(required=False),
             },
             tags=(_DATABASE, _UMBRELLA),
         ),
@@ -386,9 +402,10 @@ def build_operations() -> List[Operation]:
                 "query": _s(
                     "SQL to run. Use $1, $2 placeholders with 'parameters'.",
                     "update public.orders set status = 'shipped' where id = $1",
+                    required=True,
                 ),
-                "parameters": _arr("Values for $1, $2, … placeholders.", [42]),
-                "project_ref": _ref(),
+                "parameters": _arr("Values for $1, $2, … placeholders.", [42], required=False),
+                "project_ref": _ref(required=False),
             },
             destructive=True,
             parallelizable=False,
@@ -404,9 +421,10 @@ def build_operations() -> List[Operation]:
             ),
             input_schema={
                 "schemas": _arr(
-                    "Schemas to list. Default ['public'].", ["public"]
+                    "Schemas to list. Default ['public'].", ["public"],
+                    required=False,
                 ),
-                "project_ref": _ref(),
+                "project_ref": _ref(required=False),
             },
             tags=(_DATABASE, _UMBRELLA),
         ),
@@ -419,9 +437,9 @@ def build_operations() -> List[Operation]:
                 "indexes, RLS status and policies, and triggers."
             ),
             input_schema={
-                "table": _table(),
-                "schema": _schema(),
-                "project_ref": _ref(),
+                "table": _table(required=True),
+                "schema": _schema(required=False),
+                "project_ref": _ref(required=False),
             },
             tags=(_DATABASE, _UMBRELLA),
         ),
@@ -433,7 +451,7 @@ def build_operations() -> List[Operation]:
                 "ones first, with installed and default versions. Enable one "
                 "with apply_supabase_migration ('create extension …')."
             ),
-            input_schema={"project_ref": _ref()},
+            input_schema={"project_ref": _ref(required=False)},
             tags=(_DATABASE,),
         ),
         client_op(
@@ -445,8 +463,8 @@ def build_operations() -> List[Operation]:
                 "<source text>}."
             ),
             input_schema={
-                "schemas": _arr("Schemas to include. Default ['public'].", ["public"]),
-                "project_ref": _ref(),
+                "schemas": _arr("Schemas to include. Default ['public'].", ["public"], required=False),
+                "project_ref": _ref(required=False),
             },
             tags=(_DATABASE,),
         ),
@@ -458,7 +476,7 @@ def build_operations() -> List[Operation]:
                 "recovery is enabled. Read-only; restoring is done from the "
                 "Supabase dashboard."
             ),
-            input_schema={"project_ref": _ref()},
+            input_schema={"project_ref": _ref(required=False)},
             tags=(_DATABASE,),
         ),
         # ═════════════════════════════════════════════════════════════
@@ -471,7 +489,7 @@ def build_operations() -> List[Operation]:
                 "List migrations applied to the project's database, oldest "
                 "first. Returns version (timestamp string) and name."
             ),
-            input_schema={"project_ref": _ref()},
+            input_schema={"project_ref": _ref(required=False)},
             tags=(_MIGRATIONS, _UMBRELLA),
         ),
         client_op(
@@ -483,8 +501,8 @@ def build_operations() -> List[Operation]:
             ),
             input_schema={
                 "version": _s("Migration version from list_supabase_migrations.",
-                              "20250312000000"),
-                "project_ref": _ref(),
+                              "20250312000000", required=True),
+                "project_ref": _ref(required=False),
             },
             tags=(_MIGRATIONS,),
         ),
@@ -504,13 +522,15 @@ def build_operations() -> List[Operation]:
                     "Migration SQL.",
                     "create table public.widgets (id bigint generated always "
                     "as identity primary key, name text not null);",
+                    required=True,
                 ),
-                "name": _s("snake_case migration name.", "create_widgets_table"),
+                "name": _s("snake_case migration name.", "create_widgets_table", required=False),
                 "rollback": _s(
                     "SQL that undoes this migration.",
                     "drop table if exists public.widgets;",
+                    required=False,
                 ),
-                "project_ref": _ref(),
+                "project_ref": _ref(required=False),
             },
             parallelizable=False,
             tags=(_MIGRATIONS, _UMBRELLA),
@@ -530,8 +550,9 @@ def build_operations() -> List[Operation]:
                 "from_version": _s(
                     "Oldest migration version to roll back (inclusive).",
                     "20250312000000",
+                    required=True,
                 ),
-                "project_ref": _ref(),
+                "project_ref": _ref(required=False),
             },
             destructive=True,
             parallelizable=False,
@@ -551,22 +572,24 @@ def build_operations() -> List[Operation]:
                 "run_supabase_sql_readonly."
             ),
             input_schema={
-                "table": _table(),
+                "table": _table(required=True),
                 "columns": _s(
                     "PostgREST select list; supports embedded relations "
                     "('id,total,customer:customers(name)'). Default '*'.",
                     "id,status,total",
+                    required=False,
                 ),
-                "filters": _filters({"status": "eq.open"}),
+                "filters": _filters({"status": "eq.open"}, required=False),
                 "order": _s(
                     "Ordering, e.g. 'created_at.desc' or 'name.asc,id.desc'.",
                     "created_at.desc",
+                    required=False,
                 ),
-                "limit": _i("Max rows (default 30, capped by config max_rows).", 30),
-                "offset": _i("Rows to skip; pass next_offset to page.", 0),
-                "count": _b("Also return the exact total matching rows.", False),
-                "schema": _schema(),
-                "project_ref": _ref(),
+                "limit": _i("Max rows (default 30, capped by config max_rows).", 30, required=False),
+                "offset": _i("Rows to skip; pass next_offset to page.", 0, required=False),
+                "count": _b("Also return the exact total matching rows.", False, required=False),
+                "schema": _schema(required=False),
+                "project_ref": _ref(required=False),
             },
             tags=(_ROWS, _UMBRELLA),
         ),
@@ -580,19 +603,21 @@ def build_operations() -> List[Operation]:
                 "the inserted rows."
             ),
             input_schema={
-                "table": _table(),
+                "table": _table(required=True),
                 "rows": _arr(
                     "Rows to insert (a single object is also accepted).",
                     [{"name": "Widget", "price": 9.5}],
+                    required=True,
                 ),
-                "upsert": _b("Merge into existing rows on conflict.", False),
+                "upsert": _b("Merge into existing rows on conflict.", False, required=False),
                 "on_conflict": _s(
                     "Comma-separated unique columns for upsert. Default: "
                     "primary key.",
                     "",
+                    required=False,
                 ),
-                "schema": _schema(),
-                "project_ref": _ref(),
+                "schema": _schema(required=False),
+                "project_ref": _ref(required=False),
             },
             parallelizable=False,
             tags=(_ROWS, _UMBRELLA),
@@ -606,11 +631,11 @@ def build_operations() -> List[Operation]:
                 "RLS. Returns the updated rows."
             ),
             input_schema={
-                "table": _table(),
-                "values": _obj("Columns to set.", {"status": "shipped"}),
-                "filters": _filters({"id": "eq.42"}),
-                "schema": _schema(),
-                "project_ref": _ref(),
+                "table": _table(required=True),
+                "values": _obj("Columns to set.", {"status": "shipped"}, required=True),
+                "filters": _filters({"id": "eq.42"}, required=True),
+                "schema": _schema(required=False),
+                "project_ref": _ref(required=False),
             },
             parallelizable=False,
             tags=(_ROWS, _UMBRELLA),
@@ -624,10 +649,10 @@ def build_operations() -> List[Operation]:
                 "deleted rows."
             ),
             input_schema={
-                "table": _table(),
-                "filters": _filters({"id": "eq.42"}),
-                "schema": _schema(),
-                "project_ref": _ref(),
+                "table": _table(required=True),
+                "filters": _filters({"id": "eq.42"}, required=True),
+                "schema": _schema(required=False),
+                "project_ref": _ref(required=False),
             },
             destructive=True,
             parallelizable=False,
@@ -642,10 +667,10 @@ def build_operations() -> List[Operation]:
                 "function's result."
             ),
             input_schema={
-                "function": _s("Function name.", "get_monthly_revenue"),
-                "args": _obj("Named arguments.", {"month": "2026-09"}),
-                "schema": _schema(),
-                "project_ref": _ref(),
+                "function": _s("Function name.", "get_monthly_revenue", required=True),
+                "args": _obj("Named arguments.", {"month": "2026-09"}, required=False),
+                "schema": _schema(required=False),
+                "project_ref": _ref(required=False),
             },
             parallelizable=False,
             tags=(_ROWS,),
@@ -660,7 +685,7 @@ def build_operations() -> List[Operation]:
                 "List storage buckets: id, public flag, file size limit and "
                 "allowed MIME types."
             ),
-            input_schema={"project_ref": _ref()},
+            input_schema={"project_ref": _ref(required=False)},
             tags=(_STORAGE,),
         ),
         client_op(
@@ -671,13 +696,14 @@ def build_operations() -> List[Operation]:
                 "readable by URL without auth. Returns the bucket name."
             ),
             input_schema={
-                "name": _s("Bucket id/name (lowercase, no spaces).", "avatars"),
-                "public": _b("Files readable without auth.", False),
-                "file_size_limit": _i("Max file size in bytes.", 5242880),
+                "name": _s("Bucket id/name (lowercase, no spaces).", "avatars", required=True),
+                "public": _b("Files readable without auth.", False, required=False),
+                "file_size_limit": _i("Max file size in bytes.", 5242880, required=False),
                 "allowed_mime_types": _arr(
-                    "Accepted MIME types; wildcards ok.", ["image/*"]
+                    "Accepted MIME types; wildcards ok.", ["image/*"],
+                    required=False,
                 ),
-                "project_ref": _ref(),
+                "project_ref": _ref(required=False),
             },
             parallelizable=False,
             tags=(_STORAGE,),
@@ -690,11 +716,11 @@ def build_operations() -> List[Operation]:
                 "types. Unspecified settings are kept."
             ),
             input_schema={
-                "name": _bucket(),
-                "public": _b("Files readable without auth.", False),
-                "file_size_limit": _i("Max file size in bytes.", 10485760),
-                "allowed_mime_types": _arr("Accepted MIME types.", ["image/*"]),
-                "project_ref": _ref(),
+                "name": _bucket(required=True),
+                "public": _b("Files readable without auth.", False, required=False),
+                "file_size_limit": _i("Max file size in bytes.", 10485760, required=False),
+                "allowed_mime_types": _arr("Accepted MIME types.", ["image/*"], required=False),
+                "project_ref": _ref(required=False),
             },
             parallelizable=False,
             tags=(_STORAGE,),
@@ -706,7 +732,7 @@ def build_operations() -> List[Operation]:
                 "Delete a storage bucket. It must be empty — call "
                 "empty_supabase_bucket first."
             ),
-            input_schema={"name": _bucket(), "project_ref": _ref()},
+            input_schema={"name": _bucket(required=True), "project_ref": _ref(required=False)},
             destructive=True,
             parallelizable=False,
             tags=(_STORAGE,),
@@ -718,7 +744,7 @@ def build_operations() -> List[Operation]:
                 "Permanently delete every file in a bucket (the bucket itself "
                 "stays). Irreversible — confirm with the user first."
             ),
-            input_schema={"name": _bucket(), "project_ref": _ref()},
+            input_schema={"name": _bucket(required=True), "project_ref": _ref(required=False)},
             destructive=True,
             parallelizable=False,
             tags=(_STORAGE,),
@@ -732,12 +758,12 @@ def build_operations() -> List[Operation]:
                 "next. Returns name, size/mimetype metadata and timestamps."
             ),
             input_schema={
-                "bucket": _bucket(),
-                "prefix": _s("Folder path to list. Default: bucket root.", "users/42"),
-                "search": _s("Only names containing this text.", ""),
-                "limit": _i("Max entries (default 100, max 1000).", 100),
-                "offset": _i("Entries to skip.", 0),
-                "project_ref": _ref(),
+                "bucket": _bucket(required=True),
+                "prefix": _s("Folder path to list. Default: bucket root.", "users/42", required=False),
+                "search": _s("Only names containing this text.", "", required=False),
+                "limit": _i("Max entries (default 100, max 1000).", 100, required=False),
+                "offset": _i("Entries to skip.", 0, required=False),
+                "project_ref": _ref(required=False),
             },
             tags=(_STORAGE, _UMBRELLA),
         ),
@@ -750,15 +776,16 @@ def build_operations() -> List[Operation]:
                 "path, size and content type."
             ),
             input_schema={
-                "bucket": _bucket(),
-                "path": _object_path(),
+                "bucket": _bucket(required=True),
+                "path": _object_path(required=True),
                 "file_path": _s(
                     "Absolute local path of the file to upload.",
                     "/home/user/workspace/profile.png",
+                    required=True,
                 ),
-                "upsert": _b("Overwrite an existing object.", False),
-                "content_type": _s("MIME type. Default: guessed from name.", ""),
-                "project_ref": _ref(),
+                "upsert": _b("Overwrite an existing object.", False, required=False),
+                "content_type": _s("MIME type. Default: guessed from name.", "", required=False),
+                "project_ref": _ref(required=False),
             },
             parallelizable=False,
             tags=(_STORAGE, _UMBRELLA),
@@ -771,13 +798,14 @@ def build_operations() -> List[Operation]:
                 "saved_to, size and content type."
             ),
             input_schema={
-                "bucket": _bucket(),
-                "path": _object_path(),
+                "bucket": _bucket(required=True),
+                "path": _object_path(required=True),
                 "save_to": _s(
                     "Absolute local path to write.",
                     "/home/user/workspace/profile.png",
+                    required=True,
                 ),
-                "project_ref": _ref(),
+                "project_ref": _ref(required=False),
             },
             tags=(_STORAGE, _UMBRELLA),
         ),
@@ -789,9 +817,9 @@ def build_operations() -> List[Operation]:
                 "Returns the deleted objects."
             ),
             input_schema={
-                "bucket": _bucket(),
-                "paths": _arr("Object paths to delete.", ["users/42/old.png"]),
-                "project_ref": _ref(),
+                "bucket": _bucket(required=True),
+                "paths": _arr("Object paths to delete.", ["users/42/old.png"], required=True),
+                "project_ref": _ref(required=False),
             },
             destructive=True,
             parallelizable=False,
@@ -805,11 +833,11 @@ def build_operations() -> List[Operation]:
                 "with to_bucket."
             ),
             input_schema={
-                "bucket": _bucket(),
-                "from_path": _object_path(),
-                "to_path": _s("New object path.", "users/42/avatar.png"),
-                "to_bucket": _s("Destination bucket if different.", ""),
-                "project_ref": _ref(),
+                "bucket": _bucket(required=True),
+                "from_path": _object_path(required=True),
+                "to_path": _s("New object path.", "users/42/avatar.png", required=True),
+                "to_bucket": _s("Destination bucket if different.", "", required=False),
+                "project_ref": _ref(required=False),
             },
             parallelizable=False,
             tags=(_STORAGE,),
@@ -822,11 +850,11 @@ def build_operations() -> List[Operation]:
                 "bucket with to_bucket."
             ),
             input_schema={
-                "bucket": _bucket(),
-                "from_path": _object_path(),
-                "to_path": _s("Destination object path.", "backups/profile.png"),
-                "to_bucket": _s("Destination bucket if different.", ""),
-                "project_ref": _ref(),
+                "bucket": _bucket(required=True),
+                "from_path": _object_path(required=True),
+                "to_path": _s("Destination object path.", "backups/profile.png", required=True),
+                "to_bucket": _s("Destination bucket if different.", "", required=False),
+                "project_ref": _ref(required=False),
             },
             parallelizable=False,
             tags=(_STORAGE,),
@@ -840,10 +868,10 @@ def build_operations() -> List[Operation]:
                 "permanent public URL form (works only for public buckets)."
             ),
             input_schema={
-                "bucket": _bucket(),
-                "path": _object_path(),
-                "expires_in": _i("Validity in seconds (default 3600).", 3600),
-                "project_ref": _ref(),
+                "bucket": _bucket(required=True),
+                "path": _object_path(required=True),
+                "expires_in": _i("Validity in seconds (default 3600).", 3600, required=False),
+                "project_ref": _ref(required=False),
             },
             parallelizable=False,
             tags=(_STORAGE,),
@@ -860,9 +888,9 @@ def build_operations() -> List[Operation]:
                 "metadata. Paged; returns next_page when more exist."
             ),
             input_schema={
-                "page": _i("Page number, from 1.", 1),
-                "per_page": _i("Users per page (default 50, max 1000).", 50),
-                "project_ref": _ref(),
+                "page": _i("Page number, from 1.", 1, required=False),
+                "per_page": _i("Users per page (default 50, max 1000).", 50, required=False),
+                "project_ref": _ref(required=False),
             },
             tags=(_AUTH, _UMBRELLA),
         ),
@@ -871,8 +899,8 @@ def build_operations() -> List[Operation]:
             "get_user",
             description="Get one auth user by UUID, including identities and metadata.",
             input_schema={
-                "user_id": _s("User UUID.", "7f3c2a10-1b2c-4d5e-8f90-a1b2c3d4e5f6"),
-                "project_ref": _ref(),
+                "user_id": _s("User UUID.", "7f3c2a10-1b2c-4d5e-8f90-a1b2c3d4e5f6", required=True),
+                "project_ref": _ref(required=False),
             },
             tags=(_AUTH,),
         ),
@@ -885,16 +913,16 @@ def build_operations() -> List[Operation]:
                 "new user."
             ),
             input_schema={
-                "email": _s("Email address.", "jane@example.com"),
-                "phone": _s("Phone in E.164.", ""),
-                "password": _s("Initial password.", ""),
-                "email_confirm": _b("Mark the email as confirmed.", True),
-                "phone_confirm": _b("Mark the phone as confirmed.", False),
+                "email": _s("Email address.", "jane@example.com", required=False),
+                "phone": _s("Phone in E.164.", "", required=False),
+                "password": _s("Initial password.", "", required=False),
+                "email_confirm": _b("Mark the email as confirmed.", True, required=False),
+                "phone_confirm": _b("Mark the phone as confirmed.", False, required=False),
                 "user_metadata": _obj("Profile data the user can edit.",
-                                      {"full_name": "Jane Doe"}),
+                                      {"full_name": "Jane Doe"}, required=False),
                 "app_metadata": _obj("Server-controlled data (roles, plan).",
-                                     {"role": "admin"}),
-                "project_ref": _ref(),
+                                     {"role": "admin"}, required=False),
+                "project_ref": _ref(required=False),
             },
             parallelizable=False,
             tags=(_AUTH,),
@@ -908,16 +936,16 @@ def build_operations() -> List[Operation]:
                 "'876000h' to ban, 'none' to unban). Returns the user."
             ),
             input_schema={
-                "user_id": _s("User UUID.", "7f3c2a10-1b2c-4d5e-8f90-a1b2c3d4e5f6"),
-                "email": _s("New email.", ""),
-                "phone": _s("New phone.", ""),
-                "password": _s("New password.", ""),
-                "email_confirm": _b("Mark the email as confirmed.", True),
-                "phone_confirm": _b("Mark the phone as confirmed.", False),
-                "user_metadata": _obj("Replaces user_metadata.", {}),
-                "app_metadata": _obj("Replaces app_metadata.", {}),
-                "ban_duration": _s("Ban length, or 'none' to lift a ban.", ""),
-                "project_ref": _ref(),
+                "user_id": _s("User UUID.", "7f3c2a10-1b2c-4d5e-8f90-a1b2c3d4e5f6", required=True),
+                "email": _s("New email.", "", required=False),
+                "phone": _s("New phone.", "", required=False),
+                "password": _s("New password.", "", required=False),
+                "email_confirm": _b("Mark the email as confirmed.", True, required=False),
+                "phone_confirm": _b("Mark the phone as confirmed.", False, required=False),
+                "user_metadata": _obj("Replaces user_metadata.", {}, required=False),
+                "app_metadata": _obj("Replaces app_metadata.", {}, required=False),
+                "ban_duration": _s("Ban length, or 'none' to lift a ban.", "", required=False),
+                "project_ref": _ref(required=False),
             },
             parallelizable=False,
             tags=(_AUTH,),
@@ -930,9 +958,9 @@ def build_operations() -> List[Operation]:
                 "(anonymised) so foreign keys don't break."
             ),
             input_schema={
-                "user_id": _s("User UUID.", "7f3c2a10-1b2c-4d5e-8f90-a1b2c3d4e5f6"),
-                "soft_delete": _b("Soft delete instead of hard delete.", False),
-                "project_ref": _ref(),
+                "user_id": _s("User UUID.", "7f3c2a10-1b2c-4d5e-8f90-a1b2c3d4e5f6", required=True),
+                "soft_delete": _b("Soft delete instead of hard delete.", False, required=False),
+                "project_ref": _ref(required=False),
             },
             destructive=True,
             parallelizable=False,
@@ -947,14 +975,15 @@ def build_operations() -> List[Operation]:
                 "invited user."
             ),
             input_schema={
-                "email": _s("Email to invite.", "jane@example.com"),
+                "email": _s("Email to invite.", "jane@example.com", required=True),
                 "redirect_to": _s(
                     "URL to land on after accepting; must be in the auth "
                     "redirect allow-list.",
                     "https://app.acme.com/welcome",
+                    required=False,
                 ),
-                "data": _obj("Initial user_metadata.", {}),
-                "project_ref": _ref(),
+                "data": _obj("Initial user_metadata.", {}, required=False),
+                "project_ref": _ref(required=False),
             },
             parallelizable=False,
             tags=(_AUTH,),
@@ -973,13 +1002,14 @@ def build_operations() -> List[Operation]:
                     "signup | magiclink | recovery | invite | "
                     "email_change_current | email_change_new.",
                     "magiclink",
+                    required=True,
                 ),
-                "email": _s("User email.", "jane@example.com"),
-                "password": _s("Required for type 'signup'.", ""),
-                "new_email": _s("Required for email_change types.", ""),
-                "redirect_to": _s("Post-action redirect URL.", ""),
-                "data": _obj("user_metadata for signup/invite.", {}),
-                "project_ref": _ref(),
+                "email": _s("User email.", "jane@example.com", required=True),
+                "password": _s("Required for type 'signup'.", "", required=False),
+                "new_email": _s("Required for email_change types.", "", required=False),
+                "redirect_to": _s("Post-action redirect URL.", "", required=False),
+                "data": _obj("user_metadata for signup/invite.", {}, required=False),
+                "project_ref": _ref(required=False),
             },
             parallelizable=False,
             tags=(_AUTH,),
@@ -994,7 +1024,7 @@ def build_operations() -> List[Operation]:
                 "List the project's edge functions: slug (the identifier), "
                 "name, status, version, verify_jwt and timestamps."
             ),
-            input_schema={"project_ref": _ref()},
+            input_schema={"project_ref": _ref(required=False)},
             tags=(_FUNCTIONS, _UMBRELLA),
         ),
         client_op(
@@ -1006,8 +1036,8 @@ def build_operations() -> List[Operation]:
                 "through the API."
             ),
             input_schema={
-                "slug": _s("Function slug.", "hello-world"),
-                "project_ref": _ref(),
+                "slug": _s("Function slug.", "hello-world", required=True),
+                "project_ref": _ref(required=False),
             },
             tags=(_FUNCTIONS,),
         ),
@@ -1021,7 +1051,7 @@ def build_operations() -> List[Operation]:
                 "Returns the function with its new version."
             ),
             input_schema={
-                "slug": _s("Function slug (letters, digits, - and _).", "hello-world"),
+                "slug": _s("Function slug (letters, digits, - and _).", "hello-world", required=True),
                 "files": _obj(
                     "Source files keyed by path relative to the function root.",
                     {
@@ -1029,20 +1059,23 @@ def build_operations() -> List[Operation]:
                         "JSON.stringify({ ok: true }), { headers: { "
                         "'Content-Type': 'application/json' } }))"
                     },
+                    required=False,
                 ),
                 "source_dir": _s(
                     "Alternative to 'files': local folder holding the function.",
                     "",
+                    required=False,
                 ),
-                "entrypoint": _s("Entrypoint file. Default 'index.ts'.", "index.ts"),
-                "name": _s("Display name. Default: the slug.", ""),
+                "entrypoint": _s("Entrypoint file. Default 'index.ts'.", "index.ts", required=False),
+                "name": _s("Display name. Default: the slug.", "", required=False),
                 "verify_jwt": _b(
                     "Require a valid JWT in Authorization. Set false for "
                     "public webhooks.",
                     True,
+                    required=False,
                 ),
-                "import_map_path": _s("Import map / deno.json path, if any.", ""),
-                "project_ref": _ref(),
+                "import_map_path": _s("Import map / deno.json path, if any.", "", required=False),
+                "project_ref": _ref(required=False),
             },
             parallelizable=False,
             tags=(_FUNCTIONS, _UMBRELLA),
@@ -1055,10 +1088,10 @@ def build_operations() -> List[Operation]:
                 "without redeploying code."
             ),
             input_schema={
-                "slug": _s("Function slug.", "hello-world"),
-                "name": _s("New display name.", ""),
-                "verify_jwt": _b("Require a valid JWT.", True),
-                "project_ref": _ref(),
+                "slug": _s("Function slug.", "hello-world", required=True),
+                "name": _s("New display name.", "", required=False),
+                "verify_jwt": _b("Require a valid JWT.", True, required=False),
+                "project_ref": _ref(required=False),
             },
             parallelizable=False,
             tags=(_FUNCTIONS,),
@@ -1068,8 +1101,8 @@ def build_operations() -> List[Operation]:
             "delete_function",
             description="Delete an edge function by slug. Its URL stops working immediately.",
             input_schema={
-                "slug": _s("Function slug.", "hello-world"),
-                "project_ref": _ref(),
+                "slug": _s("Function slug.", "hello-world", required=True),
+                "project_ref": _ref(required=False),
             },
             destructive=True,
             parallelizable=False,
@@ -1084,11 +1117,11 @@ def build_operations() -> List[Operation]:
                 "body. Runs with service-role credentials."
             ),
             input_schema={
-                "slug": _s("Function slug.", "hello-world"),
-                "body": _obj("JSON request body.", {"name": "Jane"}),
-                "method": _s("HTTP method. Default POST.", "POST"),
-                "headers": _obj("Extra request headers.", {}),
-                "project_ref": _ref(),
+                "slug": _s("Function slug.", "hello-world", required=True),
+                "body": _obj("JSON request body.", {"name": "Jane"}, required=False),
+                "method": _s("HTTP method. Default POST.", "POST", required=False),
+                "headers": _obj("Extra request headers.", {}, required=False),
+                "project_ref": _ref(required=False),
             },
             parallelizable=False,
             tags=(_FUNCTIONS, _UMBRELLA),
@@ -1103,7 +1136,7 @@ def build_operations() -> List[Operation]:
                 "List the names of the project's edge-function secrets "
                 "(environment variables). Values are never returned."
             ),
-            input_schema={"project_ref": _ref()},
+            input_schema={"project_ref": _ref(required=False)},
             tags=(_SECRETS,),
         ),
         client_op(
@@ -1116,9 +1149,10 @@ def build_operations() -> List[Operation]:
             ),
             input_schema={
                 "secrets": _obj(
-                    "NAME → value.", {"STRIPE_WEBHOOK_SECRET": "whsec_..."}
+                    "NAME → value.", {"STRIPE_WEBHOOK_SECRET": "whsec_..."},
+                    required=True,
                 ),
-                "project_ref": _ref(),
+                "project_ref": _ref(required=False),
             },
             parallelizable=False,
             tags=(_SECRETS,),
@@ -1128,8 +1162,8 @@ def build_operations() -> List[Operation]:
             "delete_secrets",
             description="Delete edge-function secrets by name.",
             input_schema={
-                "names": _arr("Secret names to delete.", ["OLD_API_KEY"]),
-                "project_ref": _ref(),
+                "names": _arr("Secret names to delete.", ["OLD_API_KEY"], required=True),
+                "project_ref": _ref(required=False),
             },
             destructive=True,
             parallelizable=False,
@@ -1146,7 +1180,7 @@ def build_operations() -> List[Operation]:
                 "own project_ref, git branch, status. Requires branching "
                 "enabled on a paid plan."
             ),
-            input_schema={"project_ref": _ref()},
+            input_schema={"project_ref": _ref(required=False)},
             tags=(_BRANCHES,),
         ),
         client_op(
@@ -1156,7 +1190,7 @@ def build_operations() -> List[Operation]:
                 "Get a branch's database details (host, port, Postgres "
                 "version, status) by branch id or branch ref."
             ),
-            input_schema={"branch_id": _branch_id()},
+            input_schema={"branch_id": _branch_id(required=True)},
             tags=(_BRANCHES,),
         ),
         client_op(
@@ -1168,12 +1202,12 @@ def build_operations() -> List[Operation]:
                 "user. Work on it with its own project_ref."
             ),
             input_schema={
-                "branch_name": _s("Branch name.", "feature-login"),
-                "git_branch": _s("Linked git branch, if any.", ""),
-                "persistent": _b("Keep it instead of auto-pausing.", False),
-                "with_data": _b("Copy production data into the branch.", False),
-                "region": _s("Region code. Default: parent's region.", ""),
-                "project_ref": _ref(),
+                "branch_name": _s("Branch name.", "feature-login", required=True),
+                "git_branch": _s("Linked git branch, if any.", "", required=False),
+                "persistent": _b("Keep it instead of auto-pausing.", False, required=False),
+                "with_data": _b("Copy production data into the branch.", False, required=False),
+                "region": _s("Region code. Default: parent's region.", "", required=False),
+                "project_ref": _ref(required=False),
             },
             parallelizable=False,
             tags=(_BRANCHES,),
@@ -1183,10 +1217,10 @@ def build_operations() -> List[Operation]:
             "update_branch",
             description="Rename a branch, change its git branch, or toggle persistence.",
             input_schema={
-                "branch_id": _branch_id(),
-                "branch_name": _s("New name.", ""),
-                "git_branch": _s("Linked git branch.", ""),
-                "persistent": _b("Keep it running.", True),
+                "branch_id": _branch_id(required=True),
+                "branch_name": _s("New name.", "", required=False),
+                "git_branch": _s("Linked git branch.", "", required=False),
+                "persistent": _b("Keep it running.", True, required=False),
             },
             parallelizable=False,
             tags=(_BRANCHES,),
@@ -1195,7 +1229,7 @@ def build_operations() -> List[Operation]:
             "delete_supabase_branch",
             "delete_branch",
             description="Delete a branch and its database.",
-            input_schema={"branch_id": _branch_id()},
+            input_schema={"branch_id": _branch_id(required=True)},
             destructive=True,
             parallelizable=False,
             tags=(_BRANCHES,),
@@ -1209,8 +1243,8 @@ def build_operations() -> List[Operation]:
                 "workflow_run_id."
             ),
             input_schema={
-                "branch_id": _branch_id(),
-                "migration_version": _s("Merge only up to this version.", ""),
+                "branch_id": _branch_id(required=True),
+                "migration_version": _s("Merge only up to this version.", "", required=False),
             },
             parallelizable=False,
             tags=(_BRANCHES,),
@@ -1223,8 +1257,8 @@ def build_operations() -> List[Operation]:
                 "data and untracked changes on the branch."
             ),
             input_schema={
-                "branch_id": _branch_id(),
-                "migration_version": _s("Reset to this version.", ""),
+                "branch_id": _branch_id(required=True),
+                "migration_version": _s("Reset to this version.", "", required=False),
             },
             destructive=True,
             parallelizable=False,
@@ -1238,8 +1272,8 @@ def build_operations() -> List[Operation]:
                 "what merge_supabase_branch would apply."
             ),
             input_schema={
-                "branch_id": _branch_id(),
-                "schemas": _arr("Schemas to diff. Default: all.", ["public"]),
+                "branch_id": _branch_id(required=True),
+                "schemas": _arr("Schemas to diff. Default: all.", ["public"], required=False),
             },
             tags=(_BRANCHES,),
         ),
@@ -1257,12 +1291,12 @@ def build_operations() -> List[Operation]:
                 "Logflare query instead."
             ),
             input_schema={
-                "source": _s("Log source.", "postgres"),
-                "minutes": _i("Look-back window in minutes (max 1440).", 60),
-                "limit": _i("Max log lines (default 100).", 100),
-                "search": _s("Case-insensitive regex on the message.", "error"),
-                "sql": _s("Custom log query; overrides source/search/limit.", ""),
-                "project_ref": _ref(),
+                "source": _s("Log source.", "postgres", required=False),
+                "minutes": _i("Look-back window in minutes (max 1440).", 60, required=False),
+                "limit": _i("Max log lines (default 100).", 100, required=False),
+                "search": _s("Case-insensitive regex on the message.", "error", required=False),
+                "sql": _s("Custom log query; overrides source/search/limit.", "", required=False),
+                "project_ref": _ref(required=False),
             },
             tags=(_MONITORING, _UMBRELLA),
         ),
@@ -1274,7 +1308,7 @@ def build_operations() -> List[Operation]:
                 "that leak data, exposed auth.users, mutable search paths. "
                 "Each finding has a level, description and remediation link."
             ),
-            input_schema={"project_ref": _ref()},
+            input_schema={"project_ref": _ref(required=False)},
             tags=(_MONITORING, _UMBRELLA),
         ),
         client_op(
@@ -1284,7 +1318,7 @@ def build_operations() -> List[Operation]:
                 "Performance lint for the project: unindexed foreign keys, "
                 "unused or duplicate indexes, slow RLS patterns."
             ),
-            input_schema={"project_ref": _ref()},
+            input_schema={"project_ref": _ref(required=False)},
             tags=(_MONITORING,),
         ),
         client_op(
@@ -1295,8 +1329,8 @@ def build_operations() -> List[Operation]:
                 "for an interval: 15min, 30min, 1hr, 3hr, 1day, 3day, 7day."
             ),
             input_schema={
-                "interval": _s("Time window.", "1day"),
-                "project_ref": _ref(),
+                "interval": _s("Time window.", "1day", required=False),
+                "project_ref": _ref(required=False),
             },
             tags=(_MONITORING,),
         ),

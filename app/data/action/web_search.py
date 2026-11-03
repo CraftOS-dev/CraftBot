@@ -20,6 +20,7 @@ from agent_core import action
         },
         "num_results": {
             "type": "integer",
+            "required": False,
             "example": 5,
             "description": "Number of results to return (1-20). Defaults to 5.",
         },

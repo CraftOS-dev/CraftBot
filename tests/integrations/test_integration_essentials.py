@@ -27,34 +27,37 @@ def _ids(block):
     return re.findall(r"^### (\S+)", block, re.M)
 
 
-def test_provider_ids_are_the_provider_directories(essentials):
-    ids = essentials.integration_ids()
-    assert {"gmail", "google_calendar", "discord"} <= ids
-    assert not any(i.startswith(("_", ".")) for i in ids)
-    assert "__pycache__" not in ids
-
-
 @pytest.mark.parametrize(
     "set_names,expected",
     [
         (["github", "github_workflows", "github_releases"], {"github"}),
         (["stripe_disputes", "jira_attachments"], {"stripe", "jira"}),
         (["google_calendar_admin"], {"google_calendar"}),
+        # Read from where the actions live, not from the names:
+        (["lark_sheets"], {"lark_drive"}),
+        (["telegram_messages"], {"telegram_bot", "telegram_user"}),
+        (["whatsapp"], {"whatsapp_web", "whatsapp_business"}),
         (["githubish", "custom_github", "document_processing"], set()),
         ([], set()),
     ],
 )
-def test_provider_ids_for_action_sets(essentials, set_names, expected):
-    assert essentials.integration_ids_for_action_sets(iter(set_names)) == expected
+def test_provider_ids_for_action_sets(essentials, monkeypatch, set_names, expected):
+    from app.action.action_set import action_set_manager
 
-
-def test_subgroups_use_the_longest_provider_id(essentials, monkeypatch):
     monkeypatch.setattr(
-        essentials, "integration_ids", lambda: {"google", "google_calendar"}
+        action_set_manager,
+        "integration_sets",
+        lambda: {
+            "github": ["github", "github_workflows", "github_releases"],
+            "stripe": ["stripe", "stripe_disputes"],
+            "jira": ["jira", "jira_attachments"],
+            "google_calendar": ["google_calendar", "google_calendar_admin"],
+            "lark_drive": ["lark_drive", "lark_sheets"],
+            "telegram": ["telegram", "telegram_messages"],
+            "whatsapp": ["whatsapp"],
+        },
     )
-    assert essentials.integration_ids_for_action_sets(
-        ["google_calendar", "google_calendar_admin", "google_other"]
-    ) == {"google_calendar", "google"}
+    assert essentials.integration_ids_for_action_sets(iter(set_names)) == expected
 
 
 def test_v2_guidance_is_sourced_with_multi_account_rules(essentials):

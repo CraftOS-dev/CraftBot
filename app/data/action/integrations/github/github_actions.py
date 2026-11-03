@@ -12,15 +12,17 @@ from agent_core import action
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
         "state": {
             "type": "string",
+            "required": False,
             "description": "Filter by state: open, closed, all.",
             "example": "open",
         },
-        "per_page": {"type": "integer", "description": "Max results.", "example": 30},
+        "per_page": {"type": "integer", "required": False, "description": "Max results.", "example": 30},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -44,16 +46,19 @@ async def list_github_issues(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
         "number": {
             "type": "integer",
+            "required": True,
             "description": "Issue or PR number.",
             "example": 1,
         },
         "include_metadata": {
             "type": "boolean",
+            "required": False,
             "description": "Return the full raw API payload instead of lean fields.",
             "example": False,
         },
@@ -86,26 +91,31 @@ async def get_github_issue(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
         "title": {
             "type": "string",
+            "required": True,
             "description": "Issue title.",
             "example": "Bug: login fails",
         },
         "body": {
             "type": "string",
+            "required": False,
             "description": "Issue body (markdown).",
             "example": "",
         },
         "labels": {
             "type": "string",
+            "required": False,
             "description": "Comma-separated labels.",
             "example": "bug,urgent",
         },
         "assignees": {
             "type": "string",
+            "required": False,
             "description": "Comma-separated GitHub usernames to assign.",
             "example": "",
         },
@@ -138,37 +148,44 @@ async def create_github_issue(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
-        "number": {"type": "integer", "description": "Issue number.", "example": 1},
+        "number": {"type": "integer", "required": True, "description": "Issue number.", "example": 1},
         "title": {
             "type": "string",
+            "required": False,
             "description": "New title (optional).",
             "example": "",
         },
         "body": {
             "type": "string",
+            "required": False,
             "description": "New body (optional).",
             "example": "",
         },
         "state": {
             "type": "string",
+            "required": False,
             "description": "open or closed (optional).",
             "example": "open",
         },
         "labels": {
             "type": "string",
+            "required": False,
             "description": "Comma-separated labels — REPLACES existing (optional).",
             "example": "",
         },
         "assignees": {
             "type": "string",
+            "required": False,
             "description": "Comma-separated assignees — REPLACES existing (optional).",
             "example": "",
         },
         "milestone": {
             "type": "integer",
+            "required": False,
             "description": "Milestone number (optional, 0 to clear).",
             "example": 0,
         },
@@ -210,10 +227,11 @@ async def update_github_issue(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
-        "number": {"type": "integer", "description": "Issue number.", "example": 1},
+        "number": {"type": "integer", "required": True, "description": "Issue number.", "example": 1},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -234,12 +252,14 @@ async def close_github_issue(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
-        "number": {"type": "integer", "description": "Issue number.", "example": 1},
+        "number": {"type": "integer", "required": True, "description": "Issue number.", "example": 1},
         "lock_reason": {
             "type": "string",
+            "required": False,
             "description": "off-topic, too heated, resolved, or spam.",
             "example": "resolved",
         },
@@ -267,10 +287,11 @@ async def lock_github_issue(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
-        "number": {"type": "integer", "description": "Issue number.", "example": 1},
+        "number": {"type": "integer", "required": True, "description": "Issue number.", "example": 1},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -291,15 +312,17 @@ async def unlock_github_issue(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
         "number": {
             "type": "integer",
+            "required": True,
             "description": "Issue or PR number.",
             "example": 1,
         },
-        "per_page": {"type": "integer", "description": "Max results.", "example": 30},
+        "per_page": {"type": "integer", "required": False, "description": "Max results.", "example": 30},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -328,16 +351,19 @@ async def list_github_issue_events(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
         "number": {
             "type": "integer",
+            "required": True,
             "description": "Issue or PR number.",
             "example": 1,
         },
         "body": {
             "type": "string",
+            "required": True,
             "description": "Comment body (markdown).",
             "example": "Fixed in commit abc123.",
         },
@@ -363,15 +389,17 @@ async def add_github_comment(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
         "number": {
             "type": "integer",
+            "required": True,
             "description": "Issue or PR number.",
             "example": 1,
         },
-        "per_page": {"type": "integer", "description": "Max results.", "example": 30},
+        "per_page": {"type": "integer", "required": False, "description": "Max results.", "example": 30},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -395,16 +423,19 @@ async def list_github_issue_comments(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
         "comment_id": {
             "type": "integer",
+            "required": True,
             "description": "Comment ID (from list_github_issue_comments).",
             "example": 1,
         },
         "body": {
             "type": "string",
+            "required": True,
             "description": "New comment body (markdown).",
             "example": "",
         },
@@ -430,10 +461,11 @@ async def update_github_comment(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
-        "comment_id": {"type": "integer", "description": "Comment ID.", "example": 1},
+        "comment_id": {"type": "integer", "required": True, "description": "Comment ID.", "example": 1},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -459,16 +491,19 @@ async def delete_github_comment(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
         "number": {
             "type": "integer",
+            "required": True,
             "description": "Issue or PR number.",
             "example": 1,
         },
         "labels": {
             "type": "string",
+            "required": True,
             "description": "Comma-separated labels to add.",
             "example": "bug,priority-high",
         },
@@ -496,16 +531,19 @@ async def add_github_labels(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
         "number": {
             "type": "integer",
+            "required": True,
             "description": "Issue or PR number.",
             "example": 1,
         },
         "labels": {
             "type": "string",
+            "required": True,
             "description": "Comma-separated labels — REPLACES existing.",
             "example": "bug,priority-high",
         },
@@ -531,16 +569,19 @@ async def set_github_labels(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
         "number": {
             "type": "integer",
+            "required": True,
             "description": "Issue or PR number.",
             "example": 1,
         },
         "name": {
             "type": "string",
+            "required": True,
             "description": "Label name to remove.",
             "example": "bug",
         },
@@ -571,16 +612,19 @@ async def remove_github_label(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
         "number": {
             "type": "integer",
+            "required": True,
             "description": "Issue or PR number.",
             "example": 1,
         },
         "assignees": {
             "type": "string",
+            "required": True,
             "description": "Comma-separated usernames.",
             "example": "octocat,hubot",
         },
@@ -608,16 +652,19 @@ async def add_github_assignees(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
         "number": {
             "type": "integer",
+            "required": True,
             "description": "Issue or PR number.",
             "example": 1,
         },
         "assignees": {
             "type": "string",
+            "required": True,
             "description": "Comma-separated usernames to remove.",
             "example": "octocat",
         },
@@ -652,10 +699,11 @@ async def remove_github_assignees(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
-        "per_page": {"type": "integer", "description": "Max results.", "example": 30},
+        "per_page": {"type": "integer", "required": False, "description": "Max results.", "example": 30},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -677,21 +725,25 @@ async def list_github_repo_labels(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
         "name": {
             "type": "string",
+            "required": True,
             "description": "Label name.",
             "example": "good first issue",
         },
         "color": {
             "type": "string",
+            "required": False,
             "description": "6-char hex color without #.",
             "example": "0e8a16",
         },
         "description": {
             "type": "string",
+            "required": False,
             "description": "Optional description.",
             "example": "",
         },
@@ -720,26 +772,31 @@ async def create_github_label(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
         "name": {
             "type": "string",
+            "required": True,
             "description": "Existing label name to edit.",
             "example": "bug",
         },
         "new_name": {
             "type": "string",
+            "required": False,
             "description": "New name (optional).",
             "example": "",
         },
         "color": {
             "type": "string",
+            "required": False,
             "description": "New 6-char hex color (optional).",
             "example": "",
         },
         "description": {
             "type": "string",
+            "required": False,
             "description": "New description (optional).",
             "example": "",
         },
@@ -771,11 +828,13 @@ async def update_github_label(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
         "name": {
             "type": "string",
+            "required": True,
             "description": "Label name to delete.",
             "example": "wontfix",
         },
@@ -804,15 +863,17 @@ async def delete_github_label(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
         "state": {
             "type": "string",
+            "required": False,
             "description": "open, closed, all.",
             "example": "open",
         },
-        "per_page": {"type": "integer", "description": "Max results.", "example": 30},
+        "per_page": {"type": "integer", "required": False, "description": "Max results.", "example": 30},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -836,26 +897,31 @@ async def list_github_milestones(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
         "title": {
             "type": "string",
+            "required": True,
             "description": "Milestone title.",
             "example": "v1.0.0",
         },
         "state": {
             "type": "string",
+            "required": False,
             "description": "open or closed.",
             "example": "open",
         },
         "description": {
             "type": "string",
+            "required": False,
             "description": "Description (optional).",
             "example": "",
         },
         "due_on": {
             "type": "string",
+            "required": False,
             "description": "ISO 8601 datetime (optional).",
             "example": "2026-12-31T00:00:00Z",
         },
@@ -885,27 +951,32 @@ async def create_github_milestone(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
-        "number": {"type": "integer", "description": "Milestone number.", "example": 1},
+        "number": {"type": "integer", "required": True, "description": "Milestone number.", "example": 1},
         "title": {
             "type": "string",
+            "required": False,
             "description": "New title (optional).",
             "example": "",
         },
         "state": {
             "type": "string",
+            "required": False,
             "description": "open or closed (optional).",
             "example": "",
         },
         "description": {
             "type": "string",
+            "required": False,
             "description": "New description (optional).",
             "example": "",
         },
         "due_on": {
             "type": "string",
+            "required": False,
             "description": "ISO 8601 datetime (optional).",
             "example": "",
         },
@@ -938,10 +1009,11 @@ async def update_github_milestone(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
-        "number": {"type": "integer", "description": "Milestone number.", "example": 1},
+        "number": {"type": "integer", "required": True, "description": "Milestone number.", "example": 1},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -967,15 +1039,17 @@ async def delete_github_milestone(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
         "state": {
             "type": "string",
+            "required": False,
             "description": "Filter: open, closed, all.",
             "example": "open",
         },
-        "per_page": {"type": "integer", "description": "Max results.", "example": 30},
+        "per_page": {"type": "integer", "required": False, "description": "Max results.", "example": 30},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -999,16 +1073,19 @@ async def list_github_prs(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
         "number": {
             "type": "integer",
+            "required": True,
             "description": "Pull request number.",
             "example": 1,
         },
         "include_metadata": {
             "type": "boolean",
+            "required": False,
             "description": "Return the full raw API payload instead of lean fields.",
             "example": False,
         },
@@ -1041,32 +1118,38 @@ async def get_github_pr(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "TARGET repo in owner/repo format (the repo you're PRing into).",
             "example": "octocat/hello-world",
         },
         "title": {
             "type": "string",
+            "required": True,
             "description": "PR title.",
             "example": "Add CraftBot to list",
         },
         "head": {
             "type": "string",
+            "required": True,
             "description": "Source branch. For fork PRs: 'fork-owner:branch'.",
             "example": "myfork:feature-x",
         },
         "base": {
             "type": "string",
+            "required": True,
             "description": "Target branch in the repo.",
             "example": "main",
         },
         "body": {
             "type": "string",
+            "required": False,
             "description": "PR description (markdown).",
             "example": "",
         },
-        "draft": {"type": "boolean", "description": "Open as draft.", "example": False},
+        "draft": {"type": "boolean", "required": False, "description": "Open as draft.", "example": False},
         "maintainer_can_modify": {
             "type": "boolean",
+            "required": False,
             "description": "Allow upstream maintainers to push to the head branch.",
             "example": True,
         },
@@ -1098,27 +1181,32 @@ async def create_github_pr(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
-        "number": {"type": "integer", "description": "PR number.", "example": 1},
+        "number": {"type": "integer", "required": True, "description": "PR number.", "example": 1},
         "title": {
             "type": "string",
+            "required": False,
             "description": "New title (optional).",
             "example": "",
         },
         "body": {
             "type": "string",
+            "required": False,
             "description": "New body (optional).",
             "example": "",
         },
         "state": {
             "type": "string",
+            "required": False,
             "description": "open or closed (optional).",
             "example": "",
         },
         "base": {
             "type": "string",
+            "required": False,
             "description": "New base branch (optional).",
             "example": "",
         },
@@ -1149,27 +1237,32 @@ async def update_github_pr(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
-        "number": {"type": "integer", "description": "PR number.", "example": 1},
+        "number": {"type": "integer", "required": True, "description": "PR number.", "example": 1},
         "commit_title": {
             "type": "string",
+            "required": False,
             "description": "Custom merge commit title (optional).",
             "example": "",
         },
         "commit_message": {
             "type": "string",
+            "required": False,
             "description": "Custom merge commit body (optional).",
             "example": "",
         },
         "sha": {
             "type": "string",
+            "required": False,
             "description": "Expected SHA of the PR head — merge fails if it doesn't match (optional safety check).",
             "example": "",
         },
         "merge_method": {
             "type": "string",
+            "required": False,
             "description": "merge, squash, or rebase.",
             "example": "merge",
         },
@@ -1200,11 +1293,12 @@ async def merge_github_pr(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
-        "number": {"type": "integer", "description": "PR number.", "example": 1},
-        "per_page": {"type": "integer", "description": "Max results.", "example": 30},
+        "number": {"type": "integer", "required": True, "description": "PR number.", "example": 1},
+        "per_page": {"type": "integer", "required": False, "description": "Max results.", "example": 30},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -1228,11 +1322,12 @@ async def list_github_pr_files(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
-        "number": {"type": "integer", "description": "PR number.", "example": 1},
-        "per_page": {"type": "integer", "description": "Max results.", "example": 30},
+        "number": {"type": "integer", "required": True, "description": "PR number.", "example": 1},
+        "per_page": {"type": "integer", "required": False, "description": "Max results.", "example": 30},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -1256,17 +1351,20 @@ async def list_github_pr_commits(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
-        "number": {"type": "integer", "description": "PR number.", "example": 1},
+        "number": {"type": "integer", "required": True, "description": "PR number.", "example": 1},
         "reviewers": {
             "type": "string",
+            "required": False,
             "description": "Comma-separated usernames.",
             "example": "octocat,hubot",
         },
         "team_reviewers": {
             "type": "string",
+            "required": False,
             "description": "Comma-separated team slugs (optional).",
             "example": "",
         },
@@ -1298,17 +1396,20 @@ async def request_github_pr_reviewers(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
-        "number": {"type": "integer", "description": "PR number.", "example": 1},
+        "number": {"type": "integer", "required": True, "description": "PR number.", "example": 1},
         "reviewers": {
             "type": "string",
+            "required": False,
             "description": "Comma-separated usernames.",
             "example": "octocat",
         },
         "team_reviewers": {
             "type": "string",
+            "required": False,
             "description": "Comma-separated team slugs (optional).",
             "example": "",
         },
@@ -1340,17 +1441,20 @@ async def remove_github_pr_reviewers(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
-        "number": {"type": "integer", "description": "PR number.", "example": 1},
+        "number": {"type": "integer", "required": True, "description": "PR number.", "example": 1},
         "body": {
             "type": "string",
+            "required": False,
             "description": "Top-level review comment.",
             "example": "LGTM!",
         },
         "event": {
             "type": "string",
+            "required": False,
             "description": "APPROVE, REQUEST_CHANGES, or COMMENT. Omit to create a pending draft.",
             "example": "APPROVE",
         },
@@ -1379,11 +1483,12 @@ async def create_github_pr_review(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
-        "number": {"type": "integer", "description": "PR number.", "example": 1},
-        "per_page": {"type": "integer", "description": "Max results.", "example": 30},
+        "number": {"type": "integer", "required": True, "description": "PR number.", "example": 1},
+        "per_page": {"type": "integer", "required": False, "description": "Max results.", "example": 30},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -1407,22 +1512,26 @@ async def list_github_pr_reviews(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
-        "number": {"type": "integer", "description": "PR number.", "example": 1},
+        "number": {"type": "integer", "required": True, "description": "PR number.", "example": 1},
         "review_id": {
             "type": "integer",
+            "required": True,
             "description": "Pending review ID (from create_github_pr_review).",
             "example": 1,
         },
         "event": {
             "type": "string",
+            "required": True,
             "description": "APPROVE, REQUEST_CHANGES, or COMMENT.",
             "example": "APPROVE",
         },
         "body": {
             "type": "string",
+            "required": False,
             "description": "Optional override of review body.",
             "example": "",
         },
@@ -1452,11 +1561,12 @@ async def submit_github_pr_review(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
-        "number": {"type": "integer", "description": "PR number.", "example": 1},
-        "per_page": {"type": "integer", "description": "Max results.", "example": 30},
+        "number": {"type": "integer", "required": True, "description": "PR number.", "example": 1},
+        "per_page": {"type": "integer", "required": False, "description": "Max results.", "example": 30},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -1480,32 +1590,38 @@ async def list_github_pr_review_comments(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
-        "number": {"type": "integer", "description": "PR number.", "example": 1},
+        "number": {"type": "integer", "required": True, "description": "PR number.", "example": 1},
         "body": {
             "type": "string",
+            "required": True,
             "description": "Comment body (markdown).",
             "example": "Consider extracting this into a helper.",
         },
         "commit_id": {
             "type": "string",
+            "required": True,
             "description": "Commit SHA the comment applies to (head of the PR).",
             "example": "",
         },
         "path": {
             "type": "string",
+            "required": True,
             "description": "Relative path to the file.",
             "example": "src/foo.py",
         },
         "line": {
             "type": "integer",
+            "required": True,
             "description": "Line number in the file.",
             "example": 42,
         },
         "side": {
             "type": "string",
+            "required": False,
             "description": "LEFT (old) or RIGHT (new). Default RIGHT.",
             "example": "RIGHT",
         },
@@ -1542,6 +1658,7 @@ async def create_github_pr_review_comment(input_data: dict) -> dict:
     input_schema={
         "per_page": {
             "type": "integer",
+            "required": False,
             "description": "Max repos to return.",
             "example": 30,
         },
@@ -1563,11 +1680,13 @@ async def list_github_repos(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
         "include_metadata": {
             "type": "boolean",
+            "required": False,
             "description": "Return the full raw API payload instead of lean fields.",
             "example": False,
         },
@@ -1599,21 +1718,25 @@ async def get_github_repo(input_data: dict) -> dict:
     input_schema={
         "name": {
             "type": "string",
+            "required": True,
             "description": "Repository name (no owner).",
             "example": "my-new-repo",
         },
         "description": {
             "type": "string",
+            "required": False,
             "description": "Repository description.",
             "example": "",
         },
         "private": {
             "type": "boolean",
+            "required": False,
             "description": "Create as private.",
             "example": False,
         },
         "auto_init": {
             "type": "boolean",
+            "required": False,
             "description": "Create an initial commit with empty README.",
             "example": False,
         },
@@ -1642,31 +1765,37 @@ async def create_github_repo(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
         "name": {
             "type": "string",
+            "required": False,
             "description": "New name (optional).",
             "example": "",
         },
         "description": {
             "type": "string",
+            "required": False,
             "description": "New description (optional).",
             "example": "",
         },
         "private": {
             "type": "boolean",
+            "required": False,
             "description": "Set private/public (optional).",
             "example": False,
         },
         "default_branch": {
             "type": "string",
+            "required": False,
             "description": "New default branch (optional).",
             "example": "",
         },
         "archived": {
             "type": "boolean",
+            "required": False,
             "description": "Archive/unarchive (optional).",
             "example": False,
         },
@@ -1699,6 +1828,7 @@ async def update_github_repo(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
@@ -1719,21 +1849,25 @@ async def delete_github_repo(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Source repo in owner/repo format.",
             "example": "octocat/hello-world",
         },
         "organization": {
             "type": "string",
+            "required": False,
             "description": "Fork into this org instead of personal account (optional).",
             "example": "",
         },
         "name": {
             "type": "string",
+            "required": False,
             "description": "Custom name for the fork (optional).",
             "example": "",
         },
         "default_branch_only": {
             "type": "boolean",
+            "required": False,
             "description": "Only fork the default branch.",
             "example": False,
         },
@@ -1762,10 +1896,11 @@ async def fork_github_repo(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
-        "per_page": {"type": "integer", "description": "Max results.", "example": 30},
+        "per_page": {"type": "integer", "required": False, "description": "Max results.", "example": 30},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -1787,10 +1922,11 @@ async def list_github_forks(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
-        "per_page": {"type": "integer", "description": "Max results.", "example": 30},
+        "per_page": {"type": "integer", "required": False, "description": "Max results.", "example": 30},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -1812,16 +1948,19 @@ async def list_github_collaborators(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
         "username": {
             "type": "string",
+            "required": True,
             "description": "GitHub username to invite.",
             "example": "octocat",
         },
         "permission": {
             "type": "string",
+            "required": False,
             "description": "pull, triage, push, maintain, or admin.",
             "example": "push",
         },
@@ -1849,11 +1988,13 @@ async def add_github_collaborator(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
         "username": {
             "type": "string",
+            "required": True,
             "description": "GitHub username to remove.",
             "example": "octocat",
         },
@@ -1877,11 +2018,13 @@ async def remove_github_collaborator(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
         "ref": {
             "type": "string",
+            "required": False,
             "description": "Branch, tag, or commit SHA (optional, defaults to default branch).",
             "example": "",
         },
@@ -1904,6 +2047,7 @@ async def get_github_readme(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
@@ -1923,11 +2067,13 @@ async def list_github_topics(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
         "topics": {
             "type": "string",
+            "required": True,
             "description": "Comma-separated topic slugs (lowercase, hyphenated).",
             "example": "ai-agent,mcp,llm",
         },
@@ -1957,16 +2103,19 @@ async def set_github_topics(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
         "path": {
             "type": "string",
+            "required": True,
             "description": "Path to the file in the repo.",
             "example": "README.md",
         },
         "ref": {
             "type": "string",
+            "required": False,
             "description": "Branch, tag, or commit SHA (optional, defaults to default branch).",
             "example": "",
         },
@@ -1991,31 +2140,37 @@ async def get_github_file(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
         "path": {
             "type": "string",
+            "required": True,
             "description": "Path to the file in the repo.",
             "example": "README.md",
         },
         "message": {
             "type": "string",
+            "required": True,
             "description": "Commit message.",
             "example": "Add CraftBot to list",
         },
         "content_b64": {
             "type": "string",
+            "required": True,
             "description": "Base64-encoded file content.",
             "example": "",
         },
         "sha": {
             "type": "string",
+            "required": False,
             "description": "Current SHA of the file (REQUIRED when updating an existing file).",
             "example": "",
         },
         "branch": {
             "type": "string",
+            "required": False,
             "description": "Branch to commit on (optional, defaults to default branch).",
             "example": "",
         },
@@ -2046,26 +2201,31 @@ async def create_or_update_github_file(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
         "path": {
             "type": "string",
+            "required": True,
             "description": "Path to the file in the repo.",
             "example": "old-file.md",
         },
         "message": {
             "type": "string",
+            "required": True,
             "description": "Commit message.",
             "example": "Remove old file",
         },
         "sha": {
             "type": "string",
+            "required": True,
             "description": "Current SHA of the file.",
             "example": "",
         },
         "branch": {
             "type": "string",
+            "required": False,
             "description": "Branch to commit on (optional).",
             "example": "",
         },
@@ -2100,10 +2260,11 @@ async def delete_github_file(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
-        "per_page": {"type": "integer", "description": "Max results.", "example": 30},
+        "per_page": {"type": "integer", "required": False, "description": "Max results.", "example": 30},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -2125,10 +2286,11 @@ async def list_github_branches(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
-        "branch": {"type": "string", "description": "Branch name.", "example": "main"},
+        "branch": {"type": "string", "required": True, "description": "Branch name.", "example": "main"},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -2148,16 +2310,19 @@ async def get_github_branch(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
         "branch": {
             "type": "string",
+            "required": True,
             "description": "New branch name (no refs/heads/ prefix).",
             "example": "feature-x",
         },
         "from_sha": {
             "type": "string",
+            "required": True,
             "description": "Commit SHA the new branch should point at.",
             "example": "",
         },
@@ -2183,11 +2348,13 @@ async def create_github_branch(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
         "branch": {
             "type": "string",
+            "required": True,
             "description": "Branch name.",
             "example": "feature-x",
         },
@@ -2216,25 +2383,29 @@ async def delete_github_branch(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
         "sha": {
             "type": "string",
+            "required": False,
             "description": "Branch name or SHA to list commits from (optional, defaults to default branch).",
             "example": "",
         },
         "path": {
             "type": "string",
+            "required": False,
             "description": "Only commits touching this path (optional).",
             "example": "",
         },
         "author": {
             "type": "string",
+            "required": False,
             "description": "GitHub username to filter by (optional).",
             "example": "",
         },
-        "per_page": {"type": "integer", "description": "Max results.", "example": 30},
+        "per_page": {"type": "integer", "required": False, "description": "Max results.", "example": 30},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -2260,12 +2431,14 @@ async def list_github_commits(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
-        "sha": {"type": "string", "description": "Commit SHA.", "example": ""},
+        "sha": {"type": "string", "required": True, "description": "Commit SHA.", "example": ""},
         "include_metadata": {
             "type": "boolean",
+            "required": False,
             "description": "Return the full raw API payload instead of lean fields.",
             "example": False,
         },
@@ -2298,16 +2471,19 @@ async def get_github_commit(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
         "base": {
             "type": "string",
+            "required": True,
             "description": "Base ref (branch, tag, or SHA).",
             "example": "main",
         },
         "head": {
             "type": "string",
+            "required": True,
             "description": "Head ref (branch, tag, or SHA).",
             "example": "feature-x",
         },
@@ -2337,10 +2513,11 @@ async def compare_github_commits(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
-        "per_page": {"type": "integer", "description": "Max results.", "example": 30},
+        "per_page": {"type": "integer", "required": False, "description": "Max results.", "example": 30},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -2362,22 +2539,26 @@ async def list_github_releases(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
         "release_id": {
             "type": "integer",
+            "required": False,
             "description": "Release ID (optional).",
             "example": 0,
         },
-        "tag": {"type": "string", "description": "Tag name (optional).", "example": ""},
+        "tag": {"type": "string", "required": False, "description": "Tag name (optional).", "example": ""},
         "latest": {
             "type": "boolean",
+            "required": False,
             "description": "Get the latest release (optional).",
             "example": False,
         },
         "include_metadata": {
             "type": "boolean",
+            "required": False,
             "description": "Return the full raw API payload instead of lean fields.",
             "example": False,
         },
@@ -2413,32 +2594,38 @@ async def get_github_release(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
-        "tag_name": {"type": "string", "description": "Tag name.", "example": "v1.0.0"},
+        "tag_name": {"type": "string", "required": True, "description": "Tag name.", "example": "v1.0.0"},
         "name": {
             "type": "string",
+            "required": False,
             "description": "Release title (optional).",
             "example": "",
         },
         "body": {
             "type": "string",
+            "required": False,
             "description": "Release notes (markdown).",
             "example": "",
         },
         "draft": {
             "type": "boolean",
+            "required": False,
             "description": "Create as draft.",
             "example": False,
         },
         "prerelease": {
             "type": "boolean",
+            "required": False,
             "description": "Mark as prerelease.",
             "example": False,
         },
         "target_commitish": {
             "type": "string",
+            "required": False,
             "description": "Branch/SHA to create the tag from if it doesn't exist (optional).",
             "example": "",
         },
@@ -2470,32 +2657,38 @@ async def create_github_release(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
-        "release_id": {"type": "integer", "description": "Release ID.", "example": 1},
+        "release_id": {"type": "integer", "required": True, "description": "Release ID.", "example": 1},
         "tag_name": {
             "type": "string",
+            "required": False,
             "description": "New tag (optional).",
             "example": "",
         },
         "name": {
             "type": "string",
+            "required": False,
             "description": "New title (optional).",
             "example": "",
         },
         "body": {
             "type": "string",
+            "required": False,
             "description": "New notes (optional).",
             "example": "",
         },
         "draft": {
             "type": "boolean",
+            "required": False,
             "description": "Set draft status (optional).",
             "example": False,
         },
         "prerelease": {
             "type": "boolean",
+            "required": False,
             "description": "Set prerelease (optional).",
             "example": False,
         },
@@ -2527,10 +2720,11 @@ async def update_github_release(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
-        "release_id": {"type": "integer", "description": "Release ID.", "example": 1},
+        "release_id": {"type": "integer", "required": True, "description": "Release ID.", "example": 1},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -2551,10 +2745,11 @@ async def delete_github_release(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
-        "per_page": {"type": "integer", "description": "Max results.", "example": 30},
+        "per_page": {"type": "integer", "required": False, "description": "Max results.", "example": 30},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -2582,16 +2777,19 @@ async def list_github_tags(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
         "number": {
             "type": "integer",
+            "required": True,
             "description": "Issue or PR number.",
             "example": 1,
         },
         "content": {
             "type": "string",
+            "required": True,
             "description": "One of: +1, -1, laugh, confused, heart, hooray, rocket, eyes.",
             "example": "+1",
         },
@@ -2617,12 +2815,14 @@ async def add_github_issue_reaction(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
-        "comment_id": {"type": "integer", "description": "Comment ID.", "example": 1},
+        "comment_id": {"type": "integer", "required": True, "description": "Comment ID.", "example": 1},
         "content": {
             "type": "string",
+            "required": True,
             "description": "Reaction emoji slug.",
             "example": "heart",
         },
@@ -2648,16 +2848,19 @@ async def add_github_comment_reaction(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
         "comment_id": {
             "type": "integer",
+            "required": True,
             "description": "PR review comment ID.",
             "example": 1,
         },
         "content": {
             "type": "string",
+            "required": True,
             "description": "Reaction emoji slug.",
             "example": "+1",
         },
@@ -2683,15 +2886,17 @@ async def add_github_pr_review_comment_reaction(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
         "number": {
             "type": "integer",
+            "required": True,
             "description": "Issue or PR number.",
             "example": 1,
         },
-        "reaction_id": {"type": "integer", "description": "Reaction ID.", "example": 1},
+        "reaction_id": {"type": "integer", "required": True, "description": "Reaction ID.", "example": 1},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -2714,11 +2919,12 @@ async def delete_github_issue_reaction(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
-        "comment_id": {"type": "integer", "description": "Comment ID.", "example": 1},
-        "reaction_id": {"type": "integer", "description": "Reaction ID.", "example": 1},
+        "comment_id": {"type": "integer", "required": True, "description": "Comment ID.", "example": 1},
+        "reaction_id": {"type": "integer", "required": True, "description": "Reaction ID.", "example": 1},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -2741,15 +2947,17 @@ async def delete_github_comment_reaction(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
         "comment_id": {
             "type": "integer",
+            "required": True,
             "description": "PR review comment ID.",
             "example": 1,
         },
-        "reaction_id": {"type": "integer", "description": "Reaction ID.", "example": 1},
+        "reaction_id": {"type": "integer", "required": True, "description": "Reaction ID.", "example": 1},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -2777,10 +2985,11 @@ async def delete_github_pr_review_comment_reaction(input_data: dict) -> dict:
     input_schema={
         "query": {
             "type": "string",
+            "required": True,
             "description": "GitHub search query (e.g. 'repo:owner/repo is:open label:bug').",
             "example": "repo:octocat/hello-world is:open",
         },
-        "per_page": {"type": "integer", "description": "Max results.", "example": 20},
+        "per_page": {"type": "integer", "required": False, "description": "Max results.", "example": 20},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -2802,10 +3011,11 @@ async def search_github_issues(input_data: dict) -> dict:
     input_schema={
         "query": {
             "type": "string",
+            "required": True,
             "description": "GitHub search query.",
             "example": "awesome ai agents language:python",
         },
-        "per_page": {"type": "integer", "description": "Max results.", "example": 20},
+        "per_page": {"type": "integer", "required": False, "description": "Max results.", "example": 20},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -2827,10 +3037,11 @@ async def search_github_repos(input_data: dict) -> dict:
     input_schema={
         "query": {
             "type": "string",
+            "required": True,
             "description": "GitHub code search query.",
             "example": "addClass in:file language:js repo:jquery/jquery",
         },
-        "per_page": {"type": "integer", "description": "Max results.", "example": 20},
+        "per_page": {"type": "integer", "required": False, "description": "Max results.", "example": 20},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -2852,10 +3063,11 @@ async def search_github_code(input_data: dict) -> dict:
     input_schema={
         "query": {
             "type": "string",
+            "required": True,
             "description": "GitHub search query.",
             "example": "tom location:tokyo",
         },
-        "per_page": {"type": "integer", "description": "Max results.", "example": 20},
+        "per_page": {"type": "integer", "required": False, "description": "Max results.", "example": 20},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -2877,10 +3089,11 @@ async def search_github_users(input_data: dict) -> dict:
     input_schema={
         "query": {
             "type": "string",
+            "required": True,
             "description": "GitHub commit search query.",
             "example": "fix repo:owner/repo",
         },
-        "per_page": {"type": "integer", "description": "Max results.", "example": 20},
+        "per_page": {"type": "integer", "required": False, "description": "Max results.", "example": 20},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -2920,6 +3133,7 @@ async def get_github_authenticated_user(input_data: dict) -> dict:
     input_schema={
         "username": {
             "type": "string",
+            "required": True,
             "description": "GitHub username.",
             "example": "octocat",
         },
@@ -2939,12 +3153,14 @@ async def get_github_user(input_data: dict) -> dict:
     input_schema={
         "username": {
             "type": "string",
+            "required": True,
             "description": "GitHub username.",
             "example": "octocat",
         },
-        "per_page": {"type": "integer", "description": "Max results.", "example": 30},
+        "per_page": {"type": "integer", "required": False, "description": "Max results.", "example": 30},
         "sort": {
             "type": "string",
+            "required": False,
             "description": "Sort by: created, updated, pushed, full_name.",
             "example": "updated",
         },
@@ -2971,6 +3187,7 @@ async def list_github_user_repos(input_data: dict) -> dict:
     input_schema={
         "username": {
             "type": "string",
+            "required": True,
             "description": "GitHub username to follow.",
             "example": "octocat",
         },
@@ -2991,6 +3208,7 @@ async def follow_github_user(input_data: dict) -> dict:
     input_schema={
         "username": {
             "type": "string",
+            "required": True,
             "description": "GitHub username to unfollow.",
             "example": "octocat",
         },
@@ -3011,7 +3229,7 @@ async def unfollow_github_user(input_data: dict) -> dict:
     description="List followers of the authenticated user.",
     action_sets=["github_users"],
     input_schema={
-        "per_page": {"type": "integer", "description": "Max results.", "example": 30},
+        "per_page": {"type": "integer", "required": False, "description": "Max results.", "example": 30},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -3028,7 +3246,7 @@ async def list_github_followers(input_data: dict) -> dict:
     description="List users the authenticated user follows.",
     action_sets=["github_users"],
     input_schema={
-        "per_page": {"type": "integer", "description": "Max results.", "example": 30},
+        "per_page": {"type": "integer", "required": False, "description": "Max results.", "example": 30},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -3052,6 +3270,7 @@ async def list_github_following(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
@@ -3072,6 +3291,7 @@ async def star_github_repo(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
@@ -3090,7 +3310,7 @@ async def unstar_github_repo(input_data: dict) -> dict:
     description="List repositories starred by the authenticated user.",
     action_sets=["github_users"],
     input_schema={
-        "per_page": {"type": "integer", "description": "Max results.", "example": 30},
+        "per_page": {"type": "integer", "required": False, "description": "Max results.", "example": 30},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -3109,10 +3329,11 @@ async def list_github_starred(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
-        "per_page": {"type": "integer", "description": "Max results.", "example": 30},
+        "per_page": {"type": "integer", "required": False, "description": "Max results.", "example": 30},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -3137,7 +3358,7 @@ async def list_github_stargazers(input_data: dict) -> dict:
     description="List gists owned by the authenticated user.",
     action_sets=["github_gists"],
     input_schema={
-        "per_page": {"type": "integer", "description": "Max results.", "example": 30},
+        "per_page": {"type": "integer", "required": False, "description": "Max results.", "example": 30},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -3154,9 +3375,10 @@ async def list_github_gists(input_data: dict) -> dict:
     description="Get a gist (full file contents) by ID. Returns lean fields by default; set include_metadata=true for the raw API payload (history, forks, per-file URLs).",
     action_sets=["github_gists"],
     input_schema={
-        "gist_id": {"type": "string", "description": "Gist ID.", "example": ""},
+        "gist_id": {"type": "string", "required": True, "description": "Gist ID.", "example": ""},
         "include_metadata": {
             "type": "boolean",
+            "required": False,
             "description": "Return the full raw API payload instead of lean fields.",
             "example": False,
         },
@@ -3188,16 +3410,19 @@ async def get_github_gist(input_data: dict) -> dict:
     input_schema={
         "files_json": {
             "type": "string",
+            "required": True,
             "description": "JSON-encoded {filename: {content: 'text'}} map.",
             "example": '{"hello.py":{"content":"print(1)"}}',
         },
         "description": {
             "type": "string",
+            "required": False,
             "description": "Gist description.",
             "example": "",
         },
         "public": {
             "type": "boolean",
+            "required": False,
             "description": "Public gist (else secret).",
             "example": True,
         },
@@ -3228,14 +3453,16 @@ async def create_github_gist(input_data: dict) -> dict:
     description="Update a gist's description and/or files. files_json is JSON-encoded; set a file's 'content' to update, or {filename: null} to delete it.",
     action_sets=["github_gists"],
     input_schema={
-        "gist_id": {"type": "string", "description": "Gist ID.", "example": ""},
+        "gist_id": {"type": "string", "required": True, "description": "Gist ID.", "example": ""},
         "description": {
             "type": "string",
+            "required": False,
             "description": "New description (optional).",
             "example": "",
         },
         "files_json": {
             "type": "string",
+            "required": False,
             "description": "JSON-encoded files map (optional).",
             "example": "",
         },
@@ -3270,7 +3497,7 @@ async def update_github_gist(input_data: dict) -> dict:
     description="Delete a gist.",
     action_sets=["github_gists"],
     input_schema={
-        "gist_id": {"type": "string", "description": "Gist ID.", "example": ""},
+        "gist_id": {"type": "string", "required": True, "description": "Gist ID.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -3293,15 +3520,17 @@ async def delete_github_gist(input_data: dict) -> dict:
     input_schema={
         "include_read": {
             "type": "boolean",
+            "required": False,
             "description": "Include already-read notifications.",
             "example": False,
         },
         "participating": {
             "type": "boolean",
+            "required": False,
             "description": "Only notifications you're directly participating in (mentioned/assigned/authored).",
             "example": False,
         },
-        "per_page": {"type": "integer", "description": "Max results.", "example": 30},
+        "per_page": {"type": "integer", "required": False, "description": "Max results.", "example": 30},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -3325,6 +3554,7 @@ async def list_github_notifications(input_data: dict) -> dict:
     input_schema={
         "last_read_at": {
             "type": "string",
+            "required": False,
             "description": "ISO 8601 datetime — only mark items updated before this (optional, defaults to now).",
             "example": "",
         },
@@ -3350,6 +3580,7 @@ async def mark_github_notifications_read(input_data: dict) -> dict:
     input_schema={
         "thread_id": {
             "type": "string",
+            "required": True,
             "description": "Notification thread ID.",
             "example": "",
         },
@@ -3377,10 +3608,11 @@ async def mark_github_notification_read(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
-        "per_page": {"type": "integer", "description": "Max results.", "example": 30},
+        "per_page": {"type": "integer", "required": False, "description": "Max results.", "example": 30},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -3402,25 +3634,29 @@ async def list_github_workflows(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
         "workflow_id": {
             "type": "string",
+            "required": False,
             "description": "Workflow ID or filename (optional — omit for all runs).",
             "example": "",
         },
         "branch": {
             "type": "string",
+            "required": False,
             "description": "Filter by branch (optional).",
             "example": "",
         },
         "status": {
             "type": "string",
+            "required": False,
             "description": "Filter: queued, in_progress, completed, success, failure, cancelled (optional).",
             "example": "",
         },
-        "per_page": {"type": "integer", "description": "Max results.", "example": 30},
+        "per_page": {"type": "integer", "required": False, "description": "Max results.", "example": 30},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -3446,10 +3682,11 @@ async def list_github_workflow_runs(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
-        "run_id": {"type": "integer", "description": "Workflow run ID.", "example": 1},
+        "run_id": {"type": "integer", "required": True, "description": "Workflow run ID.", "example": 1},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -3469,21 +3706,25 @@ async def get_github_workflow_run(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
         "workflow_id": {
             "type": "string",
+            "required": True,
             "description": "Workflow ID or filename (e.g. 'ci.yml').",
             "example": "ci.yml",
         },
         "ref": {
             "type": "string",
+            "required": True,
             "description": "Branch or tag to run on.",
             "example": "main",
         },
         "inputs_json": {
             "type": "string",
+            "required": False,
             "description": "JSON-encoded inputs map (optional).",
             "example": "",
         },
@@ -3519,10 +3760,11 @@ async def trigger_github_workflow(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
-        "run_id": {"type": "integer", "description": "Workflow run ID.", "example": 1},
+        "run_id": {"type": "integer", "required": True, "description": "Workflow run ID.", "example": 1},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -3543,10 +3785,11 @@ async def cancel_github_workflow_run(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
-        "run_id": {"type": "integer", "description": "Workflow run ID.", "example": 1},
+        "run_id": {"type": "integer", "required": True, "description": "Workflow run ID.", "example": 1},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -3567,10 +3810,11 @@ async def rerun_github_workflow_run(input_data: dict) -> dict:
     input_schema={
         "repo": {
             "type": "string",
+            "required": True,
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
-        "run_id": {"type": "integer", "description": "Workflow run ID.", "example": 1},
+        "run_id": {"type": "integer", "required": True, "description": "Workflow run ID.", "example": 1},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -3595,6 +3839,7 @@ async def get_github_workflow_run_logs_url(input_data: dict) -> dict:
     input_schema={
         "tag": {
             "type": "string",
+            "required": True,
             "description": "Tag to watch for. Empty = disabled.",
             "example": "@craftbot",
         },
@@ -3631,6 +3876,7 @@ def set_github_watch_tag(input_data: dict) -> dict:
     input_schema={
         "repos": {
             "type": "string",
+            "required": True,
             "description": "Comma-separated repos in owner/repo format. Empty = all repos.",
             "example": "octocat/hello-world,myorg/myrepo",
         },

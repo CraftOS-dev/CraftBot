@@ -10,16 +10,19 @@ from agent_core import action
     input_schema={
         "video_path": {
             "type": "string",
+            "required": True,
             "example": "C:\\Users\\user\\Videos\\meeting.mp4",
             "description": "Absolute path to the video file (MP4, AVI, MOV supported).",
         },
         "query": {
             "type": "string",
+            "required": False,
             "example": "What is being presented on the slides?",
             "description": "Optional: specific question to answer about the video.",
         },
         "max_frames": {
             "type": "integer",
+            "required": False,
             "example": 8,
             "description": "Number of evenly-spaced keyframes to sample (default: 8, max recommended: 16).",
         },

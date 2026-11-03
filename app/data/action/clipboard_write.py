@@ -10,6 +10,7 @@ from agent_core import action
     input_schema={
         "content": {
             "type": "string",
+            "required": True,
             "example": "Text to copy to clipboard",
             "description": "Text content to write to the clipboard.",
         }

@@ -26,6 +26,32 @@ from app.process_ledger import ROLE_AGENT_APP, get_ledger
 
 logger = logging.getLogger(__name__)
 
+# pocketbase.log is append-mode across launches; each launch rotates it past
+# LOG_ROTATE_BYTES, keeping its newest LOG_KEEP_BYTES as pocketbase.log.1.
+LOG_ROTATE_BYTES = 50 * 1024 * 1024
+LOG_KEEP_BYTES = 10 * 1024 * 1024
+
+
+def cap_log(path: Path) -> None:
+    """Rotate `path` to `<name>.1` once it passes LOG_ROTATE_BYTES, keeping only
+    its newest LOG_KEEP_BYTES. Runs before the process that writes the log
+    starts; on any failure the log is left as it was."""
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return
+    if size <= LOG_ROTATE_BYTES:
+        return
+    try:
+        with open(path, "rb") as src:
+            src.seek(size - LOG_KEEP_BYTES)
+            src.readline()  # start on a whole line
+            tail = src.read()
+        path.with_name(path.name + ".1").write_bytes(tail)
+        path.unlink()
+    except OSError as e:
+        logger.warning(f"[AGENT_APP] could not rotate {path}: {e}")
+
 GATE_TIMEOUT_S = 600
 INSTALL_TIMEOUT_S = 600
 HEALTH_TIMEOUT_S = 30
@@ -507,7 +533,9 @@ class AgentAppRunner:
         await self.adapter_sync(project_dir)
         logs_dir = log_dir if log_dir is not None else project_dir / "logs"
         logs_dir.mkdir(parents=True, exist_ok=True)
-        log_file = open(logs_dir / "pocketbase.log", "a")
+        log_path = logs_dir / "pocketbase.log"
+        cap_log(log_path)
+        log_file = open(log_path, "a")
 
         # The app's pb_hooks (_craftbot_bridge.js) call back into CraftBot's
         # LLM/integration bridge over HTTP using these two env vars — without
@@ -549,6 +577,12 @@ class AgentAppRunner:
                 # it is verified. No effect on Windows per PB docs — pinned
                 # anyway so the invariant holds on every platform.
                 "--hooksWatch=false",
+                # PocketBase guesses dev mode from its binary's path (a `go
+                # run` heuristic) and this install path trips it, so pin it.
+                # Dev mode echoes every SQL statement and request: a shadow
+                # keeps it (verify quotes PB's validation errors from it); a
+                # live app's log grew to 20 GB with it.
+                f"--dev={'false' if app_env == 'live' else 'true'}",
             ],
             env=env,
             stdout=log_file,

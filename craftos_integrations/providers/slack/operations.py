@@ -245,16 +245,19 @@ def build_operations() -> List[Operation]:
                 input_schema={
                     "channel": {
                         "type": "string",
+                        "required": True,
                         "description": "Channel ID or name.",
                         "example": "C01234567",
                     },
                     "text": {
                         "type": "string",
+                        "required": True,
                         "description": "Message text.",
                         "example": "Hello team!",
                     },
                     "thread_ts": {
                         "type": "string",
+                        "required": False,
                         "description": "Optional thread timestamp for replies.",
                         "example": "",
                     },
@@ -287,21 +290,25 @@ def build_operations() -> List[Operation]:
                 input_schema={
                     "channel": {
                         "type": "string",
+                        "required": True,
                         "description": "Channel ID.",
                         "example": "C01234567",
                     },
                     "ts": {
                         "type": "string",
+                        "required": True,
                         "description": "Timestamp of the message to edit.",
                         "example": "1234567890.123456",
                     },
                     "text": {
                         "type": "string",
+                        "required": False,
                         "description": "New text (optional).",
                         "example": "",
                     },
                     "blocks": {
                         "type": "array",
+                        "required": False,
                         "description": "New Block Kit blocks (optional).",
                         "example": [],
                     },
@@ -332,11 +339,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "channel": {
                     "type": "string",
+                    "required": True,
                     "description": "Channel ID.",
                     "example": "C01234567",
                 },
                 "ts": {
                     "type": "string",
+                    "required": True,
                     "description": "Message timestamp.",
                     "example": "",
                 },
@@ -355,26 +364,31 @@ def build_operations() -> List[Operation]:
                 input_schema={
                     "channel": {
                         "type": "string",
+                        "required": True,
                         "description": "Channel ID.",
                         "example": "C01234567",
                     },
                     "user": {
                         "type": "string",
+                        "required": True,
                         "description": "User ID who will see the message.",
                         "example": "U12345",
                     },
                     "text": {
                         "type": "string",
+                        "required": True,
                         "description": "Message text.",
                         "example": "",
                     },
                     "blocks": {
                         "type": "array",
+                        "required": False,
                         "description": "Block Kit blocks (optional).",
                         "example": [],
                     },
                     "thread_ts": {
                         "type": "string",
+                        "required": False,
                         "description": "Reply in a thread (optional).",
                         "example": "",
                     },
@@ -409,26 +423,31 @@ def build_operations() -> List[Operation]:
                 input_schema={
                     "channel": {
                         "type": "string",
+                        "required": True,
                         "description": "Channel ID.",
                         "example": "C01234567",
                     },
                     "post_at": {
                         "type": "integer",
+                        "required": True,
                         "description": "Unix timestamp when to send.",
                         "example": 0,
                     },
                     "text": {
                         "type": "string",
+                        "required": True,
                         "description": "Message text.",
                         "example": "",
                     },
                     "blocks": {
                         "type": "array",
+                        "required": False,
                         "description": "Block Kit blocks (optional).",
                         "example": [],
                     },
                     "thread_ts": {
                         "type": "string",
+                        "required": False,
                         "description": "Optional thread reply.",
                         "example": "",
                     },
@@ -460,11 +479,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "channel": {
                     "type": "string",
+                    "required": True,
                     "description": "Channel ID.",
                     "example": "",
                 },
                 "scheduled_message_id": {
                     "type": "string",
+                    "required": True,
                     "description": (
                         "Scheduled message ID (from schedule_slack_message response)."
                     ),
@@ -480,11 +501,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "channel": {
                     "type": "string",
+                    "required": False,
                     "description": "Filter to one channel (optional).",
                     "example": "",
                 },
                 "limit": {
                     "type": "integer",
+                    "required": False,
                     "description": "Max results.",
                     "example": 100,
                 },
@@ -502,11 +525,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "channel": {
                     "type": "string",
+                    "required": True,
                     "description": "Channel ID.",
                     "example": "C01234567",
                 },
                 "message_ts": {
                     "type": "string",
+                    "required": True,
                     "description": "Message timestamp.",
                     "example": "",
                 },
@@ -526,21 +551,25 @@ def build_operations() -> List[Operation]:
                 input_schema={
                     "channel": {
                         "type": "string",
+                        "required": True,
                         "description": "Channel ID.",
                         "example": "C01234567",
                     },
                     "ts": {
                         "type": "string",
+                        "required": True,
                         "description": "Parent message timestamp (thread_ts).",
                         "example": "",
                     },
                     "limit": {
                         "type": "integer",
+                        "required": False,
                         "description": "Max messages.",
                         "example": 100,
                     },
                     "include_metadata": {
                         "type": "boolean",
+                        "required": False,
                         "description": "False (default): lean messages. True: full raw.",
                         "example": False,
                     },
@@ -566,16 +595,19 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "channel": {
                     "type": "string",
+                    "required": True,
                     "description": "Channel ID.",
                     "example": "C01234567",
                 },
                 "timestamp": {
                     "type": "string",
+                    "required": True,
                     "description": "Message timestamp.",
                     "example": "",
                 },
                 "name": {
                     "type": "string",
+                    "required": True,
                     "description": "Emoji name without colons.",
                     "example": "thumbsup",
                 },
@@ -591,16 +623,19 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "channel": {
                     "type": "string",
+                    "required": True,
                     "description": "Channel ID.",
                     "example": "",
                 },
                 "timestamp": {
                     "type": "string",
+                    "required": True,
                     "description": "Message timestamp.",
                     "example": "",
                 },
                 "name": {
                     "type": "string",
+                    "required": True,
                     "description": "Emoji name without colons.",
                     "example": "thumbsup",
                 },
@@ -614,11 +649,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "channel": {
                     "type": "string",
+                    "required": True,
                     "description": "Channel ID.",
                     "example": "",
                 },
                 "timestamp": {
                     "type": "string",
+                    "required": True,
                     "description": "Message timestamp.",
                     "example": "",
                 },
@@ -632,11 +669,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "user": {
                     "type": "string",
+                    "required": False,
                     "description": "User ID (optional, defaults to auth'd user).",
                     "example": "",
                 },
                 "count": {
                     "type": "integer",
+                    "required": False,
                     "description": "Max results.",
                     "example": 100,
                 },
@@ -656,11 +695,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "channel": {
                     "type": "string",
+                    "required": True,
                     "description": "Channel ID.",
                     "example": "",
                 },
                 "timestamp": {
                     "type": "string",
+                    "required": True,
                     "description": "Message timestamp.",
                     "example": "",
                 },
@@ -675,11 +716,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "channel": {
                     "type": "string",
+                    "required": True,
                     "description": "Channel ID.",
                     "example": "",
                 },
                 "timestamp": {
                     "type": "string",
+                    "required": True,
                     "description": "Message timestamp.",
                     "example": "",
                 },
@@ -693,6 +736,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "channel": {
                     "type": "string",
+                    "required": True,
                     "description": "Channel ID.",
                     "example": "",
                 },
@@ -714,11 +758,13 @@ def build_operations() -> List[Operation]:
                 input_schema={
                     "limit": {
                         "type": "integer",
+                        "required": False,
                         "description": "Max channels to return.",
                         "example": 100,
                     },
                     "include_metadata": {
                         "type": "boolean",
+                        "required": False,
                         "description": "False (default): lean channels. True: full raw.",
                         "example": False,
                     },
@@ -739,6 +785,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "channel": {
                     "type": "string",
+                    "required": True,
                     "description": "Channel ID.",
                     "example": "C1234567",
                 },
@@ -758,16 +805,19 @@ def build_operations() -> List[Operation]:
                 input_schema={
                     "channel": {
                         "type": "string",
+                        "required": True,
                         "description": "Channel ID.",
                         "example": "C01234567",
                     },
                     "limit": {
                         "type": "integer",
+                        "required": False,
                         "description": "Max messages.",
                         "example": 50,
                     },
                     "include_metadata": {
                         "type": "boolean",
+                        "required": False,
                         "description": "False (default): lean messages. True: full raw.",
                         "example": False,
                     },
@@ -791,16 +841,19 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "channel": {
                     "type": "string",
+                    "required": True,
                     "description": "Channel ID.",
                     "example": "",
                 },
                 "limit": {
                     "type": "integer",
+                    "required": False,
                     "description": "Max members.",
                     "example": 100,
                 },
                 "cursor": {
                     "type": "string",
+                    "required": False,
                     "description": "Pagination cursor.",
                     "example": "",
                 },
@@ -820,11 +873,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "name": {
                     "type": "string",
+                    "required": True,
                     "description": "Channel name.",
                     "example": "project-alpha",
                 },
                 "is_private": {
                     "type": "boolean",
+                    "required": False,
                     "description": "Is private?",
                     "example": False,
                 },
@@ -843,11 +898,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "channel": {
                     "type": "string",
+                    "required": True,
                     "description": "Channel ID.",
                     "example": "C1234567",
                 },
                 "users": {
                     "type": "array",
+                    "required": True,
                     "description": "List of user IDs.",
                     "example": ["U123"],
                 },
@@ -862,6 +919,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "users": {
                     "type": "array",
+                    "required": True,
                     "description": "List of user IDs.",
                     "example": ["U123"],
                 },
@@ -876,6 +934,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "channel": {
                     "type": "string",
+                    "required": True,
                     "description": "Channel ID.",
                     "example": "",
                 },
@@ -890,6 +949,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "channel": {
                     "type": "string",
+                    "required": True,
                     "description": "Channel ID.",
                     "example": "",
                 },
@@ -904,11 +964,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "channel": {
                     "type": "string",
+                    "required": True,
                     "description": "Channel ID.",
                     "example": "",
                 },
                 "name": {
                     "type": "string",
+                    "required": True,
                     "description": "New channel name.",
                     "example": "",
                 },
@@ -923,11 +985,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "channel": {
                     "type": "string",
+                    "required": True,
                     "description": "Channel ID.",
                     "example": "",
                 },
                 "topic": {
                     "type": "string",
+                    "required": True,
                     "description": "New topic.",
                     "example": "",
                 },
@@ -942,11 +1006,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "channel": {
                     "type": "string",
+                    "required": True,
                     "description": "Channel ID.",
                     "example": "",
                 },
                 "purpose": {
                     "type": "string",
+                    "required": True,
                     "description": "New purpose.",
                     "example": "",
                 },
@@ -961,6 +1027,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "channel": {
                     "type": "string",
+                    "required": True,
                     "description": "Channel ID.",
                     "example": "",
                 },
@@ -975,6 +1042,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "channel": {
                     "type": "string",
+                    "required": True,
                     "description": "Channel ID.",
                     "example": "",
                 },
@@ -989,11 +1057,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "channel": {
                     "type": "string",
+                    "required": True,
                     "description": "Channel ID.",
                     "example": "",
                 },
                 "user": {
                     "type": "string",
+                    "required": True,
                     "description": "User ID.",
                     "example": "",
                 },
@@ -1008,6 +1078,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "channel": {
                     "type": "string",
+                    "required": True,
                     "description": "Conversation ID.",
                     "example": "",
                 },
@@ -1027,31 +1098,37 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "file_path": {
                     "type": "string",
+                    "required": True,
                     "description": "Absolute path to local file.",
                     "example": "C:/Users/me/report.pdf",
                 },
                 "channel_id": {
                     "type": "string",
+                    "required": False,
                     "description": "Channel ID to share into (optional).",
                     "example": "C01234567",
                 },
                 "initial_comment": {
                     "type": "string",
+                    "required": False,
                     "description": "Message text with the file (optional).",
                     "example": "",
                 },
                 "title": {
                     "type": "string",
+                    "required": False,
                     "description": "File title (optional).",
                     "example": "",
                 },
                 "thread_ts": {
                     "type": "string",
+                    "required": False,
                     "description": "Reply in a thread (optional).",
                     "example": "",
                 },
                 "filename": {
                     "type": "string",
+                    "required": False,
                     "description": "Override filename (optional).",
                     "example": "",
                 },
@@ -1080,16 +1157,19 @@ def build_operations() -> List[Operation]:
                 input_schema={
                     "channel": {
                         "type": "string",
+                        "required": False,
                         "description": "Filter to channel (optional).",
                         "example": "",
                     },
                     "user": {
                         "type": "string",
+                        "required": False,
                         "description": "Filter to user (optional).",
                         "example": "",
                     },
                     "types": {
                         "type": "string",
+                        "required": False,
                         "description": (
                             "Comma-separated types: all, spaces, snippets, "
                             "images, gdocs, zips, pdfs (optional)."
@@ -1098,16 +1178,19 @@ def build_operations() -> List[Operation]:
                     },
                     "count": {
                         "type": "integer",
+                        "required": False,
                         "description": "Max results.",
                         "example": 100,
                     },
                     "page": {
                         "type": "integer",
+                        "required": False,
                         "description": "Page number.",
                         "example": 1,
                     },
                     "include_metadata": {
                         "type": "boolean",
+                        "required": False,
                         "description": "False (default): lean files. True: full raw.",
                         "example": False,
                     },
@@ -1132,6 +1215,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "file_id": {
                     "type": "string",
+                    "required": True,
                     "description": "File ID.",
                     "example": "F0123ABC",
                 },
@@ -1149,11 +1233,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "file_id": {
                     "type": "string",
+                    "required": True,
                     "description": "File ID.",
                     "example": "F0123ABC",
                 },
                 "dest_path": {
                     "type": "string",
+                    "required": True,
                     "description": "Local file or directory to save to.",
                     "example": "/path/to/save",
                 },
@@ -1169,6 +1255,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "file_id": {
                     "type": "string",
+                    "required": True,
                     "description": "File ID.",
                     "example": "",
                 },
@@ -1189,11 +1276,13 @@ def build_operations() -> List[Operation]:
                 input_schema={
                     "limit": {
                         "type": "integer",
+                        "required": False,
                         "description": "Max users to return.",
                         "example": 100,
                     },
                     "include_metadata": {
                         "type": "boolean",
+                        "required": False,
                         "description": "False (default): lean members. True: full raw.",
                         "example": False,
                     },
@@ -1214,6 +1303,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "slack_user_id": {
                     "type": "string",
+                    "required": True,
                     "description": "User ID.",
                     "example": "U1234567",
                 },
@@ -1228,6 +1318,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "email": {
                     "type": "string",
+                    "required": True,
                     "description": "Email address.",
                     "example": "alice@example.com",
                 },
@@ -1243,6 +1334,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "user": {
                     "type": "string",
+                    "required": True,
                     "description": "User ID.",
                     "example": "",
                 },
@@ -1260,6 +1352,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "presence": {
                     "type": "string",
+                    "required": True,
                     "description": "auto or away.",
                     "example": "auto",
                 },
@@ -1273,16 +1366,19 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "include_disabled": {
                     "type": "boolean",
+                    "required": False,
                     "description": "Include disabled groups.",
                     "example": False,
                 },
                 "include_count": {
                     "type": "boolean",
+                    "required": False,
                     "description": "Include member counts.",
                     "example": False,
                 },
                 "include_users": {
                     "type": "boolean",
+                    "required": False,
                     "description": "Include user list per group.",
                     "example": False,
                 },
@@ -1302,21 +1398,25 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "name": {
                     "type": "string",
+                    "required": True,
                     "description": "Group name (e.g. 'Marketing').",
                     "example": "",
                 },
                 "handle": {
                     "type": "string",
+                    "required": False,
                     "description": "Handle without @ (optional).",
                     "example": "",
                 },
                 "description": {
                     "type": "string",
+                    "required": False,
                     "description": "Description (optional).",
                     "example": "",
                 },
                 "channels": {
                     "type": "array",
+                    "required": False,
                     "description": "Default channels (optional).",
                     "example": [],
                 },
@@ -1337,26 +1437,31 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "usergroup": {
                     "type": "string",
+                    "required": True,
                     "description": "Usergroup ID.",
                     "example": "",
                 },
                 "name": {
                     "type": "string",
+                    "required": False,
                     "description": "New name (optional).",
                     "example": "",
                 },
                 "handle": {
                     "type": "string",
+                    "required": False,
                     "description": "New handle (optional).",
                     "example": "",
                 },
                 "description": {
                     "type": "string",
+                    "required": False,
                     "description": "New description (optional).",
                     "example": "",
                 },
                 "channels": {
                     "type": "array",
+                    "required": False,
                     "description": "New default channels (optional).",
                     "example": [],
                 },
@@ -1377,11 +1482,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "usergroup": {
                     "type": "string",
+                    "required": True,
                     "description": "Usergroup ID.",
                     "example": "",
                 },
                 "include_disabled": {
                     "type": "boolean",
+                    "required": False,
                     "description": "Include disabled users.",
                     "example": False,
                 },
@@ -1400,11 +1507,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "usergroup": {
                     "type": "string",
+                    "required": True,
                     "description": "Usergroup ID.",
                     "example": "",
                 },
                 "users": {
                     "type": "array",
+                    "required": True,
                     "description": "List of user IDs to set as members.",
                     "example": [],
                 },
@@ -1419,6 +1528,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "usergroup": {
                     "type": "string",
+                    "required": True,
                     "description": "Usergroup ID.",
                     "example": "",
                 },
@@ -1435,6 +1545,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "usergroup": {
                     "type": "string",
+                    "required": True,
                     "description": "Usergroup ID.",
                     "example": "",
                 },
@@ -1460,6 +1571,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "team": {
                     "type": "string",
+                    "required": False,
                     "description": "Team ID (optional, defaults to current).",
                     "example": "",
                 },
@@ -1481,16 +1593,19 @@ def build_operations() -> List[Operation]:
                 input_schema={
                     "query": {
                         "type": "string",
+                        "required": True,
                         "description": "Search query.",
                         "example": "project update",
                     },
                     "count": {
                         "type": "integer",
+                        "required": False,
                         "description": "Max results.",
                         "example": 20,
                     },
                     "include_metadata": {
                         "type": "boolean",
+                        "required": False,
                         "description": "False (default): lean matches. True: full raw.",
                         "example": False,
                     },
@@ -1510,6 +1625,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "channel_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Channel ID.",
                     "example": "",
                 },
@@ -1524,26 +1640,31 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "channel_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Channel ID.",
                     "example": "",
                 },
                 "title": {
                     "type": "string",
+                    "required": True,
                     "description": "Bookmark title.",
                     "example": "Project doc",
                 },
                 "type": {
                     "type": "string",
+                    "required": False,
                     "description": "Bookmark type (link).",
                     "example": "link",
                 },
                 "link": {
                     "type": "string",
+                    "required": False,
                     "description": "URL (for type=link).",
                     "example": "",
                 },
                 "emoji": {
                     "type": "string",
+                    "required": False,
                     "description": "Emoji shortcode (optional).",
                     "example": ":bookmark:",
                 },
@@ -1565,26 +1686,31 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "channel_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Channel ID.",
                     "example": "",
                 },
                 "bookmark_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Bookmark ID.",
                     "example": "",
                 },
                 "title": {
                     "type": "string",
+                    "required": False,
                     "description": "New title (optional).",
                     "example": "",
                 },
                 "link": {
                     "type": "string",
+                    "required": False,
                     "description": "New URL (optional).",
                     "example": "",
                 },
                 "emoji": {
                     "type": "string",
+                    "required": False,
                     "description": "New emoji (optional).",
                     "example": "",
                 },
@@ -1607,11 +1733,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "channel_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Channel ID.",
                     "example": "",
                 },
                 "bookmark_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Bookmark ID.",
                     "example": "",
                 },
@@ -1630,11 +1758,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "text": {
                     "type": "string",
+                    "required": True,
                     "description": "Reminder text.",
                     "example": "Send the weekly report",
                 },
                 "time": {
                     "type": "string",
+                    "required": True,
                     "description": (
                         "Unix timestamp OR natural-language ('in 15 minutes')."
                     ),
@@ -1642,6 +1772,7 @@ def build_operations() -> List[Operation]:
                 },
                 "user": {
                     "type": "string",
+                    "required": False,
                     "description": "User ID (optional, defaults to self).",
                     "example": "",
                 },
@@ -1667,6 +1798,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "reminder": {
                     "type": "string",
+                    "required": True,
                     "description": "Reminder ID.",
                     "example": "",
                 },
@@ -1681,6 +1813,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "reminder": {
                     "type": "string",
+                    "required": True,
                     "description": "Reminder ID.",
                     "example": "",
                 },
@@ -1696,6 +1829,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "reminder": {
                     "type": "string",
+                    "required": True,
                     "description": "Reminder ID.",
                     "example": "",
                 },

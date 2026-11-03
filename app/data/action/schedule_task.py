@@ -17,28 +17,26 @@ from agent_core import action
     description=(
         "Schedule a task for execution. Supports immediate, one-time, and recurring schedules. "
         "One-time tasks are auto-removed after firing.\n"
-        "IMPORTANT: The 'schedule' field must use one of these EXACT formats:\n"
-        "- Immediate: 'immediate'\n"
-        "- One-time: 'at 3pm', 'at 3:30pm', 'at 3:30pm today', 'tomorrow at 9am', 'in 2 hours', 'in 30 minutes'\n"
-        "- Recurring: 'every day at 7am', 'every day at 3:30pm', 'every monday at 9am', "
-        "'every 3 hours', 'every 30 minutes', or cron like '0 7 * * *'\n"
-        "DO NOT use: 'daily at', 'every weekday', 'every morning', 'weekly', or other freeform text. "
-        "Only the exact patterns listed above are supported."
+        "IMPORTANT: The 'schedule' field must use one of the EXACT patterns listed "
+        "in its description; no other freeform text is supported."
     ),
     action_sets=["scheduler", "core", "proactive"],
     input_schema={
         "name": {
             "type": "string",
+            "required": True,
             "description": "Human-readable name for the schedule/task",
             "example": "Morning Briefing",
         },
         "instruction": {
             "type": "string",
+            "required": True,
             "description": "What the agent should do when this schedule fires",
             "example": "Prepare and send the daily morning briefing",
         },
         "schedule": {
             "type": "string",
+            "required": True,
             "description": (
                 "Schedule expression. Must match one of these exact patterns:\n"
                 "- 'immediate' — execute right now\n"
@@ -56,16 +54,19 @@ from agent_core import action
         },
         "priority": {
             "type": "integer",
+            "required": False,
             "description": "Trigger priority (lower = higher priority). Default is 50.",
             "example": 50,
         },
         "enabled": {
             "type": "boolean",
+            "required": False,
             "description": "Whether to enable the schedule immediately. Default is true. Ignored for 'immediate' schedules.",
             "example": True,
         },
         "action_sets": {
             "type": "array",
+            "required": False,
             "description": (
                 "Optional. Action sets (names from the Capability Catalog) to load "
                 "when the task runs, e.g. ['mini_browser'] for a task that must "
@@ -76,6 +77,7 @@ from agent_core import action
         },
         "skills": {
             "type": "array",
+            "required": False,
             "description": (
                 "Optional. Skills to load for the task (a user skill also loads "
                 "the action sets its SKILL.md declares)."
@@ -84,6 +86,7 @@ from agent_core import action
         },
         "payload": {
             "type": "object",
+            "required": False,
             "description": "Additional payload data to pass to the task.",
             "example": {"source": "proactive", "task_id": "daily_morning_briefing"},
         },

@@ -10,6 +10,7 @@ from agent_core import action
     input_schema={
         "seconds": {
             "type": "number",
+            "required": False,
             "example": 2.0,
             "description": "Duration to wait in seconds (max 60 seconds).",
         }

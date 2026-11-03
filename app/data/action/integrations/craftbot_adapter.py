@@ -34,6 +34,8 @@ def _account_schema(provider: Provider) -> Dict[str, Any]:
     name = getattr(provider, "display_name", "") or provider.id
     return {
         "type": "string",
+        # Omitted: the primary account.
+        "required": False,
         "description": (
             f"Optional {name} account to act as: an email/identity, the "
             f"user's nickname for the account (e.g. 'work'), or any unique "
@@ -97,6 +99,8 @@ def _make_handler(provider_id: str, op_name: str):
 
 
 def _register(provider: Provider, op: Operation) -> None:
+    from app.action.action_set import action_set_manager
+
     input_schema = dict(op.input_schema)
     input_schema["account"] = _account_schema(provider)
     action(
@@ -108,6 +112,9 @@ def _register(provider: Provider, op: Operation) -> None:
         parallelizable=op.parallelizable,
         irreversible=op.destructive,
     )(_make_handler(provider.id, op.name))
+    # The capability catalog lists each set under the provider it serves.
+    for set_name in op.tags:
+        action_set_manager.declare_integration_set(set_name, provider.id)
 
 
 def _register_all() -> None:

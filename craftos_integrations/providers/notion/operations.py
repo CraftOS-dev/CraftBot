@@ -113,16 +113,19 @@ def _search_notion_op() -> Operation:
         input_schema={
             "query": {
                 "type": "string",
+                "required": True,
                 "description": "Search query.",
                 "example": "meeting notes",
             },
             "filter_type": {
                 "type": "string",
+                "required": False,
                 "description": "Optional: 'page' or 'database'.",
                 "example": "page",
             },
             "include_metadata": {
                 "type": "boolean",
+                "required": False,
                 "description": (
                     "False (default): lean {id, object, title, url} per result. "
                     "True: full raw."
@@ -186,11 +189,13 @@ def _get_notion_page_op() -> Operation:
         input_schema={
             "page_id": {
                 "type": "string",
+                "required": True,
                 "description": "Notion page ID.",
                 "example": "abc123",
             },
             "include_metadata": {
                 "type": "boolean",
+                "required": False,
                 "description": (
                     "False (default): lean page with plain property values. "
                     "True: full raw."
@@ -234,21 +239,25 @@ def _page_ops() -> List[Operation]:
                 input_schema={
                     "parent_id": {
                         "type": "string",
+                        "required": True,
                         "description": "Parent page or database ID.",
                         "example": "abc123",
                     },
                     "parent_type": {
                         "type": "string",
+                        "required": True,
                         "description": "'page_id' or 'database_id'.",
                         "example": "page_id",
                     },
                     "properties": {
                         "type": "object",
+                        "required": True,
                         "description": "Page properties.",
                         "example": {"title": [{"text": {"content": "New Page"}}]},
                     },
                     "children": {
                         "type": "array",
+                        "required": False,
                         "description": "Optional content blocks.",
                         "example": [],
                     },
@@ -279,11 +288,13 @@ def _page_ops() -> List[Operation]:
                 input_schema={
                     "page_id": {
                         "type": "string",
+                        "required": True,
                         "description": "Page ID to update.",
                         "example": "abc123",
                     },
                     "properties": {
                         "type": "object",
+                        "required": True,
                         "description": "Properties to update.",
                         "example": {},
                     },
@@ -308,7 +319,7 @@ def _page_ops() -> List[Operation]:
             tags=("notion_pages", "notion"),
             parallelizable=False,
             input_schema={
-                "page_id": {"type": "string", "description": "Page ID.", "example": ""},
+                "page_id": {"type": "string", "required": True, "description": "Page ID.", "example": ""},
             },
         ),
         client_op(
@@ -318,7 +329,7 @@ def _page_ops() -> List[Operation]:
             tags=("notion_pages",),
             parallelizable=False,
             input_schema={
-                "page_id": {"type": "string", "description": "Page ID.", "example": ""},
+                "page_id": {"type": "string", "required": True, "description": "Page ID.", "example": ""},
             },
         ),
         client_op(
@@ -330,14 +341,16 @@ def _page_ops() -> List[Operation]:
             ),
             tags=("notion_pages",),
             input_schema={
-                "page_id": {"type": "string", "description": "Page ID.", "example": ""},
+                "page_id": {"type": "string", "required": True, "description": "Page ID.", "example": ""},
                 "property_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Property ID (from page schema).",
                     "example": "",
                 },
                 "page_size": {
                     "type": "integer",
+                    "required": False,
                     "description": "Pagination size.",
                     "example": 100,
                 },
@@ -369,11 +382,13 @@ def _get_notion_database_schema_op() -> Operation:
         input_schema={
             "database_id": {
                 "type": "string",
+                "required": True,
                 "description": "Database ID.",
                 "example": "abc123",
             },
             "include_metadata": {
                 "type": "boolean",
+                "required": False,
                 "description": (
                     "False (default): lean schema (property name -> type). "
                     "True: full raw."
@@ -428,21 +443,25 @@ def _query_notion_database_op() -> Operation:
         input_schema={
             "database_id": {
                 "type": "string",
+                "required": True,
                 "description": "Database ID.",
                 "example": "abc123",
             },
             "filter": {
                 "type": "object",
+                "required": False,
                 "description": "Optional Notion filter object.",
                 "example": {},
             },
             "sorts": {
                 "type": "array",
+                "required": False,
                 "description": "Optional sort array.",
                 "example": [],
             },
             "include_metadata": {
                 "type": "boolean",
+                "required": False,
                 "description": (
                     "False (default): lean rows with plain property values. "
                     "True: full raw."
@@ -503,36 +522,43 @@ def _database_ops() -> List[Operation]:
                 input_schema={
                     "parent_page_id": {
                         "type": "string",
+                        "required": True,
                         "description": "Parent page ID.",
                         "example": "",
                     },
                     "title": {
                         "type": "array",
+                        "required": False,
                         "description": "Title rich_text array.",
                         "example": [{"text": {"content": "Tasks"}}],
                     },
                     "description": {
                         "type": "array",
+                        "required": False,
                         "description": "Description rich_text array (optional).",
                         "example": [],
                     },
                     "properties": {
                         "type": "object",
+                        "required": True,
                         "description": "Property schema (column definitions). Required.",
                         "example": {"Name": {"title": {}}},
                     },
                     "is_inline": {
                         "type": "boolean",
+                        "required": False,
                         "description": "Render inline.",
                         "example": False,
                     },
                     "icon": {
                         "type": "object",
+                        "required": False,
                         "description": "Icon (optional). e.g. {'type':'emoji','emoji':'📋'}.",
                         "example": {},
                     },
                     "cover": {
                         "type": "object",
+                        "required": False,
                         "description": "Cover (optional).",
                         "example": {},
                     },
@@ -569,21 +595,25 @@ def _database_ops() -> List[Operation]:
                 input_schema={
                     "database_id": {
                         "type": "string",
+                        "required": True,
                         "description": "Database ID.",
                         "example": "",
                     },
                     "title": {
                         "type": "array",
+                        "required": False,
                         "description": "New title rich_text (optional).",
                         "example": [],
                     },
                     "description": {
                         "type": "array",
+                        "required": False,
                         "description": "New description rich_text (optional).",
                         "example": [],
                     },
                     "properties": {
                         "type": "object",
+                        "required": False,
                         "description": (
                             "Property updates (rename / change type / remove "
                             "with null) (optional)."
@@ -592,6 +622,7 @@ def _database_ops() -> List[Operation]:
                     },
                     "is_inline": {
                         "type": "boolean",
+                        "required": False,
                         "description": "Set inline (optional).",
                         "example": False,
                     },
@@ -622,6 +653,7 @@ def _database_ops() -> List[Operation]:
             input_schema={
                 "database_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Database ID.",
                     "example": "",
                 },
@@ -636,6 +668,7 @@ def _database_ops() -> List[Operation]:
             input_schema={
                 "database_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Database ID.",
                     "example": "",
                 },
@@ -665,11 +698,13 @@ def _get_notion_page_content_op() -> Operation:
         input_schema={
             "page_id": {
                 "type": "string",
+                "required": True,
                 "description": "Page ID (or block ID for nested children).",
                 "example": "abc123",
             },
             "include_metadata": {
                 "type": "boolean",
+                "required": False,
                 "description": (
                     "False (default): return only {type, text} per block — "
                     "lean, for reading. True: return the full raw blocks with "
@@ -738,11 +773,13 @@ def _append_notion_page_content_op() -> Operation:
         input_schema={
             "page_id": {
                 "type": "string",
+                "required": True,
                 "description": "Page ID (or block ID).",
                 "example": "abc123",
             },
             "children": {
                 "type": "array",
+                "required": True,
                 "description": "List of block objects.",
                 "example": [],
             },
@@ -778,6 +815,7 @@ def _block_ops() -> List[Operation]:
             input_schema={
                 "block_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Block ID.",
                     "example": "",
                 },
@@ -799,11 +837,13 @@ def _block_ops() -> List[Operation]:
                 input_schema={
                     "block_id": {
                         "type": "string",
+                        "required": True,
                         "description": "Block ID.",
                         "example": "",
                     },
                     "block_update": {
                         "type": "object",
+                        "required": True,
                         "description": "Per-block-type update object.",
                         "example": {
                             "paragraph": {
@@ -834,6 +874,7 @@ def _block_ops() -> List[Operation]:
             input_schema={
                 "block_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Block ID.",
                     "example": "",
                 },
@@ -857,16 +898,19 @@ def _comment_and_user_ops() -> List[Operation]:
             input_schema={
                 "block_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Block or page ID.",
                     "example": "",
                 },
                 "page_size": {
                     "type": "integer",
+                    "required": False,
                     "description": "Max results.",
                     "example": 100,
                 },
                 "start_cursor": {
                     "type": "string",
+                    "required": False,
                     "description": "Pagination cursor (optional).",
                     "example": "",
                 },
@@ -890,21 +934,25 @@ def _comment_and_user_ops() -> List[Operation]:
             input_schema={
                 "rich_text": {
                     "type": "array",
+                    "required": True,
                     "description": "Comment content as rich_text array.",
                     "example": [{"text": {"content": "Looks good!"}}],
                 },
                 "parent_page_id": {
                     "type": "string",
+                    "required": False,
                     "description": "Page ID for a new top-level discussion (optional).",
                     "example": "",
                 },
                 "parent_block_id": {
                     "type": "string",
+                    "required": False,
                     "description": "Block ID for a new top-level discussion (optional).",
                     "example": "",
                 },
                 "discussion_id": {
                     "type": "string",
+                    "required": False,
                     "description": "Discussion ID to reply to (optional).",
                     "example": "",
                 },
@@ -924,11 +972,13 @@ def _comment_and_user_ops() -> List[Operation]:
             input_schema={
                 "page_size": {
                     "type": "integer",
+                    "required": False,
                     "description": "Max results.",
                     "example": 100,
                 },
                 "start_cursor": {
                     "type": "string",
+                    "required": False,
                     "description": "Pagination cursor (optional).",
                     "example": "",
                 },
@@ -944,7 +994,7 @@ def _comment_and_user_ops() -> List[Operation]:
             description="Get a single Notion user by ID.",
             tags=("notion_users", "notion"),
             input_schema={
-                "user_id": {"type": "string", "description": "User ID.", "example": ""},
+                "user_id": {"type": "string", "required": False, "description": "User ID.", "example": ""},
             },
         ),
         client_op(
@@ -981,11 +1031,13 @@ def _file_upload_ops() -> List[Operation]:
             input_schema={
                 "file_path": {
                     "type": "string",
+                    "required": True,
                     "description": "Absolute path to local file.",
                     "example": "C:/Users/me/report.pdf",
                 },
                 "content_type": {
                     "type": "string",
+                    "required": False,
                     "description": "MIME type (autodetect if omitted).",
                     "example": "",
                 },
@@ -1008,26 +1060,31 @@ def _file_upload_ops() -> List[Operation]:
             input_schema={
                 "mode": {
                     "type": "string",
+                    "required": False,
                     "description": "single_part | multi_part | external_url.",
                     "example": "single_part",
                 },
                 "filename": {
                     "type": "string",
+                    "required": False,
                     "description": "Required for multi_part.",
                     "example": "",
                 },
                 "content_type": {
                     "type": "string",
+                    "required": False,
                     "description": "MIME type (recommended).",
                     "example": "",
                 },
                 "number_of_parts": {
                     "type": "integer",
+                    "required": False,
                     "description": "Required for multi_part.",
                     "example": 0,
                 },
                 "external_url": {
                     "type": "string",
+                    "required": False,
                     "description": "Required for external_url mode.",
                     "example": "",
                 },
@@ -1052,11 +1109,13 @@ def _file_upload_ops() -> List[Operation]:
             input_schema={
                 "file_upload_id": {
                     "type": "string",
+                    "required": True,
                     "description": "ID from create_notion_file_upload.",
                     "example": "",
                 },
                 "file_path": {
                     "type": "string",
+                    "required": True,
                     "description": (
                         "Absolute path to local file (or one part for multi_part)."
                     ),
@@ -1064,6 +1123,7 @@ def _file_upload_ops() -> List[Operation]:
                 },
                 "part_number": {
                     "type": "integer",
+                    "required": False,
                     "description": "1..1000, only for multi_part.",
                     "example": 0,
                 },
@@ -1086,6 +1146,7 @@ def _file_upload_ops() -> List[Operation]:
             input_schema={
                 "file_upload_id": {
                     "type": "string",
+                    "required": True,
                     "description": "File upload ID.",
                     "example": "",
                 },
@@ -1099,6 +1160,7 @@ def _file_upload_ops() -> List[Operation]:
             input_schema={
                 "file_upload_id": {
                     "type": "string",
+                    "required": True,
                     "description": "File upload ID.",
                     "example": "",
                 },
@@ -1115,16 +1177,19 @@ def _file_upload_ops() -> List[Operation]:
             input_schema={
                 "status": {
                     "type": "string",
+                    "required": False,
                     "description": "Filter (optional).",
                     "example": "",
                 },
                 "page_size": {
                     "type": "integer",
+                    "required": False,
                     "description": "Max results.",
                     "example": 100,
                 },
                 "start_cursor": {
                     "type": "string",
+                    "required": False,
                     "description": "Pagination cursor (optional).",
                     "example": "",
                 },

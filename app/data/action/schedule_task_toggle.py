@@ -8,11 +8,13 @@ from agent_core import action
     input_schema={
         "schedule_id": {
             "type": "string",
+            "required": True,
             "description": "The ID of the schedule to toggle",
             "example": "memory-processing",
         },
         "enabled": {
             "type": "boolean",
+            "required": True,
             "description": "True to enable, False to disable",
             "example": True,
         },

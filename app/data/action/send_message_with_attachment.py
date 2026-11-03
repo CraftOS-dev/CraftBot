@@ -11,11 +11,13 @@ from agent_core import action
     input_schema={
         "message": {
             "type": "string",
+            "required": True,
             "example": "Here are the files you requested.",
             "description": "The chat message to accompany the attachments. Explain what the files are and any relevant context.",
         },
         "file_paths": {
             "type": "array",
+            "required": True,
             "items": {"type": "string"},
             "example": [
                 "C:/Users/user/Desktop/agent/workspace/download/report.pdf",
@@ -25,6 +27,7 @@ from agent_core import action
         },
         "continue_work": {
             "type": "boolean",
+            "required": False,
             "example": False,
             "description": (
                 "False (default): this is your final message for now — the run ends and "

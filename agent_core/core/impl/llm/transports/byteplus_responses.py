@@ -317,7 +317,12 @@ def generate_standard(
 
 
 def generate_with_session(
-    iface, task_id: str, call_type: str, user_prompt: str
+    iface,
+    task_id: str,
+    call_type: str,
+    user_prompt: str,
+    *,
+    retry_on_overflow: bool = True,
 ) -> Dict[str, Any]:
     """Use Responses API with session caching for task/GUI calls.
 
@@ -326,6 +331,7 @@ def generate_with_session(
 
     If context overflow is detected, the session is automatically reset and retried
     with a fresh session containing only the system prompt and current user prompt.
+    Side requests disable this retry: their answer must use the existing history.
     """
     token_count_input = token_count_output = 0
     total_tokens = 0
@@ -401,6 +407,8 @@ def generate_with_session(
         status = "success"
 
     except BytePlusContextOverflowError:
+        if not retry_on_overflow:
+            raise
         # Context exceeded maximum length - reset session and retry with fresh context
         logger.warning(
             f"[BYTEPLUS] Context overflow for {session_key}, resetting session and retrying..."

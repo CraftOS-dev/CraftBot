@@ -14,16 +14,19 @@ from agent_core import action
     input_schema={
         "channel_id": {
             "type": "string",
+            "required": True,
             "description": "Discord text-channel ID (bare numeric snowflake). NOT a server/guild ID — guild and channel IDs look alike but are different; get channel IDs from get_discord_channels.",
             "example": "123456789012345678",
         },
         "content": {
             "type": "string",
+            "required": True,
             "description": "Message content.",
             "example": "Hello!",
         },
         "reply_to": {
             "type": "string",
+            "required": False,
             "description": "Message ID to reply to (optional).",
             "example": "",
         },
@@ -95,10 +98,11 @@ def send_discord_message(input_data: dict) -> dict:
     description="Edit a previously-sent Discord message (bot can only edit its own messages).",
     action_sets=["discord_messages", "discord"],
     input_schema={
-        "channel_id": {"type": "string", "description": "Channel ID.", "example": ""},
-        "message_id": {"type": "string", "description": "Message ID.", "example": ""},
+        "channel_id": {"type": "string", "required": True, "description": "Channel ID.", "example": ""},
+        "message_id": {"type": "string", "required": True, "description": "Message ID.", "example": ""},
         "content": {
             "type": "string",
+            "required": True,
             "description": "New message content.",
             "example": "",
         },
@@ -123,8 +127,8 @@ def edit_discord_message(input_data: dict) -> dict:
     description="Delete a Discord message.",
     action_sets=["discord_messages", "discord"],
     input_schema={
-        "channel_id": {"type": "string", "description": "Channel ID.", "example": ""},
-        "message_id": {"type": "string", "description": "Message ID.", "example": ""},
+        "channel_id": {"type": "string", "required": True, "description": "Channel ID.", "example": ""},
+        "message_id": {"type": "string", "required": True, "description": "Message ID.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -145,9 +149,10 @@ def delete_discord_message(input_data: dict) -> dict:
     description="Delete 2-100 messages at once. All must be less than 14 days old.",
     action_sets=["discord_messages", "discord"],
     input_schema={
-        "channel_id": {"type": "string", "description": "Channel ID.", "example": ""},
+        "channel_id": {"type": "string", "required": True, "description": "Channel ID.", "example": ""},
         "message_ids": {
             "type": "array",
+            "required": True,
             "description": "Array of message IDs (2-100).",
             "example": [],
         },
@@ -173,10 +178,11 @@ def bulk_delete_discord_messages(input_data: dict) -> dict:
     input_schema={
         "channel_id": {
             "type": "string",
+            "required": True,
             "description": "Announcement channel ID.",
             "example": "",
         },
-        "message_id": {"type": "string", "description": "Message ID.", "example": ""},
+        "message_id": {"type": "string", "required": True, "description": "Message ID.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -199,21 +205,25 @@ def crosspost_discord_message(input_data: dict) -> dict:
     input_schema={
         "channel_id": {
             "type": "string",
+            "required": True,
             "description": "Discord channel ID.",
             "example": "123456789012345678",
         },
         "limit": {
             "type": "integer",
+            "required": False,
             "description": "Max messages to return (1-100).",
             "example": 50,
         },
         "before": {
             "type": "string",
+            "required": False,
             "description": "Message ID to get messages before (optional).",
             "example": "",
         },
         "after": {
             "type": "string",
+            "required": False,
             "description": "Message ID to get messages after (optional).",
             "example": "",
         },
@@ -238,8 +248,8 @@ def get_discord_messages(input_data: dict) -> dict:
     description="Pin a message in a Discord channel.",
     action_sets=["discord_messages", "discord"],
     input_schema={
-        "channel_id": {"type": "string", "description": "Channel ID.", "example": ""},
-        "message_id": {"type": "string", "description": "Message ID.", "example": ""},
+        "channel_id": {"type": "string", "required": True, "description": "Channel ID.", "example": ""},
+        "message_id": {"type": "string", "required": True, "description": "Message ID.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -260,8 +270,8 @@ def pin_discord_message(input_data: dict) -> dict:
     description="Unpin a message from a Discord channel.",
     action_sets=["discord_messages"],
     input_schema={
-        "channel_id": {"type": "string", "description": "Channel ID.", "example": ""},
-        "message_id": {"type": "string", "description": "Message ID.", "example": ""},
+        "channel_id": {"type": "string", "required": True, "description": "Channel ID.", "example": ""},
+        "message_id": {"type": "string", "required": True, "description": "Message ID.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -282,9 +292,10 @@ def unpin_discord_message(input_data: dict) -> dict:
     description="List pinned messages in a Discord channel. Lean messages by default; include_metadata=true returns raw message objects.",
     action_sets=["discord_messages", "discord"],
     input_schema={
-        "channel_id": {"type": "string", "description": "Channel ID.", "example": ""},
+        "channel_id": {"type": "string", "required": True, "description": "Channel ID.", "example": ""},
         "include_metadata": {
             "type": "boolean",
+            "required": False,
             "description": "Return full raw message objects (default false = lean).",
             "example": False,
         },
@@ -348,16 +359,19 @@ def list_discord_pinned_messages(input_data: dict) -> dict:
     input_schema={
         "channel_id": {
             "type": "string",
+            "required": True,
             "description": "Channel ID.",
             "example": "123",
         },
         "message_id": {
             "type": "string",
+            "required": True,
             "description": "Message ID.",
             "example": "456",
         },
         "emoji": {
             "type": "string",
+            "required": True,
             "description": "Unicode emoji or 'name:id' for custom.",
             "example": "👍",
         },
@@ -382,9 +396,9 @@ def add_discord_reaction(input_data: dict) -> dict:
     description="Remove the bot's own reaction from a message.",
     action_sets=["discord_messages", "discord"],
     input_schema={
-        "channel_id": {"type": "string", "description": "Channel ID.", "example": ""},
-        "message_id": {"type": "string", "description": "Message ID.", "example": ""},
-        "emoji": {"type": "string", "description": "Emoji.", "example": "👍"},
+        "channel_id": {"type": "string", "required": True, "description": "Channel ID.", "example": ""},
+        "message_id": {"type": "string", "required": True, "description": "Message ID.", "example": ""},
+        "emoji": {"type": "string", "required": True, "description": "Emoji.", "example": "👍"},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -406,11 +420,12 @@ def remove_discord_own_reaction(input_data: dict) -> dict:
     description="Remove a specific user's reaction from a message (mod action).",
     action_sets=["discord_messages"],
     input_schema={
-        "channel_id": {"type": "string", "description": "Channel ID.", "example": ""},
-        "message_id": {"type": "string", "description": "Message ID.", "example": ""},
-        "emoji": {"type": "string", "description": "Emoji.", "example": ""},
+        "channel_id": {"type": "string", "required": True, "description": "Channel ID.", "example": ""},
+        "message_id": {"type": "string", "required": True, "description": "Message ID.", "example": ""},
+        "emoji": {"type": "string", "required": True, "description": "Emoji.", "example": ""},
         "user_id": {
             "type": "string",
+            "required": True,
             "description": "User ID whose reaction to remove.",
             "example": "",
         },
@@ -436,10 +451,10 @@ def remove_discord_user_reaction(input_data: dict) -> dict:
     description="List users who reacted with a specific emoji.",
     action_sets=["discord_messages"],
     input_schema={
-        "channel_id": {"type": "string", "description": "Channel ID.", "example": ""},
-        "message_id": {"type": "string", "description": "Message ID.", "example": ""},
-        "emoji": {"type": "string", "description": "Emoji.", "example": ""},
-        "limit": {"type": "integer", "description": "Max users.", "example": 100},
+        "channel_id": {"type": "string", "required": True, "description": "Channel ID.", "example": ""},
+        "message_id": {"type": "string", "required": True, "description": "Message ID.", "example": ""},
+        "emoji": {"type": "string", "required": True, "description": "Emoji.", "example": ""},
+        "limit": {"type": "integer", "required": False, "description": "Max users.", "example": 100},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -461,10 +476,11 @@ def list_discord_reaction_users(input_data: dict) -> dict:
     description="Clear all reactions on a message, or just one emoji's reactions.",
     action_sets=["discord_messages"],
     input_schema={
-        "channel_id": {"type": "string", "description": "Channel ID.", "example": ""},
-        "message_id": {"type": "string", "description": "Message ID.", "example": ""},
+        "channel_id": {"type": "string", "required": True, "description": "Channel ID.", "example": ""},
+        "message_id": {"type": "string", "required": True, "description": "Message ID.", "example": ""},
         "emoji": {
             "type": "string",
+            "required": False,
             "description": "Specific emoji (optional — omit to clear ALL reactions).",
             "example": "",
         },
@@ -494,19 +510,22 @@ def clear_discord_reactions(input_data: dict) -> dict:
     description="Create a thread anchored to an existing message.",
     action_sets=["discord_threads", "discord"],
     input_schema={
-        "channel_id": {"type": "string", "description": "Channel ID.", "example": ""},
+        "channel_id": {"type": "string", "required": True, "description": "Channel ID.", "example": ""},
         "message_id": {
             "type": "string",
+            "required": True,
             "description": "Message to thread from.",
             "example": "",
         },
         "name": {
             "type": "string",
+            "required": True,
             "description": "Thread name (1-100 chars).",
             "example": "Discussion",
         },
         "auto_archive_duration": {
             "type": "integer",
+            "required": False,
             "description": "Minutes: 60, 1440, 4320, 10080.",
             "example": 1440,
         },
@@ -534,23 +553,27 @@ def create_discord_thread_from_message(input_data: dict) -> dict:
     input_schema={
         "channel_id": {
             "type": "string",
+            "required": True,
             "description": "Parent channel ID.",
             "example": "",
         },
-        "name": {"type": "string", "description": "Thread name.", "example": ""},
-        "thread_type": {"type": "integer", "description": "10/11/12.", "example": 11},
+        "name": {"type": "string", "required": True, "description": "Thread name.", "example": ""},
+        "thread_type": {"type": "integer", "required": False, "description": "10/11/12.", "example": 11},
         "auto_archive_duration": {
             "type": "integer",
+            "required": False,
             "description": "Minutes.",
             "example": 1440,
         },
         "invitable": {
             "type": "boolean",
+            "required": False,
             "description": "Allow non-mods to add others (private threads).",
             "example": True,
         },
         "rate_limit_per_user": {
             "type": "integer",
+            "required": False,
             "description": "Slowmode seconds (optional).",
             "example": 0,
         },
@@ -581,6 +604,7 @@ def create_discord_thread(input_data: dict) -> dict:
     input_schema={
         "thread_id": {
             "type": "string",
+            "required": True,
             "description": "Thread (channel) ID.",
             "example": "",
         },
@@ -599,7 +623,7 @@ def join_discord_thread(input_data: dict) -> dict:
     description="Leave a Discord thread.",
     action_sets=["discord_threads"],
     input_schema={
-        "thread_id": {"type": "string", "description": "Thread ID.", "example": ""},
+        "thread_id": {"type": "string", "required": True, "description": "Thread ID.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -615,8 +639,8 @@ def leave_discord_thread(input_data: dict) -> dict:
     description="Add a user to a thread.",
     action_sets=["discord_threads"],
     input_schema={
-        "thread_id": {"type": "string", "description": "Thread ID.", "example": ""},
-        "user_id": {"type": "string", "description": "User ID.", "example": ""},
+        "thread_id": {"type": "string", "required": True, "description": "Thread ID.", "example": ""},
+        "user_id": {"type": "string", "required": True, "description": "User ID.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -637,8 +661,8 @@ def add_discord_thread_member(input_data: dict) -> dict:
     description="Remove a user from a thread.",
     action_sets=["discord_threads"],
     input_schema={
-        "thread_id": {"type": "string", "description": "Thread ID.", "example": ""},
-        "user_id": {"type": "string", "description": "User ID.", "example": ""},
+        "thread_id": {"type": "string", "required": True, "description": "Thread ID.", "example": ""},
+        "user_id": {"type": "string", "required": True, "description": "User ID.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -659,7 +683,7 @@ def remove_discord_thread_member(input_data: dict) -> dict:
     description="List members of a thread.",
     action_sets=["discord_threads"],
     input_schema={
-        "thread_id": {"type": "string", "description": "Thread ID.", "example": ""},
+        "thread_id": {"type": "string", "required": True, "description": "Thread ID.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -676,7 +700,7 @@ def list_discord_thread_members(input_data: dict) -> dict:
     description="List active (non-archived) threads in a guild the bot can access.",
     action_sets=["discord_threads", "discord"],
     input_schema={
-        "guild_id": {"type": "string", "description": "Guild ID.", "example": ""},
+        "guild_id": {"type": "string", "required": True, "description": "Guild ID.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -693,7 +717,7 @@ def list_discord_active_threads(input_data: dict) -> dict:
     description="Archive a thread (closes for new messages).",
     action_sets=["discord_threads"],
     input_schema={
-        "thread_id": {"type": "string", "description": "Thread ID.", "example": ""},
+        "thread_id": {"type": "string", "required": True, "description": "Thread ID.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -711,7 +735,7 @@ def archive_discord_thread(input_data: dict) -> dict:
     description="Unarchive a previously-archived thread.",
     action_sets=["discord_threads"],
     input_schema={
-        "thread_id": {"type": "string", "description": "Thread ID.", "example": ""},
+        "thread_id": {"type": "string", "required": True, "description": "Thread ID.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -736,11 +760,13 @@ def unarchive_discord_thread(input_data: dict) -> dict:
     input_schema={
         "guild_id": {
             "type": "string",
+            "required": True,
             "description": "Discord guild (server) ID.",
             "example": "123456789012345678",
         },
         "include_metadata": {
             "type": "boolean",
+            "required": False,
             "description": "Return full raw channel objects (default false = lean).",
             "example": False,
         },
@@ -787,7 +813,7 @@ def get_discord_channels(input_data: dict) -> dict:
     description="Get info about a single Discord channel.",
     action_sets=["discord_channels", "discord"],
     input_schema={
-        "channel_id": {"type": "string", "description": "Channel ID.", "example": ""},
+        "channel_id": {"type": "string", "required": True, "description": "Channel ID.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -804,35 +830,41 @@ def get_discord_channel(input_data: dict) -> dict:
     description="Create a channel in a guild. channel_type: 0=text, 2=voice, 4=category, 5=announcement, 13=stage, 15=forum.",
     action_sets=["discord_channels", "discord"],
     input_schema={
-        "guild_id": {"type": "string", "description": "Guild ID.", "example": ""},
+        "guild_id": {"type": "string", "required": True, "description": "Guild ID.", "example": ""},
         "name": {
             "type": "string",
+            "required": True,
             "description": "Channel name.",
             "example": "general",
         },
         "channel_type": {
             "type": "integer",
+            "required": False,
             "description": "0/2/4/5/13/15.",
             "example": 0,
         },
         "topic": {
             "type": "string",
+            "required": False,
             "description": "Topic (text channels only).",
             "example": "",
         },
         "parent_id": {
             "type": "string",
+            "required": False,
             "description": "Category ID (optional).",
             "example": "",
         },
-        "nsfw": {"type": "boolean", "description": "NSFW flag.", "example": False},
+        "nsfw": {"type": "boolean", "required": False, "description": "NSFW flag.", "example": False},
         "rate_limit_per_user": {
             "type": "integer",
+            "required": False,
             "description": "Slowmode seconds.",
             "example": 0,
         },
         "position": {
             "type": "integer",
+            "required": False,
             "description": "Channel position.",
             "example": 0,
         },
@@ -864,34 +896,40 @@ def create_discord_channel(input_data: dict) -> dict:
     description="Edit channel name/topic/slowmode/category/NSFW.",
     action_sets=["discord_channels", "discord"],
     input_schema={
-        "channel_id": {"type": "string", "description": "Channel ID.", "example": ""},
+        "channel_id": {"type": "string", "required": True, "description": "Channel ID.", "example": ""},
         "name": {
             "type": "string",
+            "required": False,
             "description": "New name (optional).",
             "example": "",
         },
         "topic": {
             "type": "string",
+            "required": False,
             "description": "New topic (optional).",
             "example": "",
         },
         "nsfw": {
             "type": "boolean",
+            "required": False,
             "description": "NSFW flag (optional).",
             "example": False,
         },
         "rate_limit_per_user": {
             "type": "integer",
+            "required": False,
             "description": "Slowmode seconds (optional).",
             "example": 0,
         },
         "parent_id": {
             "type": "string",
+            "required": False,
             "description": "New category ID (optional).",
             "example": "",
         },
         "position": {
             "type": "integer",
+            "required": False,
             "description": "New position (optional).",
             "example": 0,
         },
@@ -922,7 +960,7 @@ def modify_discord_channel(input_data: dict) -> dict:
     description="Delete a Discord channel.",
     action_sets=["discord_channels"],
     input_schema={
-        "channel_id": {"type": "string", "description": "Channel ID.", "example": ""},
+        "channel_id": {"type": "string", "required": True, "description": "Channel ID.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -940,23 +978,26 @@ def delete_discord_channel(input_data: dict) -> dict:
     description="Set permission overwrites for a role/member on a channel. allow/deny are decimal-string bitfields. type: 0=role, 1=member.",
     action_sets=["discord_channels"],
     input_schema={
-        "channel_id": {"type": "string", "description": "Channel ID.", "example": ""},
+        "channel_id": {"type": "string", "required": True, "description": "Channel ID.", "example": ""},
         "overwrite_id": {
             "type": "string",
+            "required": True,
             "description": "Role ID or member ID.",
             "example": "",
         },
         "allow": {
             "type": "string",
+            "required": False,
             "description": "Allow bitfield as decimal string.",
             "example": "0",
         },
         "deny": {
             "type": "string",
+            "required": False,
             "description": "Deny bitfield as decimal string.",
             "example": "0",
         },
-        "type": {"type": "integer", "description": "0=role, 1=member.", "example": 0},
+        "type": {"type": "integer", "required": False, "description": "0=role, 1=member.", "example": 0},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -980,9 +1021,10 @@ def set_discord_channel_permissions(input_data: dict) -> dict:
     description="Remove a permission overwrite from a channel.",
     action_sets=["discord_channels"],
     input_schema={
-        "channel_id": {"type": "string", "description": "Channel ID.", "example": ""},
+        "channel_id": {"type": "string", "required": True, "description": "Channel ID.", "example": ""},
         "overwrite_id": {
             "type": "string",
+            "required": True,
             "description": "Role/member ID.",
             "example": "",
         },
@@ -1006,7 +1048,7 @@ def delete_discord_channel_permission(input_data: dict) -> dict:
     description="List invite codes for a channel.",
     action_sets=["discord_channels", "discord"],
     input_schema={
-        "channel_id": {"type": "string", "description": "Channel ID.", "example": ""},
+        "channel_id": {"type": "string", "required": True, "description": "Channel ID.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -1023,20 +1065,23 @@ def list_discord_channel_invites(input_data: dict) -> dict:
     description="Create an invite for a channel.",
     action_sets=["discord_channels", "discord"],
     input_schema={
-        "channel_id": {"type": "string", "description": "Channel ID.", "example": ""},
+        "channel_id": {"type": "string", "required": True, "description": "Channel ID.", "example": ""},
         "max_age": {
             "type": "integer",
+            "required": False,
             "description": "Seconds until expiry (0=never).",
             "example": 86400,
         },
-        "max_uses": {"type": "integer", "description": "0=unlimited.", "example": 0},
+        "max_uses": {"type": "integer", "required": False, "description": "0=unlimited.", "example": 0},
         "temporary": {
             "type": "boolean",
+            "required": False,
             "description": "Members are kicked after disconnect.",
             "example": False,
         },
         "unique": {
             "type": "boolean",
+            "required": False,
             "description": "Don't reuse existing invite.",
             "example": False,
         },
@@ -1063,7 +1108,7 @@ def create_discord_invite(input_data: dict) -> dict:
     description="Delete (revoke) a Discord invite code.",
     action_sets=["discord_channels"],
     input_schema={
-        "invite_code": {"type": "string", "description": "Invite code.", "example": ""},
+        "invite_code": {"type": "string", "required": True, "description": "Invite code.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -1086,9 +1131,10 @@ def delete_discord_invite(input_data: dict) -> dict:
     description="List webhooks in a channel. Lean by default; include_metadata=true returns full raw objects. The webhook token is never returned.",
     action_sets=["discord_channels", "discord"],
     input_schema={
-        "channel_id": {"type": "string", "description": "Channel ID.", "example": ""},
+        "channel_id": {"type": "string", "required": True, "description": "Channel ID.", "example": ""},
         "include_metadata": {
             "type": "boolean",
+            "required": False,
             "description": "Return full raw webhook objects, minus token (default false = lean).",
             "example": False,
         },
@@ -1143,14 +1189,16 @@ def list_discord_webhooks(input_data: dict) -> dict:
     description="Create a webhook on a channel. Returns id + token (the token gives webhook-only posting auth).",
     action_sets=["discord_channels", "discord"],
     input_schema={
-        "channel_id": {"type": "string", "description": "Channel ID.", "example": ""},
+        "channel_id": {"type": "string", "required": True, "description": "Channel ID.", "example": ""},
         "name": {
             "type": "string",
+            "required": True,
             "description": "Webhook name.",
             "example": "Notifier",
         },
         "avatar": {
             "type": "string",
+            "required": False,
             "description": "Data-URI avatar (optional).",
             "example": "",
         },
@@ -1175,9 +1223,10 @@ def create_discord_webhook(input_data: dict) -> dict:
     description="Get a webhook by ID. Lean by default; include_metadata=true returns the full raw object. The webhook token is never returned.",
     action_sets=["discord_channels"],
     input_schema={
-        "webhook_id": {"type": "string", "description": "Webhook ID.", "example": ""},
+        "webhook_id": {"type": "string", "required": True, "description": "Webhook ID.", "example": ""},
         "include_metadata": {
             "type": "boolean",
+            "required": False,
             "description": "Return the full raw webhook object, minus token (default false = lean).",
             "example": False,
         },
@@ -1221,19 +1270,22 @@ def get_discord_webhook(input_data: dict) -> dict:
     description="Edit a webhook's name/avatar/channel.",
     action_sets=["discord_channels"],
     input_schema={
-        "webhook_id": {"type": "string", "description": "Webhook ID.", "example": ""},
+        "webhook_id": {"type": "string", "required": True, "description": "Webhook ID.", "example": ""},
         "name": {
             "type": "string",
+            "required": False,
             "description": "New name (optional).",
             "example": "",
         },
         "avatar": {
             "type": "string",
+            "required": False,
             "description": "New avatar data-URI (optional).",
             "example": "",
         },
         "channel_id": {
             "type": "string",
+            "required": False,
             "description": "Move to channel (optional).",
             "example": "",
         },
@@ -1259,7 +1311,7 @@ def modify_discord_webhook(input_data: dict) -> dict:
     description="Delete a Discord webhook.",
     action_sets=["discord_channels"],
     input_schema={
-        "webhook_id": {"type": "string", "description": "Webhook ID.", "example": ""},
+        "webhook_id": {"type": "string", "required": True, "description": "Webhook ID.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -1277,30 +1329,35 @@ def delete_discord_webhook(input_data: dict) -> dict:
     description="Post a message via a webhook (auth via webhook_token, not bot token).",
     action_sets=["discord_channels", "discord"],
     input_schema={
-        "webhook_id": {"type": "string", "description": "Webhook ID.", "example": ""},
+        "webhook_id": {"type": "string", "required": True, "description": "Webhook ID.", "example": ""},
         "webhook_token": {
             "type": "string",
+            "required": True,
             "description": "Webhook token (from creation).",
             "example": "",
         },
-        "content": {"type": "string", "description": "Message content.", "example": ""},
+        "content": {"type": "string", "required": False, "description": "Message content.", "example": ""},
         "username": {
             "type": "string",
+            "required": False,
             "description": "Override sender username (optional).",
             "example": "",
         },
         "avatar_url": {
             "type": "string",
+            "required": False,
             "description": "Override sender avatar (optional).",
             "example": "",
         },
         "embeds": {
             "type": "array",
+            "required": False,
             "description": "Embed objects (optional).",
             "example": [],
         },
         "wait": {
             "type": "boolean",
+            "required": False,
             "description": "Wait for server confirmation (returns message).",
             "example": False,
         },
@@ -1336,12 +1393,14 @@ def execute_discord_webhook(input_data: dict) -> dict:
     input_schema={
         "guild_id": {
             "type": "string",
+            "required": True,
             "description": "Guild ID.",
             "example": "123456789012345678",
         },
-        "limit": {"type": "integer", "description": "Limit.", "example": 100},
+        "limit": {"type": "integer", "required": False, "description": "Limit.", "example": 100},
         "include_metadata": {
             "type": "boolean",
+            "required": False,
             "description": "Return full raw member objects (default false = lean).",
             "example": False,
         },
@@ -1392,8 +1451,8 @@ def list_discord_guild_members(input_data: dict) -> dict:
     description="Get a single guild member (incl. roles, joined_at, nick).",
     action_sets=["discord_members", "discord"],
     input_schema={
-        "guild_id": {"type": "string", "description": "Guild ID.", "example": ""},
-        "user_id": {"type": "string", "description": "User ID.", "example": ""},
+        "guild_id": {"type": "string", "required": True, "description": "Guild ID.", "example": ""},
+        "user_id": {"type": "string", "required": True, "description": "User ID.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -1413,10 +1472,11 @@ def get_discord_guild_member(input_data: dict) -> dict:
     description="Search for members by username/nickname prefix.",
     action_sets=["discord_members", "discord"],
     input_schema={
-        "guild_id": {"type": "string", "description": "Guild ID.", "example": ""},
-        "query": {"type": "string", "description": "Name prefix.", "example": "alice"},
+        "guild_id": {"type": "string", "required": True, "description": "Guild ID.", "example": ""},
+        "query": {"type": "string", "required": True, "description": "Name prefix.", "example": "alice"},
         "limit": {
             "type": "integer",
+            "required": False,
             "description": "Max results (max 1000).",
             "example": 10,
         },
@@ -1440,27 +1500,31 @@ def search_discord_guild_members(input_data: dict) -> dict:
     description="Modify a guild member: nick / roles (full replace) / mute/deaf / move voice channel / timeout. communication_disabled_until is an ISO 8601 timestamp (max 28 days in future) — null/omit to clear.",
     action_sets=["discord_members", "discord"],
     input_schema={
-        "guild_id": {"type": "string", "description": "Guild ID.", "example": ""},
-        "user_id": {"type": "string", "description": "User ID.", "example": ""},
+        "guild_id": {"type": "string", "required": True, "description": "Guild ID.", "example": ""},
+        "user_id": {"type": "string", "required": True, "description": "User ID.", "example": ""},
         "nick": {
             "type": "string",
+            "required": False,
             "description": "New nickname (optional, '' to clear).",
             "example": "",
         },
         "roles": {
             "type": "array",
+            "required": False,
             "description": "Full list of role IDs (replaces existing).",
             "example": [],
         },
-        "mute": {"type": "boolean", "description": "Voice mute.", "example": False},
-        "deaf": {"type": "boolean", "description": "Voice deafen.", "example": False},
+        "mute": {"type": "boolean", "required": False, "description": "Voice mute.", "example": False},
+        "deaf": {"type": "boolean", "required": False, "description": "Voice deafen.", "example": False},
         "channel_id": {
             "type": "string",
+            "required": False,
             "description": "Move to this voice channel.",
             "example": "",
         },
         "communication_disabled_until": {
             "type": "string",
+            "required": False,
             "description": "Timeout end (ISO 8601).",
             "example": "",
         },
@@ -1492,9 +1556,10 @@ def modify_discord_guild_member(input_data: dict) -> dict:
     description="Set the bot's nickname in a guild.",
     action_sets=["discord_members"],
     input_schema={
-        "guild_id": {"type": "string", "description": "Guild ID.", "example": ""},
+        "guild_id": {"type": "string", "required": True, "description": "Guild ID.", "example": ""},
         "nick": {
             "type": "string",
+            "required": False,
             "description": "New nickname (empty to clear).",
             "example": "",
         },
@@ -1518,9 +1583,9 @@ def set_discord_bot_nickname(input_data: dict) -> dict:
     description="Assign a role to a guild member.",
     action_sets=["discord_members", "discord"],
     input_schema={
-        "guild_id": {"type": "string", "description": "Guild ID.", "example": ""},
-        "user_id": {"type": "string", "description": "User ID.", "example": ""},
-        "role_id": {"type": "string", "description": "Role ID.", "example": ""},
+        "guild_id": {"type": "string", "required": True, "description": "Guild ID.", "example": ""},
+        "user_id": {"type": "string", "required": True, "description": "User ID.", "example": ""},
+        "role_id": {"type": "string", "required": True, "description": "Role ID.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -1542,9 +1607,9 @@ def add_discord_member_role(input_data: dict) -> dict:
     description="Remove a role from a guild member.",
     action_sets=["discord_members", "discord"],
     input_schema={
-        "guild_id": {"type": "string", "description": "Guild ID.", "example": ""},
-        "user_id": {"type": "string", "description": "User ID.", "example": ""},
-        "role_id": {"type": "string", "description": "Role ID.", "example": ""},
+        "guild_id": {"type": "string", "required": True, "description": "Guild ID.", "example": ""},
+        "user_id": {"type": "string", "required": True, "description": "User ID.", "example": ""},
+        "role_id": {"type": "string", "required": True, "description": "Role ID.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -1566,8 +1631,8 @@ def remove_discord_member_role(input_data: dict) -> dict:
     description="Kick a user from a guild (they can rejoin via invite).",
     action_sets=["discord_members", "discord"],
     input_schema={
-        "guild_id": {"type": "string", "description": "Guild ID.", "example": ""},
-        "user_id": {"type": "string", "description": "User ID.", "example": ""},
+        "guild_id": {"type": "string", "required": True, "description": "Guild ID.", "example": ""},
+        "user_id": {"type": "string", "required": True, "description": "User ID.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -1588,10 +1653,11 @@ def kick_discord_member(input_data: dict) -> dict:
     description="Ban a user from a guild. delete_message_seconds (0..604800) wipes their recent messages.",
     action_sets=["discord_members", "discord"],
     input_schema={
-        "guild_id": {"type": "string", "description": "Guild ID.", "example": ""},
-        "user_id": {"type": "string", "description": "User ID.", "example": ""},
+        "guild_id": {"type": "string", "required": True, "description": "Guild ID.", "example": ""},
+        "user_id": {"type": "string", "required": True, "description": "User ID.", "example": ""},
         "delete_message_seconds": {
             "type": "integer",
+            "required": False,
             "description": "0..604800 (7d).",
             "example": 0,
         },
@@ -1616,8 +1682,8 @@ def ban_discord_member(input_data: dict) -> dict:
     description="Lift a ban on a user.",
     action_sets=["discord_members", "discord"],
     input_schema={
-        "guild_id": {"type": "string", "description": "Guild ID.", "example": ""},
-        "user_id": {"type": "string", "description": "User ID.", "example": ""},
+        "guild_id": {"type": "string", "required": True, "description": "Guild ID.", "example": ""},
+        "user_id": {"type": "string", "required": True, "description": "User ID.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -1638,8 +1704,8 @@ def unban_discord_member(input_data: dict) -> dict:
     description="List bans in a guild.",
     action_sets=["discord_members"],
     input_schema={
-        "guild_id": {"type": "string", "description": "Guild ID.", "example": ""},
-        "limit": {"type": "integer", "description": "Max results.", "example": 100},
+        "guild_id": {"type": "string", "required": True, "description": "Guild ID.", "example": ""},
+        "limit": {"type": "integer", "required": False, "description": "Max results.", "example": 100},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -1666,6 +1732,7 @@ def list_discord_bans(input_data: dict) -> dict:
     input_schema={
         "limit": {
             "type": "integer",
+            "required": False,
             "description": "Max guilds to return.",
             "example": 100,
         },
@@ -1685,9 +1752,10 @@ def list_discord_guilds(input_data: dict) -> dict:
     description="Get info about a Discord guild. Lean summary by default; include_metadata=true returns the raw guild object (roles, emojis, stickers, features).",
     action_sets=["discord_guild", "discord"],
     input_schema={
-        "guild_id": {"type": "string", "description": "Guild ID.", "example": ""},
+        "guild_id": {"type": "string", "required": True, "description": "Guild ID.", "example": ""},
         "include_metadata": {
             "type": "boolean",
+            "required": False,
             "description": "Return the full raw guild object (default false = lean).",
             "example": False,
         },
@@ -1731,7 +1799,7 @@ def get_discord_guild(input_data: dict) -> dict:
     description="List roles in a guild.",
     action_sets=["discord_guild", "discord"],
     input_schema={
-        "guild_id": {"type": "string", "description": "Guild ID.", "example": ""},
+        "guild_id": {"type": "string", "required": True, "description": "Guild ID.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -1748,25 +1816,29 @@ def list_discord_guild_roles(input_data: dict) -> dict:
     description="Create a new role in a guild. permissions is a decimal-string bitfield. color is an integer (0xRRGGBB).",
     action_sets=["discord_guild", "discord"],
     input_schema={
-        "guild_id": {"type": "string", "description": "Guild ID.", "example": ""},
-        "name": {"type": "string", "description": "Role name.", "example": ""},
+        "guild_id": {"type": "string", "required": True, "description": "Guild ID.", "example": ""},
+        "name": {"type": "string", "required": True, "description": "Role name.", "example": ""},
         "permissions": {
             "type": "string",
+            "required": False,
             "description": "Permissions bitfield (optional).",
             "example": "0",
         },
         "color": {
             "type": "integer",
+            "required": False,
             "description": "Color int (optional).",
             "example": 0,
         },
         "hoist": {
             "type": "boolean",
+            "required": False,
             "description": "Display separately in member list.",
             "example": False,
         },
         "mentionable": {
             "type": "boolean",
+            "required": False,
             "description": "Can be @-mentioned.",
             "example": False,
         },
@@ -1794,30 +1866,35 @@ def create_discord_role(input_data: dict) -> dict:
     description="Edit a role's name/permissions/color/hoist/mentionable.",
     action_sets=["discord_guild"],
     input_schema={
-        "guild_id": {"type": "string", "description": "Guild ID.", "example": ""},
-        "role_id": {"type": "string", "description": "Role ID.", "example": ""},
+        "guild_id": {"type": "string", "required": True, "description": "Guild ID.", "example": ""},
+        "role_id": {"type": "string", "required": True, "description": "Role ID.", "example": ""},
         "name": {
             "type": "string",
+            "required": False,
             "description": "New name (optional).",
             "example": "",
         },
         "permissions": {
             "type": "string",
+            "required": False,
             "description": "New permissions (optional).",
             "example": "",
         },
         "color": {
             "type": "integer",
+            "required": False,
             "description": "New color (optional).",
             "example": 0,
         },
         "hoist": {
             "type": "boolean",
+            "required": False,
             "description": "Hoist (optional).",
             "example": False,
         },
         "mentionable": {
             "type": "boolean",
+            "required": False,
             "description": "Mentionable (optional).",
             "example": False,
         },
@@ -1846,8 +1923,8 @@ def modify_discord_role(input_data: dict) -> dict:
     description="Delete a role from a guild.",
     action_sets=["discord_guild"],
     input_schema={
-        "guild_id": {"type": "string", "description": "Guild ID.", "example": ""},
-        "role_id": {"type": "string", "description": "Role ID.", "example": ""},
+        "guild_id": {"type": "string", "required": True, "description": "Guild ID.", "example": ""},
+        "role_id": {"type": "string", "required": True, "description": "Role ID.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -1868,7 +1945,7 @@ def delete_discord_role(input_data: dict) -> dict:
     description="List custom emojis in a guild.",
     action_sets=["discord_guild"],
     input_schema={
-        "guild_id": {"type": "string", "description": "Guild ID.", "example": ""},
+        "guild_id": {"type": "string", "required": True, "description": "Guild ID.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -1885,15 +1962,17 @@ def list_discord_emojis(input_data: dict) -> dict:
     description="Create a custom emoji. image is a data-URI: 'data:image/png;base64,<base64>'.",
     action_sets=["discord_guild"],
     input_schema={
-        "guild_id": {"type": "string", "description": "Guild ID.", "example": ""},
+        "guild_id": {"type": "string", "required": True, "description": "Guild ID.", "example": ""},
         "name": {
             "type": "string",
+            "required": True,
             "description": "Emoji name (alphanumeric+underscore).",
             "example": "",
         },
-        "image": {"type": "string", "description": "Data-URI string.", "example": ""},
+        "image": {"type": "string", "required": True, "description": "Data-URI string.", "example": ""},
         "roles": {
             "type": "array",
+            "required": False,
             "description": "Role IDs restricted to use (optional).",
             "example": [],
         },
@@ -1919,8 +1998,8 @@ def create_discord_emoji(input_data: dict) -> dict:
     description="Delete a custom emoji.",
     action_sets=["discord_guild"],
     input_schema={
-        "guild_id": {"type": "string", "description": "Guild ID.", "example": ""},
-        "emoji_id": {"type": "string", "description": "Emoji ID.", "example": ""},
+        "guild_id": {"type": "string", "required": True, "description": "Guild ID.", "example": ""},
+        "emoji_id": {"type": "string", "required": True, "description": "Emoji ID.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -1941,7 +2020,7 @@ def delete_discord_emoji(input_data: dict) -> dict:
     description="List custom stickers in a guild.",
     action_sets=["discord_guild"],
     input_schema={
-        "guild_id": {"type": "string", "description": "Guild ID.", "example": ""},
+        "guild_id": {"type": "string", "required": True, "description": "Guild ID.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -1958,9 +2037,10 @@ def list_discord_stickers(input_data: dict) -> dict:
     description="List scheduled events in a guild.",
     action_sets=["discord_guild", "discord"],
     input_schema={
-        "guild_id": {"type": "string", "description": "Guild ID.", "example": ""},
+        "guild_id": {"type": "string", "required": True, "description": "Guild ID.", "example": ""},
         "with_user_count": {
             "type": "boolean",
+            "required": False,
             "description": "Include RSVP counts.",
             "example": False,
         },
@@ -1983,35 +2063,41 @@ def list_discord_scheduled_events(input_data: dict) -> dict:
     description="Create a scheduled event. entity_type: 1=stage, 2=voice, 3=external. For external, provide entity_metadata={'location':'...'} and scheduled_end_time.",
     action_sets=["discord_guild", "discord"],
     input_schema={
-        "guild_id": {"type": "string", "description": "Guild ID.", "example": ""},
-        "name": {"type": "string", "description": "Event name.", "example": ""},
+        "guild_id": {"type": "string", "required": True, "description": "Guild ID.", "example": ""},
+        "name": {"type": "string", "required": True, "description": "Event name.", "example": ""},
         "scheduled_start_time": {
             "type": "string",
+            "required": True,
             "description": "ISO 8601 start time.",
             "example": "",
         },
         "entity_type": {
             "type": "integer",
+            "required": True,
             "description": "1=stage, 2=voice, 3=external.",
             "example": 3,
         },
         "scheduled_end_time": {
             "type": "string",
+            "required": False,
             "description": "ISO 8601 end (required for external).",
             "example": "",
         },
         "channel_id": {
             "type": "string",
+            "required": False,
             "description": "Voice/stage channel ID (required for 1/2).",
             "example": "",
         },
         "entity_metadata": {
             "type": "object",
+            "required": False,
             "description": "{'location': '...'} for external events.",
             "example": {},
         },
         "description": {
             "type": "string",
+            "required": False,
             "description": "Event description (optional).",
             "example": "",
         },
@@ -2041,8 +2127,8 @@ def create_discord_scheduled_event(input_data: dict) -> dict:
     description="Delete a scheduled event.",
     action_sets=["discord_guild"],
     input_schema={
-        "guild_id": {"type": "string", "description": "Guild ID.", "example": ""},
-        "event_id": {"type": "string", "description": "Event ID.", "example": ""},
+        "guild_id": {"type": "string", "required": True, "description": "Guild ID.", "example": ""},
+        "event_id": {"type": "string", "required": True, "description": "Event ID.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -2063,25 +2149,29 @@ def delete_discord_scheduled_event(input_data: dict) -> dict:
     description="Get the guild audit log (mod actions). action_type filters: 1=guild_update, 10=channel_create, 11=channel_update, 12=channel_delete, 20=member_kick, 22=member_ban_add, 23=member_ban_remove, 25=member_update, 30=role_create, 72=message_delete (see Discord docs).",
     action_sets=["discord_guild", "discord"],
     input_schema={
-        "guild_id": {"type": "string", "description": "Guild ID.", "example": ""},
+        "guild_id": {"type": "string", "required": True, "description": "Guild ID.", "example": ""},
         "user_id": {
             "type": "string",
+            "required": False,
             "description": "Filter by user who triggered (optional).",
             "example": "",
         },
         "action_type": {
             "type": "integer",
+            "required": False,
             "description": "Filter by action type code (optional).",
             "example": 0,
         },
         "before": {
             "type": "string",
+            "required": False,
             "description": "Pagination: entry ID.",
             "example": "",
         },
-        "limit": {"type": "integer", "description": "1-100.", "example": 50},
+        "limit": {"type": "integer", "required": False, "description": "1-100.", "example": 50},
         "include_metadata": {
             "type": "boolean",
+            "required": False,
             "description": "Return raw audit log incl. users[]/webhooks[] side tables (default false = lean entries).",
             "example": False,
         },
@@ -2145,7 +2235,7 @@ def get_discord_audit_log(input_data: dict) -> dict:
     description="List all invites for a guild.",
     action_sets=["discord_guild"],
     input_schema={
-        "guild_id": {"type": "string", "description": "Guild ID.", "example": ""},
+        "guild_id": {"type": "string", "required": True, "description": "Guild ID.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -2167,7 +2257,7 @@ def list_discord_guild_invites(input_data: dict) -> dict:
     description="Get info about any Discord user by ID.",
     action_sets=["discord_members", "discord"],
     input_schema={
-        "user_id": {"type": "string", "description": "User ID.", "example": ""},
+        "user_id": {"type": "string", "required": True, "description": "User ID.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -2198,11 +2288,13 @@ def get_discord_bot_user(input_data: dict) -> dict:
     input_schema={
         "recipient_id": {
             "type": "string",
+            "required": True,
             "description": "Discord user ID to DM.",
             "example": "123456789012345678",
         },
         "content": {
             "type": "string",
+            "required": True,
             "description": "Message content.",
             "example": "Hey there!",
         },
@@ -2247,10 +2339,11 @@ def get_discord_user_account(input_data: dict) -> dict:
     input_schema={
         "channel_id": {
             "type": "string",
+            "required": True,
             "description": "Channel ID.",
             "example": "123",
         },
-        "content": {"type": "string", "description": "Content.", "example": "Hi"},
+        "content": {"type": "string", "required": True, "description": "Content.", "example": "Hi"},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -2300,10 +2393,11 @@ def get_discord_user_dm_channels(input_data: dict) -> dict:
     input_schema={
         "recipient_id": {
             "type": "string",
+            "required": True,
             "description": "Recipient ID.",
             "example": "123",
         },
-        "content": {"type": "string", "description": "Content.", "example": "Hi"},
+        "content": {"type": "string", "required": True, "description": "Content.", "example": "Hi"},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -2337,11 +2431,12 @@ def get_discord_user_relationships(input_data: dict) -> dict:
     description="Search messages in a guild (selfbot — uses user token's search permission). Lean flattened hits by default; include_metadata=true returns Discord's raw arrays-of-arrays.",
     action_sets=["discord_user"],
     input_schema={
-        "guild_id": {"type": "string", "description": "Guild ID.", "example": ""},
-        "query": {"type": "string", "description": "Search content.", "example": ""},
-        "limit": {"type": "integer", "description": "Max results.", "example": 25},
+        "guild_id": {"type": "string", "required": True, "description": "Guild ID.", "example": ""},
+        "query": {"type": "string", "required": True, "description": "Search content.", "example": ""},
+        "limit": {"type": "integer", "required": False, "description": "Max results.", "example": 25},
         "include_metadata": {
             "type": "boolean",
+            "required": False,
             "description": "Return raw search result groups (default false = lean flattened hits).",
             "example": False,
         },
@@ -2401,9 +2496,10 @@ def search_discord_guild_messages_as_user(input_data: dict) -> dict:
     description="Join voice channel.",
     action_sets=["discord_voice", "discord"],
     input_schema={
-        "guild_id": {"type": "string", "description": "Guild ID.", "example": "123"},
+        "guild_id": {"type": "string", "required": True, "description": "Guild ID.", "example": "123"},
         "channel_id": {
             "type": "string",
+            "required": True,
             "description": "Channel ID.",
             "example": "456",
         },
@@ -2427,7 +2523,7 @@ async def join_discord_voice_channel(input_data: dict) -> dict:
     description="Leave voice channel.",
     action_sets=["discord_voice", "discord"],
     input_schema={
-        "guild_id": {"type": "string", "description": "Guild ID.", "example": "123"}
+        "guild_id": {"type": "string", "required": True, "description": "Guild ID.", "example": "123"}
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -2443,8 +2539,8 @@ async def leave_discord_voice_channel(input_data: dict) -> dict:
     description="Speak TTS in voice.",
     action_sets=["discord_voice", "discord"],
     input_schema={
-        "guild_id": {"type": "string", "description": "Guild ID.", "example": "123"},
-        "text": {"type": "string", "description": "Text.", "example": "Hello"},
+        "guild_id": {"type": "string", "required": True, "description": "Guild ID.", "example": "123"},
+        "text": {"type": "string", "required": True, "description": "Text.", "example": "Hello"},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -2465,7 +2561,7 @@ async def speak_discord_voice_tts(input_data: dict) -> dict:
     description="Get voice status.",
     action_sets=["discord_voice", "discord"],
     input_schema={
-        "guild_id": {"type": "string", "description": "Guild ID.", "example": "123"}
+        "guild_id": {"type": "string", "required": True, "description": "Guild ID.", "example": "123"}
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )

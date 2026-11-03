@@ -9,6 +9,7 @@ from agent_core import action
     input_schema={
         "path": {
             "type": "string",
+            "required": True,
             "example": "C:/Users/user/Documents",
             "description": "Absolute path to the folder to list. Use full absolute paths (e.g., C:/Users/user/Documents on Windows or /home/user/documents on Linux/Mac).",
         }

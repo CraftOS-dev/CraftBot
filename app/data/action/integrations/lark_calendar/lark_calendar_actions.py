@@ -14,11 +14,13 @@ from agent_core import action
     input_schema={
         "page_size": {
             "type": "integer",
+            "required": False,
             "description": "Max calendars to return (capped at 1000).",
             "example": 20,
         },
         "page_token": {
             "type": "string",
+            "required": False,
             "description": "Pagination cursor from a previous response.",
             "example": "",
         },
@@ -62,6 +64,7 @@ async def get_lark_primary_calendar(input_data: dict) -> dict:
     input_schema={
         "calendar_id": {
             "type": "string",
+            "required": True,
             "description": "Calendar id.",
             "example": "feishu.cn_abc...",
         },
@@ -86,26 +89,31 @@ async def get_lark_calendar(input_data: dict) -> dict:
     input_schema={
         "summary": {
             "type": "string",
+            "required": True,
             "description": "Calendar name (max 255 chars).",
             "example": "Project X",
         },
         "description": {
             "type": "string",
+            "required": False,
             "description": "Optional description.",
             "example": "",
         },
         "permissions": {
             "type": "string",
+            "required": False,
             "description": "private | show_only_free_busy | public.",
             "example": "private",
         },
         "color": {
             "type": "integer",
+            "required": False,
             "description": "Optional RGB int32 (Lark encoding). -1 for default.",
             "example": -1,
         },
         "summary_alias": {
             "type": "string",
+            "required": False,
             "description": "Optional alias / short name.",
             "example": "",
         },
@@ -145,22 +153,25 @@ async def create_lark_calendar(input_data: dict) -> dict:
     input_schema={
         "calendar_id": {
             "type": "string",
+            "required": True,
             "description": "Calendar id.",
             "example": "feishu.cn_abc...",
         },
-        "summary": {"type": "string", "description": "New name.", "example": ""},
+        "summary": {"type": "string", "required": False, "description": "New name.", "example": ""},
         "description": {
             "type": "string",
+            "required": False,
             "description": "New description.",
             "example": "",
         },
         "permissions": {
             "type": "string",
+            "required": False,
             "description": "private | show_only_free_busy | public.",
             "example": "",
         },
-        "color": {"type": "integer", "description": "RGB int32.", "example": -1},
-        "summary_alias": {"type": "string", "description": "Alias.", "example": ""},
+        "color": {"type": "integer", "required": False, "description": "RGB int32.", "example": -1},
+        "summary_alias": {"type": "string", "required": False, "description": "Alias.", "example": ""},
     },
     output_schema={
         "status": {"type": "string", "example": "success"},
@@ -202,6 +213,7 @@ async def update_lark_calendar(input_data: dict) -> dict:
     input_schema={
         "calendar_id": {
             "type": "string",
+            "required": True,
             "description": "Calendar id.",
             "example": "feishu.cn_abc...",
         },
@@ -224,12 +236,14 @@ async def delete_lark_calendar(input_data: dict) -> dict:
     input_schema={
         "query": {
             "type": "string",
+            "required": True,
             "description": "Search query.",
             "example": "Project X",
         },
-        "page_size": {"type": "integer", "description": "Max results.", "example": 20},
+        "page_size": {"type": "integer", "required": False, "description": "Max results.", "example": 20},
         "page_token": {
             "type": "string",
+            "required": False,
             "description": "Pagination cursor.",
             "example": "",
         },
@@ -258,6 +272,7 @@ async def search_lark_calendars(input_data: dict) -> dict:
     input_schema={
         "calendar_id": {
             "type": "string",
+            "required": True,
             "description": "Calendar id to subscribe to.",
             "example": "feishu.cn_abc...",
         },
@@ -283,6 +298,7 @@ async def subscribe_to_lark_calendar(input_data: dict) -> dict:
     input_schema={
         "calendar_id": {
             "type": "string",
+            "required": True,
             "description": "Calendar id.",
             "example": "feishu.cn_abc...",
         },
@@ -314,26 +330,31 @@ async def unsubscribe_from_lark_calendar(input_data: dict) -> dict:
     input_schema={
         "calendar_id": {
             "type": "string",
+            "required": True,
             "description": "Calendar id. Use list_lark_calendars or get_lark_primary_calendar to find it.",
             "example": "primary",
         },
         "start_time": {
             "type": "integer",
+            "required": True,
             "description": "Window start as Unix timestamp in seconds.",
             "example": 1730000000,
         },
         "end_time": {
             "type": "integer",
+            "required": True,
             "description": "Window end as Unix timestamp in seconds.",
             "example": 1730086400,
         },
         "page_size": {
             "type": "integer",
+            "required": False,
             "description": "Max events to return (capped at 1000).",
             "example": 50,
         },
         "include_metadata": {
             "type": "boolean",
+            "required": False,
             "description": "Return full raw event objects (default false = lean).",
             "example": False,
         },
@@ -398,11 +419,13 @@ async def list_lark_calendar_events(input_data: dict) -> dict:
     input_schema={
         "calendar_id": {
             "type": "string",
+            "required": True,
             "description": "Calendar id holding the event.",
             "example": "primary",
         },
         "event_id": {
             "type": "string",
+            "required": True,
             "description": "Event id.",
             "example": "0123abcd-...",
         },
@@ -430,36 +453,43 @@ async def get_lark_calendar_event(input_data: dict) -> dict:
     input_schema={
         "calendar_id": {
             "type": "string",
+            "required": True,
             "description": "Calendar id to create the event in.",
             "example": "primary",
         },
         "summary": {
             "type": "string",
+            "required": True,
             "description": "Event title.",
             "example": "Q2 planning",
         },
         "start_time": {
             "type": "integer",
+            "required": True,
             "description": "Start as Unix timestamp in seconds.",
             "example": 1730000000,
         },
         "end_time": {
             "type": "integer",
+            "required": True,
             "description": "End as Unix timestamp in seconds.",
             "example": 1730003600,
         },
         "description": {
             "type": "string",
+            "required": False,
             "description": "Event body / agenda.",
             "example": "Review last quarter and align on Q2 goals.",
         },
         "location": {
             "type": "string",
+            "required": False,
             "description": "Physical or virtual location label.",
             "example": "Conf Room A",
         },
         "with_video_meeting": {
             "type": "boolean",
+            "required": False,
             "description": "If true, Lark auto-attaches a Lark Meeting URL.",
             "example": False,
         },
@@ -505,36 +535,43 @@ async def create_lark_calendar_event(input_data: dict) -> dict:
     input_schema={
         "calendar_id": {
             "type": "string",
+            "required": True,
             "description": "Calendar id holding the event.",
             "example": "primary",
         },
         "event_id": {
             "type": "string",
+            "required": True,
             "description": "Event id to update.",
             "example": "0123abcd-...",
         },
         "summary": {
             "type": "string",
+            "required": False,
             "description": "New event title (omit to keep).",
             "example": "Q2 planning (rescheduled)",
         },
         "description": {
             "type": "string",
+            "required": False,
             "description": "New description (omit to keep).",
             "example": "",
         },
         "start_time": {
             "type": "integer",
+            "required": False,
             "description": "New start as Unix seconds (omit to keep).",
             "example": 1730086400,
         },
         "end_time": {
             "type": "integer",
+            "required": False,
             "description": "New end as Unix seconds (omit to keep).",
             "example": 1730090000,
         },
         "location": {
             "type": "string",
+            "required": False,
             "description": "New location (omit to keep).",
             "example": "",
         },
@@ -580,16 +617,19 @@ async def update_lark_calendar_event(input_data: dict) -> dict:
     input_schema={
         "calendar_id": {
             "type": "string",
+            "required": True,
             "description": "Calendar id holding the event.",
             "example": "primary",
         },
         "event_id": {
             "type": "string",
+            "required": True,
             "description": "Event id to delete.",
             "example": "0123abcd-...",
         },
         "need_notification": {
             "type": "boolean",
+            "required": False,
             "description": "Email attendees about the cancellation.",
             "example": True,
         },
@@ -616,26 +656,31 @@ async def delete_lark_calendar_event(input_data: dict) -> dict:
     input_schema={
         "calendar_id": {
             "type": "string",
+            "required": True,
             "description": "Calendar id to search.",
             "example": "primary",
         },
         "query": {
             "type": "string",
+            "required": True,
             "description": "Search query.",
             "example": "planning",
         },
         "start_time": {
             "type": "integer",
+            "required": False,
             "description": "Optional window start as Unix seconds.",
             "example": 1730000000,
         },
         "end_time": {
             "type": "integer",
+            "required": False,
             "description": "Optional window end as Unix seconds.",
             "example": 1732000000,
         },
         "page_size": {
             "type": "integer",
+            "required": False,
             "description": "Max results (capped at 100).",
             "example": 20,
         },
@@ -666,16 +711,19 @@ async def search_lark_calendar_events(input_data: dict) -> dict:
     input_schema={
         "calendar_id": {
             "type": "string",
+            "required": True,
             "description": "Calendar id holding the event.",
             "example": "primary",
         },
         "event_id": {
             "type": "string",
+            "required": True,
             "description": "Event id.",
             "example": "0123abcd-...",
         },
         "rsvp_status": {
             "type": "string",
+            "required": True,
             "description": "accept | decline | tentative.",
             "example": "accept",
         },
@@ -702,31 +750,37 @@ async def rsvp_lark_calendar_event(input_data: dict) -> dict:
     input_schema={
         "calendar_id": {
             "type": "string",
+            "required": True,
             "description": "Calendar id.",
             "example": "primary",
         },
         "event_id": {
             "type": "string",
+            "required": True,
             "description": "Master recurring event id.",
             "example": "0123abcd-...",
         },
         "start_time": {
             "type": "integer",
+            "required": True,
             "description": "Window start as Unix seconds.",
             "example": 1730000000,
         },
         "end_time": {
             "type": "integer",
+            "required": True,
             "description": "Window end as Unix seconds.",
             "example": 1735689600,
         },
         "page_size": {
             "type": "integer",
+            "required": False,
             "description": "Max instances.",
             "example": 50,
         },
         "include_metadata": {
             "type": "boolean",
+            "required": False,
             "description": "Return full raw event objects (default false = lean).",
             "example": False,
         },
@@ -798,31 +852,37 @@ async def list_lark_event_instances(input_data: dict) -> dict:
     input_schema={
         "calendar_id": {
             "type": "string",
+            "required": True,
             "description": "Calendar id holding the event.",
             "example": "primary",
         },
         "event_id": {
             "type": "string",
+            "required": True,
             "description": "Event id.",
             "example": "0123abcd-...",
         },
         "user_ids": {
             "type": "array",
+            "required": False,
             "description": "Lark open_ids (ou_...) to invite.",
             "example": ["ou_abc"],
         },
         "emails": {
             "type": "array",
+            "required": False,
             "description": "Email addresses to invite as external attendees.",
             "example": ["alice@example.com"],
         },
         "chat_ids": {
             "type": "array",
+            "required": False,
             "description": "Lark group chat_ids (oc_...) — every member gets invited.",
             "example": [],
         },
         "need_notification": {
             "type": "boolean",
+            "required": False,
             "description": "Email/notify the attendees about the invite.",
             "example": True,
         },
@@ -868,21 +928,25 @@ async def add_lark_event_attendees(input_data: dict) -> dict:
     input_schema={
         "calendar_id": {
             "type": "string",
+            "required": True,
             "description": "Calendar id.",
             "example": "primary",
         },
         "event_id": {
             "type": "string",
+            "required": True,
             "description": "Event id.",
             "example": "0123abcd-...",
         },
         "page_size": {
             "type": "integer",
+            "required": False,
             "description": "Max attendees per page (cap 200).",
             "example": 100,
         },
         "page_token": {
             "type": "string",
+            "required": False,
             "description": "Pagination cursor.",
             "example": "",
         },
@@ -912,21 +976,25 @@ async def list_lark_event_attendees(input_data: dict) -> dict:
     input_schema={
         "calendar_id": {
             "type": "string",
+            "required": True,
             "description": "Calendar id.",
             "example": "primary",
         },
         "event_id": {
             "type": "string",
+            "required": True,
             "description": "Event id.",
             "example": "0123abcd-...",
         },
         "attendee_ids": {
             "type": "array",
+            "required": True,
             "description": "List of attendee_id values to remove.",
             "example": ["att_abc"],
         },
         "need_notification": {
             "type": "boolean",
+            "required": False,
             "description": "Notify removed attendees.",
             "example": True,
         },
@@ -957,26 +1025,31 @@ async def remove_lark_event_attendees(input_data: dict) -> dict:
     input_schema={
         "calendar_id": {
             "type": "string",
+            "required": True,
             "description": "Calendar id.",
             "example": "primary",
         },
         "event_id": {
             "type": "string",
+            "required": True,
             "description": "Event id.",
             "example": "0123abcd-...",
         },
         "attendee_id": {
             "type": "string",
+            "required": True,
             "description": "Chat-type attendee id.",
             "example": "att_chat_...",
         },
         "page_size": {
             "type": "integer",
+            "required": False,
             "description": "Max members per page (cap 200).",
             "example": 100,
         },
         "page_token": {
             "type": "string",
+            "required": False,
             "description": "Pagination cursor.",
             "example": "",
         },
@@ -1007,21 +1080,25 @@ async def list_lark_event_chat_attendee_members(input_data: dict) -> dict:
     input_schema={
         "calendar_id": {
             "type": "string",
+            "required": True,
             "description": "Calendar id holding the event.",
             "example": "primary",
         },
         "event_id": {
             "type": "string",
+            "required": True,
             "description": "Event id.",
             "example": "0123abcd-...",
         },
         "meeting_room_id": {
             "type": "string",
+            "required": True,
             "description": "Meeting room (room_id).",
             "example": "omm_...",
         },
         "need_notification": {
             "type": "boolean",
+            "required": False,
             "description": "Notify meeting room owners.",
             "example": True,
         },
@@ -1071,6 +1148,7 @@ async def book_lark_meeting_room(input_data: dict) -> dict:
     input_schema={
         "calendar_id": {
             "type": "string",
+            "required": True,
             "description": "Calendar id.",
             "example": "primary",
         },
@@ -1095,16 +1173,19 @@ async def list_lark_calendar_acls(input_data: dict) -> dict:
     input_schema={
         "calendar_id": {
             "type": "string",
+            "required": True,
             "description": "Calendar id.",
             "example": "primary",
         },
         "user_id": {
             "type": "string",
+            "required": True,
             "description": "Lark user open_id (ou_...).",
             "example": "ou_abc",
         },
         "role": {
             "type": "string",
+            "required": False,
             "description": "owner | reader | writer | free_busy_reader.",
             "example": "reader",
         },
@@ -1135,11 +1216,13 @@ async def share_lark_calendar_with_user(input_data: dict) -> dict:
     input_schema={
         "calendar_id": {
             "type": "string",
+            "required": True,
             "description": "Calendar id.",
             "example": "primary",
         },
         "acl_id": {
             "type": "string",
+            "required": True,
             "description": "ACL entry id (from list_lark_calendar_acls).",
             "example": "user_...",
         },
@@ -1171,16 +1254,19 @@ async def revoke_lark_calendar_share(input_data: dict) -> dict:
     input_schema={
         "user_ids": {
             "type": "array",
+            "required": True,
             "description": "List of Lark open_ids (ou_...) to query.",
             "example": ["ou_abc", "ou_def"],
         },
         "start_time": {
             "type": "integer",
+            "required": True,
             "description": "Window start as Unix timestamp in seconds.",
             "example": 1730000000,
         },
         "end_time": {
             "type": "integer",
+            "required": True,
             "description": "Window end as Unix timestamp in seconds.",
             "example": 1730086400,
         },

@@ -29,6 +29,7 @@ from agent_core import action
     input_schema={
         "filter_connected": {
             "type": "boolean",
+            "required": False,
             "description": "If true, only show connected integrations. If false, show all available integrations.",
             "example": False,
         },
@@ -112,6 +113,7 @@ def list_available_integrations(input_data: dict) -> dict:
     input_schema={
         "integration_id": {
             "type": "string",
+            "required": True,
             "description": (
                 "The integration to connect, using its exact id. Valid values: slack, "
                 "discord, telegram, whatsapp, whatsapp_business, notion, linkedin, "
@@ -124,6 +126,7 @@ def list_available_integrations(input_data: dict) -> dict:
         },
         "credentials": {
             "type": "object",
+            "required": False,
             "description": (
                 "Credentials for token-based auth. Keys depend on the integration: "
                 "slack: {bot_token, workspace_name(optional)}, "
@@ -140,6 +143,7 @@ def list_available_integrations(input_data: dict) -> dict:
         },
         "auth_method": {
             "type": "string",
+            "required": False,
             "description": (
                 "Which auth method to use. 'token' for providing credentials directly, "
                 "'oauth' for browser-based OAuth flow, 'interactive' for QR code scan "
@@ -434,6 +438,7 @@ def connect_integration(input_data: dict) -> dict:
     input_schema={
         "integration_id": {
             "type": "string",
+            "required": True,
             "description": (
                 "The integration to check status for, using its exact id. Google "
                 "Workspace apps are SEPARATE integrations — use 'gmail', "
@@ -445,6 +450,7 @@ def connect_integration(input_data: dict) -> dict:
         },
         "session_id": {
             "type": "string",
+            "required": False,
             "description": "Session ID for checking WhatsApp QR scan status (from connect_integration result).",
             "example": "",
         },
@@ -632,11 +638,13 @@ def check_integration_status(input_data: dict) -> dict:
     input_schema={
         "integration_id": {
             "type": "string",
+            "required": True,
             "description": "The integration to disconnect.",
             "example": "slack",
         },
         "account_id": {
             "type": "string",
+            "required": False,
             "description": "Optional specific account ID to disconnect (if multiple accounts are connected).",
             "example": "",
         },
@@ -707,11 +715,13 @@ def disconnect_integration(input_data: dict) -> dict:
     input_schema={
         "integration_id": {
             "type": "string",
+            "required": True,
             "description": "The integration the account belongs to.",
             "example": "gmail",
         },
         "account": {
             "type": "string",
+            "required": False,
             "description": (
                 "Which account: an identity (email/id), the user's alias for "
                 "it, or any unique fragment of either."
@@ -720,11 +730,13 @@ def disconnect_integration(input_data: dict) -> dict:
         },
         "operation": {
             "type": "string",
+            "required": True,
             "description": "One of: set_primary | set_alias | set_listening",
             "example": "set_primary",
         },
         "value": {
             "type": "string",
+            "required": False,
             "description": (
                 "For set_alias: the new alias (empty clears it). For "
                 "set_listening: 'true' or 'false'. Ignored for set_primary."

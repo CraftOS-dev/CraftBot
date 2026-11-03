@@ -30,10 +30,11 @@ from agent_core import action
     input_schema={
         "message": {
             "type": "string",
+            "required": True,
             "example": "Hello, user!",
             "description": (
-                "The chat message to send. Send message in terminal friendly format and "
-                "DO NOT include mark down. When you also pass suggested_responses, this "
+                "The chat message to send, formatted as the Replies section of your "
+                "instructions says. When you also pass suggested_responses, this "
                 "text is JUST the single question (plus any brief context), so do NOT "
                 "restate the answer options here; they are rendered separately as "
                 "buttons. Never write out multiple questions in one message."
@@ -41,6 +42,7 @@ from agent_core import action
         },
         "continue_work": {
             "type": "boolean",
+            "required": False,
             "example": False,
             "description": (
                 "False (default): this is your final message for now — the run ends and "
@@ -50,6 +52,7 @@ from agent_core import action
         },
         "suggested_responses": {
             "type": "array",
+            "required": False,
             "example": ["Yes, go ahead", "No, skip it"],
             "description": (
                 "Only when the message is a question: 2-5 short suggested answers "
@@ -61,6 +64,7 @@ from agent_core import action
         },
         "allow_free_text": {
             "type": "boolean",
+            "required": False,
             "example": True,
             "description": (
                 "Only with suggested_responses. True (default): the user can also type "
