@@ -552,6 +552,7 @@ def _stop_orphan_listeners(args: Optional[List[str]] = None) -> int:
     from app.process_ledger import kill_tree
 
     stopped = 0
+    failures = []
     for pid, description in orphans:
         print(
             f"  {ORANGE}▸{RESET} {WHITE}STOPPING ORPHANED CRAFTBOT{RESET}"
@@ -562,6 +563,9 @@ def _stop_orphan_listeners(args: Optional[List[str]] = None) -> int:
             stopped += 1
         except Exception as e:
             print(f"  {DIM}(could not stop pid {pid}: {e}){RESET}")
+            failures.append(str(pid))
+    if failures:
+        raise RuntimeError("Could not stop orphaned CraftBot pids: " + ", ".join(failures))
     return stopped
 
 
@@ -818,14 +822,9 @@ def cmd_stop(quiet: bool = False, args: Optional[List[str]] = None) -> bool:
 def _kill_owned_pid(pid: int) -> None:
     """Terminate a pid already verified as ours, with its whole tree."""
     if _PLATFORM == "win32":
-        try:
-            subprocess.run(
-                ["taskkill", "/PID", str(pid), "/F", "/T"],
-                capture_output=True,
-                timeout=15,
-            )
-        except Exception as e:
-            print(f"Warning: taskkill failed — {e}")
+        from app.process_ledger import kill_tree
+
+        kill_tree(pid)
     else:
         try:
             # Kill the entire process group so child processes also die

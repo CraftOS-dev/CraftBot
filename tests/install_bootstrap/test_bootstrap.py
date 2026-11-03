@@ -6,12 +6,14 @@ No application dependencies or credentials are needed.
 
 import hashlib
 import io
+import json
 import os
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from app import downloads, node_runtime, runtime_manifest
@@ -29,6 +31,72 @@ class Response(io.BytesIO):
 
 
 class BootstrapTests(unittest.TestCase):
+    def test_failed_windows_stop_keeps_pid_record_and_fails(self):
+        import craftbot
+
+        with patch.object(craftbot, "_PLATFORM", "win32"), patch.object(
+            craftbot, "_read_pid_record", return_value={"pid": 123}
+        ), patch.object(craftbot, "_owned_pid", return_value=123), patch.object(
+            craftbot, "_remove_pid"
+        ) as remove, patch(
+            "app.process_ledger.kill_tree", side_effect=RuntimeError("still running")
+        ):
+            with self.assertRaisesRegex(RuntimeError, "still running"):
+                craftbot.cmd_stop()
+            remove.assert_not_called()
+
+    def test_failed_orphan_stop_is_reported(self):
+        import craftbot
+
+        with patch.object(
+            craftbot, "_orphan_listeners", return_value=[(123, "owned CraftBot")]
+        ), patch(
+            "app.process_ledger.kill_tree", side_effect=RuntimeError("access denied")
+        ):
+            with self.assertRaisesRegex(RuntimeError, "orphaned CraftBot pids: 123"):
+                craftbot._stop_orphan_listeners()
+
+    def test_agent_child_can_find_private_npx_without_system_node(self):
+        import run as launcher
+
+        private_bin = self.root / "private-node"
+        private_bin.mkdir()
+        npx = private_bin / ("npx.cmd" if sys.platform == "win32" else "npx")
+        npx.write_text("", encoding="utf-8")
+        npx.chmod(0o755)
+        observed = self.root / "child-env.json"
+        script = self.root / "main.py"
+        script.write_text(
+            "import json, os, shutil\n"
+            f"with open({str(observed)!r}, 'w') as output:\n"
+            "    json.dump({'npx': shutil.which('npx'), 'node': os.getenv('CRAFTBOT_NODE')}, output)\n",
+            encoding="utf-8",
+        )
+        runtime = SimpleNamespace(
+            node=str(private_bin / "node"), bin_dir=str(private_bin)
+        )
+        with (
+            patch.dict(os.environ, {"PATH": ""}),
+            patch.object(launcher, "MAIN_APP_SCRIPT", str(script)),
+            patch.object(launcher, "_background_processes", []),
+            patch.object(launcher, "_record_launched"),
+            patch.object(
+                launcher.python_runtime, "resolve", return_value=sys.executable
+            ),
+            patch.object(launcher.node_runtime, "resolve", return_value=runtime),
+        ):
+            child = launcher.launch_agent_background(None, False, silent=True)
+            self.assertIsNotNone(child)
+            self.assertEqual(child.wait(timeout=15), 0)
+        self.assertEqual(Path(json.loads(observed.read_text())["npx"]), npx)
+
+    def test_packaged_app_creation_keeps_its_runtime_markdown(self):
+        from scripts.package_source import wanted
+
+        self.assertTrue(wanted("agent-app/blueprint/AGENT_APP.md"))
+        self.assertTrue(wanted("agent-app/docs/agent-guide.md"))
+        self.assertFalse(wanted("docs/development.md"))
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)

@@ -92,6 +92,20 @@ Rust 1.85+ (`rustup` installs it). No system libraries are needed on Windows
 or macOS; on Linux the runtime uses the system's X11/Wayland and OpenGL via
 `dlopen`, with a software renderer as fallback.
 
+Windows builds statically link the C runtime through the repository's
+`.cargo/config.toml`. The executable must start on a fresh Windows before
+Python provisioning installs the VC++ Redistributable for application wheels.
+The launcher refuses to compile with a dynamic MSVC runtime.
+
+Windows downloads use Schannel so certificate chains resolve on a fresh
+machine, including roots Windows retrieves on demand. Other platforms use
+rustls with the OS trust store. The downloader honors proxy environment
+variables and always verifies TLS and pinned runtime checksums.
+
+Linux font discovery uses optional `dlopen` loading for fontconfig. The
+headless installer can start on a minimal OS without desktop font libraries;
+opening the window still requires a working graphical session.
+
 The CraftBot version is baked in at build time: `CRAFTBOT_VERSION=1.4.0
 cargo build --release`, or a `VERSION` file at the repo root, or "latest"
 for a dev build (downloads the newest release).

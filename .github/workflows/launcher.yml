@@ -8,11 +8,13 @@ on:
   push:
     paths:
       - "launcher/**"
+      - ".cargo/config.toml"
       - "app/runtime-manifest.json"
       - ".github/workflows/launcher.yml"
   pull_request:
     paths:
       - "launcher/**"
+      - ".cargo/config.toml"
       - "app/runtime-manifest.json"
       - ".github/workflows/launcher.yml"
 
@@ -76,3 +78,11 @@ jobs:
 
       - name: Build
         run: cargo build --release
+
+      - name: Start on minimal Linux without desktop or developer packages
+        if: matrix.os_label == 'linux'
+        run: |
+          . /etc/os-release
+          docker run --rm --network none \
+            --volume "$PWD/target/release/CraftBotInstaller:/installer:ro" \
+            "ubuntu:$VERSION_ID" /installer --headless status
