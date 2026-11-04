@@ -30,11 +30,13 @@ slint = { version = "1.17", default-features = false, features = [
 
 # HTTP, blocking. All downloads run on a worker thread, so a synchronous
 # client is the simplest correct choice. rustls: no OpenSSL to find or ship.
-# native-certs: trust the OS certificate store rather than a bundled list, so
-# a corporate TLS-inspecting proxy whose CA is installed on the machine works.
+# native-certs: trust the OS certificate store. Windows uses Schannel below
+# so a fresh machine can resolve certificate chains through Windows Update.
 ureq = { version = "2.12", default-features = false, features = ["tls", "native-certs", "json"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha2 = "0.10"
+tempfile = "3"
 
 # Archives. The source payload is a zip; python-build-standalone is .tar.gz.
 zip = { version = "2.4", default-features = false, features = ["deflate"] }
@@ -48,6 +50,8 @@ dirs = "6"
 fs4 = "0.13"
 
 [target.'cfg(windows)'.dependencies]
+native-tls = "0.2"
+ureq = { version = "2.12", default-features = false, features = ["native-tls"] }
 windows-sys = { version = "0.59", features = [
     "Win32_Foundation",
     "Win32_System_Threading",
@@ -55,6 +59,11 @@ windows-sys = { version = "0.59", features = [
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# Font discovery is optional at startup, especially for headless installs on
+# minimal Linux. Fontique gracefully falls back when fontconfig is absent.
+fontique = { version = "0.10", default-features = false, features = ["fontconfig-dlopen"] }
 
 [build-dependencies]
 slint-build = "1.17"

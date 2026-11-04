@@ -3,9 +3,10 @@
  * Commands never branch on process.platform; they ask the adapter.
  */
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join, resolve, sep } from 'node:path';
+import { unzipSync } from 'fflate';
 
 export type Platform = 'darwin' | 'linux' | 'win32';
 
@@ -18,6 +19,9 @@ export class OSAdapter {
       throw new Error(`Unsupported platform: ${platform}`);
     }
     this.platform = platform;
+    if (arch !== 'x64' && arch !== 'arm64') {
+      throw new Error(`Unsupported CPU architecture: ${arch}`);
+    }
     this.arch = arch === 'arm64' ? 'arm64' : 'amd64';
   }
 
@@ -33,7 +37,7 @@ export class OSAdapter {
   /** Central per-host PocketBase binary cache, versioned (spec B1). */
   pbCacheDir(version: string): string {
     const base = process.env['AGENT_APP_PB_CACHE'] ?? join(this.cacheRoot(), 'pb');
-    const dir = join(base, version);
+    const dir = join(base, version, `${this.platform}-${this.arch}`);
     mkdirSync(dir, { recursive: true });
     return dir;
   }
@@ -56,20 +60,50 @@ export class OSAdapter {
     return this.platform === 'win32' ? 'pocketbase.exe' : 'pocketbase';
   }
 
-  /**
-   * Extract a zip without npm deps: bsdtar handles zip on macOS and Windows 10+;
-   * on Linux prefer unzip, fall back to bsdtar.
-   */
+  /** Use the npm belonging to this Node; .cmd wrappers require a shell. */
+  npmCommand(nodeExecutable: string = process.execPath): [string, string] {
+    const node = realpathSync(nodeExecutable);
+    const bin = dirname(node);
+    const candidates = [join(bin, 'node_modules/npm/bin/npm-cli.js'), join(bin, '../lib/node_modules/npm/bin/npm-cli.js')];
+    // Distro packages may link /usr/bin/npm to /usr/share/nodejs/npm/bin/.
+    const sibling = join(bin, 'npm');
+    if (existsSync(sibling)) candidates.push(join(dirname(realpathSync(sibling)), 'npm-cli.js'));
+    const cli = candidates
+      .find((candidate) => existsSync(candidate));
+    if (!cli) throw new Error('Matching npm is missing. Run CraftBot Repair to restore Node/npm.');
+    return [node, cli];
+  }
+
+  /** Extract internally: no PATH tools, shell, or platform-specific encodings. */
   extractZip(zipPath: string, destDir: string): void {
-    if (this.platform === 'linux') {
-      try {
-        execFileSync('unzip', ['-o', zipPath, '-d', destDir], { stdio: 'pipe' });
-        return;
-      } catch {
-        // fall through to tar
+    const limit = 128 * 1024 * 1024;
+    if (statSync(zipPath).size > limit) throw new Error('ZIP archive exceeds size limit');
+    const root = resolve(destDir);
+    let total = 0;
+    const entries = unzipSync(readFileSync(zipPath), {
+      filter: (entry) => {
+        total += entry.originalSize;
+        const name = entry.name.replaceAll('\\', '/');
+        if (total > limit) throw new Error('ZIP contents exceed size limit');
+        if (name.startsWith('/') || name.includes(':') || name.split('/').includes('..')) {
+          throw new Error(`Unsafe ZIP entry: ${entry.name}`);
+        }
+        return true;
+      },
+    });
+    for (const [name, contents] of Object.entries(entries)) {
+      const output = resolve(root, name.replaceAll('\\', '/'));
+      if (output !== root && !output.startsWith(root + sep)) throw new Error(`Unsafe ZIP entry: ${name}`);
+      // Never follow an existing symlink while extracting.
+      for (let path = output; path !== root; path = dirname(path)) {
+        if (existsSync(path) && lstatSync(path).isSymbolicLink()) throw new Error(`Symlink in ZIP destination: ${path}`);
+      }
+      if (name.endsWith('/')) mkdirSync(output, { recursive: true });
+      else {
+        mkdirSync(dirname(output), { recursive: true });
+        writeFileSync(output, contents);
       }
     }
-    execFileSync('tar', ['-xf', zipPath, '-C', destDir], { stdio: 'pipe' });
   }
 
   /** Terminate a process tree. */

@@ -67,10 +67,13 @@ def test_cancellation_reaches_active_probe():
 def test_healthy_probe_slower_than_half_a_second_can_finish_within_deadline():
     async def run():
         manager = AgentAppManager.__new__(AgentAppManager)
+
         async def probe():
-            await asyncio.sleep(.6)
+            await asyncio.sleep(0.6)
             return True
+
         assert await manager._probe_ready(probe, 1)
+
     asyncio.run(run())
 
 
@@ -79,16 +82,20 @@ def test_process_exit_cancels_an_inflight_probe():
         manager = AgentAppManager.__new__(AgentAppManager)
         entered, cancelled = asyncio.Event(), asyncio.Event()
         status = [None]
+
         async def probe():
             entered.set()
             try:
                 await asyncio.Event().wait()
             finally:
                 cancelled.set()
-        task = asyncio.create_task(manager._probe_ready(
-            probe, 10, SimpleNamespace(poll=lambda: status[0])))
+
+        task = asyncio.create_task(
+            manager._probe_ready(probe, 10, SimpleNamespace(poll=lambda: status[0]))
+        )
         await entered.wait()
         status[0] = 1
         assert not await asyncio.wait_for(task, 1)
         assert cancelled.is_set()
+
     asyncio.run(run())

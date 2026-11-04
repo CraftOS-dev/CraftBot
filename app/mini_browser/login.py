@@ -479,7 +479,8 @@ def _check_origin(page: Any, frame: Any, origin: Tuple[str, str, int]) -> None:
 
 
 def _choose(
-    entries: List[Dict[str, Any]], username: Optional[str],
+    entries: List[Dict[str, Any]],
+    username: Optional[str],
     login_name: Optional[str] = None,
 ) -> Tuple[Optional[Dict[str, Any]], List[str]]:
     """The entry to use (vault order = best first) and the other usernames."""
@@ -803,8 +804,12 @@ def _without_fragment(url: str) -> str:
 
 
 async def autofill(
-    core: Any, tab: Any, *, username: Optional[str] = None,
-    login_name: Optional[str] = None, submit: bool = True
+    core: Any,
+    tab: Any,
+    *,
+    username: Optional[str] = None,
+    login_name: Optional[str] = None,
+    submit: bool = True,
 ) -> Dict[str, Any]:
     """Fill (and by default submit) the page's sign-in form from the vault.
 
@@ -839,9 +844,7 @@ async def autofill(
         selector = f" for saved login name {login_name!r}" if login_name else ""
         if username:
             selector += f" for username {username!r}"
-        raise MiniBrowserError(
-            "MINI_BROWSER_NO_SAVED_LOGIN", site=f"{site}{selector}"
-        )
+        raise MiniBrowserError("MINI_BROWSER_NO_SAVED_LOGIN", site=f"{site}{selector}")
     secret = _Hidden(str(entry.get("password") or ""))
     entry_id = str(entry.get("id") or "")
     account = str(entry.get("username") or "")

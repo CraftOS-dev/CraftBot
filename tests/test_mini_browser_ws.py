@@ -2462,51 +2462,77 @@ def test_cut_ids_are_scoped_to_the_viewer_connection():
     assert mbws._cut_key(first, "copy-1") != mbws._cut_key(second, "copy-1")
     assert mbws._cut_key(first, "copy-1") == mbws._cut_key(first, "copy-1")
 
+
 # On-demand reveal is a separate requester-only response, not resource state.
 def test_typed_items_and_explicit_reveal_stay_on_requesting_socket(env, tmp_path):
     from app.credentials import CredentialVault
-    env.vault = CredentialVault(tmp_path / 'typed-vault')
+
+    env.vault = CredentialVault(tmp_path / "typed-vault")
 
     async def go():
         ws, channel = connect(env)
         _, other = connect(env)
-        await env.mb.handle(ws, 'mini_browser_vault_add', {
-            'kind': 'secure_note', 'group': 'work', 'site': '', 'username': '',
-            'label': 'Private note', 'password': 'Private first line\nPrivate second line',
-        })
-        await env.mb.handle(ws, 'mini_browser_vault_list', {})
-        [reply] = channel.data('mini_browser_vault_list')
-        [entry] = reply['entries']
-        assert entry['kind'] == 'secure_note' and entry['group'] == 'work'
-        assert 'Private first line' not in all_traffic(channel, other)
-        await env.mb.handle(ws, 'mini_browser_vault_reveal', {'id': entry['id'], 'token': 'request1'})
-        assert channel.data('mini_browser_vault_value') == [{
-            'id': entry['id'], 'token': 'request1',
-            'value': 'Private first line\nPrivate second line',
-        }]
+        await env.mb.handle(
+            ws,
+            "mini_browser_vault_add",
+            {
+                "kind": "secure_note",
+                "group": "work",
+                "site": "",
+                "username": "",
+                "label": "Private note",
+                "password": "Private first line\nPrivate second line",
+            },
+        )
+        await env.mb.handle(ws, "mini_browser_vault_list", {})
+        [reply] = channel.data("mini_browser_vault_list")
+        [entry] = reply["entries"]
+        assert entry["kind"] == "secure_note" and entry["group"] == "work"
+        assert "Private first line" not in all_traffic(channel, other)
+        await env.mb.handle(
+            ws, "mini_browser_vault_reveal", {"id": entry["id"], "token": "request1"}
+        )
+        assert channel.data("mini_browser_vault_value") == [
+            {
+                "id": entry["id"],
+                "token": "request1",
+                "value": "Private first line\nPrivate second line",
+            }
+        ]
         assert other.sent == []
         assert env.get_host_calls == 0  # managing credentials never starts Chromium
-        login = env.vault.add_entry('example.com', 'alice', PASSWORD)
-        await env.mb.handle(ws, 'mini_browser_vault_reveal', {'id': login['id'], 'token': 'request2'})
-        [failure] = [r for r in channel.data('mini_browser_vault_result') if r['op'] == 'reveal']
-        assert failure['ok'] is False
+        login = env.vault.add_entry("example.com", "alice", PASSWORD)
+        await env.mb.handle(
+            ws, "mini_browser_vault_reveal", {"id": login["id"], "token": "request2"}
+        )
+        [failure] = [
+            r for r in channel.data("mini_browser_vault_result") if r["op"] == "reveal"
+        ]
+        assert failure["ok"] is False
         assert PASSWORD not in all_traffic(channel, other)
 
     run(go)
 
 
-def test_reveal_transport_failures_do_not_log_the_value(env, tmp_path, monkeypatch, captured_logs):
+def test_reveal_transport_failures_do_not_log_the_value(
+    env, tmp_path, monkeypatch, captured_logs
+):
     from app.credentials import CredentialVault
-    env.vault = CredentialVault(tmp_path / 'typed-vault')
-    entry = env.vault.add_entry('', '', PASSWORD, 'API key', kind='api_key')
+
+    env.vault = CredentialVault(tmp_path / "typed-vault")
+    entry = env.vault.add_entry("", "", PASSWORD, "API key", kind="api_key")
 
     async def go():
         ws, channel = connect(env)
+
         def fail_send(*args):
-            raise RuntimeError('transport failed with ' + PASSWORD)
-        monkeypatch.setattr(env.mb._adapter, 'send_only_to', fail_send)
-        await env.mb.handle(ws, 'mini_browser_vault_reveal', {'id': entry['id'], 'token': 'request1'})
-        assert PASSWORD not in ''.join(captured_logs)
+            raise RuntimeError("transport failed with " + PASSWORD)
+
+        monkeypatch.setattr(env.mb._adapter, "send_only_to", fail_send)
+        await env.mb.handle(
+            ws, "mini_browser_vault_reveal", {"id": entry["id"], "token": "request1"}
+        )
+        assert PASSWORD not in "".join(captured_logs)
         assert channel.sent == []
 
     run(go)

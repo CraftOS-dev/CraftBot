@@ -73,9 +73,7 @@ class FakeOpenAIClient:
 
     def __init__(self, recorder: CallRecorder) -> None:
         self._recorder = recorder
-        self.chat = SimpleNamespace(
-            completions=SimpleNamespace(create=self._create)
-        )
+        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
 
     def _create(self, **kwargs):
         self._recorder.record("openai_compat", "chat.completions.create", kwargs)
@@ -120,9 +118,7 @@ class FakeBedrockClient:
         self._recorder.record("bedrock", "converse", kwargs)
         return {
             "output": {
-                "message": {
-                    "content": [{"text": self._recorder.next_content()}]
-                }
+                "message": {"content": [{"text": self._recorder.next_content()}]}
             },
             "usage": {"inputTokens": 100, "outputTokens": 10},
         }
@@ -276,9 +272,7 @@ def build_interface(monkeypatch, provider: str, model: str):
         # Phase 2; patch the module reference the live code actually uses.
         from agent_core.core.impl.llm.transports import chat_completions
 
-        monkeypatch.setattr(
-            chat_completions, "requests", make_fake_requests(recorder)
-        )
+        monkeypatch.setattr(chat_completions, "requests", make_fake_requests(recorder))
     else:
         # openai / deepseek / grok / openrouter / glm / fugu / minimax / moonshot
         ctx["client"] = FakeOpenAIClient(recorder)
@@ -311,8 +305,7 @@ def assert_snapshot(name: str, data: Dict[str, Any]) -> None:
 
     if os.environ.get("GOLDEN_UPDATE") == "1" or not path.exists():
         path.write_text(
-            json.dumps(canonical, indent=2, sort_keys=True, ensure_ascii=False)
-            + "\n",
+            json.dumps(canonical, indent=2, sort_keys=True, ensure_ascii=False) + "\n",
             encoding="utf-8",
         )
         return

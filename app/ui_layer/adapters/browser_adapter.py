@@ -4332,7 +4332,11 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             pending_questions: list = []
             if self._chat and message_id:
                 question_text = next(
-                    (m.content for m in self._chat._messages if m.message_id == message_id),
+                    (
+                        m.content
+                        for m in self._chat._messages
+                        if m.message_id == message_id
+                    ),
                     "",
                 )
                 storage = self._chat._storage

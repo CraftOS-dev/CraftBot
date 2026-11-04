@@ -44,7 +44,7 @@ sys.path.insert(0, str(REPO_ROOT))
 
 def _fetch_archives(out: Path) -> int:
     """Runtime archives: Python, Node, and (on Windows) the VC++ runtime."""
-    from app import downloads, node_runtime
+    from app import downloads, node_runtime, runtime_manifest
     from app.provision import runtimes
     from app.provision.verify import _vcredist_url
 
@@ -52,28 +52,32 @@ def _fetch_archives(out: Path) -> int:
 
     py_url = runtimes._pbs_download_url(print)
     if py_url:
-        targets.append(("Python runtime", py_url))
+        targets.append(
+            ("Python runtime", py_url, runtime_manifest.asset("python")["sha256"])
+        )
     else:
         print("warning: could not resolve the Python runtime URL", file=sys.stderr)
 
     node_url = node_runtime.latest_download_url(log=print)
     if node_url:
-        targets.append(("Node.js", node_url))
+        targets.append(("Node.js", node_url, runtime_manifest.asset("node")["sha256"]))
     else:
         print("warning: could not resolve the Node URL", file=sys.stderr)
 
     if sys.platform == "win32":
-        targets.append(("Visual C++ runtime", _vcredist_url()))
+        targets.append(("Visual C++ runtime", _vcredist_url(), None))
 
     failures = 0
-    for label, url in targets:
+    for label, url, checksum in targets:
         dest = out / downloads.cache_name(url)
-        if dest.is_file():
+        if downloads.verify_checksum(str(dest), checksum):
             print(f"\n{label}: cached already ({dest.stat().st_size / 1048576:.1f} MB)")
             continue
         print(f"\n{label}:")
         try:
-            downloads.download(url, str(dest), log=print, label=label)
+            downloads.download(
+                url, str(dest), log=print, label=label, expected_sha256=checksum
+            )
         except Exception as e:
             failures += 1
             print(f"  failed: {str(e)[:200]}", file=sys.stderr)

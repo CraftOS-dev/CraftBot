@@ -226,7 +226,12 @@ fn stop_if_running(tx: &Sender<Event>) -> Result<(), String> {
     }
     if let Some(rec) = snap.record {
         let _ = tx.send(Event::Status("Stopping the running CraftBot first…".into()));
-        let _ = run_craftbot(&rec.python, rec.dir(), &["stop"], tx)?;
+        let code = run_craftbot(&rec.python, rec.dir(), &["stop"], tx)?;
+        if code != 0 {
+            return Err(format!(
+                "Could not stop CraftBot before setup (exit {code}). See the log."
+            ));
+        }
     }
     Ok(())
 }

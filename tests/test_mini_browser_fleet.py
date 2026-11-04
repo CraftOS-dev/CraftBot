@@ -527,8 +527,10 @@ def test_restored_metadata_does_not_allow_reading_before_document_commit(site, p
 def test_human_input_supersedes_a_pending_restored_document(site, paths, human_action):
     import_playwright_or_skip()
     config.profile_dir("chat-a").mkdir(parents=True)
-    resume.save_pages(config.profile_dir("chat-a"), resume.Pages(
-        pages=(resume.Page(site.url("/set"), "Set"),), viewed=0))
+    resume.save_pages(
+        config.profile_dir("chat-a"),
+        resume.Pages(pages=(resume.Page(site.url("/set"), "Set"),), viewed=0),
+    )
     host = make_host()
 
     async def exercise(core):

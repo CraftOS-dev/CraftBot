@@ -1,0 +1,35 @@
+name: Runtime bootstrap
+
+on:
+  pull_request:
+    paths:
+      - 'app/runtime*'
+      - 'app/node_runtime.py'
+      - 'app/downloads.py'
+      - 'app/provision/**'
+      - 'agent-app/**'
+      - 'install.py'
+      - 'craftbot.py'
+      - 'run.py'
+      - 'tests/install_bootstrap/**'
+      - 'scripts/test_runtime_bootstrap.py'
+      - '.github/workflows/runtime-bootstrap.yml'
+  workflow_dispatch:
+
+jobs:
+  bootstrap:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Bootstrap regression tests (stdlib only)
+        run: python -m unittest discover -s tests/install_bootstrap -v
+      - name: Download runtimes and prepare Agent Apps with an empty PATH
+        run: python scripts/test_runtime_bootstrap.py

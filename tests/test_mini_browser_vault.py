@@ -920,7 +920,9 @@ def test_browser_compatibility_import_shares_singleton_and_locks(tmp_path):
     assert _get_vault() is get_vault()
     assert browser_vault.Secret is Secret
     assert browser_vault.VaultError is VaultError
-    assert browser_vault.CredentialVault(tmp_path)._lock is CredentialVault(tmp_path)._lock
+    assert (
+        browser_vault.CredentialVault(tmp_path)._lock is CredentialVault(tmp_path)._lock
+    )
     assert list(tmp_path.iterdir()) == []
 
 
@@ -953,7 +955,10 @@ def test_existing_credentials_work_without_migration(vault_dir):
 
     shared = CredentialVault(vault_dir)
     assert shared.list_entries()[0]["id"] == "saved-login-id"
-    assert shared.candidates_for_url("https://example.com/login")[0]["password"] == PASSWORD
+    assert (
+        shared.candidates_for_url("https://example.com/login")[0]["password"]
+        == PASSWORD
+    )
     assert shared.vault_path.read_bytes() == encrypted
     assert shared.key_path.read_bytes() == key_file
     assert not shared.previous_path.exists()
@@ -1295,64 +1300,92 @@ def test_instances_on_one_directory_share_a_lock_and_see_each_other(vault_dir):
     assert not errors
     assert len(CredentialVault(vault_dir).list_entries()) == 22
 
+
 # Typed credentials share the encrypted vault but never become browser logins.
-@pytest.mark.parametrize('kind', ['api_key', 'secure_note'])
+@pytest.mark.parametrize("kind", ["api_key", "secure_note"])
 def test_typed_credentials_roundtrip_without_becoming_autofill_candidates(vault, kind):
-    login = vault.add_entry('example.com', 'alice', PASSWORD)
-    value = 'First private line\nSecond private line' if kind == 'secure_note' else OTHER_PASSWORD
-    item = vault.add_entry('example.com', '', value, 'Project credential', kind=kind, group='work')
-    assert item['kind'] == kind and item['group'] == 'work'
-    assert 'password' not in item
+    login = vault.add_entry("example.com", "alice", PASSWORD)
+    value = (
+        "First private line\nSecond private line"
+        if kind == "secure_note"
+        else OTHER_PASSWORD
+    )
+    item = vault.add_entry(
+        "example.com", "", value, "Project credential", kind=kind, group="work"
+    )
+    assert item["kind"] == kind and item["group"] == "work"
+    assert "password" not in item
     assert value not in json.dumps(vault.list_entries())
     assert value.encode() not in vault.vault_path.read_bytes()
-    assert [e['id'] for e in vault.candidates_for_url('https://example.com')] == [login['id']]
+    assert [e["id"] for e in vault.candidates_for_url("https://example.com")] == [
+        login["id"]
+    ]
     reopened = CredentialVault(vault.directory)
-    assert reopened.reveal_entry(item['id']).reveal() == value
+    assert reopened.reveal_entry(item["id"]).reveal() == value
     assert reopened.list_entries() == vault.list_entries()
     with pytest.raises(VaultError):
-        reopened.reveal_entry(login['id'])
+        reopened.reveal_entry(login["id"])
 
 
 def test_non_login_items_do_not_upsert_each_other(vault):
-    first = vault.add_entry('', '', PASSWORD, 'First key', kind='api_key')
-    second = vault.add_entry('', '', OTHER_PASSWORD, 'Second key', kind='api_key')
-    note = vault.add_entry('', '', 'Private note\nBody', 'First key', kind='secure_note')
-    assert len({first['id'], second['id'], note['id']}) == 3
-    assert vault.reveal_entry(first['id']).reveal() == PASSWORD
-    assert vault.reveal_entry(second['id']).reveal() == OTHER_PASSWORD
+    first = vault.add_entry("", "", PASSWORD, "First key", kind="api_key")
+    second = vault.add_entry("", "", OTHER_PASSWORD, "Second key", kind="api_key")
+    note = vault.add_entry(
+        "", "", "Private note\nBody", "First key", kind="secure_note"
+    )
+    assert len({first["id"], second["id"], note["id"]}) == 3
+    assert vault.reveal_entry(first["id"]).reveal() == PASSWORD
+    assert vault.reveal_entry(second["id"]).reveal() == OTHER_PASSWORD
 
 
 def test_group_and_name_updates_retain_non_login_values(vault):
-    item = vault.add_entry('', '', 'Private\nMultiline\tNote', 'Original', kind='secure_note', group='personal')
-    changed = vault.update_entry(item['id'], kind='secure_note', group='work', label='Renamed', password='')
-    assert changed['group'] == 'work' and changed['label'] == 'Renamed'
-    assert vault.reveal_entry(item['id']).reveal() == 'Private\nMultiline\tNote'
+    item = vault.add_entry(
+        "",
+        "",
+        "Private\nMultiline\tNote",
+        "Original",
+        kind="secure_note",
+        group="personal",
+    )
+    changed = vault.update_entry(
+        item["id"], kind="secure_note", group="work", label="Renamed", password=""
+    )
+    assert changed["group"] == "work" and changed["label"] == "Renamed"
+    assert vault.reveal_entry(item["id"]).reveal() == "Private\nMultiline\tNote"
     with pytest.raises(VaultError):
-        vault.update_entry(item['id'], kind='login')
+        vault.update_entry(item["id"], kind="login")
     with pytest.raises(VaultError):
-        vault.update_entry(item['id'], label='')
+        vault.update_entry(item["id"], label="")
     with pytest.raises(VaultError):
-        vault.update_entry(item['id'], group='invalid')
+        vault.update_entry(item["id"], group="invalid")
     assert vault.list_entries() == [changed]
 
 
-@pytest.mark.parametrize('metadata', [
-    {'kind': 'unknown'}, {'kind': []}, {'group': 'unknown'}, {'group': []},
-])
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        {"kind": "unknown"},
+        {"kind": []},
+        {"group": "unknown"},
+        {"group": []},
+    ],
+)
 def test_bad_credential_metadata_does_not_modify_vault(vault, metadata):
-    existing = vault.add_entry('example.com', 'alice', PASSWORD)
+    existing = vault.add_entry("example.com", "alice", PASSWORD)
     with pytest.raises(VaultError):
-        vault.add_entry('example.org', 'bob', OTHER_PASSWORD, **metadata)
+        vault.add_entry("example.org", "bob", OTHER_PASSWORD, **metadata)
     assert vault.list_entries() == [existing]
 
 
 def test_note_limits_and_login_controls_remain_distinct(vault):
-    note = vault.add_entry('', '', 'a' * vault_mod.MAX_NOTE_CHARS, 'Long note', kind='secure_note')
+    note = vault.add_entry(
+        "", "", "a" * vault_mod.MAX_NOTE_CHARS, "Long note", kind="secure_note"
+    )
     with pytest.raises(VaultError):
-        vault.update_entry(note['id'], password='a' * (vault_mod.MAX_NOTE_CHARS + 1))
+        vault.update_entry(note["id"], password="a" * (vault_mod.MAX_NOTE_CHARS + 1))
     with pytest.raises(VaultError):
-        vault.add_entry('example.com', 'alice', 'not\na password')
+        vault.add_entry("example.com", "alice", "not\na password")
     with pytest.raises(VaultError):
-        vault.add_entry('', '', 'key\nnot-valid', 'Key', kind='api_key')
+        vault.add_entry("", "", "key\nnot-valid", "Key", kind="api_key")
     with pytest.raises(VaultError):
-        vault.add_entry('', '', PASSWORD, '', kind='api_key')
+        vault.add_entry("", "", PASSWORD, "", kind="api_key")

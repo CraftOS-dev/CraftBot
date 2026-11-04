@@ -15,11 +15,17 @@ from agent_core import action
     execution_mode="internal",
     action_sets=["core"],
     input_schema={
-        "query": {"type": "string", "description": "Optional. Filter name, website or group (at most 200 characters)."},
+        "query": {
+            "type": "string",
+            "description": "Optional. Filter name, website or group (at most 200 characters).",
+        },
     },
     output_schema={
         "status": {"type": "string", "description": "success or error."},
-        "credentials": {"type": "array", "description": "Metadata only: id, label, site and group."},
+        "credentials": {
+            "type": "array",
+            "description": "Metadata only: id, label, site and group.",
+        },
         "message": {"type": "string", "description": "Safe failure explanation."},
     },
     test_payload={"simulated_mode": True},
@@ -51,29 +57,76 @@ async def credential_list_api_keys(input_data: dict) -> dict:
     action_sets=["core"],
     parallelizable=False,
     input_schema={
-        "credential_id": {"type": "string", "description": "Saved API-key ID from credential_list_api_keys; never the key value."},
-        "url": {"type": "string", "description": "Absolute API URL on the key's saved website and port."},
-        "method": {"type": "string", "enum": ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"], "description": "Optional. HTTP method, default GET."},
-        "auth_type": {"type": "string", "enum": ["bearer", "header"], "description": "Optional. bearer (default) sends Bearer plus key; header sends the raw key."},
-        "header_name": {"type": "string", "description": "Optional. Header to receive the key; default Authorization for bearer, X-API-Key for header."},
-        "headers": {"type": "object", "description": "Optional. Non-secret headers; cannot override authentication or transport headers."},
-        "params": {"type": "object", "description": "Optional. Non-secret query parameters. The key is never inserted into the URL."},
-        "json": {"type": "object", "description": "Optional. JSON request body; mutually exclusive with data."},
-        "data": {"type": "string", "description": "Optional. Raw text request body; mutually exclusive with json."},
-        "timeout": {"type": "number", "description": "Optional. Timeout in seconds, 1-60, default 30."},
+        "credential_id": {
+            "type": "string",
+            "description": "Saved API-key ID from credential_list_api_keys; never the key value.",
+        },
+        "url": {
+            "type": "string",
+            "description": "Absolute API URL on the key's saved website and port.",
+        },
+        "method": {
+            "type": "string",
+            "enum": ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"],
+            "description": "Optional. HTTP method, default GET.",
+        },
+        "auth_type": {
+            "type": "string",
+            "enum": ["bearer", "header"],
+            "description": "Optional. bearer (default) sends Bearer plus key; header sends the raw key.",
+        },
+        "header_name": {
+            "type": "string",
+            "description": "Optional. Header to receive the key; default Authorization for bearer, X-API-Key for header.",
+        },
+        "headers": {
+            "type": "object",
+            "description": "Optional. Non-secret headers; cannot override authentication or transport headers.",
+        },
+        "params": {
+            "type": "object",
+            "description": "Optional. Non-secret query parameters. The key is never inserted into the URL.",
+        },
+        "json": {
+            "type": "object",
+            "description": "Optional. JSON request body; mutually exclusive with data.",
+        },
+        "data": {
+            "type": "string",
+            "description": "Optional. Raw text request body; mutually exclusive with json.",
+        },
+        "timeout": {
+            "type": "number",
+            "description": "Optional. Timeout in seconds, 1-60, default 30.",
+        },
     },
     output_schema={
         "status": {"type": "string", "description": "success or error."},
-        "status_code": {"type": "integer", "description": "HTTP status code when available."},
-        "body": {"type": "string", "description": "Text/JSON response with reflected key values redacted, at most 256 KiB."},
+        "status_code": {
+            "type": "integer",
+            "description": "HTTP status code when available.",
+        },
+        "body": {
+            "type": "string",
+            "description": "Text/JSON response with reflected key values redacted, at most 256 KiB.",
+        },
         "message": {"type": "string", "description": "Safe status or failure message."},
         "error_code": {"type": "string", "description": "Failure code when available."},
     },
-    test_payload={"credential_id": "example", "url": "https://api.example.com/v1/items", "simulated_mode": True},
+    test_payload={
+        "credential_id": "example",
+        "url": "https://api.example.com/v1/items",
+        "simulated_mode": True,
+    },
 )
 async def credential_api_request(input_data: dict) -> dict:
     if input_data.get("simulated_mode"):
-        return {"status": "success", "status_code": 200, "body": '{"ok": true}', "message": "Simulated request; no key read or network access."}
+        return {
+            "status": "success",
+            "status_code": 200,
+            "body": '{"ok": true}',
+            "message": "Simulated request; no key read or network access.",
+        }
     from app.credentials.api_request import request_with_api_key
 
     return await request_with_api_key(input_data)

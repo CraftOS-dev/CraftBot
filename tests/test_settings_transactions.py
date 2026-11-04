@@ -385,5 +385,7 @@ def test_failed_media_activation_rolls_back_before_next_save(
     saved = json.loads(settings_path.read_text())["model"]
     # BytePlus is the only provider with a video model, so the video save
     # rolls back to it as well.
-    assert saved[f"{kind}_gen_provider"] == ("openai" if kind == "image" else "byteplus")
+    assert saved[f"{kind}_gen_provider"] == (
+        "openai" if kind == "image" else "byteplus"
+    )
     assert saved["llm_provider"] == adapter._controller.agent.provider == "openai"

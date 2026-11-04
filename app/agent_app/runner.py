@@ -126,10 +126,9 @@ class AgentAppRunner:
                 )
             raise AgentAppRunnerUnavailable(
                 f"Node.js >= {MIN_NODE_MAJOR} is required to build Agent Apps "
-                f"and none was found{hint}. CraftBot never upgrades your "
-                "default Node: run `python install.py` to add a side-by-side "
-                "Node (nvm install 24 also works), or point the CRAFTBOT_NODE "
-                "env var at a >= 24 binary, then restart."
+                f"with working npm and none was found{hint}. Use Repair in "
+                "the installer to restore CraftBot's private Node/npm. For "
+                "a source checkout, run `python craftbot.py install`, then restart."
             )
         major = node_runtime.major_of(rt.version)
         if major is not None and major < MIN_NODE_MAJOR:
@@ -254,13 +253,16 @@ class AgentAppRunner:
         frontend = project_dir / "frontend"
         if (frontend / "node_modules").exists():
             return
-        # Windows: bare "npm" is npm.cmd — CreateProcess only finds it via a
-        # full path, so never spawn the bare name.
-        npm = node_runtime.npm_cmd() or "npm"
+        # Invoke the selected Node's npm JS directly, without a Windows shell.
+        npm = node_runtime.npm_command()
+        if not npm:
+            raise AgentAppRunnerUnavailable(
+                "npm is unavailable. Run CraftBot Repair to restore the Node runtime."
+            )
         code, out = await self._run(
             # --ignore-scripts: any npm package is allowed in a project, so
             # lifecycle scripts must never run (supply-chain guard, spec B7).
-            [npm, "install", "--no-audit", "--no-fund", "--ignore-scripts"],
+            npm + ["install", "--no-audit", "--no-fund", "--ignore-scripts"],
             timeout=INSTALL_TIMEOUT_S,
             cwd=frontend,
         )
@@ -413,7 +415,10 @@ class AgentAppRunner:
         # PocketBase's CLI exits 0 even when a command fails, so the exit
         # code alone proves nothing: the save is confirmed from the database
         # itself (the superuser row exists and its `updated` stamp moved).
-        saved = code == 0 and _superuser_stamp(db_path, email) not in (None, stamp_before)
+        saved = code == 0 and _superuser_stamp(db_path, email) not in (
+            None,
+            stamp_before,
+        )
         if not saved:
             # FAIL CLOSED. A serve without a superuser makes PocketBase pop
             # the user's SYSTEM BROWSER with a one-time /_/#/pbinstall/…

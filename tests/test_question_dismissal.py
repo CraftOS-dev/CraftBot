@@ -112,9 +112,7 @@ def test_dismissal_stops_its_run_without_resuming_it_or_stopping_other_sessions(
                 assert len(late_rows) == 1
             for row in ([continuation] if continuation else []) + late_rows:
                 stored = store.get(row.trigger_id)
-                assert (stored["status"], stored["resolution"]) == (
-                    "DONE", "cancelled"
-                )
+                assert (stored["status"], stored["resolution"]) == ("DONE", "cancelled")
             assert finalized.await_count == (0 if mode == "idle" else 1)
             controller._event_bus.emit.assert_not_called()
             agent._handle_chat_message.assert_not_awaited()
@@ -133,9 +131,11 @@ def test_dismissal_still_stops_when_recording_the_system_message_fails():
         request_run_stop=AsyncMock(return_value=True),
         event_stream_manager=SimpleNamespace(log=Mock(side_effect=OSError("disk"))),
     )
-    asyncio.run(_controller(agent).submit_question_answer(
-        "", "Continue?", "chat-a", dismissed=True
-    ))
+    asyncio.run(
+        _controller(agent).submit_question_answer(
+            "", "Continue?", "chat-a", dismissed=True
+        )
+    )
     agent.request_run_stop.assert_awaited_once_with("chat-a")
 
 

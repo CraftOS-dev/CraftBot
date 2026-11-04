@@ -693,7 +693,9 @@ class CredentialVault:
             if entry is None:
                 raise _invalid(_MSG_NOT_FOUND)
             if entry.get("kind", "login") not in ("api_key", "secure_note"):
-                raise _invalid("Login passwords are available only to browser autofill.")
+                raise _invalid(
+                    "Login passwords are available only to browser autofill."
+                )
             return Secret(entry["password"])
 
     def api_key_for_url(self, entry_id: str, url: str) -> Secret:
@@ -722,9 +724,15 @@ class CredentialVault:
                 raise _invalid("Choose a saved API key.")
             saved = _saved_parts(entry["site"], keep_www=True)
             if saved is None:
-                raise _invalid("Add a website to this API key in Settings > Credentials first.")
-            if host != saved[0] or target_port != (saved[1] or (443 if scheme == "https" else 80)):
-                raise _invalid("The request must match the API key's saved website and port.")
+                raise _invalid(
+                    "Add a website to this API key in Settings > Credentials first."
+                )
+            if host != saved[0] or target_port != (
+                saved[1] or (443 if scheme == "https" else 80)
+            ):
+                raise _invalid(
+                    "The request must match the API key's saved website and port."
+                )
             return Secret(entry["password"])
 
     def delete_entry(self, entry_id: str) -> bool:
@@ -988,8 +996,13 @@ def _clean_site(site: Any, kind: str) -> str:
 
 
 def _new_fields(
-    site: Any, username: Any, password: Secret, label: Any,
-    *, kind: str = "login", group: Optional[str] = None,
+    site: Any,
+    username: Any,
+    password: Secret,
+    label: Any,
+    *,
+    kind: str = "login",
+    group: Optional[str] = None,
 ) -> _Entry:
     kind = _clean_choice(kind, CREDENTIAL_KINDS, "type")
     clean_site = _clean_site(site, kind)
@@ -1014,14 +1027,21 @@ def _new_fields(
 
 
 def _changed_fields(
-    site: Any, username: Any, password: Optional[Secret], label: Any,
-    *, kind: str = "login", group: Optional[str] = None,
+    site: Any,
+    username: Any,
+    password: Optional[Secret],
+    label: Any,
+    *,
+    kind: str = "login",
+    group: Optional[str] = None,
 ) -> _Entry:
     changes = _Entry()
     if site is not None:
         changes["site"] = _clean_site(site, kind)
     if username is not None:
-        changes["username"] = _clean_username(username) if kind == "login" or username else ""
+        changes["username"] = (
+            _clean_username(username) if kind == "login" or username else ""
+        )
     if password:  # None or "" keeps the current password
         problem = _password_problem(password, kind)
         if problem:
@@ -1050,7 +1070,9 @@ def _update_fields(
     current_kind = entry.get("kind", "login")
     if kind is not None and kind != current_kind:
         raise _invalid("The credential type cannot be changed. Add a new item instead.")
-    changes = _changed_fields(site, username, password, label, kind=current_kind, group=group)
+    changes = _changed_fields(
+        site, username, password, label, kind=current_kind, group=group
+    )
     if current_kind != "login" and not changes.get("label", entry.get("label")):
         raise _invalid("Enter a name for this credential.")
     return _apply_update(entry_id, changes, entries)
@@ -1084,9 +1106,9 @@ def _upsert(new: _Entry, entries: List[_Entry]) -> Tuple[Dict[str, Any], bool]:
         lastUsedAt=None,
     )
     entries.append(entry)
-    for field in ("kind", "group"):
-        if field in new:
-            entry[field] = new[field]
+    for field_name in ("kind", "group"):
+        if field_name in new:
+            entry[field_name] = new[field_name]
     return _public(entry), True
 
 
@@ -1101,9 +1123,12 @@ def _apply_update(
     username = changes.get("username", entry["username"])
     key = (site, username.casefold())
     for other in entries:
-        if (entry.get("kind", "login") == "login"
-                and other.get("kind", "login") == "login" and other is not entry
-                and (other["site"], other["username"].casefold()) == key):
+        if (
+            entry.get("kind", "login") == "login"
+            and other.get("kind", "login") == "login"
+            and other is not entry
+            and (other["site"], other["username"].casefold()) == key
+        ):
             raise _invalid(_MSG_DUPLICATE)
     changed = False
     for name, value in changes.items():
@@ -1142,9 +1167,9 @@ def _public(entry: Dict[str, Any]) -> Dict[str, Any]:
         "updatedAt": entry.get("updatedAt") or None,
         "lastUsedAt": entry.get("lastUsedAt") or None,
     }
-    for field in ("kind", "group"):
-        if field in entry:
-            public[field] = entry[field]
+    for field_name in ("kind", "group"):
+        if field_name in entry:
+            public[field_name] = entry[field_name]
     return public
 
 
@@ -1255,11 +1280,15 @@ def _parse_document(plaintext: Secret) -> List[_Entry]:
         kind = entry.get("kind", "login")
         if not isinstance(kind, str) or kind not in CREDENTIAL_KINDS:
             raise _Unreadable(_PROBLEM_DAMAGED)
-        if "group" in entry and (not isinstance(entry["group"], str) or entry["group"] not in CREDENTIAL_GROUPS):
+        if "group" in entry and (
+            not isinstance(entry["group"], str)
+            or entry["group"] not in CREDENTIAL_GROUPS
+        ):
             raise _Unreadable(_PROBLEM_DAMAGED)
         for name in ("id", "site", "username", "password"):
-            if (not isinstance(entry.get(name), str)
-                    or (not entry[name] and (kind == "login" or name in ("id", "password")))):
+            if not isinstance(entry.get(name), str) or (
+                not entry[name] and (kind == "login" or name in ("id", "password"))
+            ):
                 raise _Unreadable(_PROBLEM_DAMAGED)
         if not isinstance(entry.get("label"), str):
             entry["label"] = ""

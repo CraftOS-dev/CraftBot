@@ -17,9 +17,12 @@ certifi is used only when it happens to be importable.
 from __future__ import annotations
 
 import os
+import hashlib
 import shutil
 import ssl
+import tempfile
 import time
+import urllib.error
 import urllib.request
 from typing import Callable, Optional
 
@@ -87,31 +90,7 @@ def cache_name(url: str) -> str:
     return unquote(name) or "download.bin"
 
 
-def find_cached(pattern: str) -> Optional[str]:
-    """A cached archive matching a glob, or None.
-
-    Lets a caller use the cache WITHOUT first resolving a download URL.
-    That matters more than it sounds: resolving the Python runtime's URL
-    means fetching a large JSON release index, and on a slow or flaky link
-    that request is itself a failure point — observed as
-    `IncompleteRead(1277952 bytes read)` in Windows Sandbox. Having the file
-    already and still failing because the index could not be read is an
-    absurd way to lose an install.
-
-    The archive names carry version and platform, so a glob like
-    `cpython-3.10.*-x86_64-pc-windows-msvc-install_only.tar.gz` identifies
-    the right file without asking anyone.
-    """
-    import glob as _glob
-
-    cache = cache_dir()
-    if not cache:
-        return None
-    matches = sorted(_glob.glob(os.path.join(cache, pattern)))
-    return matches[-1] if matches else None
-
-
-def download(
+def _download_once(
     url: str,
     dest: str,
     log: Optional[LogFn] = None,
@@ -125,24 +104,10 @@ def download(
     tens of megabytes and a low-memory machine should not need twice that
     just to unpack them.
 
-    Uses CRAFTBOT_DOWNLOAD_CACHE when set — see cache_dir().
+    Cache lookup and atomic publication are handled by download().
     """
     say: LogFn = log or (lambda _m: None)
     what = label or os.path.basename(dest) or url
-
-    cache = cache_dir()
-    cached = os.path.join(cache, cache_name(url)) if cache else None
-
-    if cached and os.path.isfile(cached):
-        size = os.path.getsize(cached)
-        say(f"    using cached {what} ({_human(size)})")
-        shutil.copyfile(cached, dest)
-        if progress_cb:
-            try:
-                progress_cb(size, size)
-            except Exception:
-                pass
-        return dest
 
     req = urllib.request.Request(url, headers={"User-Agent": "CraftBot"})
     with urllib.request.urlopen(req, timeout=timeout, context=ssl_context()) as resp:
@@ -181,17 +146,88 @@ def download(
                     else:
                         say(f"      {_human(read)}")
 
+    if total is not None and read != total:
+        raise OSError(f"Download incomplete: {read} of {total} bytes")
     say(f"    downloaded {_human(read)}")
-
-    # Populate the cache so the next install on this machine - or the next
-    # test run against a mapped cache - does not fetch it again. Skipped when
-    # the download already went straight into the cache (the prefetch script
-    # does that), because copying a file onto itself raises SameFileError and
-    # reads as a failure when nothing is wrong.
-    if cached and os.path.abspath(dest) != os.path.abspath(cached):
-        try:
-            shutil.copyfile(dest, cached)
-        except OSError as e:
-            say(f"    (could not cache: {str(e)[:120]})")
-
     return dest
+
+
+def verify_checksum(path: str, expected: Optional[str]) -> bool:
+    if not os.path.isfile(path):
+        return False
+    if expected is None:
+        return os.path.getsize(path) > 0
+    digest = hashlib.sha256()
+    with open(path, "rb") as source:
+        for chunk in iter(lambda: source.read(_CHUNK), b""):
+            digest.update(chunk)
+    return digest.hexdigest() == expected
+
+
+def download(
+    url: str,
+    dest: str,
+    log: Optional[LogFn] = None,
+    label: str = "",
+    timeout: int = 600,
+    progress_cb: Optional[Callable[[int, Optional[int]], None]] = None,
+    expected_sha256: Optional[str] = None,
+    offline: bool = False,
+) -> str:
+    """Publish only complete, verified downloads; bad caches never block repair."""
+    say = log or (lambda _m: None)
+    dest = os.path.abspath(dest)
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+    cache = cache_dir()
+    cached = os.path.join(cache, cache_name(url)) if cache else None
+    fd, part = tempfile.mkstemp(
+        prefix=".download-", suffix=".part", dir=os.path.dirname(dest)
+    )
+    os.close(fd)
+    try:
+        if cached and verify_checksum(cached, expected_sha256):
+            say(f"    using verified cache: {label or cache_name(url)}")
+            shutil.copyfile(cached, part)
+        else:
+            if offline:
+                raise OSError(
+                    f"Offline: no verified cached download for {cache_name(url)}"
+                )
+            for attempt in range(3):
+                try:
+                    _download_once(
+                        url, part, say, label or cache_name(url), timeout, progress_cb
+                    )
+                    if not verify_checksum(part, expected_sha256):
+                        raise ValueError(
+                            f"SHA-256 verification failed for {cache_name(url)}"
+                        )
+                    break
+                except Exception as exc:
+                    # A permanent HTTP error or bad checksum won't improve with retry.
+                    permanent = isinstance(exc, ValueError) or (
+                        isinstance(exc, urllib.error.HTTPError)
+                        and exc.code < 500
+                        and exc.code not in (408, 429)
+                    )
+                    if permanent or attempt == 2:
+                        raise
+                    say(f"    download interrupted; retrying ({attempt + 2}/3): {exc}")
+                    time.sleep(attempt + 1)
+        os.replace(part, dest)
+        if cached and os.path.abspath(cached) != dest:
+            cache_part = None
+            try:
+                fd, cache_part = tempfile.mkstemp(prefix=".cache-", dir=cache)
+                os.close(fd)
+                shutil.copyfile(dest, cache_part)
+                os.replace(cache_part, cached)
+            except OSError as exc:
+                say(f"    could not cache download: {exc}")
+            finally:
+                if cache_part and os.path.exists(cache_part):
+                    os.unlink(cache_part)
+        return dest
+    finally:
+        if os.path.exists(part):
+            os.unlink(part)

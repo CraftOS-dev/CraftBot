@@ -798,7 +798,9 @@ def test_browser_subscription_checks_run_off_the_event_loop(monkeypatch, operati
         elif operation == "image_rollback":
             await adapter._handle_model_settings_update({"imageGenProvider": "openai"})
         elif operation == "video_rollback":
-            await adapter._handle_model_settings_update({"videoGenProvider": "byteplus"})
+            await adapter._handle_model_settings_update(
+                {"videoGenProvider": "byteplus"}
+            )
         elif operation == "connect":
             await adapter._handle_model_subscription_connect("anthropic")
         elif operation == "complete":
