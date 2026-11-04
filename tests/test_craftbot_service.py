@@ -126,6 +126,27 @@ def test_macos_source_shortcut_accepts_equals_backend_port(tmp_path, monkeypatch
     assert "craftbot.py start --backend-port=8123" in content
 
 
+def test_shortcut_keeps_agent_app_port(tmp_path, monkeypatch):
+    desktop = tmp_path / "Desktop"
+    desktop.mkdir()
+    base_dir = tmp_path / "CraftBot"
+    base_dir.mkdir()
+
+    monkeypatch.setattr(craftbot, "_PLATFORM", "darwin")
+    monkeypatch.setattr(craftbot, "IS_FROZEN", False)
+    monkeypatch.setattr(craftbot, "BASE_DIR", str(base_dir))
+    monkeypatch.setattr(craftbot, "_find_desktop", lambda: str(desktop))
+    monkeypatch.setattr(craftbot, "_python_exe", lambda: "/usr/local/bin/python3.10")
+
+    craftbot._create_desktop_shortcut_unix(
+        ["--backend-port", "17926", "--agent-app-port", "13100", "--no-conda"]
+    )
+
+    content = (desktop / "CraftBot.command").read_text()
+    assert "craftbot.py start --backend-port 17926 --agent-app-port 13100" in content
+    assert "--no-conda" not in content
+
+
 def test_macos_frozen_shortcut_starts_installed_agent_executable(tmp_path, monkeypatch):
     desktop = tmp_path / "Desktop"
     desktop.mkdir()

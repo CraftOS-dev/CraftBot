@@ -18,7 +18,8 @@ happens by construction, because both pools hand out the lowest free port)
 is therefore harmless: nothing decides anything from the bare number.
 
 Two disjoint pools are kept, as before, so the reaper can reason about ranges:
-  * LIVE   3100-3199  (the app's stable, user-facing address; persisted)
+  * LIVE   3100-3199  (the app's stable, user-facing address; persisted;
+                       the start is configurable, see LIVE_RANGE)
   * SHADOW 3900-3999  (a hidden dev boot; ephemeral, one per project at a time)
 
 Both pools are governed by ONE `PortAllocator` with ONE lock and a single
@@ -29,6 +30,7 @@ allocations (across pools, across projects, across threads) can collide.
 from __future__ import annotations
 
 import json
+import os
 import secrets
 import socket
 import threading
@@ -46,7 +48,13 @@ except ImportError:  # pragma: no cover - loguru is always present in-app
 
 # The two pools. Kept disjoint on purpose (the startup reconciler scans both
 # ranges), but governed by one allocator so reservations never race.
-LIVE_RANGE = (3100, 3199)
+#
+# The live pool starts at AGENT_APP_PORT (run.py --agent-app-port). The UI
+# frames each app at localhost:<port> on the VIEWER's machine, so a second
+# CraftBot viewed from the same browser (e.g. over an SSH tunnel) needs its
+# own live range, exactly as it needs its own frontend/backend ports.
+_LIVE_START = int(os.environ.get("AGENT_APP_PORT", "3100"))
+LIVE_RANGE = (_LIVE_START, _LIVE_START + 99)
 SHADOW_RANGE = (3900, 3999)
 
 ROLE_LIVE = "live"
