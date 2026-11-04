@@ -70,10 +70,14 @@ class EventBus:
     async def drain(self, task_id: str) -> None:
         """Settle this session's already-emitted UI work before clearing it."""
         current = asyncio.current_task()
-        while tasks := [task for task, sid in self._pending.items()
-                       if sid == task_id and task is not current]:
-            await asyncio.gather(*(asyncio.shield(task) for task in tasks),
-                                 return_exceptions=True)
+        while tasks := [
+            task
+            for task, sid in self._pending.items()
+            if sid == task_id and task is not current
+        ]:
+            await asyncio.gather(
+                *(asyncio.shield(task) for task in tasks), return_exceptions=True
+            )
 
     def subscribe(
         self,

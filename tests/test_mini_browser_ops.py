@@ -994,7 +994,9 @@ def test_login_picks_a_username_and_reports_a_rejected_password(browser, login_s
 
 
 @pytest.mark.parametrize("name", ["Work account", " work ACCOUNT "])
-def test_login_selects_saved_name_instead_of_most_recent_account(browser, login_site, name):
+def test_login_selects_saved_name_instead_of_most_recent_account(
+    browser, login_site, name
+):
     vault = _vault()
     vault.entries[0]["label"] = "Work account"
     vault.entries[1]["label"] = "Personal account"
@@ -1052,7 +1054,9 @@ def test_login_name_duplicate_can_be_disambiguated_by_username(browser, login_si
     core = FakeCore(vault=vault)
 
     async def scenario(core, tab):
-        return await ops.login(core, tab, login_name="Work account", username=USER.upper())
+        return await ops.login(
+            core, tab, login_name="Work account", username=USER.upper()
+        )
 
     result = run(browser, login_site.url("/login"), scenario, core=core)
     assert result["outcome"] == "signed_in"
@@ -1067,7 +1071,8 @@ def test_login_name_does_not_allow_a_different_site(browser, login_site):
 
     async def scenario(core, tab):
         return await expect_error(
-            ops.login(core, tab, login_name="Work account"), "MINI_BROWSER_NO_SAVED_LOGIN"
+            ops.login(core, tab, login_name="Work account"),
+            "MINI_BROWSER_NO_SAVED_LOGIN",
         )
 
     run(browser, login_site.url("/login", host="localhost"), scenario, core=core)

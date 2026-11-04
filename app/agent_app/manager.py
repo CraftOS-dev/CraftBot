@@ -4185,7 +4185,9 @@ UI in {project.path}/frontend/src/app/."""
         """Read-only HTTP probes with a total deadline; never block the event loop."""
         import aiohttp
 
-        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=2)) as client:
+        async with aiohttp.ClientSession(
+            timeout=aiohttp.ClientTimeout(total=2)
+        ) as client:
 
             async def probe():
                 try:

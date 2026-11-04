@@ -130,9 +130,13 @@ def operations_block(base_url: str, max_chars: int = 6000) -> Optional[str]:
             area, verb = name, name
         params = op.get("params") or {}
         required = [
-            k for k, spec in params.items() if isinstance(spec, dict) and spec.get("required")
+            k
+            for k, spec in params.items()
+            if isinstance(spec, dict) and spec.get("required")
         ]
-        groups.setdefault(area, []).append((verb, required, bool(op.get("destructive"))))
+        groups.setdefault(area, []).append(
+            (verb, required, bool(op.get("destructive")))
+        )
     if not groups:
         return None
 

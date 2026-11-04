@@ -165,7 +165,9 @@ def test_choices_flags_and_the_remaining_operations():
     _invalid("click", {"element_id": 1, "button": "side"})
     _invalid("scroll", {"direction": "sideways"})
     assert validate("login", {}) == {
-        "login_name": None, "username": None, "submit": True
+        "login_name": None,
+        "username": None,
+        "submit": True,
     }
     assert validate("login", {"username": " bob ", "submit": 0}) == {
         "login_name": None,
@@ -184,11 +186,15 @@ def test_choices_flags_and_the_remaining_operations():
 
 def test_login_name_validation():
     assert validate("login", {"login_name": " Work account ", "username": " bob "}) == {
-        "login_name": "Work account", "username": "bob", "submit": True
+        "login_name": "Work account",
+        "username": "bob",
+        "submit": True,
     }
     assert validate("login", {"login_name": "x" * 100})["login_name"] == "x" * 100
     assert "login_name is too long" in _invalid("login", {"login_name": "x" * 101})
-    assert "login_name must be text" in _invalid("login", {"login_name": {"label": "Work"}})
+    assert "login_name must be text" in _invalid(
+        "login", {"login_name": {"label": "Work"}}
+    )
 
 
 def test_tabs_params():

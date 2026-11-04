@@ -1802,18 +1802,14 @@ if __name__ == "__main__":
         print(f"\n  {RED}[x]{RESET} {WHITE}Setup incomplete.{RESET}\n")
         print(provision.format_report(_report))
         print(
-            "\n  Re-run `python install.py` to retry — every stage is idempotent,"
+            "\n  Use Repair in the installer, or re-run `python craftbot.py install`"
+            "\n  for a source checkout. Setup can be retried safely,"
             "\n  so the parts that already succeeded are not redone."
         )
         # Only a required stage is fatal. An optional one (Playwright, the
         # WhatsApp bridge) degrades a feature; taking the whole install down
         # for it would be worse than starting without it.
-        _required_failed = [
-            name
-            for name, res in _report.results
-            if not res.ok
-            and name in ("python", "python-deps", "native-runtime", "smoke", "frontend")
-        ]
+        _required_failed = [name for name, _ in _report.required_failures]
         if _required_failed:
             sys.exit(1)
 

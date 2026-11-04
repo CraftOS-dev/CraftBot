@@ -250,8 +250,10 @@ def test_clear_settles_runtime_work_even_without_a_busy_marker(tmp_path, active)
         store = TriggerStore(db_path=str(tmp_path / "clear-triggers.db"))
         service = TriggerService(store, runtime)
         agent = SimpleNamespace(
-            busy_sessions=set(), session_runtime=runtime,
-            _emit_run_state=Mock(), _notify_mini_browser=Mock(),
+            busy_sessions=set(),
+            session_runtime=runtime,
+            _emit_run_state=Mock(),
+            _notify_mini_browser=Mock(),
             session_manager=SimpleNamespace(clear_session=Mock(return_value=True)),
             _persist_llm_session=Mock(),
         )
@@ -259,9 +261,17 @@ def test_clear_settles_runtime_work_even_without_a_busy_marker(tmp_path, active)
         runtime.set_stop_finalizer(AsyncMock())
         await runtime.start()
         try:
+
             async def emit(sid, source, future=True):
-                return await service.emit(TriggerSpec(session_id=sid, source=source,
-                    description="Synthetic clear regression", fire_at=time.time() + 60 if future else None))
+                return await service.emit(
+                    TriggerSpec(
+                        session_id=sid,
+                        source=source,
+                        description="Synthetic clear regression",
+                        fire_at=time.time() + 60 if future else None,
+                    )
+                )
+
             if active:
                 await emit("target", TriggerSource.USER_MESSAGE, future=False)
                 await asyncio.wait_for(started.wait(), 2)
@@ -314,7 +324,8 @@ def test_clear_cancels_a_claimed_turn_waiting_for_capacity(tmp_path):
         finalized = AsyncMock()
         runtime.set_stop_finalizer(finalized)
         agent = SimpleNamespace(
-            session_runtime=runtime, _emit_run_state=Mock(),
+            session_runtime=runtime,
+            _emit_run_state=Mock(),
             _notify_mini_browser=Mock(),
             session_manager=SimpleNamespace(clear_session=Mock(return_value=True)),
             _persist_llm_session=Mock(),
@@ -322,11 +333,15 @@ def test_clear_cancels_a_claimed_turn_waiting_for_capacity(tmp_path):
         agent.request_run_stop = MethodType(AgentBase.request_run_stop, agent)
         await runtime.start()
         try:
+
             async def emit(sid):
-                return await service.emit(TriggerSpec(
-                    session_id=sid, source=TriggerSource.USER_MESSAGE,
-                    description="Capacity regression",
-                ))
+                return await service.emit(
+                    TriggerSpec(
+                        session_id=sid,
+                        source=TriggerSource.USER_MESSAGE,
+                        description="Capacity regression",
+                    )
+                )
 
             other = await emit("other")
             await asyncio.wait_for(running.wait(), 2)
@@ -343,7 +358,7 @@ def test_clear_cancels_a_claimed_turn_waiting_for_capacity(tmp_path):
             for _ in range(100):
                 if store.get(fresh.trigger_id)["status"] == "DONE":
                     break
-                await asyncio.sleep(.01)
+                await asyncio.sleep(0.01)
             assert store.get(fresh.trigger_id)["status"] == "DONE"
             assert executed == ["other", "target"]
         finally:
@@ -355,7 +370,9 @@ def test_clear_cancels_a_claimed_turn_waiting_for_capacity(tmp_path):
 
 @pytest.mark.parametrize("unwind", ["cancel", "return", "raise"])
 @pytest.mark.parametrize("cancel_requester", [False, True])
-def test_concurrent_stops_join_settlement_before_resetting_context(tmp_path, monkeypatch, unwind, cancel_requester):
+def test_concurrent_stops_join_settlement_before_resetting_context(
+    tmp_path, monkeypatch, unwind, cancel_requester
+):
     from app.agent_base import AgentBase
     from app.triggers import TriggerService, TriggerSource, TriggerSpec
     from app.triggers.runtime import SessionRuntimeManager
@@ -398,7 +415,8 @@ def test_concurrent_stops_join_settlement_before_resetting_context(tmp_path, mon
         finalized = AsyncMock()
         runtime.set_stop_finalizer(finalized)
         agent = SimpleNamespace(
-            session_runtime=runtime, _emit_run_state=Mock(),
+            session_runtime=runtime,
+            _emit_run_state=Mock(),
             _notify_mini_browser=Mock(),
             session_manager=SimpleNamespace(clear_session=Mock(return_value=True)),
             _persist_llm_session=Mock(),
@@ -407,17 +425,20 @@ def test_concurrent_stops_join_settlement_before_resetting_context(tmp_path, mon
         await runtime.start()
         tasks = []
         try:
-            row = await service.emit(TriggerSpec(
-                session_id="target", source=TriggerSource.USER_MESSAGE,
-                description="Finish while process shutdown is pending",
-            ))
+            row = await service.emit(
+                TriggerSpec(
+                    session_id="target",
+                    source=TriggerSource.USER_MESSAGE,
+                    description="Finish while process shutdown is pending",
+                )
+            )
             await asyncio.wait_for(running.wait(), 2)
             tasks.append(asyncio.create_task(AgentBase.clear_session(agent, "target")))
             await asyncio.wait_for(kill_started.wait(), 2)
             release_turn.set()
             # Cancellation must be requested before waiting for OS shutdown;
             # otherwise this turn finishes normally and loses the stop signal.
-            await asyncio.wait_for(cancelled.wait(), .5)
+            await asyncio.wait_for(cancelled.wait(), 0.5)
             tasks.append(asyncio.create_task(runtime.request_stop("target")))
             await asyncio.sleep(0)
             assert not any(task.done() for task in tasks)
@@ -429,7 +450,9 @@ def test_concurrent_stops_join_settlement_before_resetting_context(tmp_path, mon
                 finalized.assert_not_awaited()
             agent.session_manager.clear_session.assert_not_called()
             release_kill.set()
-            results = await asyncio.wait_for(asyncio.gather(*tasks, return_exceptions=True), 2)
+            results = await asyncio.wait_for(
+                asyncio.gather(*tasks, return_exceptions=True), 2
+            )
             assert results[1] is True
             if cancel_requester:
                 assert isinstance(results[0], asyncio.CancelledError)
@@ -479,17 +502,23 @@ def test_clear_does_not_reset_context_after_a_stop_timeout(tmp_path, monkeypatch
         finalized = AsyncMock()
         runtime.set_stop_finalizer(finalized)
         agent = SimpleNamespace(
-            session_runtime=runtime, _emit_run_state=Mock(),
+            session_runtime=runtime,
+            _emit_run_state=Mock(),
             _notify_mini_browser=Mock(),
             session_manager=SimpleNamespace(clear_session=Mock(return_value=True)),
             _persist_llm_session=Mock(),
         )
         agent.request_run_stop = MethodType(AgentBase.request_run_stop, agent)
-        monkeypatch.setattr("app.triggers.runtime.STOP_SETTLE_TIMEOUT_S", .02)
+        monkeypatch.setattr("app.triggers.runtime.STOP_SETTLE_TIMEOUT_S", 0.02)
         await runtime.start()
         try:
-            row = await service.emit(TriggerSpec(session_id="target",
-                source=TriggerSource.USER_MESSAGE, description="Slow tool cleanup"))
+            row = await service.emit(
+                TriggerSpec(
+                    session_id="target",
+                    source=TriggerSource.USER_MESSAGE,
+                    description="Slow tool cleanup",
+                )
+            )
             await asyncio.wait_for(started.wait(), 2)
             with pytest.raises(asyncio.TimeoutError):
                 await AgentBase.clear_session(agent, "target")
@@ -522,8 +551,16 @@ def test_clear_command_orders_storage_and_preserves_other_chat(tmp_path, monkeyp
     from app.usage.chat_storage import ChatStorage, StoredChatMessage
 
     storage = ChatStorage(db_path=str(tmp_path / "chat.db"))
-    storage.insert_message(StoredChatMessage(message_id="other", session_id="other",
-        sender="agent", style="agent", content="Keep me", timestamp=1))
+    storage.insert_message(
+        StoredChatMessage(
+            message_id="other",
+            session_id="other",
+            sender="agent",
+            style="agent",
+            content="Keep me",
+            timestamp=1,
+        )
+    )
     insert_started = threading.Event()
     release_insert = threading.Event()
     original_insert = storage.insert_message
@@ -537,7 +574,9 @@ def test_clear_command_orders_storage_and_preserves_other_chat(tmp_path, monkeyp
     monkeypatch.setattr("app.usage.get_chat_storage", lambda: storage)
     actions = Mock()
     monkeypatch.setattr("app.usage.get_action_storage", lambda: actions)
-    adapter = SimpleNamespace(_broadcast=AsyncMock(), broadcast_session_cleared=AsyncMock())
+    adapter = SimpleNamespace(
+        _broadcast=AsyncMock(), broadcast_session_cleared=AsyncMock()
+    )
     chat = BrowserChatComponent.__new__(BrowserChatComponent)
     chat._storage = storage
     chat._db = ThreadPoolExecutor(max_workers=1)
@@ -547,7 +586,8 @@ def test_clear_command_orders_storage_and_preserves_other_chat(tmp_path, monkeyp
     adapter.chat_component = chat
     controller = SimpleNamespace(
         agent=SimpleNamespace(clear_session=AsyncMock(return_value=True)),
-        active_adapter=adapter, event_bus=EventBus(),
+        active_adapter=adapter,
+        event_bus=EventBus(),
     )
     command = ClearCommand(controller)
     command.emit_message = Mock()
@@ -563,22 +603,47 @@ def test_clear_command_orders_storage_and_preserves_other_chat(tmp_path, monkeyp
                 await release_other.wait()
                 return
             await release_ui.wait()
-            await chat.append_message(ChatMessage(sender="agent", style="agent",
-                content="Delayed old event", message_id="delayed", timestamp=3,
-                session_id="target"))
+            await chat.append_message(
+                ChatMessage(
+                    sender="agent",
+                    style="agent",
+                    content="Delayed old event",
+                    message_id="delayed",
+                    timestamp=3,
+                    session_id="target",
+                )
+            )
 
         # Use the actual synchronous adapter handler, which schedules the
         # asynchronous display task returned to the bus for ownership.
         display_adapter = SimpleNamespace(_display_chat_message=delayed_message)
-        controller.event_bus.subscribe(UIEventType.SYSTEM_MESSAGE,
-            lambda event: InterfaceAdapter._handle_system_message(display_adapter, event))
+        controller.event_bus.subscribe(
+            UIEventType.SYSTEM_MESSAGE,
+            lambda event: InterfaceAdapter._handle_system_message(
+                display_adapter, event
+            ),
+        )
         for sid in ("target", "other"):
-            controller.event_bus.emit(UIEvent(type=UIEventType.SYSTEM_MESSAGE,
-                task_id=sid, data={"message": "Old event"}))
+            controller.event_bus.emit(
+                UIEvent(
+                    type=UIEventType.SYSTEM_MESSAGE,
+                    task_id=sid,
+                    data={"message": "Old event"},
+                )
+            )
         await asyncio.wait_for(other_pending.wait(), 2)
-        append = asyncio.create_task(chat.append_message(ChatMessage(
-            sender="agent", style="agent", content="Old work", message_id="old",
-            timestamp=2, session_id="target")))
+        append = asyncio.create_task(
+            chat.append_message(
+                ChatMessage(
+                    sender="agent",
+                    style="agent",
+                    content="Old work",
+                    message_id="old",
+                    timestamp=2,
+                    session_id="target",
+                )
+            )
+        )
         try:
             assert await asyncio.to_thread(insert_started.wait, 2)
             clear = asyncio.create_task(command.execute([], session_id="target"))
@@ -593,7 +658,8 @@ def test_clear_command_orders_storage_and_preserves_other_chat(tmp_path, monkeyp
             actions.clear_items.assert_called_once_with("target")
             adapter.broadcast_session_cleared.assert_awaited_once_with("target")
             command.emit_message.assert_called_once_with(
-                "Conversation cleared.", "system", session_id="target")
+                "Conversation cleared.", "system", session_id="target"
+            )
             controller.agent.clear_session.return_value = False
             actions.reset_mock()
             adapter.broadcast_session_cleared.reset_mock()
@@ -647,20 +713,34 @@ def test_fresh_work_waits_for_parked_run_finalization_and_context_reset(tmp_path
 
         service.claim = claim
         runtime.set_stop_finalizer(finalize)
-        agent = SimpleNamespace(session_runtime=runtime, _emit_run_state=Mock(),
-            _notify_mini_browser=Mock(), _persist_llm_session=Mock(),
-            session_manager=SimpleNamespace(clear_session=reset))
+        agent = SimpleNamespace(
+            session_runtime=runtime,
+            _emit_run_state=Mock(),
+            _notify_mini_browser=Mock(),
+            _persist_llm_session=Mock(),
+            session_manager=SimpleNamespace(clear_session=reset),
+        )
         agent.request_run_stop = MethodType(AgentBase.request_run_stop, agent)
         await runtime.start()
         clear = None
         try:
-            await service.emit(TriggerSpec(session_id="target",
-                source=TriggerSource.RUN_CONTINUATION, description="Parked run",
-                fire_at=time.time() + 60))
+            await service.emit(
+                TriggerSpec(
+                    session_id="target",
+                    source=TriggerSource.RUN_CONTINUATION,
+                    description="Parked run",
+                    fire_at=time.time() + 60,
+                )
+            )
             clear = asyncio.create_task(AgentBase.clear_session(agent, "target"))
             await asyncio.wait_for(finalizing.wait(), 2)
-            await service.emit(TriggerSpec(session_id="target",
-                source=TriggerSource.USER_MESSAGE, description="Fresh request"))
+            await service.emit(
+                TriggerSpec(
+                    session_id="target",
+                    source=TriggerSource.USER_MESSAGE,
+                    description="Fresh request",
+                )
+            )
             await asyncio.wait_for(claimed.wait(), 2)
             await asyncio.sleep(0)
             reset.assert_not_called()

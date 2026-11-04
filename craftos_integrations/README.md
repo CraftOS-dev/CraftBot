@@ -169,7 +169,9 @@ has `listen` enabled, and reconciles whenever accounts change.
     "messageId": "<platform message id>",
     "is_self_message": False,
     "raw": {...},  # full original platform event
-    "attachments": [...],  # normalized non-text payloads ({kind, id, name, mime, size, url, extra})
+    "attachments": [
+        ...
+    ],  # normalized non-text payloads ({kind, id, name, mime, size, url, extra})
     "truncated": False,  # True when the listener capped messageBody
 }
 ```

@@ -352,19 +352,28 @@ class SupabaseProvider:
         result = await flow.run()
         access_token = result.get("access_token") or ""
         if not access_token:
-            return None, None, f"Supabase OAuth failed: {result.get('error', 'no token')}"
+            return (
+                None,
+                None,
+                f"Supabase OAuth failed: {result.get('error', 'no token')}",
+            )
 
         headers = {"Authorization": f"Bearer {access_token}"}
         orgs = http_request(
             "GET", f"{SUPABASE_MGMT}/organizations", headers=headers, expected=(200,)
         )
-        org_list = [o for o in (orgs.get("result") or []) if isinstance(o, dict)] \
-            if "error" not in orgs else []
+        org_list = (
+            [o for o in (orgs.get("result") or []) if isinstance(o, dict)]
+            if "error" not in orgs
+            else []
+        )
         org = org_list[0] if org_list else {}
         if len(org_list) > 1:
             logger.warning(
                 "[SUPABASE] OAuth grant spans %d organizations; keying the "
-                "account by the first (%s).", len(org_list), org.get("slug")
+                "account by the first (%s).",
+                len(org_list),
+                org.get("slug"),
             )
 
         # Best effort — some OAuth grants cannot read /profile.
