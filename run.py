@@ -12,6 +12,7 @@ Options:
     --no-conda                Don't use conda (overrides config setting)
     --frontend-port PORT      Set frontend port (default: 7925)
     --backend-port PORT       Set backend port (default: 7926)
+    --agent-app-port PORT     First Agent App port; apps get PORT to PORT+99 (default: 3100)
     --no-open-browser         Start servers but do not auto-open the browser (used by service mode)
     --dev-ui                  Serve the frontend with the Vite dev server (hot reload) instead of
                               the production build (default; rebuilt automatically when sources change)
@@ -1062,10 +1063,10 @@ def launch_agent_background(
             continue
         if a in skip_flags:
             continue
-        if a in ("--frontend-port", "--backend-port"):
+        if a in ("--frontend-port", "--backend-port", "--agent-app-port"):
             skip_next = True
             continue
-        if a.startswith("--frontend-port=") or a.startswith("--backend-port="):
+        if a.startswith(("--frontend-port=", "--backend-port=", "--agent-app-port=")):
             continue
         pass_args.append(a)
 
@@ -1315,10 +1316,10 @@ def launch_agent(env_name: Optional[str], conda_base: Optional[str], use_conda: 
             continue
         if a in skip_flags:
             continue
-        if a in ("--frontend-port", "--backend-port"):
+        if a in ("--frontend-port", "--backend-port", "--agent-app-port"):
             skip_next = True
             continue
-        if a.startswith("--frontend-port=") or a.startswith("--backend-port="):
+        if a.startswith(("--frontend-port=", "--backend-port=", "--agent-app-port=")):
             continue
         pass_args.append(a)
 
@@ -1503,6 +1504,7 @@ if __name__ == "__main__":
     # Parse port arguments (override defaults)
     FRONTEND_PORT = parse_port_arg(args_list, "--frontend-port", FRONTEND_PORT)
     BACKEND_PORT = parse_port_arg(args_list, "--backend-port", BACKEND_PORT)
+    AGENT_APP_PORT = parse_port_arg(args_list, "--agent-app-port", 3100)
     FRONTEND_URL = f"http://localhost:{FRONTEND_PORT}"
     BACKEND_URL = f"http://localhost:{BACKEND_PORT}"
 
@@ -1531,6 +1533,7 @@ if __name__ == "__main__":
     os.environ["VITE_PORT"] = str(FRONTEND_PORT)
     os.environ["VITE_BACKEND_PORT"] = str(BACKEND_PORT)
     os.environ["BROWSER_PORT"] = str(BACKEND_PORT)
+    os.environ["AGENT_APP_PORT"] = str(AGENT_APP_PORT)
 
     # Determine mode string for display (only print for non-browser modes)
     if not browser_mode:

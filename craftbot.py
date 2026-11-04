@@ -25,7 +25,8 @@ Options passed to 'start' / 'install':
     --no-open-browser       Don't open browser automatically (default for service)
     --frontend-port PORT    Frontend port (default: 7925)
     --backend-port PORT     Backend port (default: 7926)
-    --conda                 Use conda environment
+    --agent-app-port PORT   First Agent App port, apps get PORT to PORT+99 (default: 3100)
+    --conda                Use conda environment
     --no-conda              Don't use conda
 
 Examples:
@@ -422,12 +423,12 @@ def _port_args(args: List[str]) -> List[str]:
         if skip_next:
             skip_next = False
             continue
-        if arg in ("--frontend-port", "--backend-port"):
+        if arg in ("--frontend-port", "--backend-port", "--agent-app-port"):
             if i + 1 < len(args):
                 result.extend([arg, args[i + 1]])
                 skip_next = True
             continue
-        if arg.startswith("--frontend-port=") or arg.startswith("--backend-port="):
+        if arg.startswith(("--frontend-port=", "--backend-port=", "--agent-app-port=")):
             result.append(arg)
     return result
 
