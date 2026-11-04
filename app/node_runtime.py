@@ -29,12 +29,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-logger = logging.getLogger(__name__)
-
-MIN_NODE_MAJOR = 24  # keep the nodejs>=24 pin in environment.yml in sync
-
-REPO_ROOT = Path(__file__).resolve().parents[1]
-
 # app.paths is the single answer to "where does state live" — in a dev
 # checkout that is the repo (so this is unchanged), and in an install it is
 # the per-user data dir. Before this, SIDECAR_DIR was derived from __file__
@@ -45,7 +39,13 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 # point install.py and run.py import us — before dependencies exist.
 from app.paths import is_managed_install
 from app import runtime_manifest
-from app.paths import NODE_DIR as SIDECAR_DIR  # noqa: E402
+from app.paths import NODE_DIR as SIDECAR_DIR
+
+logger = logging.getLogger(__name__)
+
+MIN_NODE_MAJOR = 24  # keep the nodejs>=24 pin in environment.yml in sync
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 _NODE_VER_RE = re.compile(r"v?(\d+)\.(\d+)\.(\d+)")
 

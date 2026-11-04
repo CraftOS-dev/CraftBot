@@ -34,12 +34,15 @@ class BootstrapTests(unittest.TestCase):
     def test_failed_windows_stop_keeps_pid_record_and_fails(self):
         import craftbot
 
-        with patch.object(craftbot, "_PLATFORM", "win32"), patch.object(
-            craftbot, "_read_pid_record", return_value={"pid": 123}
-        ), patch.object(craftbot, "_owned_pid", return_value=123), patch.object(
-            craftbot, "_remove_pid"
-        ) as remove, patch(
-            "app.process_ledger.kill_tree", side_effect=RuntimeError("still running")
+        with (
+            patch.object(craftbot, "_PLATFORM", "win32"),
+            patch.object(craftbot, "_read_pid_record", return_value={"pid": 123}),
+            patch.object(craftbot, "_owned_pid", return_value=123),
+            patch.object(craftbot, "_remove_pid") as remove,
+            patch(
+                "app.process_ledger.kill_tree",
+                side_effect=RuntimeError("still running"),
+            ),
         ):
             with self.assertRaisesRegex(RuntimeError, "still running"):
                 craftbot.cmd_stop()
@@ -48,10 +51,14 @@ class BootstrapTests(unittest.TestCase):
     def test_failed_orphan_stop_is_reported(self):
         import craftbot
 
-        with patch.object(
-            craftbot, "_orphan_listeners", return_value=[(123, "owned CraftBot")]
-        ), patch(
-            "app.process_ledger.kill_tree", side_effect=RuntimeError("access denied")
+        with (
+            patch.object(
+                craftbot, "_orphan_listeners", return_value=[(123, "owned CraftBot")]
+            ),
+            patch(
+                "app.process_ledger.kill_tree",
+                side_effect=RuntimeError("access denied"),
+            ),
         ):
             with self.assertRaisesRegex(RuntimeError, "orphaned CraftBot pids: 123"):
                 craftbot._stop_orphan_listeners()
@@ -142,10 +149,12 @@ class BootstrapTests(unittest.TestCase):
         self.assertEqual(result.stdout, "\u6587\u4ef6\ufffd")
 
     def test_unix_npm_scripts_work_with_no_shell_on_path(self):
-        with patch.dict(os.environ, {}, clear=True), patch(
-            "sys.platform", "linux"
-        ), patch.object(
-            node_runtime, "path_env", return_value={"PATH": str(self.root)}
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            patch("sys.platform", "linux"),
+            patch.object(
+                node_runtime, "path_env", return_value={"PATH": str(self.root)}
+            ),
         ):
             self.assertEqual(
                 node_runtime.child_env()["npm_config_script_shell"], "/bin/sh"
@@ -174,13 +183,16 @@ class BootstrapTests(unittest.TestCase):
             ("linux", "aarch64", "aarch64-unknown-linux-gnu", "linux-arm64"),
             ("linux", "x86_64", "x86_64-unknown-linux-gnu", "linux-x64"),
         ]:
-            with self.subTest(system=system, arch=arch), patch(
-                "sys.platform", system
-            ), patch("platform.machine", return_value=arch):
+            with (
+                self.subTest(system=system, arch=arch),
+                patch("sys.platform", system),
+                patch("platform.machine", return_value=arch),
+            ):
                 self.assertEqual(runtime_manifest.target("python"), py)
                 self.assertEqual(runtime_manifest.target("node"), node)
-        with patch("platform.machine", return_value="riscv64"), self.assertRaises(
-            ValueError
+        with (
+            patch("platform.machine", return_value="riscv64"),
+            self.assertRaises(ValueError),
         ):
             runtime_manifest.target("node")
 
@@ -190,8 +202,9 @@ class BootstrapTests(unittest.TestCase):
         data = b"complete runtime"
         dest = self.root / "runtime"
         digest = hashlib.sha256(data).hexdigest()
-        with patch.dict(os.environ, {"CRAFTBOT_DOWNLOAD_CACHE": str(cache)}), patch(
-            "urllib.request.urlopen", return_value=Response(data)
+        with (
+            patch.dict(os.environ, {"CRAFTBOT_DOWNLOAD_CACHE": str(cache)}),
+            patch("urllib.request.urlopen", return_value=Response(data)),
         ):
             downloads.download(
                 "https://example.test/runtime.zip", str(dest), expected_sha256=digest
@@ -203,9 +216,10 @@ class BootstrapTests(unittest.TestCase):
     def test_bad_checksum_preserves_existing_destination(self):
         dest = self.root / "runtime"
         dest.write_bytes(b"previous good download")
-        with patch(
-            "urllib.request.urlopen", return_value=Response(b"corrupt")
-        ), self.assertRaisesRegex(ValueError, "SHA-256"):
+        with (
+            patch("urllib.request.urlopen", return_value=Response(b"corrupt")),
+            self.assertRaisesRegex(ValueError, "SHA-256"),
+        ):
             downloads.download(
                 "https://example.test/runtime.zip", str(dest), expected_sha256="0" * 64
             )
@@ -219,8 +233,12 @@ class BootstrapTests(unittest.TestCase):
         source.write_bytes(b"good")
         dest = self.root / "runtime"
         digest = hashlib.sha256(b"good").hexdigest()
-        with patch.dict(os.environ, {"CRAFTBOT_DOWNLOAD_CACHE": str(cache)}), patch(
-            "urllib.request.urlopen", side_effect=AssertionError("network forbidden")
+        with (
+            patch.dict(os.environ, {"CRAFTBOT_DOWNLOAD_CACHE": str(cache)}),
+            patch(
+                "urllib.request.urlopen",
+                side_effect=AssertionError("network forbidden"),
+            ),
         ):
             downloads.download(
                 "https://example.test/runtime.zip",
@@ -242,8 +260,9 @@ class BootstrapTests(unittest.TestCase):
         cache = self.root / "cache"
         cache.mkdir()
         (cache / "runtime.zip").write_bytes(b"bad")
-        with patch.dict(os.environ, {"CRAFTBOT_DOWNLOAD_CACHE": str(cache)}), patch(
-            "urllib.request.urlopen", return_value=Response(b"good")
+        with (
+            patch.dict(os.environ, {"CRAFTBOT_DOWNLOAD_CACHE": str(cache)}),
+            patch("urllib.request.urlopen", return_value=Response(b"good")),
         ):
             downloads.download(
                 "https://example.test/runtime.zip",
@@ -253,19 +272,26 @@ class BootstrapTests(unittest.TestCase):
         self.assertEqual((cache / "runtime.zip").read_bytes(), b"good")
 
     def test_interrupted_download_retries(self):
-        with patch(
-            "urllib.request.urlopen",
-            side_effect=[OSError("connection reset"), Response(b"ok")],
-        ) as request, patch("time.sleep"):
+        with (
+            patch(
+                "urllib.request.urlopen",
+                side_effect=[OSError("connection reset"), Response(b"ok")],
+            ) as request,
+            patch("time.sleep"),
+        ):
             downloads.download("https://example.test/file", str(self.root / "out"))
         self.assertEqual(request.call_count, 2)
         self.assertEqual((self.root / "out").read_bytes(), b"ok")
 
     def test_truncated_response_never_published(self):
-        with patch(
-            "urllib.request.urlopen",
-            side_effect=lambda *a, **k: ResponseWithWrongLength(),
-        ), patch("time.sleep"), self.assertRaisesRegex(OSError, "incomplete"):
+        with (
+            patch(
+                "urllib.request.urlopen",
+                side_effect=lambda *a, **k: ResponseWithWrongLength(),
+            ),
+            patch("time.sleep"),
+            self.assertRaisesRegex(OSError, "incomplete"),
+        ):
             downloads.download("https://example.test/file", str(self.root / "out"))
         self.assertFalse((self.root / "out").exists())
 
@@ -276,19 +302,25 @@ class BootstrapTests(unittest.TestCase):
 
     def test_broken_node_triggers_sidecar_repair(self):
         rt = node_runtime.NodeRuntime("node", None, "bin", "v24.19.0", "path")
-        with patch.object(node_runtime, "resolve", return_value=rt), patch.object(
-            node_runtime, "usable", return_value=False
-        ), patch.object(node_runtime, "download_sidecar", return_value=None) as fetch:
+        with (
+            patch.object(node_runtime, "resolve", return_value=rt),
+            patch.object(node_runtime, "usable", return_value=False),
+            patch.object(node_runtime, "download_sidecar", return_value=None) as fetch,
+        ):
             self.assertIsNone(node_runtime.ensure_sidecar())
             fetch.assert_called_once()
 
     def test_managed_install_ignores_path_node(self):
-        with patch.dict(os.environ, {"CRAFTBOT_NODE": ""}), patch.object(
-            node_runtime, "is_managed_install", return_value=True
-        ), patch.object(
-            node_runtime, "_pinned_exe", return_value=self.root / "absent"
-        ), patch(
-            "shutil.which", side_effect=AssertionError("PATH should not be consulted")
+        with (
+            patch.dict(os.environ, {"CRAFTBOT_NODE": ""}),
+            patch.object(node_runtime, "is_managed_install", return_value=True),
+            patch.object(
+                node_runtime, "_pinned_exe", return_value=self.root / "absent"
+            ),
+            patch(
+                "shutil.which",
+                side_effect=AssertionError("PATH should not be consulted"),
+            ),
         ):
             self.assertIsNone(node_runtime.resolve(refresh=True))
 
@@ -343,12 +375,14 @@ class BootstrapTests(unittest.TestCase):
                 self.assertFalse(stage.optional)
 
     def test_pocketbase_check_does_not_fetch(self):
-        with patch.object(node_runtime, "node_cmd", return_value="node"), patch.object(
-            node_runtime, "child_env", return_value={}
-        ), patch(
-            "app.provision.proc.run",
-            return_value=subprocess.CompletedProcess([], 1, "missing", ""),
-        ) as command:
+        with (
+            patch.object(node_runtime, "node_cmd", return_value="node"),
+            patch.object(node_runtime, "child_env", return_value={}),
+            patch(
+                "app.provision.proc.run",
+                return_value=subprocess.CompletedProcess([], 1, "missing", ""),
+            ) as command,
+        ):
             self.assertFalse(PocketBaseStage().check(self.ctx).ok)
             self.assertEqual(command.call_args.args[0][-2:], ["pb", "check"])
 

@@ -232,7 +232,11 @@ _SAMPLE_INPUTS: Dict[str, dict] = {
     "hover": {"element_id": 1},
     "scroll": {"direction": "down", "amount": 600},
     "wait": {"seconds": 1},
-    "login": {"login_name": "Work account", "username": "me@example.com", "submit": True},
+    "login": {
+        "login_name": "Work account",
+        "username": "me@example.com",
+        "submit": True,
+    },
     "screenshot": {"full_page": False},
     "tabs": {"action": "list"},
 }

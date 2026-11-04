@@ -122,9 +122,7 @@ def build_operations() -> List[Operation]:
                 "takes), name, organization_slug, region and status."
             ),
             input_schema={
-                "organization_slug": _s(
-                    "Only projects in this organization.", ""
-                ),
+                "organization_slug": _s("Only projects in this organization.", ""),
             },
             tags=(_PROJECTS, _UMBRELLA),
         ),
@@ -165,9 +163,7 @@ def build_operations() -> List[Operation]:
                     "Organization slug from list_supabase_organizations.",
                     "acme-inc",
                 ),
-                "db_pass": _s(
-                    "Database password. Omit to generate a strong one.", ""
-                ),
+                "db_pass": _s("Database password. Omit to generate a strong one.", ""),
                 "region": _s(
                     "Region code (e.g. 'us-east-1', 'eu-central-1') or a "
                     "smart group ('americas', 'emea', 'apac'). See "
@@ -403,9 +399,7 @@ def build_operations() -> List[Operation]:
                 "Call this before querying an unfamiliar database."
             ),
             input_schema={
-                "schemas": _arr(
-                    "Schemas to list. Default ['public'].", ["public"]
-                ),
+                "schemas": _arr("Schemas to list. Default ['public'].", ["public"]),
                 "project_ref": _ref(),
             },
             tags=(_DATABASE, _UMBRELLA),
@@ -482,8 +476,9 @@ def build_operations() -> List[Operation]:
                 "stored rollback statements."
             ),
             input_schema={
-                "version": _s("Migration version from list_supabase_migrations.",
-                              "20250312000000"),
+                "version": _s(
+                    "Migration version from list_supabase_migrations.", "20250312000000"
+                ),
                 "project_ref": _ref(),
             },
             tags=(_MIGRATIONS,),
@@ -587,8 +582,7 @@ def build_operations() -> List[Operation]:
                 ),
                 "upsert": _b("Merge into existing rows on conflict.", False),
                 "on_conflict": _s(
-                    "Comma-separated unique columns for upsert. Default: "
-                    "primary key.",
+                    "Comma-separated unique columns for upsert. Default: primary key.",
                     "",
                 ),
                 "schema": _schema(),
@@ -890,10 +884,12 @@ def build_operations() -> List[Operation]:
                 "password": _s("Initial password.", ""),
                 "email_confirm": _b("Mark the email as confirmed.", True),
                 "phone_confirm": _b("Mark the phone as confirmed.", False),
-                "user_metadata": _obj("Profile data the user can edit.",
-                                      {"full_name": "Jane Doe"}),
-                "app_metadata": _obj("Server-controlled data (roles, plan).",
-                                     {"role": "admin"}),
+                "user_metadata": _obj(
+                    "Profile data the user can edit.", {"full_name": "Jane Doe"}
+                ),
+                "app_metadata": _obj(
+                    "Server-controlled data (roles, plan).", {"role": "admin"}
+                ),
                 "project_ref": _ref(),
             },
             parallelizable=False,

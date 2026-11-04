@@ -168,8 +168,11 @@ async def run(args: argparse.Namespace) -> int:
         p.get("organization_slug") for p in (result_of(projects) or [])
     ]
     if slugs and slugs[0]:
-        await check(results, "list_organization_members",
-                    client.list_organization_members(slugs[0]))
+        await check(
+            results,
+            "list_organization_members",
+            client.list_organization_members(slugs[0]),
+        )
         await check(results, "list_regions", client.list_regions(slugs[0]))
     else:
         results.add(SKIP, "list_organization_members", "no organization visible")
@@ -177,7 +180,8 @@ async def run(args: argparse.Namespace) -> int:
     ref = args.project_ref
     if not ref:
         active = [
-            p for p in (result_of(projects) or [])
+            p
+            for p in (result_of(projects) or [])
             if str(p.get("status", "")).startswith("ACTIVE")
         ]
         ref = active[0]["ref"] if active else ""
@@ -189,26 +193,42 @@ async def run(args: argparse.Namespace) -> int:
     # ── project reads ────────────────────────────────────────────────
     print("\n--- project reads ---")
     await check(results, "get_project", client.get_project(ref))
-    await check(results, "get_project_health", client.get_project_health(project_ref=ref))
+    await check(
+        results, "get_project_health", client.get_project_health(project_ref=ref)
+    )
     await check(results, "get_project_keys", client.get_project_keys(ref))
     for service in ("auth", "postgrest", "realtime", "storage", "postgres"):
         await check(
-            results, f"get_service_config[{service}]",
+            results,
+            f"get_service_config[{service}]",
             client.get_service_config(service, project_ref=ref),
         )
-    await check(results, "run_sql_readonly", client.run_sql_readonly(
-        "select $1::text as echo, now() as at", parameters=["hi"], project_ref=ref))
+    await check(
+        results,
+        "run_sql_readonly",
+        client.run_sql_readonly(
+            "select $1::text as echo, now() as at", parameters=["hi"], project_ref=ref
+        ),
+    )
     tables = await check(results, "list_tables", client.list_tables(project_ref=ref))
     table_rows = result_of(tables) or []
     if table_rows:
         first = table_rows[0]
-        await check(results, "describe_table", client.describe_table(
-            first["name"], schema=first["schema"], project_ref=ref))
+        await check(
+            results,
+            "describe_table",
+            client.describe_table(
+                first["name"], schema=first["schema"], project_ref=ref
+            ),
+        )
     else:
         results.add(SKIP, "describe_table", "no tables in public")
     await check(results, "list_extensions", client.list_extensions(project_ref=ref))
-    await check(results, "generate_typescript_types",
-                client.generate_typescript_types(project_ref=ref))
+    await check(
+        results,
+        "generate_typescript_types",
+        client.generate_typescript_types(project_ref=ref),
+    )
     await check(results, "list_backups", client.list_backups(project_ref=ref))
     await check(results, "list_migrations", client.list_migrations(project_ref=ref))
     await check(results, "list_buckets", client.list_buckets(project_ref=ref))
@@ -217,11 +237,19 @@ async def run(args: argparse.Namespace) -> int:
     await check(results, "list_secrets", client.list_secrets(project_ref=ref))
     await check(results, "list_branches", client.list_branches(project_ref=ref))
     for source in ("api", "postgres", "auth"):
-        await check(results, f"get_logs[{source}]",
-                    client.get_logs(source=source, limit=5, project_ref=ref))
-    await check(results, "get_security_advisors", client.get_security_advisors(project_ref=ref))
-    await check(results, "get_performance_advisors",
-                client.get_performance_advisors(project_ref=ref))
+        await check(
+            results,
+            f"get_logs[{source}]",
+            client.get_logs(source=source, limit=5, project_ref=ref),
+        )
+    await check(
+        results, "get_security_advisors", client.get_security_advisors(project_ref=ref)
+    )
+    await check(
+        results,
+        "get_performance_advisors",
+        client.get_performance_advisors(project_ref=ref),
+    )
     await check(results, "get_api_usage", client.get_api_usage(project_ref=ref))
 
     if args.write:
@@ -252,77 +280,156 @@ async def run_writes(client: Any, ref: str, results: Results) -> None:
 
     # ── migrations + rows ────────────────────────────────────────────
     print("\n--- write: schema + rows ---")
-    migration = await check(results, "apply_migration", client.apply_migration(
-        f"create table public.{name} (id bigint generated always as identity "
-        f"primary key, label text not null, n int default 0);",
-        name=f"create_{name}",
-        rollback=f"drop table if exists public.{name};",
-        project_ref=ref,
-    ))
+    migration = await check(
+        results,
+        "apply_migration",
+        client.apply_migration(
+            f"create table public.{name} (id bigint generated always as identity "
+            f"primary key, label text not null, n int default 0);",
+            name=f"create_{name}",
+            rollback=f"drop table if exists public.{name};",
+            project_ref=ref,
+        ),
+    )
     if migration is not None:
-        await check(results, "insert_rows", client.insert_rows(
-            name, [{"label": "a"}, {"label": "b"}], project_ref=ref))
-        await check(results, "select_rows", client.select_rows(
-            name, order="id.asc", count=True, project_ref=ref))
-        await check(results, "update_rows", client.update_rows(
-            name, {"n": 5}, {"label": "eq.a"}, project_ref=ref))
-        await check(results, "delete_rows", client.delete_rows(
-            name, {"label": "eq.b"}, project_ref=ref))
-        await check(results, "run_sql (write)", client.run_sql(
-            f"insert into public.{name} (label) values ($1) returning id",
-            parameters=["c"], project_ref=ref))
+        await check(
+            results,
+            "insert_rows",
+            client.insert_rows(name, [{"label": "a"}, {"label": "b"}], project_ref=ref),
+        )
+        await check(
+            results,
+            "select_rows",
+            client.select_rows(name, order="id.asc", count=True, project_ref=ref),
+        )
+        await check(
+            results,
+            "update_rows",
+            client.update_rows(name, {"n": 5}, {"label": "eq.a"}, project_ref=ref),
+        )
+        await check(
+            results,
+            "delete_rows",
+            client.delete_rows(name, {"label": "eq.b"}, project_ref=ref),
+        )
+        await check(
+            results,
+            "run_sql (write)",
+            client.run_sql(
+                f"insert into public.{name} (label) values ($1) returning id",
+                parameters=["c"],
+                project_ref=ref,
+            ),
+        )
     else:
-        for step in ("insert_rows", "select_rows", "update_rows", "delete_rows",
-                     "run_sql (write)"):
+        for step in (
+            "insert_rows",
+            "select_rows",
+            "update_rows",
+            "delete_rows",
+            "run_sql (write)",
+        ):
             results.add(SKIP, step, "table was not created")
 
     # ── storage ──────────────────────────────────────────────────────
     print("\n--- write: storage ---")
     bucket = name.replace("_", "-")
-    made = await check(results, "create_bucket", client.create_bucket(bucket, project_ref=ref))
+    made = await check(
+        results, "create_bucket", client.create_bucket(bucket, project_ref=ref)
+    )
     if made is not None:
-        await check(results, "update_bucket", client.update_bucket(
-            bucket, file_size_limit=1048576, project_ref=ref))
+        await check(
+            results,
+            "update_bucket",
+            client.update_bucket(bucket, file_size_limit=1048576, project_ref=ref),
+        )
         with tempfile.TemporaryDirectory() as tmp:
             src = os.path.join(tmp, "hello.txt")
             with open(src, "w", encoding="utf-8") as f:
                 f.write("hello from craftbot")
-            await check(results, "upload_file", client.upload_file(
-                bucket, "dir/hello.txt", src, project_ref=ref))
-            await check(results, "list_files", client.list_files(
-                bucket, prefix="dir", project_ref=ref))
+            await check(
+                results,
+                "upload_file",
+                client.upload_file(bucket, "dir/hello.txt", src, project_ref=ref),
+            )
+            await check(
+                results,
+                "list_files",
+                client.list_files(bucket, prefix="dir", project_ref=ref),
+            )
             dst = os.path.join(tmp, "back.txt")
-            got = await check(results, "download_file", client.download_file(
-                bucket, "dir/hello.txt", dst, project_ref=ref))
+            got = await check(
+                results,
+                "download_file",
+                client.download_file(bucket, "dir/hello.txt", dst, project_ref=ref),
+            )
             if got is not None:
                 with open(dst, encoding="utf-8") as f:
                     same = f.read() == "hello from craftbot"
-                results.add(PASS if same else FAIL, "download round-trip",
-                            "content matches" if same else "content differs")
-        await check(results, "create_signed_url", client.create_signed_url(
-            bucket, "dir/hello.txt", expires_in=60, project_ref=ref))
-        await check(results, "copy_file", client.copy_file(
-            bucket, "dir/hello.txt", "dir/copy.txt", project_ref=ref))
-        await check(results, "move_file", client.move_file(
-            bucket, "dir/copy.txt", "dir/moved.txt", project_ref=ref))
-        await check(results, "delete_files", client.delete_files(
-            bucket, ["dir/moved.txt"], project_ref=ref))
-        await check(results, "empty_bucket", client.empty_bucket(bucket, project_ref=ref))
-        await check(results, "delete_bucket", client.delete_bucket(bucket, project_ref=ref))
+                results.add(
+                    PASS if same else FAIL,
+                    "download round-trip",
+                    "content matches" if same else "content differs",
+                )
+        await check(
+            results,
+            "create_signed_url",
+            client.create_signed_url(
+                bucket, "dir/hello.txt", expires_in=60, project_ref=ref
+            ),
+        )
+        await check(
+            results,
+            "copy_file",
+            client.copy_file(bucket, "dir/hello.txt", "dir/copy.txt", project_ref=ref),
+        )
+        await check(
+            results,
+            "move_file",
+            client.move_file(bucket, "dir/copy.txt", "dir/moved.txt", project_ref=ref),
+        )
+        await check(
+            results,
+            "delete_files",
+            client.delete_files(bucket, ["dir/moved.txt"], project_ref=ref),
+        )
+        await check(
+            results, "empty_bucket", client.empty_bucket(bucket, project_ref=ref)
+        )
+        await check(
+            results, "delete_bucket", client.delete_bucket(bucket, project_ref=ref)
+        )
 
     # ── auth users ───────────────────────────────────────────────────
     print("\n--- write: auth users ---")
-    user = await check(results, "create_user", client.create_user(
-        email=f"{name}@example.com", password=f"Smoke-{stamp}-pw!",
-        email_confirm=True, project_ref=ref))
+    user = await check(
+        results,
+        "create_user",
+        client.create_user(
+            email=f"{name}@example.com",
+            password=f"Smoke-{stamp}-pw!",
+            email_confirm=True,
+            project_ref=ref,
+        ),
+    )
     user_id = (result_of(user) or {}).get("id") if user else None
     if user_id:
         await check(results, "get_user", client.get_user(user_id, project_ref=ref))
-        await check(results, "update_user", client.update_user(
-            user_id, user_metadata={"smoke": True}, project_ref=ref))
-        await check(results, "generate_auth_link", client.generate_auth_link(
-            "magiclink", f"{name}@example.com", project_ref=ref))
-        await check(results, "delete_user", client.delete_user(user_id, project_ref=ref))
+        await check(
+            results,
+            "update_user",
+            client.update_user(user_id, user_metadata={"smoke": True}, project_ref=ref),
+        )
+        await check(
+            results,
+            "generate_auth_link",
+            client.generate_auth_link(
+                "magiclink", f"{name}@example.com", project_ref=ref
+            ),
+        )
+        await check(
+            results, "delete_user", client.delete_user(user_id, project_ref=ref)
+        )
     else:
         for step in ("get_user", "update_user", "generate_auth_link", "delete_user"):
             results.add(SKIP, step, "user was not created")
@@ -330,47 +437,74 @@ async def run_writes(client: Any, ref: str, results: Results) -> None:
     # ── secrets + edge function ──────────────────────────────────────
     print("\n--- write: secrets + edge function ---")
     secret = f"CRAFTBOT_SMOKE_{stamp}"
-    await check(results, "set_secrets", client.set_secrets({secret: "ok"}, project_ref=ref))
+    await check(
+        results, "set_secrets", client.set_secrets({secret: "ok"}, project_ref=ref)
+    )
     slug = f"craftbot-smoke-{stamp}"
-    deployed = await check(results, "deploy_function", client.deploy_function(
-        slug,
-        files={"index.ts": (
-            "Deno.serve(async (req) => new Response(JSON.stringify({ "
-            f"secret: Deno.env.get('{secret}') }}), "
-            "{ headers: { 'Content-Type': 'application/json' } }))"
-        )},
-        verify_jwt=False,
-        project_ref=ref,
-    ))
+    deployed = await check(
+        results,
+        "deploy_function",
+        client.deploy_function(
+            slug,
+            files={
+                "index.ts": (
+                    "Deno.serve(async (req) => new Response(JSON.stringify({ "
+                    f"secret: Deno.env.get('{secret}') }}), "
+                    "{ headers: { 'Content-Type': 'application/json' } }))"
+                )
+            },
+            verify_jwt=False,
+            project_ref=ref,
+        ),
+    )
     if deployed is not None:
         await check(results, "get_function", client.get_function(slug, project_ref=ref))
-        await check(results, "update_function", client.update_function(
-            slug, name="CraftBot smoke", project_ref=ref))
+        await check(
+            results,
+            "update_function",
+            client.update_function(slug, name="CraftBot smoke", project_ref=ref),
+        )
         # Freshly deployed functions can take a few seconds to route.
         await asyncio.sleep(5)
-        await check(results, "invoke_function", client.invoke_function(
-            slug, body={}, project_ref=ref))
-        await check(results, "delete_function", client.delete_function(slug, project_ref=ref))
-    await check(results, "delete_secrets", client.delete_secrets([secret], project_ref=ref))
+        await check(
+            results,
+            "invoke_function",
+            client.invoke_function(slug, body={}, project_ref=ref),
+        )
+        await check(
+            results, "delete_function", client.delete_function(slug, project_ref=ref)
+        )
+    await check(
+        results, "delete_secrets", client.delete_secrets([secret], project_ref=ref)
+    )
 
     # ── cleanup: a reversing migration (rollback is branch-only) ─────
     print("\n--- write: cleanup ---")
     if migration is not None:
-        await check(results, "apply_migration (drop)", client.apply_migration(
-            f"drop table if exists public.{name};",
-            name=f"drop_{name}",
-            project_ref=ref,
-        ))
+        await check(
+            results,
+            "apply_migration (drop)",
+            client.apply_migration(
+                f"drop table if exists public.{name};",
+                name=f"drop_{name}",
+                project_ref=ref,
+            ),
+        )
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    parser.add_argument("--token", default="", help="Supabase personal access token (sbp_…)")
     parser.add_argument(
-        "--connected", action="store_true",
+        "--token", default="", help="Supabase personal access token (sbp_…)"
+    )
+    parser.add_argument(
+        "--connected",
+        action="store_true",
         help="use the Supabase account connected in CraftBot instead of --token",
     )
-    parser.add_argument("--project-ref", default="", help="project to test (default: first active)")
+    parser.add_argument(
+        "--project-ref", default="", help="project to test (default: first active)"
+    )
     parser.add_argument(
         "--write",
         action="store_true",

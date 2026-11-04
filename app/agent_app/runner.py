@@ -415,7 +415,10 @@ class AgentAppRunner:
         # PocketBase's CLI exits 0 even when a command fails, so the exit
         # code alone proves nothing: the save is confirmed from the database
         # itself (the superuser row exists and its `updated` stamp moved).
-        saved = code == 0 and _superuser_stamp(db_path, email) not in (None, stamp_before)
+        saved = code == 0 and _superuser_stamp(db_path, email) not in (
+            None,
+            stamp_before,
+        )
         if not saved:
             # FAIL CLOSED. A serve without a superuser makes PocketBase pop
             # the user's SYSTEM BROWSER with a one-time /_/#/pbinstall/…

@@ -122,9 +122,7 @@ def fallback_pair(monkeypatch):
 
     import app.config as app_config
 
-    monkeypatch.setattr(
-        app_config, "get_fallback_providers", lambda: ["anthropic"]
-    )
+    monkeypatch.setattr(app_config, "get_fallback_providers", lambda: ["anthropic"])
     monkeypatch.setattr(app_config, "get_api_key", lambda p: "k")
     # Inject the pre-built fallback interface (its factory patch would
     # otherwise have been torn down by build_interface's second call).

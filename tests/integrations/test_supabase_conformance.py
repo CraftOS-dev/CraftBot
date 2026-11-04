@@ -350,7 +350,11 @@ def test_keys_prefer_new_secret_and_never_leak(monkeypatch):
             [
                 {"type": "legacy", "name": "anon", "api_key": "eyJa.nn.on"},
                 {"type": "legacy", "name": "service_role", "api_key": "eyJs.rv.ce"},
-                {"type": "publishable", "name": "default", "api_key": "sb_publishable_p"},
+                {
+                    "type": "publishable",
+                    "name": "default",
+                    "api_key": "sb_publishable_p",
+                },
                 {"type": "secret", "name": "default", "api_key": "sb_secret_s"},
             ]
         ),
@@ -425,7 +429,9 @@ def test_new_secret_key_goes_in_apikey_header_only(monkeypatch):
 def test_legacy_jwt_also_goes_in_authorization(monkeypatch):
     client = _client(monkeypatch)
     sent = _capture_data_requests(
-        monkeypatch, client, {"secret": "eyJs.rv.ce", "publishable": None, "jwt": "eyJs.rv.ce"}
+        monkeypatch,
+        client,
+        {"secret": "eyJs.rv.ce", "publishable": None, "jwt": "eyJs.rv.ce"},
     )
     run(client.list_buckets())
     assert sent[0]["headers"]["Authorization"] == "Bearer eyJs.rv.ce"
@@ -447,10 +453,13 @@ def test_select_rows_reports_total_and_next_offset(monkeypatch):
 def test_data_plane_retries_once_with_fresh_keys_on_401(monkeypatch):
     client = _client(monkeypatch)
     client._project_keys["abcdefghijklmnopqrst"] = {
-        "secret": "sb_secret_stale", "publishable": None, "jwt": None,
+        "secret": "sb_secret_stale",
+        "publishable": None,
+        "jwt": None,
     }
     monkeypatch.setattr(
-        client, "_mgmt",
+        client,
+        "_mgmt",
         _fake_keys([{"type": "secret", "name": "default", "api_key": "sb_secret_new"}]),
     )
     seen: List[str] = []
@@ -563,7 +572,10 @@ def test_logs_error_inside_200_body_is_a_failure(monkeypatch):
     client = _client(monkeypatch)
 
     async def fake_mgmt(method, path, **kwargs):
-        return {"ok": True, "result": {"error": 'Table "postgres_logs" does not exist.'}}
+        return {
+            "ok": True,
+            "result": {"error": 'Table "postgres_logs" does not exist.'},
+        }
 
     monkeypatch.setattr(client, "_mgmt", fake_mgmt)
     result = run(client.get_logs(source="postgres"))
@@ -599,10 +611,12 @@ def test_schema_change_via_run_sql_is_recorded_as_migration(monkeypatch):
         return {"ok": True, "result": {}}
 
     monkeypatch.setattr(client, "_mgmt", fake_mgmt)
-    result = run(client.run_sql(
-        "create table public.e2e_tasks (id bigint primary key);"
-        " alter table public.e2e_tasks enable row level security;"
-    ))
+    result = run(
+        client.run_sql(
+            "create table public.e2e_tasks (id bigint primary key);"
+            " alter table public.e2e_tasks enable row level security;"
+        )
+    )
     assert sent["path"].endswith("/database/migrations")
     assert sent["body"]["name"] == "create_table_e2e_tasks"
     assert result["result"]["applied_as_migration"] == "create_table_e2e_tasks"
@@ -622,18 +636,26 @@ def test_data_changes_and_parameterised_sql_stay_on_query(monkeypatch):
     assert all(p.endswith("/database/query") for p in paths)
 
 
-@pytest.mark.parametrize("sql, expected", [
-    ("create table public.e2e_tasks (id int)", "create_table_e2e_tasks"),
-    ('create policy "read own" on public.t for select using (true)', "create_policy_read_own"),
-    ("-- note\ncreate index if not exists idx_a on t(a)", "create_index_idx_a"),
-    ("create or replace function f() returns int as $$ begin; return 1; end; $$ language plpgsql",
-     "create_or_replace_function_f"),
-    ("update t set a = 1; drop table if exists public.old_t", "drop_table_old_t"),
-    ("create extension if not exists pg_trgm", "create_extension_pg_trgm"),
-    ("create temp table scratch (a int)", None),
-    ("insert into t values (1)", None),
-    ("select 1", None),
-])
+@pytest.mark.parametrize(
+    "sql, expected",
+    [
+        ("create table public.e2e_tasks (id int)", "create_table_e2e_tasks"),
+        (
+            'create policy "read own" on public.t for select using (true)',
+            "create_policy_read_own",
+        ),
+        ("-- note\ncreate index if not exists idx_a on t(a)", "create_index_idx_a"),
+        (
+            "create or replace function f() returns int as $$ begin; return 1; end; $$ language plpgsql",
+            "create_or_replace_function_f",
+        ),
+        ("update t set a = 1; drop table if exists public.old_t", "drop_table_old_t"),
+        ("create extension if not exists pg_trgm", "create_extension_pg_trgm"),
+        ("create temp table scratch (a int)", None),
+        ("insert into t values (1)", None),
+        ("select 1", None),
+    ],
+)
 def test_ddl_migration_name(sql, expected):
     assert client_mod.ddl_migration_name(sql) == expected
 
@@ -644,10 +666,13 @@ def test_list_organizations_recovers_from_projects_when_empty(monkeypatch):
     async def fake_mgmt(method, path, **kwargs):
         if path == "organizations":
             return {"ok": True, "result": []}
-        return {"ok": True, "result": [
-            {"name": "Test", "organization_slug": "agrnyy"},
-            {"name": "Prod", "organization_slug": "agrnyy"},
-        ]}
+        return {
+            "ok": True,
+            "result": [
+                {"name": "Test", "organization_slug": "agrnyy"},
+                {"name": "Prod", "organization_slug": "agrnyy"},
+            ],
+        }
 
     monkeypatch.setattr(client, "_mgmt", fake_mgmt)
     orgs = run(client.list_organizations())["result"]
@@ -663,7 +688,10 @@ def test_members_403_explains_itself(monkeypatch):
 
     monkeypatch.setattr(client, "_mgmt", fake_mgmt)
     result = run(client.list_organization_members("agrnyy"))
-    assert "403" in result["error"] and "Project operations are unaffected" in result["details"]
+    assert (
+        "403" in result["error"]
+        and "Project operations are unaffected" in result["details"]
+    )
 
 
 def test_logs_backend_error_is_retried_then_explained(monkeypatch):
@@ -686,19 +714,29 @@ def test_logs_backend_error_is_retried_then_explained(monkeypatch):
 
 def test_default_alias_prefers_what_the_user_knows():
     provider = SupabaseProvider()
-    assert provider.default_alias({"email": "dev@acme.com", "display_name": "Test"}) == "dev@acme.com"
-    assert provider.default_alias({"org_name": "Acme", "display_name": "Test"}) == "Acme"
+    assert (
+        provider.default_alias({"email": "dev@acme.com", "display_name": "Test"})
+        == "dev@acme.com"
+    )
+    assert (
+        provider.default_alias({"org_name": "Acme", "display_name": "Test"}) == "Acme"
+    )
     assert provider.default_alias({"display_name": "Test, Prod +1"}) == "Test, Prod +1"
     assert provider.default_alias({}) is None
 
 
 def test_verify_sets_project_display_name(monkeypatch):
-    _stub_http(monkeypatch, {
-        "/v1/organizations": {"ok": True, "result": []},
-        "/v1/profile": {"error": "API error: 403", "details": ""},
-        "/v1/projects": {"ok": True, "result": [
-            {"name": "Test"}, {"name": "Prod"}, {"name": "Stage"}]},
-    })
+    _stub_http(
+        monkeypatch,
+        {
+            "/v1/organizations": {"ok": True, "result": []},
+            "/v1/profile": {"error": "API error: 403", "details": ""},
+            "/v1/projects": {
+                "ok": True,
+                "result": [{"name": "Test"}, {"name": "Prod"}, {"name": "Stage"}],
+            },
+        },
+    )
     ok, _, credential = SupabaseProvider().verify_token({"access_token": "sbp_good"})
     assert ok and credential["display_name"] == "Test, Prod +1"
 

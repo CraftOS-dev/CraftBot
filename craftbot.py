@@ -565,7 +565,9 @@ def _stop_orphan_listeners(args: Optional[List[str]] = None) -> int:
             print(f"  {DIM}(could not stop pid {pid}: {e}){RESET}")
             failures.append(str(pid))
     if failures:
-        raise RuntimeError("Could not stop orphaned CraftBot pids: " + ", ".join(failures))
+        raise RuntimeError(
+            "Could not stop orphaned CraftBot pids: " + ", ".join(failures)
+        )
     return stopped
 
 
