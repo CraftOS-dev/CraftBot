@@ -867,25 +867,38 @@ class MCPServerConnection:
             )
             return
 
-        response = await self._transport.send_request("tools/list", {})
+        tools_data: List[Dict[str, Any]] = []
+        cursor: Optional[str] = None
+        seen_cursors = set()
 
-        if "error" in response:
-            error_info = response.get("error", {})
-            if isinstance(error_info, dict):
-                error_msg = error_info.get("message", str(error_info))
-            else:
-                error_msg = str(error_info)
-            logger.warning(
-                f"[MCPServer:{self.config.name}] Failed to list tools: {error_msg}"
-            )
-            return
+        # tools/list is paginated: keep following nextCursor until the server
+        # stops returning one, otherwise every tool past the first page is lost.
+        while True:
+            params: Dict[str, Any] = {"cursor": cursor} if cursor else {}
+            response = await self._transport.send_request("tools/list", params)
 
-        result = response.get("result", {})
-        tools_data = result.get("tools", [])
+            if "error" in response:
+                error_info = response.get("error", {})
+                if isinstance(error_info, dict):
+                    error_msg = error_info.get("message", str(error_info))
+                else:
+                    error_msg = str(error_info)
+                logger.warning(
+                    f"[MCPServer:{self.config.name}] Failed to list tools: {error_msg}"
+                )
+                return
+
+            result = response.get("result", {})
+            tools_data.extend(result.get("tools", []))
+
+            cursor = result.get("nextCursor")
+            if not cursor or cursor in seen_cursors:
+                break
+            seen_cursors.add(cursor)
 
         if not tools_data:
             logger.debug(
-                f"[MCPServer:{self.config.name}] Server returned empty tools list. Response: {response}"
+                f"[MCPServer:{self.config.name}] Server returned an empty tools list"
             )
 
         self._tools = [MCPTool.from_dict(t) for t in tools_data]
@@ -953,11 +966,25 @@ class MCPServerConnection:
                     if item.get("type") == "text":
                         text_parts.append(item.get("text", ""))
 
+                text = "\n".join(text_parts) if text_parts else result
+
+                # A tool reports its own failure with isError rather than a
+                # JSON-RPC error, so it must not be surfaced as a success.
+                if result.get("isError"):
+                    return {
+                        "status": "error",
+                        "message": text if text_parts else "Tool reported an error",
+                        "raw_content": content,
+                    }
+
                 return {
                     "status": "success",
-                    "result": "\n".join(text_parts) if text_parts else result,
+                    "result": text,
                     "raw_content": content,
                 }
+
+            if result.get("isError"):
+                return {"status": "error", "message": "Tool reported an error"}
 
             return {
                 "status": "success",
