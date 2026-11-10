@@ -36,7 +36,7 @@ import type { AgentAppTodo, AgentAppSnapshot } from '../../store/slices/agentApp
 import styles from './AgentAppPage.module.css'
 
 interface Props {
-  project: AgentAppProject
+  project: Pick<AgentAppProject, 'name' | 'status'>
   todos: AgentAppTodo[] | undefined
   events: AgentAppBuildEvent[]
   snapshot: AgentAppSnapshot | null

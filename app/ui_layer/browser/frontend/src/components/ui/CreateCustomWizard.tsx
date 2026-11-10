@@ -29,6 +29,8 @@ interface CreateCustomWizardProps {
   onMessage: (type: string, handler: (data: any) => void) => () => void
   onClose: () => void
   onCreated?: (projectId: string) => void
+  onConfigure?: (config: Record<string, unknown>, files: File[], icon: File | null) => Promise<void>
+  disabled?: boolean
   /** Chat-path entry (agent_app_wizard_open broadcast): the scaffold action
    *  generated round-1 questions without creating anything — open at the
    *  interview step with config pre-seeded. Finalize then creates the
@@ -154,7 +156,7 @@ function newWizardId(): string {
 
 // ── component ───────────────────────────────────────────────────────────────
 
-export function CreateCustomWizard({ send, onMessage, onClose, onCreated, initial }: CreateCustomWizardProps) {
+export function CreateCustomWizard({ send, onMessage, onClose, onCreated, onConfigure, disabled, initial }: CreateCustomWizardProps) {
   const { t } = useTranslation(['components', 'common', 'agentapp'])
 
   // Explicit (type-checked) key literals for the configure-step vocabulary.
@@ -333,7 +335,15 @@ export function CreateCustomWizard({ send, onMessage, onClose, onCreated, initia
   }
 
   const handleNext = async () => {
+    if (disabled || uploading) return
     if (!validate()) return
+    if (onConfigure) {
+      setUploading(true); setUploadError(null)
+      try { await onConfigure(buildConfig(), files, iconFile) }
+      catch (error) { setUploadError(error instanceof Error ? error.message : String(error)) }
+      finally { setUploading(false) }
+      return
+    }
     if (!(await uploadStaged())) return
     setStep('interview')
     setInterviewLoading(true)
@@ -674,7 +684,7 @@ export function CreateCustomWizard({ send, onMessage, onClose, onCreated, initia
               ))}
             </div>
           )}
-          {uploadError && <span className={styles.errorText}>{uploadError}</span>}
+          {uploadError && <span role="alert" className={styles.errorText}>{uploadError}</span>}
         </div>
 
         <div className={styles.formGroup}>
@@ -737,7 +747,7 @@ export function CreateCustomWizard({ send, onMessage, onClose, onCreated, initia
           type="button"
           icon={uploading ? <Loader2 size={16} className={styles.spinner} /> : <Sparkles size={16} />}
           onClick={() => void handleNext()}
-          disabled={uploading}
+          disabled={uploading || disabled}
         >
           {uploading ? t('common:status.uploading') : t('common:actions.next')}
         </Button>

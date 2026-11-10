@@ -211,6 +211,11 @@ def make_todo_broadcast_hook() -> Callable[[Any, List[Dict[str, Any]]], None]:
     """
 
     def hook(session: Any, todos: List[Dict[str, Any]]) -> None:
+        if getattr(session, "agent_app_framework_pending", False) or getattr(session, "agent_app_framework_key", None):
+            # The existing progress feed can address a framework conversation
+            # without creating a legacy project or guessing its registry id.
+            _dispatch_todos(f"framework-build:{session.id}", todos)
+            return
         manager = get_agent_app_manager()
         if manager is None:
             return

@@ -163,46 +163,52 @@ def test_bundle_contains_app_and_license_without_runtime_state():
         assert manifest["marketplaceAppId"] == "kanban-board"
 
 
-def test_real_import_registers_one_normal_app_and_retry_reuses_it(
-    tmp_path, monkeypatch
-):
-    from app.agent_app.manager import AgentAppManager
-    from app.agent_app.runner import AgentAppRunner
+def test_native_install_and_interrupted_retry_reuse_registered_app(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from app.agent_app import framework
+    from app.agent_app.framework_cli import CLIResult
+    from app.agent_app.framework_store import HostStore
 
-    # Exercise real extraction, identity/port replacement and persistence.
-    # The tooling process is covered separately in the disposable smoke run.
-    monkeypatch.setattr(AgentAppRunner, "kit_sync", AsyncMock())
+    destination = (tmp_path / "agent-apps/kanban-board").resolve()
+    rows = []
+    async def run(surface, args, **kwargs):
+        assert surface == "agent-app"
+        if args[0] == "install":
+            assert args[:2] == ["install", "kanban-board"]
+            assert not destination.exists()
+            destination.mkdir(parents=True)
+            (destination / "manifest.json").write_text(json.dumps({"source": {"catalogueId": "kanban-board", "location": args[args.index("--source") + 1]}}), encoding="utf-8")
+            rows.append({"id": "fresh-native-id", "name": "Kanban Board", "path": str(destination), "status": "running"})
+        else:
+            assert args == [str(destination), "serve", "--install"]
+            rows[0]["status"] = "running"
+        return CLIResult(0, '{"ok":true}', '')
+    cli = SimpleNamespace(home=tmp_path / 'home', package_dir=tmp_path, run=AsyncMock(side_effect=run))
+    monkeypatch.setattr(framework, 'configured_cli', lambda: cli)
+    monkeypatch.setattr(framework, '_list_apps', AsyncMock(side_effect=lambda _: {"status": "success", "data": {"apps": rows}}))
     default.prepare_install(context(tmp_path, new_install=True))
     asyncio.run(default.install_bundled_app(CODE_ROOT, tmp_path))
-
-    workspace = tmp_path / "agent_file_system" / "workspace"
-    manager = AgentAppManager(workspace)
-    assert len(manager.projects) == 1
-    project = next(iter(manager.projects.values()))
-    assert project.name == "Kanban Board"
-    assert project.auto_launch is True
-    manifest = json.loads((Path(project.path) / "manifest.json").read_text())
-    assert manifest["id"] == project.id
-    assert manifest["port"] == project.port
-    assert "{{PORT}}" not in manifest["pipeline"]["start"]
-    assert (Path(project.path) / "AGENT_APP.md").is_file()
-
-    # Simulate a crash after registration, before the completion receipt.
-    (tmp_path / default.RECEIPT).write_text('{"status":"pending"}')
+    assert not (tmp_path / 'agent_file_system').exists()
+    assert HostStore(tmp_path / 'agent-app-host.sqlite3').all('attachment')[0]['autoStart'] is True
+    assert len(rows) == 1
+    rows[0]['status'] = 'stopped'
+    default._write_receipt(tmp_path, {"status": "pending"})
     asyncio.run(default.install_bundled_app(CODE_ROOT, tmp_path))
-    reloaded = AgentAppManager(workspace)
-    assert list(reloaded.projects) == [project.id]
-    assert (
-        json.loads((tmp_path / default.RECEIPT).read_text())["projectId"] == project.id
-    )
+    assert len(rows) == 1 and cli.run.call_count == 2
+    assert default._read_receipt(tmp_path)['frameworkAppId'] == 'fresh-native-id'
+    # A reused location must not silently adopt someone else's app.
+    default._write_receipt(tmp_path, {"status": "pending"})
+    (destination / 'manifest.json').write_text('{"source":{}}', encoding='utf-8')
+    with pytest.raises(ValueError, match='another source'):
+        asyncio.run(default.install_bundled_app(CODE_ROOT, tmp_path))
 
 
 def test_corrupt_bundle_does_not_register_an_app(tmp_path):
     code = tmp_path / "code"
     bundle = code / default.BUNDLE_DIR
     bundle.mkdir(parents=True)
-    (bundle / "source.json").write_text('{"sha256":"wrong"}')
-    (bundle / "kanban-board.zip").write_bytes(b"broken")
+    (bundle / "framework-source.json").write_text('{"sha256":"wrong"}')
+    (bundle / "kanban-board-framework.zip").write_bytes(b"broken")
     state = tmp_path / "state"
     default.prepare_install(context(state, new_install=True))
     with pytest.raises(ValueError, match="checksum"):
@@ -210,16 +216,22 @@ def test_corrupt_bundle_does_not_register_an_app(tmp_path):
     assert not (state / "agent_file_system").exists()
 
 
-def test_registration_must_persist_before_install_is_complete(tmp_path, monkeypatch):
-    from app.agent_app.manager import AgentAppManager
-    from app.agent_app.runner import AgentAppRunner
-
-    monkeypatch.setattr(AgentAppRunner, "kit_sync", AsyncMock())
-    monkeypatch.setattr(AgentAppManager, "_save_projects", lambda self: None)
+def test_occupied_unregistered_destination_and_missing_registration_fail(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from app.agent_app import framework
+    from app.agent_app.framework_cli import CLIResult
+    cli = SimpleNamespace(home=tmp_path / 'home', package_dir=tmp_path, run=AsyncMock(return_value=CLIResult(0, '{"ok":true}', '')))
+    monkeypatch.setattr(framework, 'configured_cli', lambda: cli)
+    monkeypatch.setattr(framework, '_list_apps', AsyncMock(return_value={"status": "success", "data": {"apps": []}}))
     default.prepare_install(context(tmp_path, new_install=True))
-    with pytest.raises(FileNotFoundError):
+    with pytest.raises(RuntimeError, match='running registered'):
         asyncio.run(default.install_bundled_app(CODE_ROOT, tmp_path))
-    assert json.loads((tmp_path / default.RECEIPT).read_text())["status"] == "pending"
+    assert default._read_receipt(tmp_path)['status'] == 'pending'
+    (tmp_path / 'agent-apps/kanban-board').mkdir(parents=True)
+    cli.run.reset_mock()
+    with pytest.raises(ValueError, match='already exists'):
+        asyncio.run(default.install_bundled_app(CODE_ROOT, tmp_path))
+    cli.run.assert_not_called()
 
 
 def test_runner_tools_come_from_code_not_the_users_workspace(tmp_path, monkeypatch):
@@ -257,13 +269,13 @@ def test_packaging_requires_the_default_bundle():
     assert wanted("app/data/default_agent_app/source.json")
 
 
-@pytest.mark.parametrize("include_bundle", [True, False])
-def test_release_payload_includes_and_requires_kanban(
-    tmp_path, monkeypatch, include_bundle
+@pytest.mark.parametrize("missing", [None, "default", "framework", "pin", "maintenance", "housekeeping", "sharing"])
+def test_release_payload_includes_and_requires_app_bundles(
+    tmp_path, monkeypatch, missing
 ):
     sys.path.insert(0, str(CODE_ROOT / "scripts"))
     import package_source
-    from app import ripgrep_runtime
+    from app import agent_app_package, ripgrep_runtime
 
     # Model a release checkout without staging this task's working changes.
     root = tmp_path / "release"
@@ -272,6 +284,14 @@ def test_release_payload_includes_and_requires_kanban(
         "main.py",
         "requirements.txt",
         "app/paths.py",
+        "app/agent_app_package.py",
+        "app/agent_app/framework.py",
+        "app/agent_app/framework_cli.py",
+        "app/agent_app/framework_maintenance.py",
+        "app/agent_app/framework_maintenance.mjs",
+        "app/agent_app/framework_sharing.py",
+        "app/data/action/agent_app_framework_actions.py",
+        "app/provision/agent_app_framework.py",
         "app/provision/__init__.py",
         "app/provision/default_agent_app.py",
         "craftos_integrations/providers/whatsapp_web/bridge.js",
@@ -280,29 +300,95 @@ def test_release_payload_includes_and_requires_kanban(
         "installer/payload.py",
         "requirements/lock-test.txt",
     ]
-    if include_bundle:
+    if missing != "default":
         required.extend(
             [
                 "app/data/default_agent_app/kanban-board.zip",
                 "app/data/default_agent_app/source.json",
+                "app/data/default_agent_app/kanban-board-framework.zip",
+                "app/data/default_agent_app/framework-source.json",
             ]
         )
+    required.extend(agent_app_package.bundled_files())
+    # These exist in the build tree but an incomplete git file list must still
+    # fail the payload check (the new assets need to be committed before release).
+    omitted = {
+        "framework": "app/vendor/agent-app/agent-app-framework.zip",
+        "pin": "app/vendor/agent-app/source.json",
+        "maintenance": "app/agent_app/framework_maintenance.py",
+        "housekeeping": "app/agent_app/framework_maintenance.mjs",
+        "sharing": "app/agent_app/framework_sharing.py",
+    }.get(missing)
     for rel in required + ["app/ui_layer/browser/frontend/dist/index.html"]:
         target = root / rel
         target.parent.mkdir(parents=True, exist_ok=True)
         original = CODE_ROOT / rel
         target.write_bytes(
             original.read_bytes()
-            if rel.startswith("app/data/default_agent_app/")
+            if rel.startswith(("app/data/default_agent_app/", "app/vendor/agent-app/"))
             else b"fixture"
         )
     monkeypatch.setattr(package_source, "REPO_ROOT", root)
-    monkeypatch.setattr(package_source, "tracked_files", lambda: required)
+    monkeypatch.setattr(
+        package_source, "tracked_files", lambda: [r for r in required if r != omitted]
+    )
     monkeypatch.setattr(ripgrep_runtime, "bundled_files", lambda: [])
     payload = tmp_path / "CraftBot-src.zip"
-    assert package_source.build(payload) == (0 if include_bundle else 1)
-    if include_bundle:
+    assert package_source.build(payload) == (0 if missing is None else 1)
+    if missing is None:
         with zipfile.ZipFile(payload) as archive:
             board = archive.read("app/data/default_agent_app/kanban-board.zip")
         with zipfile.ZipFile(io.BytesIO(board)) as archive:
             assert "AGENT_APP.md" in archive.namelist()
+
+
+def test_framework_board_package_and_cache_are_sanitized(tmp_path):
+    bundle = CODE_ROOT / default.BUNDLE_DIR
+    source = json.loads((bundle / 'framework-source.json').read_text(encoding='utf-8'))
+    archive = bundle / 'kanban-board-framework.zip'
+    assert hashlib.sha256(archive.read_bytes()).hexdigest() == source['sha256']
+    assert source['verification']['verdict'] == 'pass'
+    with zipfile.ZipFile(archive) as z:
+        names = z.namelist()
+        assert {'LICENSE', 'manifest.json', 'ui/package-lock.json', '.a2app/toolkit.json'} <= set(names)
+        assert not any(set(Path(n).parts) & {'pb_data', 'pb_public', 'node_modules', '.superuser', 'dev', 'live', 'credentials.json'} for n in names)
+        assert json.loads(z.read('.a2app/toolkit.json')) == {'id': 'blueprint-pocketbase-react'}
+        assert not any(n.endswith(('_triggers_lib.js', '_requests.pb.js')) for n in names)
+    cache = default._local_catalogue(archive, tmp_path, source['sha256'])
+    assert default._local_catalogue(archive, tmp_path, source['sha256']) == cache
+    (cache / 'kanban-board/injected.js').write_text('unexpected', encoding='utf-8')
+    with pytest.raises(ValueError, match='cache changed'):
+        default._local_catalogue(archive, tmp_path, source['sha256'])
+
+
+def test_default_catalogue_retries_a_transient_windows_extraction_lock(tmp_path, monkeypatch):
+    archive = tmp_path / "fixture.zip"
+    with zipfile.ZipFile(archive, "w") as package:
+        package.writestr("manifest.json", '{"id":"fixture"}')
+    rename = Path.rename
+    attempts = []
+
+    def blocked_once(source, target):
+        attempts.append(target)
+        if len(attempts) == 1:
+            error = PermissionError("Scanner holds extracted files")
+            error.winerror = 5
+            raise error
+        return rename(source, target)
+
+    monkeypatch.setattr(Path, "rename", blocked_once)
+    cache = default._local_catalogue(archive, tmp_path / "state", "fixture")
+    assert len(attempts) == 2
+    assert (cache / "kanban-board/manifest.json").read_text() == '{"id":"fixture"}'
+    assert default._local_catalogue(archive, tmp_path / "state", "fixture") == cache
+    assert len(attempts) == 2
+
+
+def test_upgrade_changes_guidance_but_preserves_executable_domain_code():
+    sys.path.insert(0, str(CODE_ROOT / 'scripts'))
+    from upgrade_bundled_kanban import canonical_guidance
+    source = "// the person's work.next\nwork.next();\nconst guide = 'Call work.next; finish with work.submit';"
+    changed = canonical_guidance(source, [{'name': 'work.next'}, {'name': 'work.submit'}])
+    assert "// the person's work.next" in changed
+    assert 'work.next();' in changed
+    assert "'Call work-next; finish with work-submit'" in changed

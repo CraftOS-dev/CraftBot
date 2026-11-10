@@ -38,6 +38,7 @@ class SkillManager:
         self._skills: Dict[str, Skill] = {}
         self._config: Optional[SkillsConfig] = None
         self._config_path: Optional[Path] = None
+        self._bundled_sources: Dict[str, Path] = {}
         self._initialized = True
 
     async def initialize(self, config_path: Optional[Path] = None) -> None:
@@ -77,7 +78,19 @@ class SkillManager:
         for skill in skills:
             self._skills[skill.name] = skill
 
+        # Host-owned names, original immutable sources. Reloading settings must
+        # retain these sources and their relative reference directories.
+        for name, source in self._bundled_sources.items():
+            skill = SkillLoader.parse_skill_file(source)
+            skill.metadata.name = name
+            skill.metadata.action_sets = ["agent_app_framework"]
+            skill.instructions = f"Source: {source}\nResolve relative references from {source.parent}.\n\n{skill.instructions}"
+            self._skills[name] = skill
+
         logger.info(f"[SKILLS] Discovered {len(self._skills)} skills")
+
+    def add_bundled_sources(self, sources: Dict[str, Path]) -> None:
+        self._bundled_sources.update(sources)
 
     def reload_skills(self) -> int:
         """

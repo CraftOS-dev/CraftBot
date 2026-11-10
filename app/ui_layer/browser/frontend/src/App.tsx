@@ -10,6 +10,7 @@ import { WorkspacePage } from './pages/Workspace'
 import { SettingsPage } from './pages/Settings'
 import { OnboardingPage } from './pages/Onboarding'
 import { AgentAppPage } from './pages/AgentApp'
+import { FrameworkAppPage } from './pages/AgentApp/FrameworkAppPage'
 import { useWebSocket } from './contexts/WebSocketContext'
 import { useAppSelector } from './store/hooks'
 import { selectNeedsHardOnboarding } from './store/selectors/onboarding'
@@ -161,6 +162,8 @@ function App() {
         <Route path="/workspace" element={<WorkspacePage />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/agent-app/:projectId" element={<AgentAppPageRoute />} />
+        <Route path="/framework-app" element={<FrameworkAppPage />} />
+        <Route path="/apps" element={<Navigate to="/settings?tab=agent_app" replace />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Layout>

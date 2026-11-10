@@ -14,6 +14,7 @@ preview for context but is never applied on import.
 from __future__ import annotations
 
 import json
+import asyncio
 import shutil
 import tempfile
 import time
@@ -382,10 +383,13 @@ def export_profile(description: str = "") -> Dict[str, Any]:
     deleting the temp file. Mirrors the Agent App export flow.
     """
     contents = _gather_export_contents()
-    manifest = _build_manifest(contents, description=description)
-
     staging = Path(tempfile.mkdtemp(prefix="craftbot_profile_"))
     try:
+        from app.agent_app.framework_profile import export_packages
+
+        packages = asyncio.run(export_packages(staging))
+        contents["framework_apps"] = [p["name"] for p in packages]
+        manifest = _build_manifest(contents, description=description)
         _write_meta(staging, manifest)
         _write_profile_dir(staging, contents["md_files"])
         _write_skills_dir(staging, contents["skills"])
@@ -401,6 +405,7 @@ def export_profile(description: str = "") -> Dict[str, Any]:
                 "skills": len(contents["skills"]),
                 "mcp_servers": len(contents["mcp_servers"]),
                 "agent_app_apps": len(contents["agent_app_apps"]),
+                "framework_apps": len(packages),
                 "md_files": len(contents["md_files"]),
             },
         }
@@ -1119,6 +1124,10 @@ def import_profile(
             }
         bundle_name = manifest.get("name") or "imported profile"
 
+        from app.agent_app.framework_profile import stage_packages
+
+        framework_packages = stage_packages(work_dir)
+
         md_applied = _apply_md_files(work_dir / "profile", mode)
         (
             skills_added,
@@ -1157,6 +1166,7 @@ def import_profile(
             "bundle_name": bundle_name,
             "summary": summary.to_dict(),
             "restart_required": False,
+            "framework_packages": framework_packages,
         }
     except (ValueError, json.JSONDecodeError) as exc:
         return {"success": False, "error": str(exc)}

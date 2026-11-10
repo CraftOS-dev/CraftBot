@@ -124,6 +124,9 @@ export interface SessionInfo {
   createdAt: string
   lastActiveAt: string
   agentAppProjectId?: string | null
+  agentAppFrameworkKey?: string | null
+  agentAppFrameworkPending?: boolean
+  agentAppBuild?: { building: boolean; todos: { id: string; content?: string; active_form?: string; status: 'pending' | 'in_progress' | 'completed' }[] } | null
   /** Always set by the backend; null only on the client-side placeholder for
    *  the main session before the backend has sent it. */
   reasoningEffort: ReasoningChoice | null
@@ -324,6 +327,9 @@ export type WSMessageType =
   | 'agent_app_status'
   | 'agent_app_ready'
   | 'agent_app_list'
+  | 'agent_app_framework_list'
+  | 'agent_app_framework_open'
+  | 'agent_app_framework_lifecycle'
   | 'agent_app_launch'
   | 'agent_app_stop'
   | 'agent_app_delete'
@@ -1007,6 +1013,53 @@ export interface AgentAppListResponse {
   projects?: AgentAppProject[]
   error?: string
 }
+
+// Framework snapshots remain separate from legacy project IDs and controls.
+export interface FrameworkRegistryApp {
+  id: string
+  name: string
+  path: string
+  status: 'running' | 'stopped' | 'missing' | 'unreachable'
+  port?: number
+}
+
+export interface FrameworkConnectedApp {
+  appId: string | null
+  name: string
+  origin: string
+  credentialId: string | null
+  principalName: string | null
+  status: 'online' | 'offline' | 'unreachable' | 'expired'
+}
+
+export type FrameworkRegistryResponse =
+  | { status: 'loading' }
+  | { status: 'success'; data: { apps: FrameworkRegistryApp[]; connected: FrameworkConnectedApp[]; aliases?: Record<string, string> }; stderr?: string }
+  | { status: 'error'; message: string }
+
+export interface FrameworkAppView {
+  id: string
+  path: string
+  name: string
+  url: string
+}
+
+export interface FrameworkLifecycleResult {
+  requestId: string
+  path: string
+  appId: string
+  operation: 'start' | 'stop'
+  status: 'running' | 'success' | 'error' | 'unknown'
+  code?: string
+  message?: string
+  stderr?: string
+  remaining?: boolean
+}
+
+export type FrameworkOpenResponse = { requestId: string } & (
+  | { status: 'success'; data: FrameworkAppView }
+  | { status: 'error'; code: string; message: string }
+)
 
 export interface AgentAppLaunchResponse {
   triggerConsent?: AgentAppTriggerConsent

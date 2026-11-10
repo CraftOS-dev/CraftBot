@@ -18,8 +18,7 @@ Order matters and is expressed once, here:
   native      → prove the embedding stack loads (not merely installed)
   smoke       → prove what actions import is importable
   node        → the one Node runtime
-  agent-app-tools → CLI dependencies, including the ZIP reader
-  pocketbase  → the pinned executable used by Agent Apps
+  framework   → unpack the bundled Agent-App CLI (offline)
   default-app → install the bundled Kanban Board on new installations only
   frontend    → browser UI's npm tree (default UI, so required)
   whatsapp    → bridge's npm tree
@@ -27,7 +26,7 @@ Order matters and is expressed once, here:
   playwright  → chromium for browser-automation actions
 
 Node comes after Python deps because nothing before it needs Node. Node,
-the Agent App tooling and PocketBase are required for a complete installation.
+the bundled Agent-App framework is required for a complete installation.
 """
 
 from __future__ import annotations
@@ -36,14 +35,13 @@ import sys
 from typing import List, Optional
 
 from app import paths
+from app.provision.agent_app_framework import AgentAppFrameworkStage
 from app.provision.default_agent_app import DefaultAgentAppStage, prepare_install
 from app.provision.deps import (
-    AgentAppToolsStage,
     FrontendStage,
     PipStage,
     PlaywrightStage,
     PythonDepsStage,
-    PocketBaseStage,
     WhatsAppBridgeStage,
 )
 from app.provision.pipeline import format_report, run
@@ -85,8 +83,7 @@ def default_stages() -> List[Stage]:
         NativeRuntimeStage(),
         SmokeStage(),
         NodeStage(),
-        AgentAppToolsStage(),
-        PocketBaseStage(),
+        AgentAppFrameworkStage(),
         DefaultAgentAppStage(),
         FrontendStage(),
         WhatsAppBridgeStage(),

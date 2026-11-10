@@ -120,6 +120,21 @@ logger = logging.getLogger(__name__)
 )
 async def agent_app_scaffold(input_data: dict) -> dict:
     """Create, register, and associate a new Agent App project from the template."""
+    if not input_data.get("simulated_mode"):
+        from app.agent_app.framework_transition import (
+            is_framework_request,
+            start_activity,
+        )
+
+        if is_framework_request(input_data):
+            description = str(input_data.get("description", ""))
+            if not description.strip():
+                return {"status": "error", "message": "Describe the app to create."}
+            return await start_activity(
+                "create",
+                f"Name: {input_data.get('name', '')}\n{description}\nRequested features: {input_data.get('features', [])}",
+                input_data,
+            )
     name = input_data.get("name", "").strip()
     description = input_data.get("description", "").strip()
     features = input_data.get("features") or []
@@ -2258,6 +2273,13 @@ async def agent_app_marketplace_list(input_data: dict) -> dict:
     """Fetch the marketplace catalogue (GitHub-hosted JSON)."""
     if input_data.get("simulated_mode"):
         return {"status": "success", "apps": [], "message": "0 apps (simulated)."}
+    from app.agent_app.framework_transition import is_framework_request
+
+    if is_framework_request(input_data):
+        from app.agent_app.framework_commands import command
+
+        result = await command("agent-app", ["catalogue"])
+        return {**result, "apps": (result.get("data") or {}).get("apps", [])}
     import asyncio
 
     from app.agent_app import marketplace_source
@@ -2347,6 +2369,19 @@ async def agent_app_marketplace_list(input_data: dict) -> dict:
 )
 async def agent_app_marketplace_install(input_data: dict) -> dict:
     """Download, register and launch a marketplace app."""
+    if not input_data.get("simulated_mode"):
+        from app.agent_app.framework_transition import (
+            is_framework_request,
+            install_package,
+        )
+
+        if is_framework_request(input_data):
+            return await install_package(
+                {
+                    "id": input_data.get("app_id"),
+                    **({"name": input_data["name"]} if input_data.get("name") else {}),
+                }
+            )
     app_id = (input_data.get("app_id") or "").strip()
     if input_data.get("simulated_mode"):
         return {
@@ -2561,6 +2596,19 @@ async def agent_app_marketplace_install(input_data: dict) -> dict:
 )
 async def agent_app_import_zip(input_data: dict) -> dict:
     """Import an exported Agent App ZIP as a new registered project."""
+    if not input_data.get("simulated_mode"):
+        from app.agent_app.framework_transition import (
+            is_framework_request,
+            install_package,
+        )
+
+        if is_framework_request(input_data):
+            return await install_package(
+                {
+                    "from": input_data.get("zip_path"),
+                    **({"name": input_data["name"]} if input_data.get("name") else {}),
+                }
+            )
     zip_path = (input_data.get("zip_path") or "").strip()
     if input_data.get("simulated_mode"):
         return {
@@ -2652,6 +2700,19 @@ async def agent_app_import_zip(input_data: dict) -> dict:
 )
 async def agent_app_import(input_data: dict) -> dict:
     """Import a Agent App project from zip/folder/git and queue its verify run."""
+    if not input_data.get("simulated_mode"):
+        from app.agent_app.framework_transition import (
+            is_framework_request,
+            install_package,
+        )
+
+        if is_framework_request(input_data):
+            return await install_package(
+                {
+                    "from": input_data.get("source"),
+                    **({"name": input_data["name"]} if input_data.get("name") else {}),
+                }
+            )
     source = (input_data.get("source") or "").strip()
     if input_data.get("simulated_mode"):
         return {
@@ -2788,6 +2849,18 @@ async def agent_app_import(input_data: dict) -> dict:
 )
 async def agent_app_convert(input_data: dict) -> dict:
     """Scaffold + source-derived requirements + dispatch the supervised build."""
+    if not input_data.get("simulated_mode"):
+        from app.agent_app.framework_transition import (
+            is_framework_request,
+            start_activity,
+        )
+
+        if is_framework_request(input_data):
+            return await start_activity(
+                "convert",
+                f"Convert source: {input_data.get('source', '')}\n{input_data.get('description', '')}",
+                input_data,
+            )
     source = (input_data.get("source") or "").strip()
     if input_data.get("simulated_mode"):
         return {

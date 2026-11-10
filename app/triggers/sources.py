@@ -45,6 +45,8 @@ class TriggerSource(str, Enum):
     # TRIGGERS-PLAN): a validated agent_requests row exists and the bridge's
     # capability/consent/era gates all passed. Lands in the project's session.
     AGENT_APP_APP_REQUEST = "agent_app_app_request"
+    FRAMEWORK_WORKFLOW = "framework_workflow"
+    FRAMEWORK_TASK = "framework_task"
     # Catch-all for producers not yet migrated to TriggerService.
     LEGACY = "legacy"
 

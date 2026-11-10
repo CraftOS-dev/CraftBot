@@ -44,7 +44,7 @@ dispatchInbound({ type: 'agent_app_list', data: { success: true, projects: [
   { id: 'weather', name: 'Weather dashboard', description: 'Local forecasts', status: 'stopped', createdAt: 1 },
 ] } }, store.dispatch, store.getState)
 dispatchInbound({ type: 'chat_history', data: { sessionId: 'dest', messages: JSON.parse(sessionStorage.getItem('reference-fixture-history') || '[]'), hasMore: false } }, store.dispatch, store.getState)
-Object.assign(window, { referenceRequests: requests })
+Object.assign(window, { referenceRequests: requests, referenceDispatch: (envelope: SocketEnvelope) => dispatchInbound(envelope, store.dispatch, store.getState) })
 window.addEventListener('fixture-response', event => receive((event as CustomEvent).detail))
 createRoot(document.getElementById('root')!).render(
   <Provider store={store}><MemoryRouter initialEntries={['/session/dest']}><ToastProvider><WebSocketProvider>

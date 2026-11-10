@@ -7,6 +7,7 @@ commands execute through the production launchers using real OS processes.
 """
 
 import ast
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -23,6 +24,11 @@ from unittest.mock import Mock, patch
 ROOT = Path(__file__).resolve().parents[2]
 ACTIONS = ROOT / "app/data/action"
 HERE = Path(__file__).resolve().parent
+_spec = importlib.util.spec_from_file_location(
+    "agent_core.utils.windows_process", ROOT / "agent_core/utils/windows_process.py"
+)
+_windows_process = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_windows_process)
 
 
 def load_action(file_name, function_name):
@@ -134,7 +140,11 @@ class WindowsShellTests(unittest.TestCase):
         self.cancellation.was_killed = Mock(return_value=False)
         modules = patch.dict(
             sys.modules,
-            {"app": app, self.cancellation.__name__: self.cancellation},
+            {
+                "app": app,
+                self.cancellation.__name__: self.cancellation,
+                "agent_core.utils.windows_process": _windows_process,
+            },
         )
         modules.start()
         self.addCleanup(modules.stop)
@@ -305,6 +315,70 @@ class WindowsShellTests(unittest.TestCase):
         self.assertEqual(self.cancellation.register_process.call_count, 1)
 
     # ── both actions ─────────────────────────────────────────────────────
+
+    def test_nested_processes_inherit_a_hidden_console(self):
+        probe = HERE / "console_probe.py"
+        command = f'"{sys.executable}" "{probe}" 2 -'
+        script = f"& '{sys.executable.replace(chr(39), chr(39) * 2)}' '{probe}' 2 -"
+        for run, source in ((self.cmd, command), (self.powershell, script)):
+            with self.subTest(source=source):
+                result = run(source)
+                self.assertEqual(result["status"], "success", result)
+                records = [json.loads(line) for line in result["stdout"].splitlines()]
+                self.assertEqual(len(records), 3)
+                self.assertTrue(all(row["console"] for row in records), records)
+                self.assertTrue(all(not row["visible"] for row in records), records)
+                self.assertEqual(len({row["console"] for row in records}), 1, records)
+
+    def test_background_process_tree_stays_hidden(self):
+        probe = HERE / "console_probe.py"
+        for dialect in ("cmd", "powershell"):
+            with (
+                self.subTest(dialect=dialect),
+                tempfile.TemporaryDirectory() as directory,
+            ):
+                output = Path(directory) / "console.jsonl"
+                real_popen, processes = subprocess.Popen, []
+
+                def track(*args, **kwargs):
+                    process = real_popen(*args, **kwargs)
+                    processes.append(process)
+                    return process
+
+                with patch("subprocess.Popen", side_effect=track):
+                    if dialect == "cmd":
+                        result = self.cmd(
+                            f'"{sys.executable}" "{probe}" 2 "{output}"',
+                            background=True,
+                        )
+                    else:
+                        result = self.powershell(
+                            f"& '{sys.executable}' '{probe}' 2 '{output}'",
+                            background=True,
+                        )
+                self.assertEqual(result["status"], "background", result)
+                self.assertEqual(result["pid"], processes[0].pid)
+                try:
+                    processes[0].wait(timeout=15)
+                    records = [
+                        json.loads(line) for line in output.read_text().splitlines()
+                    ]
+                    self.assertEqual(len(records), 3)
+                    self.assertTrue(
+                        all(row["console"] and not row["visible"] for row in records),
+                        records,
+                    )
+                    self.assertEqual(
+                        len({row["console"] for row in records}), 1, records
+                    )
+                finally:
+                    if processes[0].poll() is None:
+                        subprocess.run(
+                            ["taskkill", "/F", "/T", "/PID", str(result["pid"])],
+                            capture_output=True,
+                            creationflags=subprocess.CREATE_NO_WINDOW,
+                        )
+                        processes[0].wait(timeout=5)
 
     def test_timeout_unregisters_process(self):
         cases = (
