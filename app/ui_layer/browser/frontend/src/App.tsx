@@ -84,7 +84,7 @@ function App() {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        background: '#191919',
+        background: 'var(--bg-primary)',
         flexDirection: 'column',
         gap: '48px',
         userSelect: 'none',
@@ -109,17 +109,17 @@ function App() {
           <LoadingMascot size={64} />
           {initTimedOut ? (
             <div style={{ maxWidth: '440px', textAlign: 'center' }}>
-              <p style={{ margin: '0 0 8px', color: '#e0e0e0', fontSize: '15px' }}>
+              <p style={{ margin: '0 0 8px', color: 'var(--text-primary)', fontSize: '15px' }}>
                 {t('nav:app.backendUnreachable')}
               </p>
-              <p style={{ margin: '0 0 16px', color: '#8a8a8a', fontSize: '13px', lineHeight: 1.6 }}>
+              <p style={{ margin: '0 0 16px', color: 'var(--text-secondary)', fontSize: '13px', lineHeight: 1.6 }}>
                 {t('nav:app.backendUnreachableHint')}
               </p>
               <button
                 onClick={() => window.location.reload()}
                 style={{
-                  background: 'transparent', color: '#8a8a8a', fontSize: '13px',
-                  border: '1px solid #3a3a3a', borderRadius: '6px',
+                  background: 'transparent', color: 'var(--text-secondary)', fontSize: '13px',
+                  border: '1px solid var(--border-secondary)', borderRadius: '6px',
                   padding: '6px 14px', cursor: 'pointer',
                 }}
               >
@@ -127,7 +127,7 @@ function App() {
               </button>
             </div>
           ) : (
-            <p style={{ margin: 0, color: '#8a8a8a', fontSize: '14px' }}>
+            <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '14px' }}>
               {t('nav:app.wakingUp')}<span className="cb-dots" />
             </p>
           )}
