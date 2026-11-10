@@ -36,7 +36,7 @@
       },
       "agentapp": {
         "label": "AgentApp apps",
-        "description": "Deletes every app the agent has built. A final backup of each app's data is saved and kept."
+        "description": "Deletes all local Agent Apps listed in CraftBot. A final backup of each app's data is saved and kept."
       }
     }
   },

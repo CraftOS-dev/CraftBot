@@ -2,8 +2,8 @@
 
 The install entry points capture eligibility before writing config. A small
 receipt survives interrupted installs and records completion even if the user
-later deletes the board. The existing importer owns project files, identity,
-ports and registration; normal auto-launch owns serving it.
+later deletes the board. The unchanged upstream installer owns project files,
+identity, ports, registration and serving; CraftBot stores a startup preference.
 
 This module stays stdlib-only: installers import it before dependencies exist.
 """
@@ -15,6 +15,9 @@ import hashlib
 import json
 import os
 import sys
+import tempfile
+import time
+import zipfile
 from pathlib import Path
 
 from app.provision.types import Context, LogFn, StageResult, Status
@@ -101,7 +104,7 @@ class DefaultAgentAppStage:
         )
         if result.returncode:
             return StageResult(
-                Status.FAILED, proc.failure_detail(result, "Kanban import failed")
+                Status.FAILED, proc.failure_detail(result, "Kanban install failed")
             )
         return self.check(ctx)
 
@@ -111,32 +114,103 @@ async def install_bundled_app(code_root: Path, state_root: Path) -> None:
     if _read_receipt(state_root).get("status") != "pending":
         return
     bundle_dir = code_root / BUNDLE_DIR
-    source = json.loads((bundle_dir / "source.json").read_text(encoding="utf-8"))
-    archive = bundle_dir / "kanban-board.zip"
+    source = json.loads((bundle_dir / "framework-source.json").read_text(encoding="utf-8"))
+    archive = bundle_dir / "kanban-board-framework.zip"
     if hashlib.sha256(archive.read_bytes()).hexdigest() != source["sha256"]:
         raise ValueError("Bundled Kanban Board checksum mismatch")
 
-    from app.agent_app.manager import AgentAppManager
+    if source.get("verification", {}).get("verdict") != "pass":
+        raise ValueError("The bundled board has no independent verification pass.")
+    from app.agent_app import framework
+    from app.agent_app.framework_store import HostStore, app_key
 
-    workspace = state_root / "agent_file_system" / "workspace"
-    manager = AgentAppManager(workspace)
-    # An interrupted install may already have registered the project. Match
-    # its source marker, never its display name (which the user can change).
-    installed = manager.find_marketplace_installs("kanban-board")
-    if installed:
-        project = installed[0]
+    cli = framework.configured_cli()
+    marketplace = await asyncio.to_thread(_local_catalogue, archive, state_root, source["sha256"])
+    destination = (state_root / "agent-apps/kanban-board").resolve()
+    snapshot = await framework._list_apps(cli)
+    if snapshot["status"] != "success":
+        raise RuntimeError(snapshot.get("message", "Could not read the framework registry"))
+    registered = next((row for row in snapshot["data"]["apps"] if Path(row["path"]).resolve() == destination), None)
+    if registered:
+        # An interrupted installer may have completed registration. Resume only
+        # the exact bundled catalogue provenance, never an arbitrary occupied dir.
+        manifest = json.loads((destination / "manifest.json").read_text(encoding="utf-8"))
+        provenance = manifest.get("source", {})
+        if provenance.get("catalogueId") != "kanban-board" or provenance.get("location") != str(marketplace):
+            raise ValueError("The default app destination belongs to another source; it was not overwritten.")
+        if registered["status"] != "running":
+            served = await cli.run("agent-app", [str(destination), "serve", "--install"], cwd=cli.package_dir, timeout=900)
+            if not served.ok:
+                raise RuntimeError(served.stderr or served.stdout)
     else:
-        project = await manager.import_project_source(str(archive), "Kanban Board")
-    # The manager logs persistence errors rather than raising. Do not mark
-    # installation complete unless the next startup can actually find it.
-    registry = json.loads(
-        (workspace / "agent_app_projects.json").read_text(encoding="utf-8")
-    )
-    if not any(
-        record.get("id") == project.id for record in registry.get("projects", [])
-    ):
-        raise RuntimeError("Kanban Board was not saved in the Agent App registry")
-    _write_receipt(state_root, {"status": "installed", "projectId": project.id})
+        if destination.exists():
+            raise ValueError("The default app destination already exists without a registry entry; inspect it before retrying.")
+        result = await cli.run("agent-app", ["install", "kanban-board", "--source", str(marketplace), "--into", str(destination)], cwd=cli.package_dir, timeout=900)
+        if not result.ok:
+            raise RuntimeError(result.stderr or result.stdout)
+    snapshot = await framework._list_apps(cli)
+    registered = next((row for row in snapshot.get("data", {}).get("apps", []) if Path(row["path"]).resolve() == destination), None)
+    if not registered or registered["status"] != "running":
+        raise RuntimeError("Kanban installation did not produce a running registered app.")
+    key = app_key(cli.home, str(destination), registered["id"])
+    store = HostStore(state_root / "agent-app-host.sqlite3")
+    store.put("attachment", key, {"key": key, "home": str(cli.home), "path": str(destination), "appId": registered["id"], "name": registered["name"], "sessionId": None, "autoStart": True, "tasksAllowed": False})
+    _write_receipt(state_root, {"status": "installed", "frameworkAppId": registered["id"], "path": str(destination), "home": str(cli.home), "sha256": source["sha256"]})
+
+
+def _local_catalogue(archive: Path, state_root: Path, digest: str) -> Path:
+    """Expose the verified release artifact as an upstream offline catalogue."""
+    cache = state_root / "runtime/default-agent-app" / digest
+    files = {}
+    with zipfile.ZipFile(archive) as package:
+        for entry in package.infolist():
+            name = entry.filename
+            if entry.is_dir():
+                continue
+            parts = Path(name).parts
+            if Path(name).is_absolute() or ".." in parts or "\\" in name or ":" in name or (entry.external_attr >> 16) & 0o170000 == 0o120000:
+                raise ValueError("Unsafe default app archive entry")
+            if name in files:
+                raise ValueError("Duplicate default app archive entry")
+            files[name] = package.read(entry)
+    catalogue = json.dumps({"apps": [{"id": "kanban-board", "name": "Kanban Board", "folder": "kanban-board", "agentAppVersion": "0.1.0"}]}).encode()
+    if not cache.exists():
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=cache.parent, prefix="prepare-") as temporary:
+            staged = Path(temporary) / "catalogue"
+            for name, value in files.items():
+                target = staged / "kanban-board" / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(value)
+            (staged / "catalogue.json").write_bytes(catalogue)
+            deadline = time.monotonic() + 10
+            while True:
+                try:
+                    staged.rename(cache)
+                    break
+                except OSError as error:
+                    # A concurrent installer can publish the same cache. Verify
+                    # it below; never replace an existing destination.
+                    if cache.is_dir():
+                        break
+                    # Windows scanners briefly hold newly extracted files.
+                    if getattr(error, "winerror", None) not in {5, 32} or time.monotonic() >= deadline:
+                        raise
+                    time.sleep(0.1)
+    expected = {"kanban-board/" + name: value for name, value in files.items()}
+    expected["catalogue.json"] = catalogue
+    actual = set()
+    for current, dirs, names in os.walk(cache, followlinks=False):
+        if Path(current).is_symlink() or any((Path(current) / d).is_symlink() for d in dirs):
+            raise ValueError("The default app source cache contains a link.")
+        actual.update((Path(current) / n).relative_to(cache).as_posix() for n in names)
+    if actual != set(expected):
+        raise ValueError("The default app source cache changed; inspect it before reinstalling.")
+    for name, value in expected.items():
+        path = cache / name
+        if path.is_symlink() or not path.is_file() or path.read_bytes() != value:
+            raise ValueError("The default app source cache changed; inspect it before reinstalling.")
+    return cache.resolve()
 
 
 def main() -> int:

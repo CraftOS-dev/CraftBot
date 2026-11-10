@@ -410,8 +410,9 @@ export function Chat({ sessionId, placeholder, panelLayout = 'side', panelVisibl
   const referenceAutocompleteRef = useRef<ReferenceAutocompleteHandle>(null)
   const sessions = useAppSelector(state => state.sessions.sessions)
   const apps = useAppSelector(state => state.agentApp.projects)
+  const frameworkApps = useAppSelector(state => state.agentApp.framework.apps)
   useResource(RESOURCES.agentAppsList)
-  const referenceItems = useMemo(() => referenceCatalog(sessions, apps, sessionId), [sessions, apps, sessionId])
+  const referenceItems = useMemo(() => referenceCatalog(sessions, apps, sessionId, frameworkApps), [sessions, apps, sessionId, frameworkApps])
   const activeReference = referenceQuery(input, caret.start, caret.end)
   const activeReferenceStart = activeReference?.start ?? null
   useEffect(() => { if (activeReferenceStart === null) setDismissedReferenceStart(null) }, [activeReferenceStart])

@@ -1,4 +1,5 @@
-import { useRef } from 'react'
+import { useEffect, useRef } from 'react'
+import { useLocation } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import styles from './SettingsPage.module.css'
 import { tourAnchorProps, useTourEnvAction, type TourAnchorId } from '../../tour'
@@ -25,6 +26,11 @@ import { CredentialsSettings } from './CredentialsSettings'
 export function SettingsPage() {
   const { t } = useTranslation(['settings', 'common'])
   const [savedCategory, setActiveCategory] = usePersistedState(UI_STATE.settings.activeCategory)
+  const location = useLocation()
+  useEffect(() => {
+    const tab = new URLSearchParams(location.search).get('tab')
+    if (categories.some(category => category.id === tab)) setActiveCategory(tab as SettingsCategory)
+  }, [location.search, setActiveCategory])
   // A remembered tab that no longer exists falls back to General.
   const activeCategory: SettingsCategory = categories.some(c => c.id === savedCategory)
     ? savedCategory

@@ -8,8 +8,11 @@
 import i18n from '../../i18n/config'
 
 const MAX_POOL_SIZE = 5
+export const APP_FRAME_PERMISSIONS = 'microphone; camera; display-capture; clipboard-read; clipboard-write; fullscreen'
 
 const pool = new Map<string, HTMLIFrameElement>()
+const frameworkFrames = new Set<string>()
+export const frameworkFrameId = (path: string, appId: string) => `framework:${JSON.stringify([path, appId])}`
 // Track access order for LRU eviction
 const accessOrder: string[] = []
 const owners = new Map<string, symbol>()
@@ -83,7 +86,7 @@ export function getOrCreateIframe(id: string, src: string): HTMLIFrameElement {
     // policy before the user was ever asked, and clipboard writes failed:
     // Audio Notes saved 26 minutes of nothing. Delegating only lets the app
     // ASK; the browser still prompts the user. Must precede navigation.
-    iframe.allow = 'microphone; camera; display-capture; clipboard-read; clipboard-write; fullscreen'
+    iframe.allow = APP_FRAME_PERMISSIONS
     iframe.src = src
     // The requested src is remembered separately: reading iframe.src back
     // returns the browser-normalized absolute URL, so comparing against it
@@ -135,6 +138,7 @@ export function hideIframe(id: string) {
 }
 
 export function removeIframe(id: string) {
+  frameworkFrames.delete(id)
   const iframe = pool.get(id)
   if (iframe) {
     iframe.remove()
@@ -147,7 +151,7 @@ export function removeIframe(id: string) {
 }
 
 /** Exactly one owner places each project frame; stale cleanup is harmless. */
-export function acquireIframe(id: string, src: string) {
+export function acquireIframe(id: string, src: string, framework = false) {
   if (owners.has(id)) return null
   if (!pool.has(id) && pool.size >= MAX_POOL_SIZE) {
     const candidate = accessOrder.find(key => !owners.has(key))
@@ -159,6 +163,11 @@ export function acquireIframe(id: string, src: string) {
   let frame: HTMLIFrameElement
   try { frame = getOrCreateIframe(id, src) }
   catch (error) { owners.delete(id); throw error }
+  if (framework) {
+    frameworkFrames.add(id)
+    frame.dataset.framework = id
+    frame.style.background = 'white'
+  }
   return {
     frame,
     update(rect: DOMRect, visible: boolean, interactive: boolean) {
@@ -182,7 +191,12 @@ export function acquireIframe(id: string, src: string) {
 /** Dispose stopped/deleted frames even when their React surface is absent. */
 export function reconcileIframes(projects: { id: string; status: string }[]) {
   const running = new Set(projects.filter(p => p.status === 'running').map(p => p.id))
-  for (const id of pool.keys()) if (!running.has(id)) removeIframe(id)
+  for (const id of pool.keys()) if (!frameworkFrames.has(id) && !running.has(id)) removeIframe(id)
+}
+
+export function reconcileFrameworkIframes(apps: { path: string; id: string; status: string }[]) {
+  const running = new Set(apps.filter(a => a.status === 'running').map(a => frameworkFrameId(a.path, a.id)))
+  for (const id of frameworkFrames) if (!running.has(id)) removeIframe(id)
 }
 
 // The host does NOT refresh an app's data view — an app owns its own live
@@ -206,7 +220,8 @@ export function ownsProjectWindow(id: string, win: unknown): boolean {
 
 export function broadcastThemeToIframes(theme: string, cssVars: Record<string, string>) {
   const message = { type: 'craftbot-theme', theme, cssVars }
-  pool.forEach(iframe => {
+  pool.forEach((iframe, id) => {
+    if (frameworkFrames.has(id)) return
     try {
       iframe.contentWindow?.postMessage(message, new URL(iframe.src).origin)
     } catch (e) {}

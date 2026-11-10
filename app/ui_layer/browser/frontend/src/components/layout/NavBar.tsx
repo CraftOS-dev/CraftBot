@@ -30,10 +30,12 @@ import {
 import { useWebSocket } from '../../contexts/WebSocketContext'
 import { useTheme } from '../../contexts/ThemeContext'
 import { removeIframe } from '../../features/agentApps/frameHost'
+import { FrameworkAppList, type SidebarAppEntry } from '../../features/agentApps/FrameworkAppList'
+import { frameworkKey, frameworkSessionIdentity } from '../../features/agentApps/frameworkIdentity'
+import { CreateAgentAppModal } from '../ui/CreateAgentAppModal'
 import { ConfirmModal } from '../ui/ConfirmModal'
 import { tourAnchorProps, useTourEnvAction, type TourAnchorId } from '../../tour'
 import { applySavedOrder, usePersistedState, useSkillCreator, useSortableList } from '../../hooks'
-import { CreateAgentAppModal } from '../ui/CreateAgentAppModal'
 import { SkillCreatorModal } from '../ui/SkillCreatorModal'
 import { AgentAppIcon } from '../ui/AgentAppIcon'
 import type { SessionInfo } from '../../types'
@@ -42,9 +44,10 @@ import { openTriggerReview } from '../../store/slices/agentAppSlice'
 import { UI_STATE } from '../../store/uiState'
 import { selectAgentAppProjects } from '../../store/selectors/agentApp'
 import { selectSkillMeta } from '../../store/selectors/agent'
-import { selectMainSession, selectChatSessions } from '../../store/selectors/sessions'
+import { selectMainSession, selectChatSessions, selectFrameworkAppSessionIds, selectPendingFrameworkApps } from '../../store/selectors/sessions'
 import { selectLastMessageIdBySession } from '../../store/selectors/messages'
 import { TopBar } from './TopBar'
+import { SidebarPopover } from './SidebarPopover'
 import styles from './NavBar.module.css'
 
 interface NavItem {
@@ -97,53 +100,6 @@ function AnimatedSessionTitle({ title }: { title: string }) {
   )
 }
 
-// Popup anchored to a sidebar control, portalled to <body> so it can extend
-// past the sidebar's edge instead of being clipped by its scroll area. Opens
-// below the anchor, flips above it when the viewport has no room below, and
-// shifts left if it would run off the right edge.
-function SidebarPopover({
-  anchor,
-  className,
-  role,
-  children,
-}: {
-  anchor: DOMRect
-  className: string
-  role: 'menu' | 'tooltip'
-  children: React.ReactNode
-}) {
-  const ref = useRef<HTMLDivElement>(null)
-  const [pos, setPos] = useState<{ top: number; left: number } | null>(null)
-
-  useLayoutEffect(() => {
-    const el = ref.current
-    if (!el) return
-    const { width, height } = el.getBoundingClientRect()
-    const margin = 8
-    const below = anchor.bottom + 4
-    const top = below + height <= window.innerHeight - margin
-      ? below
-      : Math.max(margin, anchor.top - 4 - height)
-    const left = Math.max(margin, Math.min(anchor.left, window.innerWidth - margin - width))
-    setPos({ top, left })
-  }, [anchor])
-
-  return createPortal(
-    <div
-      ref={ref}
-      className={className}
-      role={role}
-      // First pass renders hidden to measure; the layout effect places it
-      // before paint.
-      style={pos ?? { top: 0, left: 0, visibility: 'hidden' }}
-      onMouseDown={e => e.stopPropagation()}
-    >
-      {children}
-    </div>,
-    document.body,
-  )
-}
-
 interface NavBarProps {
   collapsed?: boolean
   onToggleCollapsed?: () => void
@@ -180,6 +136,7 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
     [t],
   )
   const {
+    requestAgentAppList,
     launchAgentApp,
     stopAgentApp,
     deleteAgentApp,
@@ -190,14 +147,25 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
   // Apps retain their saved drag-and-drop order; chats follow latest activity.
   const [agentAppOrder, setAgentAppOrder] = usePersistedState(UI_STATE.nav.agentAppOrder)
   const unorderedAgentAppProjects = useAppSelector(selectAgentAppProjects)
+  const framework = useAppSelector(state => state.agentApp.framework)
+  const frameworkSessionIds = useAppSelector(selectFrameworkAppSessionIds)
+  const pendingFrameworkApps = useAppSelector(selectPendingFrameworkApps)
+  const frameworkEmpty = framework.status === 'success' && !framework.warning
+    && framework.apps.length === 0 && framework.connected.length === 0 && pendingFrameworkApps.length === 0
   const agentAppProjects = useMemo(
     () => applySavedOrder(unorderedAgentAppProjects, agentAppOrder, p => p.id, 'last'),
     [unorderedAgentAppProjects, agentAppOrder],
   )
+  const sidebarApps = useMemo(() => applySavedOrder<SidebarAppEntry>([
+    ...unorderedAgentAppProjects.map(project => ({ kind: 'legacy' as const, id: project.id, project })),
+    ...framework.apps.map(app => ({ kind: 'framework' as const, id: frameworkKey(app.path, app.id), app })),
+    ...framework.connected.map(app => ({ kind: 'connected' as const, id: `connected:${JSON.stringify([app.origin, app.credentialId])}`, app })),
+    ...pendingFrameworkApps.map(session => ({ kind: 'pending' as const, id: `pending:${session.id}`, session })),
+  ], agentAppOrder, entry => entry.id, 'last'), [unorderedAgentAppProjects, framework.apps, framework.connected, pendingFrameworkApps, agentAppOrder])
   const skillMeta = useAppSelector(selectSkillMeta)
   const [lastSeenBySession] = usePersistedState(UI_STATE.chat.lastSeenMessageIds)
   const { theme } = useTheme()
-  const [showCreateModal, setShowCreateModal] = useState(false)
+  const [createAppOpen, setCreateAppOpen] = useState(false)
   // Which Agent App row's "…" menu is open (and its button's rect), and the
   // app queued for a delete confirmation (delete is destructive, so it always
   // confirms).
@@ -239,6 +207,7 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
       setFlyout(null)
       return
     }
+    if (kind === 'agentapp') requestAgentAppList()
     const rect = e.currentTarget.getBoundingClientRect()
     setFlyout({
       kind,
@@ -288,9 +257,7 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
   const [canScrollUp, setCanScrollUp] = useState(false)
   const [canScrollDown, setCanScrollDown] = useState(false)
 
-  const visibleAgentAppProjects = showAllAgentApp
-    ? agentAppProjects
-    : agentAppProjects.slice(0, GROUP_PREVIEW_COUNT)
+  const visibleSidebarApps = showAllAgentApp ? sidebarApps : sidebarApps.slice(0, GROUP_PREVIEW_COUNT)
   const visibleChatSessions = chatSessions.slice(0, chatVisibleCount)
 
   // Drag-to-reorder apps. The rendered rows are always a prefix
@@ -301,8 +268,8 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
     return [...prefix, ...all.filter(id => !moved.has(id))]
   }
   const agentAppSortable = useSortableList({
-    ids: visibleAgentAppProjects.map(p => p.id),
-    onReorder: ids => setAgentAppOrder(withTail(ids, agentAppProjects.map(p => p.id))),
+    ids: visibleSidebarApps.map(p => p.id),
+    onReorder: ids => setAgentAppOrder(withTail(ids, sidebarApps.map(p => p.id))),
     scrollRef,
   })
 
@@ -317,16 +284,24 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
   const activeAgentAppId = location.pathname.startsWith('/agent-app/')
     ? location.pathname.slice('/agent-app/'.length)
     : null
+  const appParams = new URLSearchParams(location.search)
+  const viewedSession = useAppSelector(state => state.sessions.sessions.find(session => location.pathname === `/session/${session.id}`))
+  const viewedApp = frameworkSessionIdentity(viewedSession?.agentAppFrameworkKey)
+  const activeSidebarAppId = location.pathname === '/framework-app'
+    ? frameworkKey(appParams.get('path') || '', appParams.get('id') || '')
+    : viewedApp ? frameworkKey(viewedApp.path, viewedApp.appId)
+    : pendingFrameworkApps.some(session => location.pathname === `/session/${session.id}`)
+      ? `pending:${location.pathname.slice('/session/'.length)}` : activeAgentAppId
 
   // When the open project sorts past the collapsed fold (e.g. a freshly
   // created app the user was just auto-switched to), expand "Show more" so it
   // is visible in its natural position. Only fires on navigation / list change,
   // so a manual "Show less" afterwards is respected.
   useEffect(() => {
-    if (!activeAgentAppId) return
-    const idx = agentAppProjects.findIndex(p => p.id === activeAgentAppId)
+    if (!activeSidebarAppId) return
+    const idx = sidebarApps.findIndex(p => p.id === activeSidebarAppId)
     if (idx >= GROUP_PREVIEW_COUNT) setShowAllAgentApp(true)
-  }, [activeAgentAppId, agentAppProjects])
+  }, [activeSidebarAppId, sidebarApps])
 
   const sessionPath = (sessionId: string) =>
     sessionId === 'main' ? '/' : `/session/${sessionId}`
@@ -377,13 +352,6 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
     return null
   }
 
-  // Auto-switch: the wizard/marketplace hand back the new projectId — open
-  // its tab so the user lands on the live build view immediately.
-  const handleProjectCreated = (projectId: string) => {
-    setAgentAppExpanded(true)
-    navigate(`/agent-app/${projectId}`)
-  }
-
   // Lazy session creation: "New Chat" only opens the draft view at
   // /session/new. The real session is created by the backend on the first
   // message sent from that view (session_created then navigates us there).
@@ -400,10 +368,9 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
   // before it highlights it.
   useTourEnvAction('ensureChatsExpanded', () => setChatsExpanded(true))
 
-  // Let the tour open and close the "Add Agent App" modal while it walks the
-  // creation methods.
-  useTourEnvAction('openAgentAppModal', () => setShowCreateModal(true))
-  useTourEnvAction('closeAgentAppModal', () => setShowCreateModal(false))
+  // The tour shares the normal framework entry point.
+  useTourEnvAction('openAgentAppModal', () => setCreateAppOpen(true))
+  useTourEnvAction('closeAgentAppModal', () => setCreateAppOpen(false))
 
   // Close any open context menu when clicking anywhere else. The window-blur
   // guard covers clicks into the cross-origin Agent App iframe, whose mousedown
@@ -493,7 +460,7 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
 
   useLayoutEffect(() => {
     updateOverflow()
-  }, [agentAppProjects.length, chatSessions.length, chatsExpanded, agentAppExpanded, chatVisibleCount])
+  }, [sidebarApps.length, chatSessions.length, chatsExpanded, agentAppExpanded, showAllAgentApp, chatVisibleCount])
 
   useEffect(() => {
     const el = scrollRef.current
@@ -555,7 +522,7 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
     )
   }
 
-  const renderSessionRow = (session: SessionInfo, opts: { isMain: boolean }) => {
+  const renderSessionRow = (session: SessionInfo, opts: { isMain: boolean; isApp?: boolean; flyout?: boolean }) => {
     const path = sessionPath(session.id)
     const active = isActive(path)
     const renaming = renamingId === session.id
@@ -581,14 +548,15 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
         ) : (
           <>
             <button
-              className={styles.sessionRowButton}
-              onClick={() => navigate(path)}
+              className={opts.flyout ? `${styles.flyoutItem} ${active ? styles.flyoutItemActive : ''}` : opts.isApp ? `${styles.agentAppTab} ${active ? styles.agentAppTabActive : ''}` : styles.sessionRowButton}
+              {...(opts.isApp ? agentAppSortable.handleProps(`pending:${session.id}`) : {})}
+              onClick={() => { navigate(path); if (opts.flyout) setFlyout(null) }}
               title={opts.isMain ? t('nav:items.main') : session.title}
             >
-              <span className={styles.icon}>
-                {opts.isMain ? <MessageSquare size={16} /> : <MessageCircle size={14} />}
+              <span className={opts.flyout ? styles.flyoutItemIcon : opts.isApp ? styles.agentAppTabIcon : styles.icon}>
+                {opts.isApp ? <Box size={13} /> : opts.isMain ? <MessageSquare size={16} /> : <MessageCircle size={14} />}
               </span>
-              <span className={styles.label}>
+              <span className={opts.flyout ? styles.flyoutItemLabel : opts.isApp ? styles.agentAppTabLabel : styles.label}>
                 {opts.isMain ? t('nav:items.main') : <AnimatedSessionTitle title={session.title} />}
               </span>
               {opts.isMain && (
@@ -866,17 +834,19 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
                   onClick={e => openFlyout('agentapp', e)}
                   onMouseDown={e => e.stopPropagation()}
                   title={t('nav:groups.agentApp')}
+                  aria-label={t('nav:groups.agentApp')}
                   aria-haspopup="menu"
                   aria-expanded={flyout?.kind === 'agentapp'}
                 >
                   <span className={styles.icon}><Box size={16} /></span>
-                  {renderCollapsedDot(agentAppProjects.map(p => p.sessionId))}
+                  {renderCollapsedDot([...agentAppProjects.map(p => p.sessionId), ...Object.values(frameworkSessionIds), ...pendingFrameworkApps.map(session => session.id)])}
                 </button>
                 <button
                   className={`${styles.navItem} ${flyout?.kind === 'chats' ? styles.active : ''}`}
                   onClick={e => openFlyout('chats', e)}
                   onMouseDown={e => e.stopPropagation()}
                   title={t('nav:groups.chats')}
+                  aria-label={t('nav:groups.chats')}
                   aria-haspopup="menu"
                   aria-expanded={flyout?.kind === 'chats'}
                 >
@@ -890,7 +860,10 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
             <div className={styles.groupRow} {...tourAnchorProps('nav-agent-app')}>
               <button
                 className={styles.groupToggle}
-                onClick={() => setAgentAppExpanded(v => !v)}
+                onClick={() => {
+                  if (!agentAppExpanded) requestAgentAppList()
+                  setAgentAppExpanded(v => !v)
+                }}
                 aria-expanded={agentAppExpanded}
               >
                 <ChevronRight
@@ -902,7 +875,7 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
               </button>
               <button
                 className={styles.groupAddButton}
-                onClick={() => setShowCreateModal(true)}
+                onClick={() => setCreateAppOpen(true)}
                 aria-label={t('nav:sidebar.addAgentApp')}
                 title={t('nav:sidebar.addAgentApp')}
               >
@@ -911,18 +884,21 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
             </div>
             {agentAppExpanded && (
               <div className={styles.groupChildren}>
-                {visibleAgentAppProjects.map(project => renderAgentAppRow(project))}
-                {agentAppProjects.length > GROUP_PREVIEW_COUNT && (
+                <FrameworkAppList entries={visibleSidebarApps} renderLegacy={renderAgentAppRow} sortable={agentAppSortable}
+                  renderPending={session => renderSessionRow(session, { isMain: false, isApp: true })}
+                  renderSessionDot={app => renderSessionDot(frameworkSessionIds[frameworkKey(app.path, app.id)])}
+                  otherMenuOpen={!!agentMenu || !!menu} onMenuOpen={() => { setAgentMenu(null); setMenu(null) }} />
+                {sidebarApps.length > GROUP_PREVIEW_COUNT && (
                   <button
                     className={styles.showMoreRow}
                     onClick={() => setShowAllAgentApp(v => !v)}
                   >
                     {showAllAgentApp
                       ? t('common:actions.showLess')
-                      : t('nav:sidebar.showMoreCount', { count: agentAppProjects.length - GROUP_PREVIEW_COUNT })}
+                      : t('nav:sidebar.showMoreCount', { count: sidebarApps.length - GROUP_PREVIEW_COUNT })}
                   </button>
                 )}
-                {agentAppProjects.length === 0 && (
+                {agentAppProjects.length === 0 && frameworkEmpty && (
                   <div className={styles.groupEmpty}>{t('nav:sidebar.noAgentAppApps')}</div>
                 )}
               </div>
@@ -1002,11 +978,18 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
         >
           <div className={styles.flyoutHeader}>
             {flyout.kind === 'agentapp' ? t('nav:groups.agentApp') : t('nav:groups.chats')}
+            {flyout.kind === 'agentapp' && <button className={styles.groupAddButton}
+              onClick={() => { setFlyout(null); setCreateAppOpen(true) }}
+              aria-label={t('nav:sidebar.addAgentApp')} title={t('nav:sidebar.addAgentApp')}>
+              <Plus size={14} />
+            </button>}
           </div>
           <div className={styles.flyoutList}>
             {flyout.kind === 'agentapp' ? (
               <>
-                {agentAppProjects.map(project => {
+                <FrameworkAppList entries={sidebarApps} flyout onOpen={() => setFlyout(null)}
+                  renderPending={session => renderSessionRow(session, { isMain: false, isApp: true, flyout: true })}
+                  renderSessionDot={app => renderSessionDot(frameworkSessionIds[frameworkKey(app.path, app.id)])} renderLegacy={project => {
                   const path = `/agent-app/${project.id}`
                   const transitional = project.status === 'creating' || project.status === 'launching' || project.status === 'stopping'
                   // Match the expanded rows: a settled, non-running app is dimmed.
@@ -1030,8 +1013,8 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
                       {renderSessionDot(project.sessionId)}
                     </button>
                   )
-                })}
-                {agentAppProjects.length === 0 && (
+                }} />
+                {agentAppProjects.length === 0 && frameworkEmpty && (
                   <div className={styles.flyoutEmpty}>{t('nav:sidebar.noAgentAppApps')}</div>
                 )}
               </>
@@ -1065,12 +1048,6 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
         document.body,
       )}
 
-      <CreateAgentAppModal
-        isOpen={showCreateModal}
-        onClose={() => setShowCreateModal(false)}
-        onInstalled={handleProjectCreated}
-      />
-
       <ConfirmModal
         isOpen={agentDelete !== null}
         title={t('agentapp:page.deleteModalTitle')}
@@ -1080,6 +1057,8 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
         onConfirm={confirmDeleteAgentApp}
         onCancel={() => setAgentDelete(null)}
       />
+
+      <CreateAgentAppModal isOpen={createAppOpen} onClose={() => setCreateAppOpen(false)} />
 
       <SkillCreatorModal
         isOpen={skillCreator.isOpen}

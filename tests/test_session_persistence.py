@@ -92,6 +92,14 @@ class TestSessionActionSets:
         assert "action_sets" not in data
         assert "compiled_actions" not in data
 
+    def test_framework_app_session_identity_and_tools_survive_restore(self):
+        session = Session(id="framework-chat", type=SessionType.AGENT_APP,
+                          agent_app_framework_key='["home","/apps/notes","notes"]')
+        restored = Session.from_dict(session.to_dict())
+        assert restored.agent_app_framework_key == session.agent_app_framework_key
+        assert restored.agent_app_project_id is None
+        assert restored.base_action_sets == ["file_operations", "code_execution", "agent_app_framework"]
+
     def test_stored_action_lists_are_not_read(self):
         # A row written before the list was derived (it had accumulated 14
         # sets in one agent-app session) restores to the type's base sets.

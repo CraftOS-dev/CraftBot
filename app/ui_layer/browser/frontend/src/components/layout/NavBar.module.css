@@ -478,7 +478,8 @@
    (fixed, below its "…" button), so it can extend past the sidebar's edge. */
 .sessionMenu {
   position: fixed;
-  z-index: var(--z-dropdown);
+  /* Body portals must sit above the mobile drawer and its backdrop. */
+  z-index: calc(var(--z-sticky) + 3);
   min-width: 210px;
   padding: var(--space-1);
   background: var(--bg-secondary);
@@ -505,9 +506,14 @@
   transition: background var(--transition-fast), color var(--transition-fast);
 }
 
-.sessionMenuItem:hover {
+.sessionMenuItem:hover:not(:disabled) {
   color: var(--text-primary);
   background: var(--bg-tertiary);
+}
+
+.sessionMenuItem:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .sessionMenuItemDanger:hover {
@@ -719,6 +725,10 @@
 }
 
 .flyoutHeader {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   padding: var(--space-2) var(--space-2) var(--space-1);
   font-size: var(--text-xs);
   font-weight: 600;

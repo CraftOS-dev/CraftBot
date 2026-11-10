@@ -1,4 +1,4 @@
-"""Marketplace migration works before and after the v1.4.7 repository rename."""
+"""Marketplace fallback and deterministic installation contracts."""
 
 import asyncio
 import io
@@ -6,7 +6,8 @@ import json
 import urllib.error
 import zipfile
 from pathlib import Path
-from unittest.mock import AsyncMock
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -216,6 +217,7 @@ def test_browser_catalogue_uses_fallback_thumbnails(transport):
     responses.extend([missing(), CATALOGUE])
     adapter = BrowserAdapter.__new__(BrowserAdapter)
     adapter._broadcast = AsyncMock()
+    adapter._marketplace_previews = {}
 
     asyncio.run(adapter._handle_marketplace_list())
 
@@ -224,11 +226,19 @@ def test_browser_catalogue_uses_fallback_thumbnails(transport):
     assert payload["apps"][0]["preview"] == source.thumbnail_url(
         "kanban-board", source.LEGACY_REPO
     )
+    thumbnail = payload["apps"][0]["thumbnail"]
+    assert thumbnail.startswith("/api/agent-app/marketplace-thumbnail/")
+    assert adapter._marketplace_previews[thumbnail.rsplit("/", 1)[1]] == (
+        payload["apps"][0]["preview"]
+    )
     assert calls == [source.catalogue_url(repo) for repo in source.REPOS]
 
 
-def test_agent_action_uses_fallback_catalogue(transport):
+def test_legacy_agent_action_uses_fallback_catalogue(transport, monkeypatch):
     from app.data.action.agent_app_actions import agent_app_marketplace_list
+    from app.agent_app import framework_transition
+
+    monkeypatch.setattr(framework_transition, "is_framework_request", lambda _: False)
 
     calls, responses = transport
     responses.extend([missing(), CATALOGUE])
@@ -241,9 +251,18 @@ def test_agent_action_uses_fallback_catalogue(transport):
 
 
 @pytest.mark.parametrize("before_rename", [True, False])
-def test_installer_extracts_app_from_either_repository_archive(
-    tmp_path, monkeypatch, transport, before_rename
+@pytest.mark.parametrize("launch_succeeds", [True, False])
+def test_browser_install_keeps_one_tab_and_requires_no_agent_run(
+    tmp_path, monkeypatch, transport, before_rename, launch_succeeds
 ):
+    """Exercise the UI, extraction, registration and launch orchestration.
+
+    Only network, kit sync, the server pipeline and external UI/session/factory
+    services are substituted. This is not a real PocketBase startup test.
+    """
+    from agent_core.core.impl.llm.interface import LLMInterface
+    from app.ui_layer.adapters.browser_adapter import BrowserAdapter
+
     calls, responses = transport
     repository = "living-ui-marketplace" if before_rename else "agent-app-collection"
     archive = io.BytesIO()
@@ -259,16 +278,81 @@ def test_installer_extracts_app_from_either_repository_archive(
     manager = AgentAppManager(workspace_root=tmp_path)
     monkeypatch.setattr(manager, "_allocate_port", lambda: 3100)
     monkeypatch.setattr(manager.runner, "kit_sync", AsyncMock())
-    monkeypatch.setattr(manager, "_register_acquired", lambda *args, **kwargs: None)
+    pipeline = AsyncMock(
+        return_value={"status": "success", "process": None}
+        if launch_succeeds
+        else {"status": "error", "step": "validation", "errors": ["Build failed"]}
+    )
+    monkeypatch.setattr(manager, "_run_launch_pipeline", pipeline)
+    monkeypatch.setattr(manager, "_broadcast_ready", AsyncMock())
     monkeypatch.setattr(
-        manager, "launch_and_verify", AsyncMock(return_value={"status": "success"})
+        "app.factory.host_craftbot.get_factory_host", lambda: Mock()
     )
 
-    result = asyncio.run(
-        manager.install_from_marketplace("kanban-board", "Board", "Tasks")
-    )
+    # Count attempts even if a caller catches the exception. Installation must
+    # neither enqueue an agent turn nor make a direct model call.
+    dispatch = AsyncMock(side_effect=AssertionError("Install started an agent run"))
+    monkeypatch.setattr(manager, "start_development_run", dispatch)
+    model_calls = []
+    for method in (
+        "generate_response",
+        "generate_response_async",
+        "generate_response_with_session",
+        "generate_response_with_session_async",
+        "generate_side_response_with_session",
+    ):
+        mock_type = AsyncMock if method.endswith("_async") else Mock
+        call = mock_type(side_effect=AssertionError("Install called a model"))
+        monkeypatch.setattr(LLMInterface, method, call)
+        model_calls.append(call)
 
-    assert result["status"] == "success", result
+    sessions = Mock()
+    sessions.create_session.side_effect = lambda **kwargs: SimpleNamespace(
+        id=kwargs["session_id"]
+    )
+    manager.bind_session_manager(sessions, SimpleNamespace(emit=dispatch))
+    adapter = BrowserAdapter.__new__(BrowserAdapter)
+    adapter._agent_app_manager = manager
+    adapter._broadcast = AsyncMock()
+    adapter._display_chat_message = AsyncMock()
+    adapter._controller = SimpleNamespace(submit_message=dispatch)
+    adapter.submit_message = dispatch
+
+    asyncio.run(adapter._handle_marketplace_install("kanban-board", "Board", "Tasks"))
+
+    events = [call.args[0] for call in adapter._broadcast.call_args_list]
+    assert events[0]["type"] == "agent_app_create"
+    project_id = events[0]["data"]["projectId"]
+    assert events[-1]["type"] == "agent_app_marketplace_install"
+    result = events[-1]["data"]
+    assert result["projectId"] == result["project"]["id"] == project_id
+    assert list(manager.projects) == [project_id]
+    assert result["status"] == ("success" if launch_succeeds else "error"), result
+    assert manager.projects[project_id].status == (
+        "running" if launch_succeeds else "error"
+    )
+    assert result["project"]["sessionId"] == f"agentapp_{project_id}"
+    sessions.create_session.assert_called_once()
+    pipeline.assert_awaited_once()
+    dispatch.assert_not_called()
+    for call in model_calls:
+        call.assert_not_called()
+
+    if launch_succeeds:
+        ready = [event["data"] for event in events if event["type"] == "agent_app_ready"]
+        assert len(ready) == 1
+        assert ready[0]["projectId"] == project_id
+        assert ready[0]["sessionId"] == result["project"]["sessionId"]
+        assert ready[0]["url"] == result["url"] == "http://127.0.0.1:3100"
+        adapter._display_chat_message.assert_awaited_once()
+    else:
+        assert not any(event["type"] == "agent_app_ready" for event in events)
+        errors = [event["data"] for event in events if event["type"] == "agent_app_error"]
+        assert len(errors) == 1
+        assert errors[0]["projectId"] == project_id
+        assert "Build failed" in errors[0]["error"]
+        adapter._display_chat_message.assert_not_called()
+
     project_path = Path(result["project"]["path"])
     assert (project_path / "app.txt").read_text() == "Installed app"
     assert (

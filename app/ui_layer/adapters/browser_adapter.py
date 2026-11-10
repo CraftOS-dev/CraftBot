@@ -933,6 +933,10 @@ class BrowserAdapter(InterfaceAdapter):
         self._lane_tasks: Set[asyncio.Task] = set()
         # Latest build todo list per Agent App, replayed to reconnecting tabs.
         self._agent_app_todos: Dict[str, list] = {}
+        # One shared read-only framework query, independent of legacy projects.
+        self._framework_app_list_task: Optional[asyncio.Task] = None
+        self._framework_app_list_version = 0
+        self._framework_lifecycle_pending: Dict[str, dict] = {}
         self._metrics_subscribers: Set = set()
         # Chat browser panels (every session's Mini Browser): their viewers,
         # live views and requests. Constructing it starts nothing (no browser
@@ -972,6 +976,17 @@ class BrowserAdapter(InterfaceAdapter):
         self._marketplace_thumbnails: Dict[Tuple[str, int], bytes] = {}
         # Bind session manager and trigger service for project sessions
         agent = self._controller.agent
+        from app.agent_app.framework_host import FrameworkHost
+
+        self._framework_host = getattr(agent, "framework_host", None)
+        if self._framework_host is None or self._framework_host.closing:
+            self._framework_host = FrameworkHost(agent, self._framework_changed, legacy_manager=self._agent_app_manager)
+        else:
+            from app.agent_app.framework_migration import FrameworkMigration
+
+            self._framework_host.changed = self._framework_changed
+            self._framework_host.sharing.tunnel = self._agent_app_manager.sharing.channel('tunnel')
+            self._framework_host.migration = FrameworkMigration(self._framework_host, self._agent_app_manager)
         self._agent_app_manager.bind_session_manager(
             agent.session_manager, agent.trigger_service
         )
@@ -1252,6 +1267,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         self._runner = web.AppRunner(self._app)
         await self._runner.setup()
         site = web.TCPSite(self._runner, self._host, self._port)
+        if getattr(self, "_framework_host", None) and not self._framework_host.restoring:
+            self._framework_host.restoring = asyncio.create_task(
+                self._framework_host.startup()
+            )
         await site.start()
         self._started_at = time.monotonic()
         self._loop_monitor.start()
@@ -1294,6 +1313,17 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
     async def _on_stop(self) -> None:
         """Stop the browser interface."""
+        if getattr(self, "_framework_host", None):
+            if self._framework_host is getattr(self._controller.agent, "framework_host", None):
+                from app.agent_app.framework_host import no_ui_change
+
+                self._framework_host.changed = no_ui_change
+            else:
+                await self._framework_host.close()
+        if self._framework_app_list_task is not None:
+            self._framework_app_list_task.cancel()
+            await asyncio.gather(self._framework_app_list_task, return_exceptions=True)
+            self._framework_app_list_task = None
         # Stop all running Agent App projects
         if self._agent_app_manager:
             await self._agent_app_manager.stop_all_projects()
@@ -1441,6 +1471,12 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     },
                 }
             )
+            # Do not wait for CLI probes before entering the socket reader.
+            self._schedule_framework_app_list()
+            for operation in getattr(self, "_framework_lifecycle_pending", {}).values():
+                channel.send_json(
+                    {"type": "agent_app_framework_lifecycle", "data": operation}
+                )
         except Exception:
             self._ws_clients.discard(ws)
             self._channels.pop(ws, None)
@@ -2256,6 +2292,15 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
         elif msg_type == "agent_app_list":
             await self._handle_agent_app_list()
+
+        elif msg_type == "agent_app_framework_open":
+            await self._handle_framework_app_open(data, ws)
+
+        elif msg_type == "agent_app_framework_request":
+            await self._handle_framework_request(data, ws)
+
+        elif msg_type == "agent_app_framework_lifecycle":
+            await self._handle_framework_app_lifecycle(data, ws)
 
         elif msg_type == "agent_app_trigger_consent":
             await self._handle_agent_app_trigger_consent(data)
@@ -3461,6 +3506,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
     async def _handle_agent_app_list(self) -> None:
         """Get list of all Agent App projects."""
+        self._schedule_framework_app_list()
         try:
             projects = self._agent_app_manager.list_projects()
             await self._broadcast(
@@ -3514,6 +3560,147 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     },
                 }
             )
+
+    async def _framework_changed(self) -> None:
+        self._schedule_framework_app_list()
+        await self._handle_agent_app_list()
+        await self._handle_session_list()
+
+    async def _handle_framework_request(self, data: Dict[str, Any], ws) -> None:
+        try:
+            result = await self._framework_host.request(data)
+            response = {"status": "success", "result": result}
+        except Exception as exc:
+            response = {"status": "error", "message": str(exc)}
+        await self._send_to(
+            ws,
+            {
+                "type": "agent_app_framework_response",
+                "data": {"requestId": data.get("requestId"), **response},
+            },
+        )
+
+    async def _handle_framework_app_open(self, data: Dict[str, Any], ws) -> None:
+        from app.agent_app.framework import open_app_view
+
+        if self.client_channel(ws) is None:
+            return
+        request_id = data.get("requestId")
+        if not isinstance(request_id, str) or not request_id or len(request_id) > 128:
+            return
+        try:
+            result = await open_app_view(data.get("path"), data.get("appId"))
+        except Exception as exc:
+            result = {"status": "error", "code": "query_failed", "message": str(exc)}
+        # Opening is a presentation request from one tab, never a broadcast or
+        # a legacy manager action. Late replies cannot navigate another tab.
+        self.send_only_to(
+            ws,
+            {
+                "type": "agent_app_framework_open",
+                "data": {**result, "requestId": request_id},
+            },
+        )
+
+    async def _handle_framework_app_lifecycle(self, data: Dict[str, Any], ws) -> None:
+        from app.agent_app.framework import change_app_state
+
+        if self.client_channel(ws) is None:
+            return
+        fields = {
+            name: data.get(name) for name in ("requestId", "path", "appId", "operation")
+        }
+        if any(not isinstance(value, str) or not value for value in fields.values()):
+            return
+        if len(fields["requestId"]) > 128 or fields["operation"] not in (
+            "start",
+            "stop",
+        ):
+            return
+        pending = self._framework_lifecycle_pending
+        path = fields["path"]
+        if path in pending:
+            # A second tab joins the in-flight operation, never queues a hidden
+            # Stop behind Start or accidentally starts a second instance.
+            self.send_only_to(
+                ws,
+                {
+                    "type": "agent_app_framework_lifecycle",
+                    "data": {
+                        **pending[path],
+                        "message": "An operation is already in progress. Wait for it to finish before sending another command.",
+                    },
+                },
+            )
+            return
+        pending[path] = {**fields, "status": "running"}
+        await self._broadcast(
+            {"type": "agent_app_framework_lifecycle", "data": pending[path]}
+        )
+        try:
+            try:
+                result = await change_app_state(
+                    path, fields["appId"], fields["operation"]
+                )
+            except Exception as exc:
+                result = {"status": "error", "code": "uncertain", "message": str(exc)}
+            snapshot = result.pop("registry", None)
+            version = result.pop("registry_version", None)
+            if snapshot is not None:
+                await self._publish_framework_app_list(snapshot, version)
+            else:
+                await self._refresh_framework_app_list()
+            await self._broadcast(
+                {"type": "agent_app_framework_lifecycle", "data": {**fields, **result}}
+            )
+        finally:
+            pending.pop(path, None)
+
+    def _schedule_framework_app_list(self) -> None:
+        """Coalesce concurrent clients/refreshes into one framework query."""
+        task = self._framework_app_list_task
+        if task is None or task.done():
+            self._framework_app_list_task = asyncio.create_task(
+                self._refresh_framework_app_list()
+            )
+
+    async def _refresh_framework_app_list(self) -> None:
+        from app.agent_app.framework import list_apps, registry_observation
+
+        while True:
+            version = registry_observation()
+            await self._broadcast(
+                {"type": "agent_app_framework_list", "data": {"status": "loading"}}
+            )
+            try:
+                result = await list_apps()
+            except Exception as exc:
+                result = {"status": "error", "message": str(exc)}
+            if version < getattr(self, "_framework_app_list_version", 0):
+                # A newly connected tab may have joined this obsolete read after
+                # the newer snapshot was broadcast. Give it a fresh observation.
+                continue
+            # A separate snapshot keeps canonical framework IDs out of the legacy
+            # manager, its persisted projects, lifecycle controls and iframe host.
+            await self._publish_framework_app_list(result, version)
+            return
+
+    async def _publish_framework_app_list(self, result: dict, version: int) -> None:
+        # A pre-command probe must not overwrite the post-command snapshot when
+        # it finishes late. This orders observations, not app/process state.
+        if version < getattr(self, "_framework_app_list_version", 0):
+            return
+        self._framework_app_list_version = version
+        host = getattr(self, "_framework_host", None)
+        if result.get("status") == "success" and host is not None:
+            aliases = {}
+            for receipt in host.store.all("migration"):
+                if receipt.get("phase") == "complete" and any(row["path"] == receipt["target"] and row["id"] == receipt["appId"] for row in result["data"]["apps"]):
+                    aliases[receipt["legacyId"]] = "framework:" + json.dumps([receipt["target"], receipt["appId"]], ensure_ascii=False, separators=(",", ":"))
+                else:
+                    aliases.pop(receipt["legacyId"], None)
+            result = {**result, "data": {**result["data"], "aliases": aliases}}
+        await self._broadcast({"type": "agent_app_framework_list", "data": result})
 
     async def _broadcast_agent_app_trigger_blocked(
         self, project_id: str, trigger: str, request_id: str
@@ -4175,6 +4362,23 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 mode=mode,
                 agent_app_manager=self._agent_app_manager,
             )
+            if result.get("success"):
+                # Packages install alongside existing apps through upstream.
+                # Importing a shared profile never restores task grants or data.
+                jobs = []
+                package_errors = []
+                for package in result.pop("framework_packages", []):
+                    try:
+                        job = await self._framework_host.start_install(
+                            package, uuid.uuid4().hex
+                        )
+                        jobs.append(job["id"])
+                    except Exception as error:
+                        package_errors.append({"package": package, "error": str(error)})
+                result["framework_install_jobs"] = jobs
+                result["framework_install_errors"] = package_errors
+                if jobs or package_errors:
+                    result["framework_install_message"] = "Profile imported. App installations run in the background. Successfully installed apps appear under Agent App."
         except Exception as exc:
             logger.error(f"[PROFILE_BUNDLE] Import failed: {exc}", exc_info=True)
             return web.json_response({"error": str(exc)}, status=500)
@@ -4583,6 +4787,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             "createdAt": session.created_at,
             "lastActiveAt": session.last_active_at,
             "agentAppProjectId": session.agent_app_project_id,
+            "agentAppFrameworkKey": getattr(session, "agent_app_framework_key", None),
+            "agentAppFrameworkPending": getattr(session, "agent_app_framework_pending", False),
+            "agentAppBuild": self._framework_host.build_info(session) if getattr(self, "_framework_host", None) else None,
             "reasoningEffort": session.reasoning_effort,
             # The last decision request, for the context menu's context and
             # cache readout; null until the session's first request.

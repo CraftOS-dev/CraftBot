@@ -643,6 +643,12 @@ def get_marketplace_ref() -> Optional[str]:
     return ref.strip() if isinstance(ref, str) and ref.strip() else None
 
 
+def get_framework_toolkits_dir() -> Optional[str]:
+    """Optional installed toolkit directory passed to the unchanged Agent-App CLI."""
+    value = get_settings().get("agent_app", {}).get("framework_toolkits_dir")
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
 def reload_settings() -> Dict[str, Any]:
     """Force reload settings from disk."""
     return get_settings(reload=True)

@@ -19,6 +19,7 @@ export interface ProfileBundleManifest {
     skills?: string[]
     mcp_servers?: string[]
     agent_app_apps?: string[]
+    framework_apps?: string[]
   }
 }
 
@@ -106,7 +107,7 @@ export function ImportProfileModal({
   const contents = manifest?.contents ?? {}
   const skills = contents.skills ?? []
   const mcps = contents.mcp_servers ?? []
-  const apps = contents.agent_app_apps ?? []
+  const apps = [...(contents.agent_app_apps ?? []), ...(contents.framework_apps ?? [])]
   const mds = contents.md_files ?? []
 
   const title = manifest

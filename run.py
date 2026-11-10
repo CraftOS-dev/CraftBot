@@ -470,11 +470,14 @@ def _launch_static_frontend(silent: bool = False) -> Optional[subprocess.Popen]:
             else:
                 # Serve static files; fall back to index.html for SPA routing
                 # Check if file exists, otherwise serve index.html
-                file_path = os.path.join(dist_dir, self.path.lstrip("/"))
+                # Resolve only the URL path, just as the static handler does.
+                # App settings queries contain paths such as .a2app; those
+                # dots must not make a client-side route look like an asset.
+                file_path = self.translate_path(self.path)
                 if not os.path.exists(file_path) or os.path.isdir(file_path):
                     if not os.path.exists(
                         file_path + "/index.html"
-                    ) and "." not in os.path.basename(self.path):
+                    ) and "." not in os.path.basename(file_path):
                         self.path = "/index.html"
                 super().do_GET()
 

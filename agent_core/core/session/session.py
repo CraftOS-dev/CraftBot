@@ -74,6 +74,8 @@ class Session:
         todos: Current todo list for the active run.
         workspace_dir: Persistent scratch directory for this session.
         agent_app_project_id: Backing project id for agent_app sessions.
+        agent_app_framework_key: Registry identity for a framework app's dedicated
+            session, separate from the legacy project id.
         gui_mode: Whether this session drives the GUI action space.
         reasoning_effort: The session's reasoning choice (a ReasoningChoice
             value, picked in the chat input). None while the user has never
@@ -102,6 +104,10 @@ class Session:
     todos: List[TodoItem] = field(default_factory=list)
     workspace_dir: Optional[str] = None
     agent_app_project_id: Optional[str] = None
+    agent_app_framework_key: Optional[str] = None
+    agent_app_framework_pending: bool = False
+    isolated_app_task: bool = False
+    app_task_actions: List[str] = field(default_factory=list)
     gui_mode: bool = False
     reasoning_effort: Optional[str] = None
     # Per-run budget counters
@@ -119,6 +125,10 @@ class Session:
     @property
     def base_action_sets(self) -> List[str]:
         """The action sets this session prints in <actions> (besides core)."""
+        if self.type == SessionType.AGENT_APP and (
+            self.agent_app_framework_key or self.agent_app_framework_pending
+        ):
+            return ["file_operations", "code_execution", "agent_app_framework"]
         return list(SessionType.BASE_ACTION_SETS[self.type])
 
     def touch(self) -> None:
@@ -167,6 +177,10 @@ class Session:
             "todos": [todo.to_dict() for todo in self.todos],
             "workspace_dir": self.workspace_dir,
             "agent_app_project_id": self.agent_app_project_id,
+            "agent_app_framework_key": self.agent_app_framework_key,
+            "agent_app_framework_pending": self.agent_app_framework_pending,
+            "isolated_app_task": self.isolated_app_task,
+            "app_task_actions": self.app_task_actions,
             "gui_mode": self.gui_mode,
             "reasoning_effort": self.reasoning_effort,
             "action_count": self.action_count,
@@ -194,6 +208,10 @@ class Session:
             todos=todos,
             workspace_dir=data.get("workspace_dir"),
             agent_app_project_id=data.get("agent_app_project_id"),
+            agent_app_framework_key=data.get("agent_app_framework_key"),
+            agent_app_framework_pending=data.get("agent_app_framework_pending", False),
+            isolated_app_task=data.get("isolated_app_task") is True,
+            app_task_actions=[name for name in data.get("app_task_actions", []) if isinstance(name, str)],
             gui_mode=data.get("gui_mode", False),
             reasoning_effort=_stored_reasoning_effort(data.get("reasoning_effort")),
             action_count=data.get("action_count", 0),

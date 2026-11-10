@@ -42,6 +42,17 @@ class AgentAppReferenceProvider:
         if cursor:
             raise ReferenceError("App references do not have transcript pages.")
         project = self.apps.get_project(target_id) if self.apps else None
+        if target_id.startswith("framework:") or project is None:
+            from app.agent_app.framework_references import reference_app, describe_reference
+
+            try:
+                row = await reference_app(target_id)
+                if row:
+                    data = await describe_reference(row)
+                    excerpt, clipped = bounded(json.dumps(data, ensure_ascii=False), limit)
+                    return {"label": str(row["name"])[:256], "excerpt": excerpt, "truncated": clipped, "nextCursor": None}
+            except (ValueError, OSError) as error:
+                raise ReferenceError(str(error)) from error
         if project is None:
             raise ReferenceError("The referenced app is no longer available.")
         # Explicit allowlist: no credentials, app records, filesystem or runtime URLs.

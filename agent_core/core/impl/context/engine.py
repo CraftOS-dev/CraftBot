@@ -188,9 +188,31 @@ class ContextEngine:
         Only action selection sends it; every other LLM call (sub-agents,
         summaries, titles, ...) has a system prompt of its own.
         """
+        state = get_session_or_none(session_id)
+        isolated = bool(
+            state
+            and state.current_session
+            and getattr(state.current_session, "isolated_app_task", False)
+        )
         system_prompt, _ = self.make_prompt(
             user_flags={"query": False, "expected_output": False},
-            system_flags={"agent_info": True},
+            system_flags=(
+                {
+                    key: False
+                    for key in (
+                        "agent_info",
+                        "role_info",
+                        "user_profile",
+                        "soul",
+                        "language_instruction",
+                        "environment",
+                        "file_system",
+                        "capability_catalog",
+                    )
+                }
+                if isolated
+                else {"agent_info": True}
+            ),
         )
         instructions = ""
         if self._decision_instructions_func is not None:
@@ -607,6 +629,17 @@ class ContextEngine:
         }
 
         system_flags = {**system_default_flags, **(system_flags or {})}
+        from agent_core.core.state.session import StateSession
+
+        bound = StateSession.bound()
+        if (
+            bound
+            and bound.current_session
+            and getattr(bound.current_session, "isolated_app_task", False)
+        ):
+            for key in system_flags:
+                if key != "policy":
+                    system_flags[key] = False
         user_flags = {**user_default_flags, **(user_flags or {})}
 
         system_sections = [

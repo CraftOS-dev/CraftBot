@@ -72,16 +72,23 @@ class _StopSignal:
     await full shutdown (the UI's stop-spinner ends on this).
     """
 
-    __slots__ = ("requested", "settled", "processes_stopped")
+    __slots__ = ("requested", "settled", "processes_stopped", "framework_task_key")
 
     def __init__(self) -> None:
         self.requested = False
+        self.framework_task_key = None
         self.settled = asyncio.Event()
         self.processes_stopped = asyncio.Event()
 
 
 # Sources that must never be folded into another trigger's turn.
-EXCLUSIVE_SOURCES: frozenset[str] = frozenset({TriggerSource.AGENT_APP_CRASH_FIX.value})
+EXCLUSIVE_SOURCES: frozenset[str] = frozenset(
+    {
+        TriggerSource.AGENT_APP_CRASH_FIX.value,
+        TriggerSource.FRAMEWORK_TASK.value,
+        TriggerSource.FRAMEWORK_WORKFLOW.value,
+    }
+)
 
 # Payload keys that identify WHICH work a trigger belongs to. Unlike routing
 # fields these are not interchangeable, so they are carried across a merge
@@ -92,6 +99,8 @@ _IDENTITY_KEYS = ("project_id", "factory_mission_id")
 def _compatible_message_origins(base: Trigger, other: Trigger) -> bool:
     """Telegram turns cannot inherit another contact's account or authority."""
     left, right = base.payload or {}, other.payload or {}
+    if left.get("framework_task_key") != right.get("framework_task_key"):
+        return False
     if "telegram_bot" not in (
         left.get("integration_type"),
         right.get("integration_type"),
@@ -237,6 +246,7 @@ class SessionRuntimeManager:
         # In-flight turn task per session, so a user stop can cancel exactly
         # the current turn without killing the session's consumer loop.
         self._turns: Dict[str, asyncio.Task] = {}
+        self._turn_triggers: Dict[str, Trigger] = {}
         self._stops: Dict[str, _StopSignal] = {}
         self._on_stopped: Optional[StopFinalizer] = None
         self._turn_semaphore = asyncio.Semaphore(max_concurrent_turns)
@@ -312,7 +322,7 @@ class SessionRuntimeManager:
 
     # ─────────────────────── User force-stop ─────────────────────────────────
 
-    async def request_stop(self, session_id: str) -> bool:
+    async def request_stop(self, session_id: str, *, framework_task_key=None) -> bool:
         """Force-stop a session's in-flight run at the user's request.
 
         Kills registered child processes, cancels the current turn task
@@ -325,13 +335,21 @@ class SessionRuntimeManager:
         can treat a successful return as "everything is shut". Raises on
         timeout or process-shutdown failure instead of claiming success.
         """
+        if framework_task_key is not None:
+            current = self._turn_triggers.get(session_id)
+            if current is None or (current.payload or {}).get("framework_task_key") != framework_task_key:
+                return False
         signal = self._stops.get(session_id)
         if signal is not None:
             # Repeated stop/clear requests join the same cancellation. A
             # second cancel could interrupt the first turn's cleanup.
             await asyncio.wait_for(signal.settled.wait(), STOP_SETTLE_TIMEOUT_S)
             return True
-        purged = await self._purge_continuations(session_id)
+        purged = await self._purge_continuations(session_id, framework_task_key)
+        if framework_task_key is not None:
+            current = self._turn_triggers.get(session_id)
+            if current is None or (current.payload or {}).get("framework_task_key") != framework_task_key:
+                return False
         signal = self._stops.get(session_id)
         if signal is not None:
             await asyncio.wait_for(signal.settled.wait(), STOP_SETTLE_TIMEOUT_S)
@@ -354,6 +372,7 @@ class SessionRuntimeManager:
 
         signal = self._stops.setdefault(session_id, _StopSignal())
         signal.requested = True
+        signal.framework_task_key = framework_task_key
         turn.cancel()
 
         # Cancel before yielding so a naturally finishing turn cannot escape
@@ -388,13 +407,14 @@ class SessionRuntimeManager:
             raise
         return True
 
-    async def _purge_continuations(self, session_id: str) -> int:
+    async def _purge_continuations(self, session_id: str, framework_task_key=None) -> int:
         """Drop a session's queued run-continuation triggers."""
         queue = self._queues.get(session_id)
         if queue is None:
             return 0
         return await queue.purge(
             lambda t: t.source == TriggerSource.RUN_CONTINUATION.value
+            and (framework_task_key is None or (t.payload or {}).get("framework_task_key") == framework_task_key)
         )
 
     async def remove_session(self, session_id: str) -> None:
@@ -410,6 +430,7 @@ class SessionRuntimeManager:
         if queue is not None:
             await queue.close()
         self._turns.pop(session_id, None)
+        self._turn_triggers.pop(session_id, None)
         self._stops.pop(session_id, None)
         loop_task = self._loops.pop(session_id, None)
         if loop_task is not None:
@@ -447,7 +468,13 @@ class SessionRuntimeManager:
             await signal.settled.wait()
         try:
             async with self._turn_semaphore:
-                await self._react(trig)
+                from app.agent_app.framework_host import get_host
+
+                host = get_host()
+                if host and host.bridge.is_task_turn(session_id, trig):
+                    await host.bridge.run_turn(session_id, trig, self._react)
+                else:
+                    await self._react(trig)
         finally:
             signal = self._stops.get(session_id)
             if signal is not None and signal.requested:
@@ -530,10 +557,12 @@ class SessionRuntimeManager:
                         self._run_turn(session_id, trig), name=f"turn-{session_id}"
                     )
                     self._turns[session_id] = turn
+                    self._turn_triggers[session_id] = trig
                     try:
                         await turn
                     finally:
                         self._turns.pop(session_id, None)
+                        self._turn_triggers.pop(session_id, None)
                 except asyncio.CancelledError:
                     signal = self._stops.get(session_id)
                     if signal is not None and signal.requested and self._running:
@@ -552,7 +581,7 @@ class SessionRuntimeManager:
                                         f"[SessionRuntime] stop ack failed: {e}"
                                     )
                         try:
-                            await self._purge_continuations(session_id)
+                            await self._purge_continuations(session_id, signal.framework_task_key)
                             if self._on_stopped:
                                 await self._on_stopped(session_id)
                         except Exception as e:

@@ -100,6 +100,7 @@ export function GeneralSettings() {
   const { reset: settleAgentName } = agentNameDraft
   const [isResetting, setIsResetting] = useState(false)
   const [resetStatus, setResetStatus] = useState<'idle' | 'success' | 'error'>('idle')
+  const [resetError, setResetError] = useState('')
   const [showResetModal, setShowResetModal] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle')
@@ -200,10 +201,11 @@ export function GeneralSettings() {
         setTimeout(() => setSaveStatus('idle'), 3000)
       }),
       onMessage('reset', (data: unknown) => {
-        const d = data as { success: boolean }
+        const d = data as { success: boolean; error?: string }
         setIsResetting(false)
+        setResetError(d.error || '')
         setResetStatus(d.success ? 'success' : 'error')
-        setTimeout(() => setResetStatus('idle'), 3000)
+        if (d.success) setTimeout(() => setResetStatus('idle'), 3000)
       }),
       // update_check_result is handled by generalSettingsSlice via the registry.
       onMessage('update_progress', (data: unknown) => {
@@ -429,11 +431,13 @@ export function GeneralSettings() {
       const what = parts.length > 0 ? formatList(parts) : t('settings:general.profile.profileWord')
 
       setProfileStatus({
-        type: 'success',
+        type: data.framework_install_errors?.length ? 'error' : 'success',
         message:
-          mode === 'overwrite'
+          (mode === 'overwrite'
             ? t('settings:general.profile.importedOverwrite', { what })
-            : t('settings:general.profile.importedMerge', { what }),
+            : t('settings:general.profile.importedMerge', { what })) +
+          (data.framework_install_message ? ` ${data.framework_install_message}` : '') +
+          (data.framework_install_errors?.length ? ` ${data.framework_install_errors.map((e: { package: { from?: string }; error: string }) => `${e.package.from || 'App'}: ${e.error}`).join('; ')}` : ''),
       })
       setShowImportModal(false)
       setImportManifest(null)
@@ -688,7 +692,7 @@ export function GeneralSettings() {
         )}
         {resetStatus === 'error' && (
           <span className={styles.statusError}>
-            <X size={14} /> {t('settings:general.reset.failed')}
+            <X size={14} /> {resetError || t('settings:general.reset.failed')}
           </span>
         )}
       </div>

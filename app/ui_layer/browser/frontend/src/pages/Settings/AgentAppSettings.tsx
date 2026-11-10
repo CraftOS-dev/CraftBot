@@ -1,12 +1,12 @@
+import i18n from '../../i18n/config'
+import { BackupControls, SharingControls, fmtWhen, fmtSize, triggerLabel, RestoreStatusLine } from './AgentAppSettingsControls'
 import { useState, useEffect } from 'react'
 import {
   Play,
   Square,
   Trash2,
   Loader2,
-  Check,
   Download,
-  Copy,
   ChevronRight,
   Archive,
   RotateCcw,
@@ -16,8 +16,6 @@ import { useTranslation } from 'react-i18next'
 import { Badge, Button, ConfirmModal, type BadgeVariant } from '../../components/ui'
 import { newTriggerConsentRequestId, sendTriggerConsent } from '../../features/agentApps/triggerConsent'
 import { useConfirmModal, usePersistedSet, usePersistedState } from '../../hooks'
-import i18n from '../../i18n/config'
-import { formatNumber, formatDateTime } from '../../i18n/format'
 import styles from './SettingsPage.module.css'
 import { useSettingsWebSocket } from './useSettingsWebSocket'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
@@ -33,6 +31,8 @@ import {
 } from '../../store/selectors/agentAppSettings'
 import { UI_STATE } from '../../store/uiState'
 import { RESOURCES, useResource } from '../../store/resources'
+import { FrameworkSettingsCards } from '../../features/agentApps/FrameworkSettingsCards'
+import { AppSettingsCard, AppSettingsInfo, AppSettingsSection, AppSettingsToggle, appSectionLabelStyle } from './AgentAppSettingsCard'
 
 export function AgentAppSettings() {
   const { t } = useTranslation(['settings', 'common'])
@@ -42,6 +42,7 @@ export function AgentAppSettings() {
 
   // Slice-backed: cached across remounts.
   const projects = useAppSelector(selectAgentAppSettingsProjects)
+  const registry = useAppSelector(state => state.agentApp.framework)
   const hasLoadedProjects = useAppSelector(selectAgentAppSettingsHasLoadedProjects)
   const loading = !hasLoadedProjects
 
@@ -114,16 +115,17 @@ export function AgentAppSettings() {
           {t('settings:agentApp.projectsDesc')}
         </p>
 
-        {loading ? (
+        {loading && (
           <div className={styles.loadingState}>
             <Loader2 size={20} className={styles.spinning} />
             <span>{t('settings:agentApp.loadingProjects')}</span>
           </div>
-        ) : projects.length === 0 ? (
+        )}
+        {!loading && projects.length === 0 && registry.status === 'success' && registry.apps.length === 0 && registry.connected.length === 0 && (
           <div className={styles.emptyState}>
             <p>{t('settings:agentApp.noProjects')}</p>
           </div>
-        ) : (
+        )}
           <div className={styles.scheduleList}>
             {projects.map(project => (
               <ProjectCard
@@ -154,8 +156,8 @@ export function AgentAppSettings() {
                 onMessage={onMessage}
               />
             ))}
+            <FrameworkSettingsCards />
           </div>
-        )}
       </div>
 
       {/* ── Leftover backups of deleted apps (kept on delete — removable here) ── */}
@@ -259,10 +261,6 @@ function ProjectCard({
     document.body.removeChild(link)
   }
 
-  const handleCopyPath = () => {
-    navigator.clipboard.writeText(project.path)
-  }
-
   const settings: Array<{
     key: 'autoLaunch' | 'logCleanup'
     label: string
@@ -283,243 +281,33 @@ function ProjectCard({
     },
   ]
 
-  const sectionLabelStyle: React.CSSProperties = {
-    fontSize: '10px',
-    fontWeight: 'var(--font-semibold)',
-    color: 'var(--text-tertiary)',
-    textTransform: 'uppercase',
-    letterSpacing: '0.08em',
-  }
-
-  const infoLabelStyle: React.CSSProperties = {
-    fontSize: 'var(--text-xs)',
-    color: 'var(--text-muted)',
-  }
-
-  const infoValueStyle: React.CSSProperties = {
-    fontSize: 'var(--text-sm)',
-    fontFamily: 'var(--font-mono)',
-    color: 'var(--text-primary)',
-    minWidth: 0,
-  }
-
+  const sectionLabelStyle = appSectionLabelStyle
   return (
-    <div
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        background: 'var(--bg-tertiary)',
-        border: '1px solid var(--border-primary)',
-        borderRadius: 'var(--radius-md)',
-        overflow: 'hidden',
-      }}
+    <AppSettingsCard
+      name={project.name} status={getStatusText(project.status)} statusColor={getStatusColor(project.status)}
+      active={isActiveStatus(project.status)} expanded={expanded} onToggle={onToggleExpand}
+      actions={<>
+        {isRunning ? <Button size="sm" variant="danger"
+          icon={actionInProgress ? <Loader2 size={14} className={styles.spinning} /> : <Square size={14} />}
+          onClick={onStop} disabled={actionInProgress}>{t('settings:agentApp.stop')}</Button>
+          : canLaunch ? <Button size="sm" variant="primary"
+            icon={actionInProgress ? <Loader2 size={14} className={styles.spinning} /> : <Play size={14} />}
+            onClick={onLaunch} disabled={actionInProgress}>{t('settings:agentApp.launch')}</Button> : null}
+        <Button size="sm" variant="ghost" icon={<Download size={14} />} onClick={handleExport} title={t('settings:agentApp.exportProject')} />
+        <Button size="sm" variant="ghost" icon={<Trash2 size={14} />} onClick={onDelete} disabled={actionInProgress} title={t('settings:agentApp.deleteProject')} />
+      </>}
     >
-      {/* Zone 1 — Header (clickable to expand/collapse) */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 'var(--space-3)',
-          padding: 'var(--space-3)',
-          cursor: 'pointer',
-          userSelect: 'none',
-        }}
-        role="button"
-        tabIndex={0}
-        aria-expanded={expanded}
-        onClick={onToggleExpand}
-        onKeyDown={e => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault()
-            onToggleExpand()
-          }
-        }}
-      >
-        <ChevronRight
-          size={14}
-          style={{
-            color: 'var(--text-muted)',
-            transition: 'transform 0.15s',
-            transform: expanded ? 'rotate(90deg)' : 'none',
-            flexShrink: 0,
-          }}
-        />
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div
-            style={{
-              fontSize: 'var(--text-base)',
-              fontWeight: 'var(--font-semibold)',
-              color: 'var(--text-primary)',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {project.name}
-          </div>
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 'var(--space-2)',
-              marginTop: 4,
-            }}
-          >
-            <span
-              className={`${styles.statusDot} ${isActiveStatus(project.status) ? styles.statusDotPulse : ''}`}
-              style={{ background: getStatusColor(project.status) }}
-            />
-            <span
-              style={{
-                fontSize: 'var(--text-xs)',
-                color: getStatusColor(project.status),
-                fontWeight: 'var(--font-medium)',
-              }}
-            >
-              {getStatusText(project.status)}
-            </span>
-          </div>
-        </div>
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 'var(--space-1)',
-            flexShrink: 0,
-          }}
-          onClick={e => e.stopPropagation()}
-        >
-          {isRunning ? (
-            <Button
-              size="sm"
-              variant="danger"
-              icon={actionInProgress ? <Loader2 size={14} className={styles.spinning} /> : <Square size={14} />}
-              onClick={onStop}
-              disabled={actionInProgress}
-            >
-              {t('settings:agentApp.stop')}
-            </Button>
-          ) : canLaunch ? (
-            <Button
-              size="sm"
-              variant="primary"
-              icon={actionInProgress ? <Loader2 size={14} className={styles.spinning} /> : <Play size={14} />}
-              onClick={onLaunch}
-              disabled={actionInProgress}
-            >
-              {t('settings:agentApp.launch')}
-            </Button>
-          ) : null}
-          <Button
-            size="sm"
-            variant="ghost"
-            icon={<Download size={14} />}
-            onClick={handleExport}
-            title={t('settings:agentApp.exportProject')}
-          />
-          <Button
-            size="sm"
-            variant="ghost"
-            icon={<Trash2 size={14} />}
-            onClick={onDelete}
-            disabled={actionInProgress}
-            title={t('settings:agentApp.deleteProject')}
-          />
-        </div>
-      </div>
-
       {expanded && <>
-
-      {/* Zone 2 — Runtime info (inset, aligned key/value rows) */}
-      <div
-        style={{
-          padding: 'var(--space-3)',
-          background: 'var(--bg-primary)',
-          borderTop: '1px solid var(--border-primary)',
-          display: 'grid',
-          gridTemplateColumns: '110px 1fr',
-          rowGap: 'var(--space-2)',
-          columnGap: 'var(--space-3)',
-          alignItems: 'center',
-        }}
-      >
-        <span style={infoLabelStyle}>{t('settings:agentApp.frontendPort')}</span>
-        <span style={infoValueStyle}>{project.port != null ? project.port : '—'}</span>
-
-        <span style={infoLabelStyle}>{t('settings:agentApp.backendPort')}</span>
-        <span style={infoValueStyle}>{project.backendPort != null ? project.backendPort : '—'}</span>
-
-        <span style={infoLabelStyle}>{t('settings:agentApp.projectId')}</span>
-        <span style={infoValueStyle}>{project.id}</span>
-
-        <span style={infoLabelStyle}>{t('settings:agentApp.path')}</span>
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 'var(--space-2)',
-            minWidth: 0,
-          }}
-        >
-          <span
-            style={{
-              ...infoValueStyle,
-              flex: 1,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}
-            title={project.path}
-          >
-            {project.path}
-          </span>
-          <Button
-            size="sm"
-            variant="ghost"
-            icon={<Copy size={12} />}
-            onClick={handleCopyPath}
-            title={t('settings:agentApp.copyPath')}
-          />
-        </div>
-      </div>
-
-      {/* Zone 3 — Preferences */}
-      <div
-        style={{
-          padding: 'var(--space-3)',
-          borderTop: '1px solid var(--border-primary)',
-        }}
-      >
-        <div style={{ ...sectionLabelStyle, marginBottom: 'var(--space-2)' }}>
-          {t('settings:agentApp.preferences')}
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column' }}>
-          {settings.map((s, i) => (
-            <div
-              key={s.key}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                gap: 'var(--space-3)',
-                padding: 'var(--space-2) 0',
-                borderTop: i > 0 ? '1px solid var(--border-primary)' : 'none',
-              }}
-            >
-              <div className={styles.toggleInfo}>
-                <span className={styles.toggleLabel}>{s.label}</span>
-                <span className={styles.toggleDesc}>{s.desc}</span>
-              </div>
-              <input
-                type="checkbox"
-                className={styles.toggle}
-                checked={s.value}
-                onChange={e => onToggleSetting(s.key, e.target.checked)}
-              />
-            </div>
-          ))}
-        </div>
-      </div>
+      <AppSettingsInfo path={project.path} rows={[
+        { label: t('settings:agentApp.frontendPort'), value: project.port ?? '—' },
+        { label: t('settings:agentApp.backendPort'), value: project.backendPort ?? '—' },
+        { label: t('settings:agentApp.projectId'), value: project.id },
+      ]} />
+      <AppSettingsSection title={t('settings:agentApp.preferences')}>
+        {settings.map((setting, index) => <AppSettingsToggle key={setting.key}
+          label={setting.label} description={setting.desc} checked={setting.value} divider={index > 0}
+          onChange={value => onToggleSetting(setting.key, value)} />)}
+      </AppSettingsSection>
 
       {/* Zone 3a — Requests the app may send to CraftBot */}
       <RequestsSection
@@ -563,7 +351,7 @@ function ProjectCard({
       )}
 
       </>}
-    </div>
+    </AppSettingsCard>
   )
 }
 
@@ -713,75 +501,6 @@ function RequestsSection({
 
 
 // ── Backups Section ────────────────────────────────────────────
-
-const INTERVAL_VALUES = ['hourly', '6h', 'daily', 'weekly'] as const
-
-// Localized label for a backup trigger. i18n instance used directly since this
-// is called from module-scope helpers; components re-render on language change.
-function triggerLabel(trigger: string): string {
-  switch (trigger) {
-    case 'scheduled': return i18n.t('settings:agentApp.trigger.scheduled')
-    case 'pre_promote': return i18n.t('settings:agentApp.trigger.pre_promote')
-    case 'manual': return i18n.t('settings:agentApp.trigger.manual')
-    case 'pre_delete': return i18n.t('settings:agentApp.trigger.pre_delete')
-    case 'pre_restore': return i18n.t('settings:agentApp.trigger.pre_restore')
-    default: return trigger
-  }
-}
-
-/** Inline "restoring… / restored / failed" line under an archive list. */
-function RestoreStatusLine({
-  busy,
-  targetName,
-  result,
-}: {
-  busy: boolean
-  targetName?: string
-  result?: { ok: boolean; message: string }
-}) {
-  const { t } = useTranslation(['settings', 'common'])
-  if (busy)
-    return (
-      <span
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 'var(--space-2)',
-          fontSize: 'var(--text-xs)',
-          color: 'var(--text-muted)',
-          padding: 'var(--space-2) 0',
-        }}
-      >
-        <Loader2 size={12} className={styles.spinning} />
-        {targetName
-          ? t('settings:agentApp.restoringInto', { name: targetName })
-          : t('settings:agentApp.restoring')}
-      </span>
-    )
-  if (result)
-    return (
-      <span
-        style={{
-          fontSize: 'var(--text-xs)',
-          color: result.ok ? 'var(--color-success)' : 'var(--color-error)',
-          padding: 'var(--space-2) 0',
-        }}
-      >
-        {result.message}
-      </span>
-    )
-  return null
-}
-
-function fmtSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-}
-
-function fmtWhen(msEpoch: number): string {
-  return formatDateTime(new Date(msEpoch))
-}
 
 // ── Leftover (orphan) backups row ──────────────────────────────
 // A deleted app's kept archives: expandable to list them, each restorable
@@ -1092,170 +811,12 @@ function BackupsSection({ project, onToggleSetting, send }: BackupsSectionProps)
     })
   }
 
-  const rowStyle: React.CSSProperties = {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 'var(--space-3)',
-    padding: 'var(--space-2) 0',
-  }
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column' }}>
-      {/* Enable toggle */}
-      <div style={rowStyle}>
-        <div className={styles.toggleInfo}>
-          <span className={styles.toggleLabel}>{t('settings:agentApp.scheduledBackups')}</span>
-          <span className={styles.toggleDesc}>
-            {t('settings:agentApp.scheduledBackupsDesc')}
-          </span>
-        </div>
-        <input
-          type="checkbox"
-          className={styles.toggle}
-          checked={project.backupsEnabled}
-          onChange={e => onToggleSetting('backupsEnabled', e.target.checked)}
-        />
-      </div>
-
-      {project.backupsEnabled && (
-        <>
-          <div style={{ ...rowStyle, borderTop: '1px solid var(--border-primary)' }}>
-            <div className={styles.toggleInfo}>
-              <span className={styles.toggleLabel}>{t('settings:agentApp.frequency')}</span>
-            </div>
-            <select
-              value={project.backupInterval}
-              onChange={e => onToggleSetting('backupInterval', e.target.value)}
-              style={{
-                background: 'var(--bg-primary)',
-                color: 'var(--text-primary)',
-                border: '1px solid var(--border-primary)',
-                borderRadius: 'var(--radius-sm)',
-                padding: '4px 8px',
-                fontSize: 'var(--text-sm)',
-              }}
-            >
-              {INTERVAL_VALUES.map(v => (
-                <option key={v} value={v}>{t(`settings:agentApp.interval.${v}`)}</option>
-              ))}
-            </select>
-          </div>
-
-          <div style={{ ...rowStyle, borderTop: '1px solid var(--border-primary)' }}>
-            <div className={styles.toggleInfo}>
-              <span className={styles.toggleLabel}>{t('settings:agentApp.backupsToKeep')}</span>
-              <span className={styles.toggleDesc}>
-                {t('settings:agentApp.backupsToKeepDesc')}
-              </span>
-            </div>
-            <input
-              type="number"
-              min={1}
-              max={30}
-              value={project.backupKeep}
-              onChange={e => {
-                const v = parseInt(e.target.value, 10)
-                if (Number.isFinite(v) && v >= 1 && v <= 30)
-                  onToggleSetting('backupKeep', v)
-              }}
-              style={{
-                width: 64,
-                background: 'var(--bg-primary)',
-                color: 'var(--text-primary)',
-                border: '1px solid var(--border-primary)',
-                borderRadius: 'var(--radius-sm)',
-                padding: '4px 8px',
-                fontSize: 'var(--text-sm)',
-              }}
-            />
-          </div>
-        </>
-      )}
-
-      {/* Status line + Back up now */}
-      <div style={{ ...rowStyle, borderTop: '1px solid var(--border-primary)' }}>
-        <span style={{ fontSize: 'var(--text-xs)', color: status.lastError ? 'var(--color-error)' : 'var(--text-muted)' }}>
-          {status.lastError
-            ? t('settings:agentApp.lastBackupFailed', { error: status.lastError })
-            : status.lastAt
-              ? t('settings:agentApp.lastBackupSummary', { when: fmtWhen(status.lastAt * 1000), value: formatNumber(status.count || 0), size: fmtSize(status.totalSize || 0) })
-              : t('settings:agentApp.noBackupsYet')}
-        </span>
-        <Button
-          size="sm"
-          variant="secondary"
-          icon={busy ? <Loader2 size={14} className={styles.spinning} /> : <Archive size={14} />}
-          onClick={handleBackupNow}
-          disabled={busy}
-        >
-          {t('settings:agentApp.backupNow')}
-        </Button>
-      </div>
-
-      {/* Restore progress/outcome (busy is shared with Back up now — the
-          "restoring" line only shows for actual restores) */}
-      <RestoreStatusLine
-        busy={busy && restoring}
-        targetName={project.name}
-        result={restoreResult}
-      />
-
-      {/* Archive list */}
-      {(backups || []).length > 0 && (
-        <div
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            borderTop: '1px solid var(--border-primary)',
-            maxHeight: 220,
-            overflowY: 'auto',
-          }}
-        >
-          {(backups || []).map(b => (
-            <div key={b.filename} style={{ ...rowStyle, gap: 'var(--space-2)' }}>
-              <span
-                style={{
-                  flex: 1,
-                  fontSize: 'var(--text-xs)',
-                  color: 'var(--text-primary)',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                }}
-                title={b.filename}
-              >
-                {fmtWhen(b.ts)}
-                <span style={{ color: 'var(--text-muted)' }}>
-                  {' '}· {triggerLabel(b.trigger)} · {fmtSize(b.size)}
-                </span>
-              </span>
-              <Button
-                size="sm"
-                variant="ghost"
-                icon={<RotateCcw size={13} />}
-                onClick={() => handleRestore(b.filename, b.ts)}
-                disabled={busy}
-                title={t('settings:agentApp.restoreThisBackup')}
-              />
-              <Button
-                size="sm"
-                variant="ghost"
-                icon={<Trash2 size={13} />}
-                onClick={() => handleDeleteEntry(b.filename, b.ts)}
-                disabled={busy}
-                title={t('settings:agentApp.deleteThisBackup')}
-              />
-            </div>
-          ))}
-        </div>
-      )}
-
-      <ConfirmModal {...confirmModalProps} />
-    </div>
-  )
+  return <>
+    <BackupControls project={project} backups={backups} busy={busy} restoring={restoring} status={status} restoreResult={restoreResult}
+      onToggleSetting={onToggleSetting} handleBackupNow={handleBackupNow} handleRestore={handleRestore} handleDeleteEntry={handleDeleteEntry} />
+    <ConfirmModal {...confirmModalProps} />
+  </>
 }
-
 
 // ── Share Section ──────────────────────────────────────────────
 
@@ -1273,15 +834,7 @@ interface SharingInfo {
   error: { channel: ShareChannel; message: string } | null
 }
 
-// One row per channel, in display order. Both are shared the same way — by
-// a link that carries its secret; closing a channel revokes every visitor.
-const SHARE_CHANNELS = [
-  { id: 'lan', label: 'settings:agentApp.lan', hint: 'settings:agentApp.lanHint', create: 'settings:agentApp.createLanLink' },
-  { id: 'tunnel', label: 'settings:agentApp.public', hint: 'settings:agentApp.publicHint', create: 'settings:agentApp.createTunnel' },
-] as const satisfies readonly { id: ShareChannel; label: string; hint: string; create: string }[]
-
 function ShareSection({ projectId, send, onMessage }: ShareSectionProps) {
-  const { t } = useTranslation(['settings', 'common'])
   const [links, setLinks] = useState<SharingInfo['links']>({})
   const [error, setError] = useState<SharingInfo['error']>(null)
   const [pending, setPending] = useState<ShareChannel | null>(null)
@@ -1314,61 +867,5 @@ function ShareSection({ projectId, send, onMessage }: ShareSectionProps) {
     send('agent_app_share_close', { projectId, channel })
   }
 
-  return (
-    <div
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 'var(--space-2)',
-      }}
-    >
-      {SHARE_CHANNELS.map(({ id, label, hint, create }) => {
-        const link = links[id]
-        return (
-          <div key={id} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
-            <div className={styles.modelRow}>
-              <span className={styles.modelLabel} title={t(hint)}>{t(label)}</span>
-              {link ? (
-                <>
-                  <code
-                    className={styles.modelValue}
-                    // width 0 + flex 1: fill the row without the (secret-long) link
-                    // widening the settings column to its full text width.
-                    style={{ flex: 1, width: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-                  >
-                    {link}
-                  </code>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    icon={copied === id ? <Check size={14} /> : <Copy size={14} />}
-                    onClick={() => handleCopy(link, id)}
-                  />
-                  <Button size="sm" variant="ghost" icon={<Square size={14} />} onClick={() => handleClose(id)} />
-                </>
-              ) : (
-                <>
-                  <span style={{ flex: 1, fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
-                    {t(hint)}
-                  </span>
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    onClick={() => handleOpen(id)}
-                    disabled={pending !== null}
-                    icon={pending === id ? <Loader2 size={14} className={styles.spinning} /> : undefined}
-                  >
-                    {pending === id ? t('settings:agentApp.starting') : t(create)}
-                  </Button>
-                </>
-              )}
-            </div>
-            {error?.channel === id && (
-              <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-error)' }}>{error.message}</span>
-            )}
-          </div>
-        )
-      })}
-    </div>
-  )
+  return <SharingControls links={links} error={error} pending={pending} copied={copied} handleCopy={handleCopy} handleOpen={handleOpen} handleClose={handleClose} />
 }

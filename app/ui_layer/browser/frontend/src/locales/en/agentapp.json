@@ -1,4 +1,65 @@
 {
+  "registry": {
+    "lifecycle": {
+      "start": "Start",
+      "stop": "Stop",
+      "starting": "Starting…",
+      "stopping": "Stopping…",
+      "startApp": "Start {{name}}",
+      "stopApp": "Stop {{name}}",
+      "startHint": "Start the live app using Agent-App's build and launch steps.",
+      "stopHint": "Stop the live app. Development instances and task bridges keep running.",
+      "failed": "Agent-App could not complete the command.",
+      "unknown": "Connection interrupted. The command may still be running. Check the app status after reconnecting before trying again.",
+      "remaining": "A development instance or task bridge is still running."
+    },
+    "deleteMessage": "Delete \"{{name}}\"? The app will be stopped and its files removed. Its data and backups will be kept in Agent-App's removed-app archive.",
+    "keepFilesMessage": "Agent-App cannot verify ownership of \"{{name}}\"'s folder, so it has not deleted any files. Remove the app from the list instead? Its folder and data will stay on your computer.",
+    "removeFromList": "Remove from list",
+    "unregistered": "Removed {{name}} from the app list. Its files were kept.",
+    "deleting": "Deleting…",
+    "deleted": "Deleted {{name}}",
+    "deleteFailed": "The app could not be deleted.",
+    "forgetMessage": "Remove \"{{name}}\" from the app list? Its app folder is missing. This clears the saved entry without deleting any files.",
+    "title": "Discovered apps",
+    "open": "Open {{name}}",
+    "view": {
+      "title": "App view",
+      "checking": "Checking the app…",
+      "chatLoading": "Opening the app conversation…",
+      "chatFailed": "Could not open the app conversation.",
+      "loading": "Loading the app view…",
+      "retry": "Retry",
+      "stopped": "This app is stopped. Use Start to run it here.",
+      "missing": "This app's folder is missing. Restore it to its registered location, then retry.",
+      "unreachable": "The app is unavailable or its address is answering as another app. Check it through Agent-App, then retry.",
+      "notRegistered": "This app is no longer registered at this location.",
+      "identityChanged": "The app at this location has changed.",
+      "separateView": "This app has a separate interface address that Agent-App does not yet provide to CraftBot.",
+      "failed": "Couldn't check this app. Retry when Agent-App is available.",
+      "frameFailed": "The app view hasn't finished loading. Retry to check the app and load its view again."
+    },
+    "loading": "Checking for apps…",
+    "failed": "Couldn't load the app list.",
+    "warning": "App registry notice",
+    "disconnected": "Connection lost. App status may be out of date.",
+    "lastKnown": "Last known: {{status}}",
+    "remote": "Connected",
+    "status": {
+      "running": "Running",
+      "stopped": "Stopped",
+      "missing": "App folder missing",
+      "unreachable": "Unavailable",
+      "online": "Online",
+      "offline": "Offline",
+      "expired": "Sign-in expired"
+    },
+    "requests": {
+      "intro": "{{name}} is asking CraftBot to work on a request. Allow requests from this app?",
+      "scope": "CraftBot can use this app to handle its requests. Access to local files and commands is controlled separately in app settings.",
+      "allowed": "Requests are now allowed. CraftBot will pick up the waiting request."
+    }
+  },
   "triggerConsent": {
     "title": "Agent App requesting access to CraftBot",
     "intro": "Once allowed, {{name}} can send these requests to CraftBot at any time:",
@@ -20,7 +81,9 @@
     "settingsTitle": "Requests",
     "settingsLabel": "Allow requests to CraftBot",
     "viewRequests": "View requests ({{count}})",
-    "hideRequests": "Hide requests"
+    "hideRequests": "Hide requests",
+    "aboutRequests": "About app requests",
+    "runtimeRequests": "This app defines its requests while running. Your requests use this app's existing CraftBot conversation. Other users' requests stay in separate conversations. Local files and commands require the separate owner-access setting."
   },
   "page": {
     "notFoundTitle": "Agent App Not Found",
@@ -74,22 +137,70 @@
     "caption": "Themes adapt to light/dark mode · Custom stays fixed"
   },
   "themes": {
-    "craftbot": { "label": "CraftBot", "description": "The baseline" },
-    "modern": { "label": "Modern", "description": "Airy indigo" },
-    "normal": { "label": "Normal", "description": "Clean blue" },
-    "ocean": { "label": "Ocean", "description": "Deep sea" },
-    "forest": { "label": "Forest", "description": "Mossy green" },
-    "pastel": { "label": "Pastel", "description": "Soft lilac" },
-    "glass": { "label": "Glass", "description": "Aurora glass" },
-    "classic": { "label": "Classic", "description": "Flat & dense" },
-    "velvet": { "label": "Velvet", "description": "Plush pink" },
-    "ink": { "label": "Ink", "description": "Mono playful" },
-    "acid": { "label": "Acid", "description": "Greige & lime" },
-    "blueprint": { "label": "Blueprint", "description": "Grid datasheet" },
-    "brutalist": { "label": "Brutalist", "description": "Hard blocks" },
-    "drafting": { "label": "Drafting", "description": "Monoline sketch" },
-    "clay": { "label": "Clay", "description": "Soft extruded" },
-    "atelier": { "label": "Atelier", "description": "Studio minimal" }
+    "craftbot": {
+      "label": "CraftBot",
+      "description": "The baseline"
+    },
+    "modern": {
+      "label": "Modern",
+      "description": "Airy indigo"
+    },
+    "normal": {
+      "label": "Normal",
+      "description": "Clean blue"
+    },
+    "ocean": {
+      "label": "Ocean",
+      "description": "Deep sea"
+    },
+    "forest": {
+      "label": "Forest",
+      "description": "Mossy green"
+    },
+    "pastel": {
+      "label": "Pastel",
+      "description": "Soft lilac"
+    },
+    "glass": {
+      "label": "Glass",
+      "description": "Aurora glass"
+    },
+    "classic": {
+      "label": "Classic",
+      "description": "Flat & dense"
+    },
+    "velvet": {
+      "label": "Velvet",
+      "description": "Plush pink"
+    },
+    "ink": {
+      "label": "Ink",
+      "description": "Mono playful"
+    },
+    "acid": {
+      "label": "Acid",
+      "description": "Greige & lime"
+    },
+    "blueprint": {
+      "label": "Blueprint",
+      "description": "Grid datasheet"
+    },
+    "brutalist": {
+      "label": "Brutalist",
+      "description": "Hard blocks"
+    },
+    "drafting": {
+      "label": "Drafting",
+      "description": "Monoline sketch"
+    },
+    "clay": {
+      "label": "Clay",
+      "description": "Soft extruded"
+    },
+    "atelier": {
+      "label": "Atelier",
+      "description": "Studio minimal"
+    }
   },
   "iframe": {
     "title": "Agent App {{id}}"

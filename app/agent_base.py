@@ -152,6 +152,8 @@ class TriggerData:
 
 # Trigger sources that begin a NEW run (reset budgets, apply workflow skills).
 RUN_START_SOURCES = {
+    TriggerSource.FRAMEWORK_WORKFLOW.value,
+    TriggerSource.FRAMEWORK_TASK.value,
     TriggerSource.USER_MESSAGE.value,
     TriggerSource.SCHEDULED.value,
     TriggerSource.SCHEDULED_ONCE.value,
@@ -186,6 +188,7 @@ RUN_CARRY_KEYS = (
     "workflow_action_sets",
     "run_source",
     "skill_workflow",
+    "framework_task_key",
 )
 
 # Trigger sources announced in the session's chat as a system message at
@@ -204,6 +207,7 @@ TRIGGER_ANNOUNCEMENTS: Dict[str, tuple[str, str]] = {
     TriggerSource.PROACTIVE_PLANNER.value: ("⚙️", "Proactive planning"),
     TriggerSource.ONBOARDING.value: ("⚙️", "Onboarding workflow"),
     TriggerSource.SKILL_WORKFLOW.value: ("⚙️", "Skill workflow"),
+    TriggerSource.FRAMEWORK_TASK.value: ("📩", "App request"),
 }
 
 
@@ -391,6 +395,12 @@ class AgentBase:
         # previous run, then guarantee the main session exists.
         self._restore_sessions()
         self.session_manager.ensure_main()
+
+        # App workflows and delegated tasks belong to the agent runtime, so
+        # native CLI/TUI use does not require a browser adapter to create them.
+        from app.agent_app.framework_host import FrameworkHost
+
+        self.framework_host = FrameworkHost(self)
 
         # ── memory manager for proactive agent ──
         # extra_files_provider: user-selected files from the Memory panel
@@ -976,7 +986,18 @@ class AgentBase:
         scheduled task's ``skills``) also brings the action sets its
         SKILL.md declares, exactly like ``use_skill`` does.
         """
-        skills = payload.get("workflow_skills") or []
+        skills = list(payload.get("workflow_skills") or [])
+        # Registry app conversations use the upstream operating instructions on
+        # every turn, including chats restored from before the framework binding.
+        # Keep explicitly loaded skills persistent; only unload our run-scoped add.
+        if (
+            getattr(session, "type", None) == SessionType.AGENT_APP
+            and getattr(session, "agent_app_framework_key", None)
+            and "framework-operator" not in getattr(session, "selected_skills", [])
+            and "framework-operator" not in skills
+        ):
+            skills.append("framework-operator")
+            payload["workflow_skills"] = skills
         sets = list(payload.get("workflow_action_sets") or [])
         for set_name in self._user_skill_action_sets(skills):
             if set_name not in sets:
@@ -1370,6 +1391,44 @@ class AgentBase:
         if not prepared_actions:
             raise ValueError("No valid actions to execute")
 
+        from app.agent_app.framework_commands import task_authority
+
+        session = self.session_manager.get(session_id)
+        authority = task_authority.get()
+        if authority is not None or (session and getattr(session, "isolated_app_task", False)):
+            if authority is None or (not authority.active and not authority.outcome):
+                return {
+                    "status": "error",
+                    "message": "This task lost its authority; request a new task from the app.",
+                    "run_ends": True,
+                }
+            allowed = authority.allowed_actions if authority.active else {"send_message", "end_turn"}
+            if any(action.name not in allowed for action, _ in prepared_actions):
+                return {
+                    "status": "error",
+                    "message": "This action is outside the app task's granted tools.",
+                    "has_errors": True,
+                }
+            if authority.active and authority.check is not None:
+                try:
+                    await authority.check()
+                except Exception:
+                    return {"status": "error", "message": "The app task's authority changed.", "run_ends": True}
+            from app.agent_app.framework_host import get_host
+
+            host = get_host()
+            if host:
+                for action, params in prepared_actions:
+                    if action.name == "send_message" and params.get(
+                        "suggested_responses"
+                    ):
+                        run = host.bridge.current_run(session_id)
+                        if run:
+                            run["ask"] = {
+                                "message": params.get("message"),
+                                "options": params["suggested_responses"],
+                            }
+
         from app.telegram_feedback import (
             owner_permission_error,
             telegram_action_permission_error,
@@ -1588,14 +1647,31 @@ class AgentBase:
         self.state_manager.bump_event_stream()
         self.session_manager.touch_session(session.id)
 
-        if not await self._check_agent_limits(session.id):
+        from app.agent_app.framework_commands import task_authority
+
+        authority = task_authority.get()
+        task_finished = authority is not None and authority.outcome is not None
+        # Completing a delegated task revokes its credential immediately. Finish
+        # the host run here; a continuation cannot run with revoked authority.
+        if not task_finished and not await self._check_agent_limits(session.id):
+            from app.agent_app.framework_host import get_host
+
+            if get_host():
+                await get_host().bridge.ended(session.id, awaiting_answer=True)
             # Run is paused on the Continue/Stop prompt — not busy anymore.
             self._emit_run_state(session.id, "idle")
             return
 
-        run_ends = bool(action_output.get("run_ends", False))
+        run_ends = task_finished or bool(action_output.get("run_ends", False))
 
         if run_ends:
+            from app.agent_app.framework_host import get_host
+
+            if get_host():
+                await get_host().bridge.ended(
+                    session.id,
+                    awaiting_answer=bool(action_output.get("awaiting_answer")),
+                )
             # Files edited but never deployed: the user hears it from the
             # system, not from an agent that believes "written" means "live".
             await self._warn_if_undeployed(session)
@@ -1730,7 +1806,7 @@ class AgentBase:
 
     # ----- User force-stop -----
 
-    async def request_run_stop(self, session_id: str) -> bool:
+    async def request_run_stop(self, session_id: str, *, framework_task_key=None) -> bool:
         """Force-stop a session's in-flight run (the chat UI's stop button).
 
         Broadcasts ``stopping`` immediately (the button's spinner state),
@@ -1740,13 +1816,26 @@ class AgentBase:
         emits the terminal ``idle``.
         """
         logger.info(f"[RUN] User requested stop for session {session_id}")
+        from app.agent_app.framework_host import get_host
+
+        host = get_host()
+        if host:
+            for run in list(host.bridge.runs.values()):
+                if run["sessionId"] == session_id and (
+                    framework_task_key is None or run["key"] == framework_task_key
+                ):
+                    await host.bridge.terminate(
+                        run, "user_stopped", settle=True, cancel=False
+                    )
         self._emit_run_state(session_id, "stopping")
         # Stop the session's browser work first: in-flight Mini Browser ops
         # are cancelled and its sub-agents (which a turn cancel never reaches,
         # they run on their own threads) lose browser access for good.
         self._notify_mini_browser("cancel_owner", session_id, include_children=True)
         try:
-            stopped = await self.session_runtime.request_stop(session_id)
+            stopped = await self.session_runtime.request_stop(
+                session_id, **({"framework_task_key": framework_task_key} if framework_task_key else {})
+            )
         except Exception:
             logger.error(f"[RUN] request_stop failed for {session_id}", exc_info=True)
             raise
@@ -2635,6 +2724,13 @@ class AgentBase:
             # UI. Mirrors the pre-redesign agent_app prefix; display_message
             # stays the raw text so the chat bubble is clean.
             stream_content = chat_content
+            from app.agent_app.framework_host import get_host
+
+            framework_host = get_host()
+            if framework_host and session is not None:
+                framework_note = framework_host.note(session.id)
+                if framework_note:
+                    stream_content += f"\n\n{framework_note}"
             if session is not None and getattr(session, "agent_app_project_id", None):
                 note = self._build_agent_app_note(session.agent_app_project_id)
                 if note:
@@ -3311,6 +3407,7 @@ class AgentBase:
             return "Nothing selected to reset."
 
         done: list[str] = []
+        failures: list[str] = []
 
         # Chats: delete extra chat sessions, empty Main, and wipe Agent App
         # conversation history only (apps stay unless "agentapp" is selected).
@@ -3350,13 +3447,24 @@ class AgentBase:
             except Exception as e:
                 logger.warning(f"[RESET] memory reset failed: {e}")
 
-        # Workspace: wipe the workspace directory contents.
+        # Remove apps before workspace files so their data can be backed up.
+        if "agentapp" in selected:
+            try:
+                count = await self._delete_all_agent_app_projects()
+                done.append(f"agentapp ({count} app(s))")
+            except Exception as e:
+                logger.warning(f"[RESET] agentapp reset failed: {e}")
+                failures.append(f"Agent Apps: {e}")
+
+        # Workspace: preserve apps still in the registry (including failed removals).
         if "workspace" in selected:
             try:
-                await asyncio.to_thread(self._reset_workspace_sync)
+                protected = await self._framework_app_paths()
+                await asyncio.to_thread(self._reset_workspace_sync, protected)
                 done.append("workspace")
             except Exception as e:
                 logger.warning(f"[RESET] workspace reset failed: {e}")
+                failures.append(f"Workspace: {e}")
 
         # Triggers & scheduled work: durable rows, activity log.
         if "triggers" in selected:
@@ -3373,37 +3481,48 @@ class AgentBase:
             except Exception as e:
                 logger.warning(f"[RESET] triggers reset failed: {e}")
 
-        # AgentApp: delete every registered project (dirs, ports, registry).
-        if "agentapp" in selected:
-            try:
-                count = await self._delete_all_agent_app_projects()
-                done.append(f"agentapp ({count} app(s))")
-            except Exception as e:
-                logger.warning(f"[RESET] agentapp reset failed: {e}")
-
+        if failures:
+            raise RuntimeError("Reset incomplete. " + "; ".join(failures))
         if not done:
             return "Reset failed for the selected items — see logs."
         return "Reset complete: " + ", ".join(done) + "."
 
     async def _delete_all_agent_app_projects(self) -> int:
         """Delete all registered Agent App projects. Returns the count deleted."""
-        try:
-            from app.agent_app import get_agent_app_manager
-        except Exception:
-            return 0
+        from app.agent_app import get_agent_app_manager
+
+        deleted, failures = 0, []
+        host = getattr(self, "framework_host", None)
+        if host:
+            result = await host.reset_apps()
+            deleted += result["deleted"]
+            failures.extend(result["failures"])
         mgr = get_agent_app_manager()
-        if not mgr:
-            return 0
-        deleted = 0
-        for project_id in [p.id for p in mgr.list_projects()]:
+        for project_id in [p.id for p in mgr.list_projects()] if mgr else []:
             try:
                 if await mgr.delete_project(project_id):
                     deleted += 1
+                else:
+                    failures.append(f"{project_id}: removal failed")
             except Exception as e:
                 logger.warning(
                     f"[RESET] Failed to delete AgentApp project {project_id}: {e}"
                 )
+                failures.append(f"{project_id}: {e}")
+        if failures:
+            raise RuntimeError(f"Removed {deleted} app(s); " + "; ".join(failures))
         return deleted
+
+    async def _framework_app_paths(self) -> list[str]:
+        """A workspace reset must not bypass app lifecycle/backup handling."""
+        if not getattr(self, "framework_host", None):
+            return []
+        from app.agent_app.framework import list_apps
+
+        snapshot = await list_apps()
+        if snapshot["status"] != "success":
+            raise RuntimeError(snapshot["message"])
+        return [row["path"] for row in snapshot["data"]["apps"]]
 
     async def _clear_usage_data(self) -> None:
         """
@@ -3442,9 +3561,10 @@ class AgentBase:
         fresh templates from the template directory.
         """
         # Run blocking file operations in a thread to avoid freezing the UI
-        await asyncio.to_thread(self._reset_agent_file_system_sync)
+        protected = await self._framework_app_paths()
+        await asyncio.to_thread(self._reset_agent_file_system_sync, protected)
 
-    def _reset_agent_file_system_sync(self) -> None:
+    def _reset_agent_file_system_sync(self, protected=()) -> None:
         """
         Synchronous helper for file system reset operations.
         Called via asyncio.to_thread() to avoid blocking the event loop.
@@ -3454,7 +3574,7 @@ class AgentBase:
         either one on its own.
         """
         self._reset_memory_files_sync()
-        self._reset_workspace_sync()
+        self._reset_workspace_sync(protected)
         logger.info("[RESET] Agent file system reinitialized from templates")
 
     def _reset_memory_files_sync(self) -> None:
@@ -3491,16 +3611,26 @@ class AgentBase:
         {"agent_app", "agent_app_projects.json", "sessions"}
     )
 
-    def _reset_workspace_sync(self) -> None:
+    def _reset_workspace_sync(self, protected=()) -> None:
         """Clear agent-created workspace files. Does NOT touch the markdown
         files (handled separately) or other subsystems' storage under the
         workspace (see :attr:`_WORKSPACE_PRESERVE`)."""
         workspace_path = AGENT_FILE_SYSTEM_PATH / "workspace"
+        workspace_root = workspace_path.resolve()
+        app_paths = [Path(path).resolve() for path in protected]
         if not workspace_path.exists():
             workspace_path.mkdir(parents=True, exist_ok=True)
             return
         for item in workspace_path.iterdir():
             if item.name in self._WORKSPACE_PRESERVE:
+                continue
+            target = item.resolve()
+            if not target.is_relative_to(workspace_root) or target == workspace_root:
+                continue
+            if any(
+                target == app or app.is_relative_to(target) or target.is_relative_to(app)
+                for app in app_paths
+            ):
                 continue
             try:
                 if item.is_dir():
@@ -3944,6 +4074,12 @@ class AgentBase:
             logger.info(f"[SKILLS] Loading config from {config_path}")
 
             # Initialize skill manager (loads config and discovers skills)
+            from app.agent_app.framework_commands import skill_sources
+
+            try:
+                skill_manager.add_bundled_sources(await skill_sources())
+            except Exception as exc:
+                logger.warning(f"[SKILLS] Agent-App skills unavailable: {exc}")
             await skill_manager.initialize(config_path)
 
             # Log discovered skills
@@ -4352,6 +4488,10 @@ class AgentBase:
             logger.warning(f"[RESTORE] Activity log GC failed: {e}")
 
         await self.session_runtime.start()
+        if not self.framework_host.restoring:
+            self.framework_host.restoring = asyncio.create_task(
+                self.framework_host.startup()
+            )
 
         # FACTORY: the supervisor is the ONE dispatch decision point for
         # Agent App arcs. Started here (event loop is up); its immediate
@@ -4503,6 +4643,10 @@ class AgentBase:
             # Stop the per-session loops first so no turn is mid-flight while
             # we persist (claimed rows re-deliver at next boot regardless).
             self.is_running = False
+            try:
+                await self.framework_host.close()
+            except Exception as e:
+                logger.warning(f"[SHUTDOWN] Framework host cleanup failed: {e}")
             try:
                 await self.session_runtime.stop()
             except Exception as e:

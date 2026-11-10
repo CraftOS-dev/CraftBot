@@ -209,6 +209,7 @@ class LanRelay:
         from aiohttp import web
 
         self._session = aiohttp.ClientSession(
+            cookie_jar=aiohttp.DummyCookieJar(),
             auto_decompress=False,
             timeout=aiohttp.ClientTimeout(total=None, sock_connect=10),
         )
@@ -274,7 +275,7 @@ class LanRelay:
                 allow_redirects=False,
             ) as up:
                 resp = web.StreamResponse(status=up.status)
-                for k, v in up.headers.items():
+                for k, v in self._response_headers(up.headers):
                     if k.lower() not in HOP_HEADERS:
                         resp.headers.add(k, v)  # add: several Set-Cookie
                 await resp.prepare(request)
@@ -286,6 +287,9 @@ class LanRelay:
             raise
         except Exception:
             return web.Response(status=502, text="The app is not running.")
+
+    def _response_headers(self, headers):
+        return headers.items()
 
     async def _relay_ws(self, request):
         import aiohttp
@@ -329,15 +333,13 @@ class LanRelay:
                 else:
                     break
 
+        pumps = [asyncio.create_task(pump(server_ws, client_ws)), asyncio.create_task(pump(client_ws, server_ws))]
         try:
-            await asyncio.wait(
-                [
-                    asyncio.ensure_future(pump(server_ws, client_ws)),
-                    asyncio.ensure_future(pump(client_ws, server_ws)),
-                ],
-                return_when=asyncio.FIRST_COMPLETED,
-            )
+            await asyncio.wait(pumps, return_when=asyncio.FIRST_COMPLETED)
         finally:
+            for task in pumps:
+                task.cancel()
+            await asyncio.gather(*pumps, return_exceptions=True)
             await client_ws.close()
             await server_ws.close()
         return server_ws
@@ -457,13 +459,15 @@ class TunnelChannel(ShareChannel):
             owner=str(getattr(project, "id", "")),
             label=origin_url,
         )
-        url = await self._await_ready(proc, metrics, log_path)
-        if not url:
-            self._terminate(proc)
-            self._close_log(log_handle)
-            raise ShareError(f"cloudflared didn't come up. More info in {log_path}")
         self._running[project.id] = (proc, log_handle)
-        return url
+        try:
+            url = await self._await_ready(proc, metrics, log_path)
+            if not url:
+                raise ShareError(f"cloudflared didn't come up. More info in {log_path}")
+            return url
+        except BaseException:
+            await self._disconnect(project)
+            raise
 
     async def _disconnect(self, project: Any) -> None:
         proc, log_handle = self._running.pop(project.id, (None, None))

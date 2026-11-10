@@ -19,11 +19,14 @@ logger = logging.getLogger("ActionSetManager")
 # A set described nowhere is described by the actions it holds, and
 # tests/test_capability_catalog.py fails on any such set.
 DEFAULT_SET_DESCRIPTIONS: Dict[str, str] = {
+    "agent_app_framework": (
+        "Agent-App framework: create, modify, independently verify, install, "
+        "manage and operate apps through the bundled upstream CLI and skills"
+    ),
     "agent_app": (
-        "Agent Apps: create (scaffold), import and convert apps, restart and "
-        "verify them, call their HTTP API and read their usage, report build "
-        "progress and findings, approve their triggers, browse and install "
-        "from the marketplace"
+        "Compatibility for existing legacy CraftBot apps awaiting migration. "
+        "Use agent_app_framework and framework-* skills for new apps, installs, "
+        "conversion, verification and registry app operations."
     ),
     "content_creation": "Generate images and videos",
     "proactive": (
