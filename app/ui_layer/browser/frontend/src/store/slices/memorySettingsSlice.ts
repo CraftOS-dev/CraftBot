@@ -245,6 +245,13 @@ const applyIndexFileMutation: InboundHandler = (data, dispatch) => {
 register('memory_index_file_add', applyIndexFileMutation)
 register('memory_index_file_remove', applyIndexFileMutation)
 
+// Entity deletion carries the rebuilt graph, so the node disappears in one
+// round-trip.
+register('memory_entity_remove', (data, dispatch) => {
+  const d = data as { success: boolean; graph?: MemoryGraph }
+  if (d.success && d.graph) dispatch(setGraph(d.graph))
+})
+
 register('memory_schedule_get', (data, dispatch) => {
   const d = data as {
     success: boolean

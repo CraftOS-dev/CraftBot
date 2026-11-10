@@ -514,8 +514,8 @@ export function MemoryGraphCanvas({ graph, selectedId, onSelect, fitNonce = 0, r
           specks.push({
             x: minX - padX + Math.random() * (maxX - minX + padX * 2),
             y: minY - padY + Math.random() * (maxY - minY + padY * 2),
-            r: 0.4 + Math.random() * 0.8,
-            a: 0.06 + Math.random() * 0.22,
+            r: 0.5 + Math.random() * 1.0,
+            a: 0.08 + Math.random() * 0.29,
             phase: Math.random() * Math.PI * 2,
           })
         }
@@ -879,15 +879,18 @@ export function MemoryGraphCanvas({ graph, selectedId, onSelect, fitNonce = 0, r
       })
 
       // ── Background starfield: distant static specks, faint slow twinkle ──
-      if (isDark) {
-        for (const s of specksRef.current) {
-          if (!inView(s.x, s.y)) continue
-          const tw = 0.7 + 0.3 * Math.sin(anim / 1400 + s.phase)
-          ctx.fillStyle = `rgba(240,224,205,${s.a * tw})`
-          ctx.beginPath()
-          ctx.arc(s.x, s.y, s.r / Math.max(0.7, t.k), 0, Math.PI * 2)
-          ctx.fill()
-        }
+      // Cream on dark; warm ink on light. A tiny dark speck on a light
+      // ground reads far weaker than a light speck on a dark one, so the
+      // light theme needs more alpha to look equally faint.
+      for (const s of specksRef.current) {
+        if (!inView(s.x, s.y)) continue
+        const tw = 0.7 + 0.3 * Math.sin(anim / 1400 + s.phase)
+        ctx.fillStyle = isDark
+          ? `rgba(240,224,205,${s.a * tw})`
+          : `rgba(74,58,48,${s.a * tw * 1.5})`
+        ctx.beginPath()
+        ctx.arc(s.x, s.y, s.r / Math.max(0.7, t.k), 0, Math.PI * 2)
+        ctx.fill()
       }
 
       // ── Branch lines: straight parent→child segments along each branch ──

@@ -128,7 +128,7 @@ export const UI_STATE = {
   memory: {
     /** Right sidebar width in px. */
     panelWidth: defineUiState('memory.panelWidth', 340, 'preference'),
-    hideCoreFiles: defineUiState('memory.hideCoreFiles', false, 'preference'),
+    hideCoreFiles: defineUiState('memory.hideCoreFiles', true, 'preference'),
     showMemories: defineUiState('memory.showMemories', true, 'preference'),
     showEntities: defineUiState('memory.showEntities', true, 'preference'),
     showFiles: defineUiState('memory.showFiles', true, 'preference'),

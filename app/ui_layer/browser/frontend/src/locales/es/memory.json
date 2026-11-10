@@ -88,6 +88,10 @@
     "supersededLabel": "Reemplazado (se conserva como historial, se excluye de la recuperación)",
     "contentPlaceholder": "p. ej. Juan prefiere respuestas concisas"
   },
+  "entity": {
+    "deleteTitle": "Eliminar entidad",
+    "deleteMessage": "Esto elimina “{{name}}” y sus enlaces del grafo. Los recuerdos en sí no cambian."
+  },
   "files": {
     "title": "Archivos del agente",
     "aboutAria": "Acerca de la indexación de archivos",
@@ -108,6 +112,7 @@
   },
   "toast": {
     "updateFailed": "Error al actualizar los archivos indexados",
-    "skipped": "Se omitió {{path}}: {{reason}}"
+    "skipped": "Se omitió {{path}}: {{reason}}",
+    "entityDeleteFailed": "Error al eliminar la entidad"
   }
 }
