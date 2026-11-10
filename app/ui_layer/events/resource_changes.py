@@ -118,18 +118,6 @@ class ResourceChangeNotifier:
 # refetch they answer would otherwise trigger another change. Failed
 # mutations are mapped too: the refetch reconciles optimistic UI.
 _RESOURCE_BY_MESSAGE_TYPE: Dict[str, Resource] = {
-    **dict.fromkeys(
-        (
-            "agent_app_create",
-            "agent_app_ready",
-            "agent_app_error",
-            "agent_app_launch",
-            "agent_app_stop",
-            "agent_app_delete",
-            "agent_app_project_setting_update",
-        ),
-        Resource.AGENT_APPS,
-    ),
     "session_updated": Resource.SESSIONS,
     **dict.fromkeys(
         (

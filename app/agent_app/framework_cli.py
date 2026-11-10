@@ -1,8 +1,7 @@
 """CraftBot transport for an unchanged, built Agent-App CLI package.
 
 The caller supplies the package directory, framework home and working directory.
-No global CLI installation, app registry or lifecycle policy lives here. Existing
-apps continue to use runner.py until their callers explicitly adopt this binding.
+No global CLI installation, app registry or lifecycle policy lives here.
 """
 
 from __future__ import annotations

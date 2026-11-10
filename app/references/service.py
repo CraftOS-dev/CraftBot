@@ -208,7 +208,7 @@ class ReferenceService:
 
 
 def create_reference_service(
-    sessions=None, storage=None, apps=None, llm=None
+    sessions=None, storage=None, llm=None
 ) -> ReferenceService:
     """Composition root; adapters and actions reuse the existing application managers.
 
@@ -224,10 +224,6 @@ def create_reference_service(
         from app.usage.chat_storage import get_chat_storage
 
         storage = get_chat_storage()
-    if apps is None:
-        from app.agent_app._state import get_agent_app_manager
-
-        apps = get_agent_app_manager()
     if llm is None:
         from agent_core.core.registry.llm import get_llm_interface_or_none
 
@@ -245,7 +241,7 @@ def create_reference_service(
     return ReferenceService(
         {
             "session": SessionReferenceProvider(sessions, storage),
-            "agent_app": AgentAppReferenceProvider(apps),
+            "agent_app": AgentAppReferenceProvider(),
         },
         sessions,
         storage,

@@ -1,16 +1,6 @@
 import { useLayoutEffect, useRef, useState } from 'react'
 import { acquireIframe, frameUrl, isIframeLoaded, subscribeFrameHost } from './frameHost'
-import type { AgentAppProject } from '../../types'
-import { useAppSelector } from '../../store/hooks'
-import { selectNeedsTriggerReview } from '../../store/selectors/agentApp'
-
-/** Bind a persistent frame to a React surface without moving its DOM node. */
-export function useAgentAppFrame(project: AgentAppProject, active: boolean, moving: boolean, blocked: boolean) {
-  const needsReview = useAppSelector(state => selectNeedsTriggerReview(state, project))
-  return usePersistentAppFrame(project, active, moving, blocked, needsReview)
-}
-
-export function usePersistentAppFrame(project: Pick<AgentAppProject, 'id' | 'name' | 'status' | 'url' | 'readyAt'>, active: boolean, moving: boolean, blocked: boolean, needsReview = false, framework = false) {
+export function usePersistentAppFrame(project: { id: string; name: string; status: string; url?: string; readyAt?: number }, active: boolean, moving: boolean, blocked: boolean) {
   const placeholder = useRef<HTMLDivElement>(null)
   const [status, setStatus] = useState<'loading' | 'ready' | 'timeout' | 'unavailable'>('loading')
   const [retry, setRetry] = useState(0)
@@ -25,14 +15,14 @@ export function usePersistentAppFrame(project: Pick<AgentAppProject, 'id' | 'nam
 
   useLayoutEffect(() => {
     const element = placeholder.current
-    if (!active || needsReview || project.status !== 'running' || !project.url || !element) return
+    if (!active || project.status !== 'running' || !project.url || !element) return
     const base = frameUrl(project.url)
     let lease: ReturnType<typeof acquireIframe>
     try {
       const url = new URL(base)
       if (project.readyAt) url.searchParams.set('v', String(project.readyAt))
       if (retry) url.searchParams.set('viewRetry', String(retry))
-      lease = acquireIframe(project.id, url.toString(), framework)
+      lease = acquireIframe(project.id, url.toString())
     } catch { setStatus('unavailable'); return }
     if (!lease) { setStatus('unavailable'); return }
     leaseRef.current = lease
@@ -101,7 +91,7 @@ export function usePersistentAppFrame(project: Pick<AgentAppProject, 'id' | 'nam
     }
     // Ownership changes wake only a surface that failed to acquire. Successful
     // leases must not release/reacquire in response to their own release event.
-  }, [project.id, project.status, project.url, project.readyAt, active, needsReview, retry, hostVersion, framework])
+  }, [project.id, project.status, project.url, project.readyAt, active, retry, hostVersion])
 
   useLayoutEffect(() => {
     refresh.current()

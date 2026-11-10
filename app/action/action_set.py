@@ -24,11 +24,9 @@ DEFAULT_SET_DESCRIPTIONS: Dict[str, str] = {
         "manage and operate apps through the bundled upstream CLI and skills"
     ),
     "agent_app": (
-        "Compatibility for existing legacy CraftBot apps awaiting migration. "
-        "Use agent_app_framework and framework-* skills for new apps, installs, "
-        "conversion, verification and registry app operations."
-    ),
-    "content_creation": "Generate images and videos",
+        "Create an app through CraftBot's setup wizard and discover installed "
+        "framework apps. Use agent_app_framework for lifecycle and A2App operations."
+    ),    "content_creation": "Generate images and videos",
     "proactive": (
         "Recurring proactive tasks in PROACTIVE.md (add, read, update, remove) "
         "and scheduled tasks"

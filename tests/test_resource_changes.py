@@ -111,12 +111,6 @@ def test_unbind_drops_pending():
 
 
 def test_message_mapping():
-    assert resource_change_for_message(
-        {"type": "agent_app_delete", "data": {"success": True, "projectId": "p1"}}
-    ) == (Resource.AGENT_APPS, ["p1"])
-    assert resource_change_for_message(
-        {"type": "agent_app_create", "data": {"project": {"id": "p2"}}}
-    ) == (Resource.AGENT_APPS, ["p2"])
     # Build/launch progress changes nothing in the saved list; refetching on it
     # overwrote the in-flight status an import's page was showing.
     assert resource_change_for_message({"type": "agent_app_status", "data": {}}) is None

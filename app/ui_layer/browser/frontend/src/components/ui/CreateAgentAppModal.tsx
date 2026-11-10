@@ -19,9 +19,6 @@ const TAB_TOUR_ANCHORS: Record<'marketplace' | 'custom' | 'import', TourAnchorId
   import: 'agentapp-tab-import',
 }
 
-// Must match THUMBNAIL_WIDTHS in app/agent_app/marketplace_source.py.
-const THUMBNAIL_WIDTHS = [480, 720, 960, 1440]
-
 export interface CreateAgentAppModalProps {
   isOpen: boolean
   onClose: () => void
@@ -33,8 +30,6 @@ interface MarketplaceApp {
   name: string
   description: string
   preview?: string
-  // Backend-resized copy of `preview`; append ?w=<width>.
-  thumbnail?: string
   // "lucide:<Name>" like a project's icon; none yet → the default cube.
   icon?: string
   tags?: string[]
@@ -52,7 +47,7 @@ export function CreateAgentAppModal({ isOpen, onClose, onInstalled }: CreateAgen
   const [importError, setImportError] = useState<string | null>(null)
   const [dropActive, setDropActive] = useState(false)
 
-  // The chat-triggered wizard still uses the legacy WebSocket contract.
+  // The chat-triggered wizard keeps its existing interview messages.
   const { send, onMessage } = useSettingsWebSocket()
   const isConnected = useAppSelector(state => state.connection.connected)
 
@@ -341,11 +336,7 @@ export function CreateAgentAppModal({ isOpen, onClose, onInstalled }: CreateAgen
                         <div key={app.id} className={styles.appCard}>
                           {app.preview && !thumbFailures.has(appKey) ? (
                             <img
-                              src={app.thumbnail ? `${app.thumbnail}?w=720` : app.preview}
-                              srcSet={app.thumbnail
-                                ? THUMBNAIL_WIDTHS.map(w => `${app.thumbnail}?w=${w} ${w}w`).join(', ')
-                                : undefined}
-                              sizes="(max-width: 768px) 100vw, 300px"
+                              src={app.preview}
                               alt={app.name}
                               referrerPolicy="no-referrer"
                               className={styles.appCardThumb}
@@ -361,7 +352,6 @@ export function CreateAgentAppModal({ isOpen, onClose, onInstalled }: CreateAgen
                               <AgentAppIcon
                                 // file: icons belong to installed projects; a catalogue entry has none
                                 icon={app.icon?.startsWith('lucide:') ? app.icon : undefined}
-                                projectId={appKey}
                                 size={14}
                                 className={styles.appCardIcon}
                               />

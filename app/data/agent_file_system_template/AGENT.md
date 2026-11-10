@@ -314,7 +314,7 @@ docs, CRM, chat, repo, ...)                      list_available_integrations. If
                                                  the user to do it themselves, refuse, or web-search
                                                  around it.
 
-sounds like something an app of yours already    Agent App. agent_app_list_projects; on a match,
+sounds like something an app of yours already    Agent App. agent_app_framework_list; on a match,
 does                                             agent_app_usage + the agent-app CLI/ops to read its data
                                                  or perform the operation instead of redoing the
                                                  work by hand.
@@ -340,12 +340,12 @@ On any turn you can delegate a self-contained chunk of work to a sub-agent with 
 ```
 Online research (search the web, fetch pages, gather facts)  → spawn_subagent("research_agent", ...)
 Interactive web task, e.g. one per shop when comparing       → spawn_subagent("browser_agent", ...)
-Agent App browser verification                               → walk_verify (usually via agent_app_walk_verify)
+Agent App browser verification                               → agent_app_framework_workflow(activity='verify')
 Independent analysis, file/code work or commands            → spawn_subagent("general_agent", ...)
 Quick local lookup or work needing your conversation/memory → do it yourself
 ```
 
-Registered types today: `research_agent` (gathers source-cited facts and returns a brief — it does not interpret or make decisions), `general_agent` (reasons, analyses files, edits assigned files and runs commands for one scoped objective), `browser_agent` (drives its own Mini Browser tab for one interactive web task; it cannot sign in with saved passwords, so do logins yourself first) and `walk_verify` (drives a running Agent App app in a headless browser). The `agent_type` enum is built dynamically from the registry; if a type is rejected, it isn't registered — do the work yourself or ask the user. Sub-agents run with iteration and wall-clock caps and end themselves via their own `sub_task_end` action.
+Registered types today: `research_agent` (gathers source-cited facts and returns a brief — it does not interpret or make decisions), `general_agent` (reasons, analyses files, edits assigned files and runs commands for one scoped objective), `browser_agent` (drives its own Mini Browser tab for one interactive web task; it cannot sign in with saved passwords, so do logins yourself first) and `framework_walk_verify` (uses the installed framework walk-verify skill in an independent browser subagent). The `agent_type` enum is built dynamically from the registry; if a type is rejected, it isn't registered — do the work yourself or ask the user. Sub-agents run with iteration and wall-clock caps and end themselves via their own `sub_task_end` action.
 
 ### How to write a good `query`
 
@@ -966,33 +966,9 @@ To review past dialogue or past run outcomes, grep THIS session's EVENT.md or us
 - Read pattern: before creating any Agent App project. See `## Agent App`.
 - Sections: Design Preferences (colors, theme, font, border radius, spacing), Always Enforced rules, Optional rules, Custom rules.
 
-### Agent App projects (workspace/agent_app/)
+### Agent App projects
 
-Agent App projects live at `agent_file_system/workspace/agent_app/<project_name>_<hash>/`. Every project is a React frontend + a single PocketBase backend process. Standard layout:
-
-```
-workspace/agent_app/<name>_<hash>/
-├── manifest.json            Identity, ports, capabilities (agentAppVersion 2). Root, not config/.
-├── AGENT_APP.md             Per-project plan/index + file-ownership map
-├── operations.json          Declared ops (discoverable at GET /api/_ops)
-├── reference/
-│   └── requirements.md      BINDING spec. walk_verify checks the app against this file.
-├── frontend/
-│   └── src/app/             EDITABLE app code
-│       src/kit/             SYSTEM-MANAGED vendored React kit — never edit
-├── pb/
-│   ├── pb_hooks/            ops.pb.js EDITABLE; _system.pb.js, _a2app*.js, _craftbot_bridge.js system-managed
-│   └── pb_migrations/       EDITABLE
-├── logs/                    pocketbase.log, frontend_console.log, cloudflared.log (public share)
-└── .factory/                Factory machine state — do not touch
-```
-
-- `reference/requirements.md`: the contract. Any modify must append a dated bullet to its `## Changes` section, or verification runs against a stale spec.
-- `manifest.json` is the source of truth for identity and ports. Do not rename a project directory by hand.
-- `logs/pocketbase.log` (server-side) and `logs/frontend_console.log` (browser console): first place to grep when a project misbehaves. These are the LIVE app's logs; a dev env (shadow) logs to `workspace/agent_app/_shadow/<project>/<boot-id>/logs/`.
-- Non-Agent-App sources imported with `agent_app_import` register as **external** apps: they carry `craftbot.json` (install/build/start/health verbs, `{{PORT}}`) instead of `manifest.json` and log to `logs/app.log`.
-
-The fresh-project scaffold lives at [agent-app/blueprint/](agent-app/blueprint/). For lifecycle, see `## Agent App`.
+Discover registered apps with `agent_app_framework_list`; use their canonical IDs and absolute paths rather than assuming a workspace folder or fixed stack. The installed framework skills describe each blueprint's files and lifecycle. Keep accepted requirements in `reference/requirements.md` for independent verification.
 
 ### Files outside agent_file_system/
 
@@ -1174,165 +1150,19 @@ DO NOT silently change FORMAT.md. The user owns their style guide.
 
 ## Agent App
 
-"Agent App" = generated web apps served from CraftBot. Every project is a React frontend (vendored kit, shadcn-conventional components) plus one PocketBase backend process. Lifecycle is driven through the `agent_app` action set ([app/data/action/agent_app_actions.py](app/data/action/agent_app_actions.py)). The fresh-project scaffold lives at [agent-app/blueprint/](agent-app/blueprint/). File layout: see `## File System` "Agent App projects".
+CraftBot hosts apps through the unchanged Agent-App framework. The framework owns scaffolding, installation, validation, runtime, operations and data; CraftBot supplies its familiar UI, app conversations, permissions, scheduling and sharing controls.
 
-### Action surface (`agent_app` set)
+- In an ordinary chat, call `agent_app_scaffold(name, description, features, chat_context)` to gather requirements through the existing setup wizard. It starts the build in the app's own conversation. Do not also build it in the requesting chat.
+- Discover installed apps with `agent_app_framework_list`. Use their exact registry paths and IDs.
+- Load the appropriate bundled skill: `framework-creator`, `framework-modify`, `framework-importer` or `framework-operator`. These are the existing framework skills, including their relative references.
+- Run CLI commands through `agent_app_framework_command(surface, args)`. Choose `agent-app` for lifecycle/discovery/install and `a2app` to inspect or operate app data. Pass literal argument arrays; consult `--help` for syntax instead of guessing it.
+- Marketplace and compatible package installs use the CLI directly. Use the importer workflow for foreign sources that require conversion; an install is not a reason to start a conversion agent.
+- Before answering questions about an app's current data, selection or visible files, inspect its A2App context and declared operations. A folder listing does not describe the open UI.
+- For code changes, follow the framework lifecycle: develop the candidate, validate, then call `agent_app_framework_workflow(activity='verify', path, app_id, request)` and await its independent CraftBot subagent verdict. Repair defects and repeat validation/verification before promotion. A queued, blocked or incomplete check is not a pass.
+- Apps are displayed inside CraftBot; do not open a separate browser tab. Use the embedded view and app side chat.
+- App-to-agent requests require the owner's Allow requests to CraftBot setting and are routed to the same app conversation. Honor task-scoped credentials and permissions; never expose tokens in prompts or chat.
+- Settings → Agent App provides startup, backup, log cleanup, sharing and delete controls. Shared profile bundles carry sanitized framework exports, not live data or task grants.
 
-```
-agent_app_scaffold(name, description, ...)  Create a project: copies the blueprint, allocates ports,
-                                            runs the requirements interview, then dispatches the build
-                                            to the project's own dedicated session (agentapp_<id>). After
-                                            scaffold, do NOT write project files or call notify_ready
-                                            yourself — the build session owns that.
-agent_app_list_projects()                   {id, name, description, status, url, path, delivered}.
-                                            Resolve "the app" to an id here, never by filesystem search.
-agent_app_notify_ready(project_id)          Launch pipeline: install deps → validation gate (types,
-                                            build, migrations, op smoke [changed ops run against the
-                                            boot]) → boot the DEV environment
-                                            (your code on a hidden port with a FRESH schema-only DB —
-                                            migrations replay; live data is never cloned). The live app
-                                            (if any) keeps running untouched. Gate failures come back
-                                            in test_errors. Circuit breaker: identical error ×3 warns,
-                                            ×6 stops.
-agent_app_walk_verify(project_id, scope?)   Headless-browser sub-agent drives the DEV instance
-                                            feature-by-feature against reference/requirements.md.
-                                            scope="auto" (default): the verifier decides which features
-                                            the change can reach (it is handed the diff since the last
-                                            promote) and walks those. scope="full": walk every feature —
-                                            use when the user asks to verify everything or the change is
-                                            deliberately wide. It never narrows below the verifier's own
-                                            decision; first builds always run full.
-                                            Verdicts: pass | incomplete | defects | blocked | unparseable.
-                                            A clean pass is the ONLY way a change completes: it PROMOTES
-                                            the code to the live app (first build → live DB created
-                                            fresh from migrations; update → new migrations apply to the
-                                            real data) and tears the dev env down. 35-minute ceiling.
-agent_app_restart(project_id)               Stop + full launch pipeline.
-agent_app_report_progress(project_id, ...)  Creation-phase progress. No-op once the project runs.
-agent_app_report_finding(project_id,        Inside a factory FIX round. ruled_out: causes you PROVED
-  ruled_out?, blocked_question?)            innocent, with the evidence that killed each — every later
-                                            round is a fresh run and re-tests anything you did not
-                                            record. blocked_question: ends the build cleanly and puts
-                                            ONE question to the user (a design decision, an account
-                                            that is not connected, a credential). Never use it to
-                                            escape a hard bug — a bug is yours while budget remains.
-agent_app_usage(project_id)                 Returns the project's operating manual: path, live data
-                                            schema, exact agent-app CLI commands. Call this FIRST when
-                                            working on an existing project.
-agent_app_http(project_id, method, path)    FALLBACK HTTP access — prefer the agent-app CLI. PocketBase
-                                            admin endpoints (/api/collections) are superuser-only;
-                                            use /api/collections/<name>/records.
-agent_app_marketplace_list() /
-agent_app_marketplace_install(app_id, ...)  Install pre-built marketplace apps. As-is installs skip
-                                            walk_verify. Marketplace source branch: settings.json
-                                            agent_app.marketplace_ref (default "" = main; env
-                                            CRAFTBOT_MARKETPLACE_REF overrides one run). Only touch
-                                            it to test a non-main marketplace branch. Source: GitHub
-                                            CraftOS-dev/agent-app-collection, falling back to
-                                            CraftOS-dev/living-ui-marketplace. "Could not fetch
-                                            catalogue: ..." = both unreachable (retry later, then tell
-                                            the user); "App '<id>' not found in marketplace repo" = list
-                                            again.
-agent_app_import_zip(zip_path) /
-agent_app_import(source)                    Import a Agent App project from ZIP / local folder / git URL.
-                                            The ZIP import accepts Agent App projects only. Through
-                                            agent_app_import, non-Agent-App sources register as external apps: craftbot.json
-                                            (install/build/start/health verbs) + an operations.json that
-                                            maps declared ops onto the app's own endpoints via an A2App
-                                            adapter on the assigned port. agent-app ops / agent-app run (and raw HTTP
-                                            with the project's .agent-token) work against them; agent-app data
-                                            does not. If the app has no server API, leave operations
-                                            empty — never invent verbs or map direct DB writes.
-agent_app_ops_verify(project_id, op_names?) EXTERNAL apps only: verifies operations.json against the
-                                            RUNNING app — invokes every non-destructive op FOR REAL
-                                            through the adapter (destructive ops are shape-checked).
-                                            Run during adoption after notify_ready and after every
-                                            operations.json edit; the import isn't done until it passes.
-agent_app_convert(source, ...)              Rebuild a foreign app as a Agent App: fresh scaffold, original kept
-                                            in reference/source/, requirements synthesized,
-                                            supervised build dispatched. Always a native rebuild; to keep a
-                                            foreign app running as-is, use agent_app_import.
-```
-
-App-to-agent requests require user review in CraftBot's approval modal at launch or after new/changed trigger definitions are delivered. This applies to imported, marketplace, newly created, and evolved apps. Never write approval records or ask for consent after a trigger fires; direct the user to Review requests on the app page if requests are off.
-
-### Data and ops: the agent-app CLI
-
-Read/write a project's live data with the agent-app CLI via `run_shell` (absolute paths required):
-
-```
-node <craftbot_root>/agent-app/tools/src/cli.ts run  <project_path> <op-name> --param value
-node <craftbot_root>/agent-app/tools/src/cli.ts ops  <project_path> [area]
-node <craftbot_root>/agent-app/tools/src/cli.ts data <project_path> schema
-node <craftbot_root>/agent-app/tools/src/cli.ts data <project_path> <collection> list|create|update|delete ...
-```
-
-Prefer a declared operation (`run`) over a raw `data` write: an operation runs the app's own rules (conversions, cascades, file and workbook write-backs), while `data` writes the record as-is. `ops <project_path> <area>` explains every param of one area (e.g. `notes`), including allowed values; operations take dates as YYYY-MM-DD. `agent_app_usage(project_id)` returns the exact commands for a given project, with its operations listed. Use `agent_app_http` only when the CLI cannot do it. While a code change is in progress, agent writes are routed to the dev instance — test writes to an app's real data are refused.
-
-CLI sign-in errors: "Could not sign in to <app>: PocketBase rate-limits sign-ins (HTTP 429 ...)" → wait a minute, retry once. "Could not sign in to <app> as its superuser ... the credentials in .superuser do not match ..." → `agent_app_restart(project_id)`, then retry; never edit `.superuser`.
-
-### Sharing (user-only)
-
-No action shares an app: the user shares it from Settings > Agent App with `Create LAN Link` or `Create Tunnel` (a cloudflared public link, up to 120 s to come up). Errors the user may paste: "Start the app before sharing it." / "This app has no access token ... Restart the app and try again." → `agent_app_restart(project_id)`; "cloudflared didn't come up. More info in <log>" → read `<project>/logs/cloudflared.log`; "This computer isn't connected to a local network." → no LAN link possible, offer the public one.
-
-### Build / delivery lifecycle (one flow for builds and modifies)
-
-```
-write code in the project dir → notify_ready (validation gate + boot of the
-        DEV env: the project's own tree (nothing copied), hidden port, fresh
-        schema-only DB, logs under _shadow/<project>/<boot-id>/logs/)
-        → walk_verify drives the dev instance → clean pass PROMOTES:
-        live app boots the new code (first build: live DB created fresh from
-        migrations; update: new migrations apply to real data), dev env
-        torn down, ready announced by the factory host
-```
-
-- The factory host owns retries, fix-mission dispatch, and the "ready" announcement. Do not author success status messages for a build yourself.
-- Any modify must append a dated bullet to the `## Changes` section of `reference/requirements.md` — walk_verify checks the app against that file, so a stale spec means a wrong verdict.
-- **Live data lives at `<project>/pb/pb_data/data.db`, and its PRESENCE is what decides first-build vs update**. NEVER hand-delete or reset `pb/pb_data/` — that turns the next promote into a "first build" and the live DB is recreated empty.
-- **Backups**: every native app's live data is auto-backed-up to `workspace/agent_app/_backups/<project_id>/` (scheduled daily + a pre-update backup taken right before every deploy onto existing live data — if that backup fails, the deploy is ABORTED; fix the backup error, don't bypass). Backups survive app deletion. Restore is a user-only operation from the UI; you cannot trigger it.
-
-### Skills
-
-```
-agent-app-creator     start a new project (wizard, requirements, scaffold)
-agent-app-modify      change an existing project (features, layout, fixes)
-agent-app-manager     list, inspect, restart projects
-agent-app-importer    marketplace install + import from ZIP / folder / git
-```
-
-Prefer these via slash (`/agent-app-creator`) or LLM selection — they encode the right action sequence.
-
-### Design rules
-
-Before creating any project, read `GLOBAL_AGENT_APP.md` (colors, theme behavior, always-enforced component/UX rules, optional rules, user custom rules). Apply global rules first; override only on explicit user instruction, and record project-specific overrides in the project's own `AGENT_APP.md`. Edit GLOBAL_AGENT_APP.md only when the user gives a new universal rule — confirm scope first, same pattern as FORMAT.md.
-
-Device access: an app's frame in CraftBot may request the microphone, camera, screen capture, clipboard and fullscreen through the standard browser APIs (from a user gesture; the browser still asks the user). They fail over a LAN share link (plain http).
-
-### Editing an existing project
-
-```
-1. agent_app_usage(project_id) — get the operating manual.
-2. Read the project's AGENT_APP.md (plan/index + file-ownership map) and reference/requirements.md.
-3. Respect ownership: frontend/src/app/, pb/pb_hooks/ops.pb.js, pb/pb_migrations/ are editable;
-   frontend/src/kit/ and _-prefixed pb_hooks are system-managed — never edit.
-4. Append the change to requirements.md "## Changes", then notify_ready → walk_verify.
-```
-
-When a project misbehaves: grep `logs/pocketbase.log` (server side) and `logs/frontend_console.log` (browser console) first.
-
-### Pitfalls
-
-- Hand-writing a scaffold instead of `agent_app_scaffold`. Manual scaffolds miss the kit, ports, and registration.
-- Editing `frontend/src/kit/` or system-managed pb_hooks. They are re-vendored and your edits are lost.
-- Skipping the `reference/requirements.md` update on modify. walk_verify then verifies against a stale spec.
-- Renaming a project directory by hand. `manifest.json` (project root) is the source of truth for identity and ports.
-- Deleting or resetting `pb/pb_data/` to "fix" a data problem. Its existence is the first-build-vs-update signal; removing it makes the next promote recreate the live DB from scratch. Data problems go through migrations or the agent-app CLI.
-- Using `agent_app_http` against `/api/collections` admin endpoints. Superuser-only; use record endpoints or the agent-app CLI.
-- Putting project-specific design changes in GLOBAL_AGENT_APP.md instead of the project's AGENT_APP.md.
-- Launch fails with "superuser upsert failed ... PocketBase did not finish within 600s": PocketBase's startup (migrations, pruning a huge request log) ran over 10 minutes. Read `logs/pocketbase.log` and tell the user; never delete `pb/pb_data/` or edit `.superuser`.
-
----
 
 ## Actions
 
@@ -1444,12 +1274,9 @@ proactive / scheduler    schedule_task, scheduled_task_list, schedule_task_toggl
                          remove_scheduled_task, recurring_add, recurring_read,
                          recurring_update_task, recurring_remove
 
-agent_app                agent_app_scaffold, agent_app_list_projects, agent_app_notify_ready,
-                         agent_app_walk_verify, agent_app_restart, agent_app_report_progress,
-                         agent_app_report_finding, agent_app_http, agent_app_usage,
-                         agent_app_marketplace_list,
-                         agent_app_marketplace_install, agent_app_import_zip, agent_app_import,
-                         agent_app_convert, agent_app_ops_verify
+agent_app                agent_app_scaffold, agent_app_framework_list
+agent_app_framework      agent_app_framework_command, agent_app_framework_workflow,
+                         agent_app_framework_verification
 
 per-integration sets     Discord, Slack, Telegram (bot/user), Notion, LinkedIn, Jira, GitHub,
                          Outlook, WhatsApp, Twitter, HubSpot, Stripe, LINE, Lark (+calendar/drive),
@@ -2607,10 +2434,10 @@ docx, pptx, xlsx, pdf        document generation per file format
 file-format                  format normalization
 mini-browser                 operate websites in the Mini Browser (live, user's logins)
 playwright-mcp               headless Playwright MCP (scripted checks, app verification)
-agent-app-creator,
-agent-app-modify,
-agent-app-manager,
-agent-app-importer           Agent App project lifecycle
+framework-creator,
+framework-modify,
+framework-operator,
+framework-importer           Agent App project lifecycle
 ```
 
 To enumerate the full installed set: `list_folder skills/` or `read_file app/config/skills_config.json`. To inspect a specific skill before enabling: `read_file skills/<name>/SKILL.md`.
@@ -4789,7 +4616,7 @@ AGENT_APP.md              per-project doc inside a Agent App project            
 Agent App                 generated React + PocketBase apps served from CraftBot           ## Agent App
 LLM                       large language model used for text generation                    ## Models
 LLMConsecutiveFailureError  circuit-breaker on repeated LLM failures                       ## Errors / ## Models
-agent-app CLI                   node CLI for Agent App data/ops (agent-app/tools)             ## Agent App
+agent-app CLI                   Bundled CLI for Agent App lifecycle and A2App operations             ## Agent App
 manage_integration_account  account admin action: set_primary / set_alias / set_listening  ## Integrations
 MCP                       Model Context Protocol; external tool servers                    ## MCP
 mcp_<server_name>         action set name registered when an MCP server connects           ## MCP / ## Action Sets

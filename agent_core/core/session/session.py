@@ -38,7 +38,7 @@ class SessionType:
     BASE_ACTION_SETS: Dict[str, Tuple[str, ...]] = {
         MAIN: (),
         CHAT: (),
-        AGENT_APP: ("file_operations", "code_execution", "agent_app"),
+        AGENT_APP: ("file_operations", "code_execution", "agent_app_framework"),
     }
 
 
@@ -73,7 +73,7 @@ class Session:
         selected_skills: Skills currently loaded into this session.
         todos: Current todo list for the active run.
         workspace_dir: Persistent scratch directory for this session.
-        agent_app_project_id: Backing project id for agent_app sessions.
+        agent_app_project_id: Historical identity retained for older saved conversations.
         agent_app_framework_key: Registry identity for a framework app's dedicated
             session, separate from the legacy project id.
         gui_mode: Whether this session drives the GUI action space.

@@ -26,7 +26,7 @@ def get_host():
 
 
 class FrameworkHost:
-    def __init__(self, agent, changed=None, store=None, legacy_manager=None):
+    def __init__(self, agent, changed=None, store=None):
         global _host
         self.agent = agent
         self.changed = changed or no_ui_change
@@ -43,12 +43,7 @@ class FrameworkHost:
         from app.agent_app.framework_sharing import FrameworkSharing
 
         self.maintenance = FrameworkMaintenance(self)
-        self.sharing = FrameworkSharing(self, legacy_manager)
-        self.migration = None
-        if legacy_manager is not None:
-            from app.agent_app.framework_migration import FrameworkMigration
-
-            self.migration = FrameworkMigration(self, legacy_manager)
+        self.sharing = FrameworkSharing(self)
         _host = self
         for job in self.store.all("install"):
             if job["status"] == "running":
@@ -710,25 +705,7 @@ class FrameworkHost:
 
     async def request(self, data):
         operation = data.get("operation")
-        if operation == "migration":
-            if not self.migration:
-                raise ValueError("Legacy migration is unavailable in this host.")
-            action = data.get("action")
-            if action == "inventory":
-                return self.migration.inventory()
-            if action == "audit":
-                return await asyncio.to_thread(self.migration.audit, data["projectId"])
-            if action == "convert":
-                return await self.migration.conversion(data["projectId"])
-            if action == "cutover":
-                return await self.migration.cutover(
-                    data["projectId"], data["path"], data["appId"], data.get("confirm")
-                )
-            if action == "rollback":
-                return await self.migration.rollback(
-                    data["migrationId"], data.get("confirm")
-                )
-            raise ValueError("Choose inventory, convert, cutover or rollback.")
+
         if operation == "snapshot":
             return await self.snapshot()
         if operation == "task_status":

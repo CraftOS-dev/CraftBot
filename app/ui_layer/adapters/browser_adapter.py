@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import base64
 import functools
-import hashlib
 import json
 import os
 import re
@@ -16,7 +15,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path, PurePosixPath, PureWindowsPath
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set
 
 from aiohttp.client_exceptions import ClientConnectionResetError
 
@@ -144,17 +143,10 @@ from app.ui_layer.events.change_detection import ChangeDetection
 
 from app.ui_layer.events.resource_changes import (
     get_notifier as get_resource_notifier,
-    Resource,
     notify_resource_changed,
     resource_changes_for_message,
 )
-from app.agent_app import (
-    AgentAppManager,
-    set_agent_app_manager,
-    register_broadcast_callbacks,
-    make_todo_broadcast_hook,
-)
-from app.agent_app.sharing import ShareError
+from app.agent_app.broadcast import register_wizard_callback, make_todo_broadcast_hook
 
 if TYPE_CHECKING:
     from app.ui_layer.controller.ui_controller import UIController
@@ -931,9 +923,7 @@ class BrowserAdapter(InterfaceAdapter):
         self._channels: Dict[Any, ClientChannel] = {}
         self._lane_locks: Dict[tuple, asyncio.Lock] = {}
         self._lane_tasks: Set[asyncio.Task] = set()
-        # Latest build todo list per Agent App, replayed to reconnecting tabs.
-        self._agent_app_todos: Dict[str, list] = {}
-        # One shared read-only framework query, independent of legacy projects.
+        # One shared read-only query of the framework registry.
         self._framework_app_list_task: Optional[asyncio.Task] = None
         self._framework_app_list_version = 0
         self._framework_lifecycle_pending: Dict[str, dict] = {}
@@ -965,70 +955,17 @@ class BrowserAdapter(InterfaceAdapter):
         # Staged bundle bytes keyed by short-lived token (inspect → import flow)
         self._staged_bundles: Dict[str, bytes] = {}
 
-        # Agent App manager
-        self._agent_app_manager = AgentAppManager(workspace_root=AGENT_WORKSPACE_ROOT)
-        # Wizard: reference-image VLM notes cached between interview and
-        # finalize (keyed by wizardId) so images are described only once.
         self._wizard_image_notes: Dict[str, List[str]] = {}
-        # Marketplace card thumbnails: the catalogue's preview URLs keyed by
-        # their hash (only these are proxied), and the resized WebP bytes.
-        self._marketplace_previews: Dict[str, str] = {}
-        self._marketplace_thumbnails: Dict[Tuple[str, int], bytes] = {}
-        # Bind session manager and trigger service for project sessions
-        agent = self._controller.agent
         from app.agent_app.framework_host import FrameworkHost
 
+        agent = self._controller.agent
         self._framework_host = getattr(agent, "framework_host", None)
         if self._framework_host is None or self._framework_host.closing:
-            self._framework_host = FrameworkHost(agent, self._framework_changed, legacy_manager=self._agent_app_manager)
+            self._framework_host = FrameworkHost(agent, self._framework_changed)
+            agent.framework_host = self._framework_host
         else:
-            from app.agent_app.framework_migration import FrameworkMigration
-
             self._framework_host.changed = self._framework_changed
-            self._framework_host.sharing.tunnel = self._agent_app_manager.sharing.channel('tunnel')
-            self._framework_host.migration = FrameworkMigration(self._framework_host, self._agent_app_manager)
-        self._agent_app_manager.bind_session_manager(
-            agent.session_manager, agent.trigger_service
-        )
-
-        # Clean up orphan processes and folders from previous sessions
-        self._agent_app_manager.cleanup_on_startup()
-
-        # Start watchdog to monitor running Agent App processes
-        self._agent_app_manager.start_watchdog()
-
-        # Auto-launch projects that have auto_launch enabled
-        asyncio.create_task(self._agent_app_manager.auto_launch_projects())
-
-        # Register global accessor and callbacks for Agent App actions
-        set_agent_app_manager(self._agent_app_manager)
-        register_broadcast_callbacks(
-            broadcast_ready=self.broadcast_agent_app_ready,
-            broadcast_progress=self.broadcast_agent_app_progress,
-            broadcast_todos=self.broadcast_agent_app_todos,
-            broadcast_created=self.broadcast_agent_app_created,
-            broadcast_build_event=self.broadcast_agent_app_build_event,
-            broadcast_wizard_open=self.broadcast_agent_app_wizard_open,
-        )
-
-        # Subscribe the Agent App module to SessionManager todo updates so
-        # that the agent's build breakdown streams to the browser automatically.
-        agent.session_manager.add_post_update_todos_hook(make_todo_broadcast_hook())
-
-        # READ-ONLY build observer: derive construction-dock build events from
-        # the actions the agent already performs (write_file / stream_edit /
-        # agent_app_scaffold / agent_app_notify_ready). These hooks are
-        # single-callback and currently unset; the executor wraps them in
-        # try/except and the observer swallows all exceptions, so this can
-        # never affect a build. It reads inputs/outputs only, mutates nothing.
-        try:
-            from app.agent_app import construction_events
-
-            on_start, on_end = construction_events.make_action_hooks()
-            agent.action_manager._on_action_start = on_start
-            agent.action_manager._on_action_end = on_end
-        except Exception as e:
-            logger.warning(f"[AGENT_APP] build-event observer not attached: {e}")
+        register_wizard_callback(self.broadcast_agent_app_wizard_open)
 
     @property
     def theme_adapter(self) -> ThemeAdapter:
@@ -1154,6 +1091,7 @@ class BrowserAdapter(InterfaceAdapter):
 
     async def _on_start(self) -> None:
         """Start the browser interface."""
+        self._controller.agent.session_manager.add_post_update_todos_hook(make_todo_broadcast_hook(self._broadcast))
         from aiohttp import web
         from app.onboarding import onboarding_manager
         import uuid
@@ -1205,20 +1143,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         )
 
         # Agent App export/import routes
-        self._app.router.add_get(
-            "/api/agent-app/{project_id}/export", self._agent_app_export_handler
-        )
         self._app.router.add_post(
             "/api/agent-app/import", self._agent_app_import_handler
         )
         self._app.router.add_post("/api/agent-app/stage", self._agent_app_stage_handler)
-        self._app.router.add_get(
-            "/api/agent-app/icon/{project_id}", self._agent_app_icon_handler
-        )
-        self._app.router.add_get(
-            "/api/agent-app/marketplace-thumbnail/{key}",
-            self._marketplace_thumbnail_handler,
-        )
 
         # Workspace and chat HTTP upload routes
         self._app.router.add_post(
@@ -1232,15 +1160,6 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         self._app.router.add_get("/api/profile/export", self._profile_export_handler)
         self._app.router.add_post("/api/profile/inspect", self._profile_inspect_handler)
         self._app.router.add_post("/api/profile/import", self._profile_import_handler)
-
-        # Integration bridge routes (Agent App → external APIs)
-        from app.agent_app.integration_bridge import IntegrationBridge
-
-        self._integration_bridge = IntegrationBridge(
-            self._agent_app_manager,
-            on_trigger_blocked=self._broadcast_agent_app_trigger_blocked,
-        )
-        self._integration_bridge.register_routes(self._app)
 
         # Serve Vite-built frontend (production)
         frontend_dist = Path(__file__).parent.parent / "browser" / "frontend" / "dist"
@@ -1324,13 +1243,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             self._framework_app_list_task.cancel()
             await asyncio.gather(self._framework_app_list_task, return_exceptions=True)
             self._framework_app_list_task = None
-        # Stop all running Agent App projects
-        if self._agent_app_manager:
-            await self._agent_app_manager.stop_all_projects()
-
-        # Close integration bridge HTTP client
-        if hasattr(self, "_integration_bridge"):
-            await self._integration_bridge.cleanup()
+        register_wizard_callback(None)
 
         # Close the Mini Browser while the loop still runs (Chromium holds a
         # lock on its profile until it exits).
@@ -1452,23 +1365,6 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 {
                     "type": "skill_meta",
                     "data": self._get_skill_meta(),
-                }
-            )
-            # Push the Agent App list on connect instead of relying on the
-            # client to request it. The frontend's request is sent from an
-            # onOpen handler registered after React mounts; when the socket
-            # opens before that (middleware connects during store bootstrap),
-            # the request was never sent and the side panel stayed empty
-            # until the next reconnect.
-            channel.send_json(
-                {
-                    "type": "agent_app_list",
-                    "data": {
-                        "success": True,
-                        "projects": [
-                            p.to_dict() for p in self._agent_app_manager.list_projects()
-                        ],
-                    },
                 }
             )
             # Do not wait for CLI probes before entering the socket reader.
@@ -2162,57 +2058,6 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         elif msg_type == "figma_canvas_control":
             await self._handle_figma_canvas_control(data)
 
-        # Agent App settings handlers
-        elif msg_type == "agent_app_settings_get":
-            await self._handle_agent_app_settings_get()
-
-        elif msg_type == "agent_app_project_setting_update":
-            project_id = data.get("projectId", "")
-            setting = data.get("setting", "")
-            value = data.get("value")
-            await self._handle_agent_app_project_setting_update(
-                project_id, setting, value
-            )
-
-        elif msg_type == "agent_app_backups_list":
-            await self._handle_agent_app_backups_list(data.get("projectId", ""))
-
-        elif msg_type == "agent_app_backup_now":
-            await self._handle_agent_app_backup_now(data.get("projectId", ""))
-
-        elif msg_type == "agent_app_backup_restore":
-            await self._handle_agent_app_backup_restore(
-                data.get("projectId", ""),
-                data.get("filename", ""),
-                data.get("sourceProjectId") or None,
-            )
-
-        elif msg_type == "agent_app_backup_delete":
-            await self._handle_agent_app_backup_delete(
-                data.get("projectId", ""),
-                data.get("filename", ""),
-                orphan=bool(data.get("orphan", False)),
-            )
-
-        elif msg_type == "agent_app_marketplace_list":
-            await self._handle_marketplace_list()
-
-        elif msg_type == "agent_app_marketplace_install":
-            app_id = data.get("appId", "")
-            app_name = data.get("appName", "")
-            app_description = data.get("appDescription", "")
-            custom_fields = data.get("customFields", {})
-            # Run as background task so the WS loop stays unblocked for concurrent installs
-            asyncio.create_task(
-                self._handle_marketplace_install(
-                    app_id, app_name, app_description, custom_fields
-                )
-            )
-
-        elif msg_type == "agent_app_import":
-            source = data.get("source", "")
-            name = data.get("name", "External App")
-            asyncio.create_task(self._handle_agent_app_import(source, name))
 
         # Playbook catalogue handlers
         elif msg_type == "playbook_list":
@@ -2278,8 +2123,6 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             base_url = data.get("baseUrl")
             await self._handle_local_llm_pull_model(model, base_url)
         # Agent App handlers
-        elif msg_type == "agent_app_create":
-            await self._handle_agent_app_create(data)
 
         elif msg_type == "agent_app_wizard_interview":
             await self._handle_agent_app_wizard_interview(data)
@@ -2287,8 +2130,6 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         elif msg_type == "agent_app_wizard_finalize":
             await self._handle_agent_app_wizard_finalize(data)
 
-        elif msg_type == "agent_app_theme_update":
-            await self._handle_agent_app_theme_update(data)
 
         elif msg_type == "agent_app_list":
             await self._handle_agent_app_list()
@@ -2302,39 +2143,6 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         elif msg_type == "agent_app_framework_lifecycle":
             await self._handle_framework_app_lifecycle(data, ws)
 
-        elif msg_type == "agent_app_trigger_consent":
-            await self._handle_agent_app_trigger_consent(data)
-
-        elif msg_type == "agent_app_launch":
-            project_id = data.get("projectId", "")
-            await self._handle_agent_app_launch(project_id)
-
-        elif msg_type == "agent_app_stop":
-            project_id = data.get("projectId", "")
-            await self._handle_agent_app_stop(project_id)
-
-        elif msg_type == "agent_app_delete":
-            project_id = data.get("projectId", "")
-            await self._handle_agent_app_delete(
-                project_id, delete_backups=bool(data.get("deleteBackups", False))
-            )
-
-        elif msg_type == "agent_app_state_update":
-            await self._handle_agent_app_state_update(data)
-
-        elif msg_type == "agent_app_share_open":
-            await self._handle_agent_app_share(
-                data.get("projectId", ""), data.get("channel", ""), open_it=True
-            )
-
-        elif msg_type == "agent_app_share_close":
-            await self._handle_agent_app_share(
-                data.get("projectId", ""), data.get("channel", ""), open_it=False
-            )
-
-        elif msg_type == "agent_app_sharing_info":
-            project_id = data.get("projectId", "")
-            await self._handle_agent_app_sharing_info(project_id)
 
         # Update operations
         elif msg_type == "check_update":
@@ -3086,7 +2894,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         wizard_id = str(data.get("wizardId", ""))
         try:
             config = data.get("config") or {}
-            agent_app_dir = Path(self._agent_app_manager.agent_app_dir)
+            agent_app_dir = Path(AGENT_WORKSPACE_ROOT) / "agent_app"
             wizard.sweep_stale_staging(agent_app_dir)
 
             # Reference images are described once and reused at finalize.
@@ -3118,9 +2926,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             )
 
     async def _handle_agent_app_wizard_finalize(self, data: Dict[str, Any]) -> None:
-        """Wizard step 3: synthesize the requirements document, create the
-        project, move staged attachments in, queue the build run in the
-        project's session, and hand the frontend its projectId to navigate to."""
+        """Finish requirements gathering and open the framework app conversation."""
         from app.agent_app import wizard
 
         wizard_id = str(data.get("wizardId", ""))
@@ -3132,7 +2938,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             if not name or not description:
                 raise ValueError(tui("agentapp_name_desc_required"))
 
-            agent_app_dir = Path(self._agent_app_manager.agent_app_dir)
+            agent_app_dir = Path(AGENT_WORKSPACE_ROOT) / "agent_app"
             image_notes = self._wizard_image_notes.pop(wizard_id, None)
             if image_notes is None:
                 image_notes = await wizard.describe_staged_images(
@@ -3186,151 +2992,14 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 config, answers, image_notes
             )
 
-            auth_mode = str(config.get("authMode") or "none")
-            # stylePack is derived by the frontend from the theme catalog
-            # (style-bearing theme id, or "" for pinned color themes).
-            style_pack = str(config.get("stylePack") or "")
-            project = await self._agent_app_manager.create_project(
-                name=name,
-                description=description,
-                auth_mode=auth_mode,
-                style_pack=style_pack,
+            result = await wizard.start_framework_build(
+                self._framework_host, config, requirements_doc,
+                [str(p) for p in wizard.list_staged(agent_app_dir, wizard_id)],
             )
-
-            # Staged files: uploaded icon → app favicon, references →
-            # <project>/reference/. An uploaded icon wins over a lucide pick.
-            moved = wizard.move_staging_into_project(
-                agent_app_dir, wizard_id, Path(project.path)
-            )
-            if moved["icon"]:
-                project.icon = moved["icon"]
-                # Favicon injection edited the system-owned index.html —
-                # re-canonize hashes so the validation gate stays green.
-                try:
-                    await self._agent_app_manager.runner.kit_sync(Path(project.path))
-                except Exception as e:
-                    logger.warning(f"[AGENT_APP:WIZARD] re-canon failed: {e}")
-            elif str(config.get("icon", "")).startswith("lucide:"):
-                project.icon = str(config.get("icon"))
-
-            # The wizard's theme pick becomes the project's default display
-            # theme — the Agent App page adopts it (absent a local override)
-            # and pushes it to the app via the agentapp-theme protocol.
-            ui_theme = str(config.get("uiTheme") or "").strip()
-            if ui_theme:
-                project.ui_theme = {"themeId": ui_theme}
-            self._agent_app_manager._save_projects()
-
-            # The build's binding specification (walk-verify reads it too).
-            reference_dir = Path(project.path) / "reference"
-            reference_dir.mkdir(parents=True, exist_ok=True)
-            (reference_dir / "requirements.md").write_text(
-                requirements_doc, encoding="utf-8"
-            )
-
-            # Create the project's session BEFORE broadcasting so the project
-            # snapshot carries sessionId — the Agent App page keys its chat
-            # panel on project.sessionId, and nothing back-fills it later.
-            # (start_development_run reuses this session; ensure is idempotent.)
-            self._agent_app_manager.ensure_project_session(project)
-
-            # Same broadcast the plain create path uses — the store's
-            # agent_app_create handler adds the project tab.
-            await self._broadcast(
-                {
-                    "type": "agent_app_create",
-                    "data": {
-                        "success": True,
-                        "projectId": project.id,
-                        "project": project.to_dict(),
-                        "stylePack": style_pack,
-                    },
-                }
-            )
-
-            # Post the "what you asked for" summary as the first bubble in the
-            # PROJECT'S session (never main) — it heads the Agent App chat the
-            # user is auto-switched into, so the build has a visible cause.
-            try:
-                await self._display_chat_message(
-                    "System",
-                    f"**Agent App: {name}**\n\n{description}\n\n"
-                    "Building your app now — follow the progress here.",
-                    "system",
-                    session_id=project.session_id,
-                )
-            except Exception as e:
-                logger.debug(f"[AGENT_APP] create chat message failed: {e}")
-
-            await self._broadcast(
-                {
-                    "type": "agent_app_status",
-                    "data": {
-                        "projectId": project.id,
-                        "phase": "initializing",
-                        "progress": 10,
-                        "message": tui("agentapp_project_created"),
-                    },
-                }
-            )
-
-            # Queue the build run in the project's dedicated session.
-            session_id = await self._agent_app_manager.start_development_run(project.id)
-            if not session_id:
-                raise RuntimeError(tui("agentapp_dev_run_failed"))
-
-            # CHAT-PATH tail: tell the session that ran agent_app_scaffold
-            # which project resulted. Without this the origin agent's last
-            # knowledge is "no project created yet" — observed live
-            # 2026-08-05: asked to "add data to it", it searched the
-            # filesystem and then asked the user for the project id.
-            origin_session = str(data.get("originSessionId") or "").strip()
-            if origin_session:
-                # Persist for the machine's ready/stuck announcements — the
-                # created-trigger below only covers build START.
-                try:
-                    from app.factory.host_craftbot import get_factory_host
-
-                    get_factory_host().set_origin_session(project.id, origin_session)
-                except Exception as e:
-                    logger.debug(f"[AGENT_APP:WIZARD] origin persist failed: {e}")
-                try:
-                    from app.triggers import TriggerSource, TriggerSpec
-
-                    await self._agent_app_manager._trigger_service.emit(
-                        TriggerSpec(
-                            source=TriggerSource.AGENT_APP_CREATED,
-                            description=(
-                                f"FYI: the setup questions were answered — "
-                                f"Agent App '{project.name}' (project_id "
-                                f"{project.id}) has been created and its "
-                                "build is running in its own session. No "
-                                "action and no message needed: acknowledge "
-                                "silently with end_turn unless the user has "
-                                "asked for something. Remember the "
-                                "project_id for future requests about this "
-                                "app."
-                            ),
-                            priority=10,
-                            session_id=origin_session,
-                            payload={"project_id": project.id},
-                        )
-                    )
-                except Exception as e:
-                    logger.debug(
-                        f"[AGENT_APP:WIZARD] origin-session notify failed: {e}"
-                    )
-
-            await self._broadcast(
-                {
-                    "type": "agent_app_wizard_finalize",
-                    "data": {
-                        "success": True,
-                        "wizardId": wizard_id,
-                        "projectId": project.id,
-                    },
-                }
-            )
+            await self._broadcast({
+                "type": "agent_app_wizard_finalize",
+                "data": {"success": True, "wizardId": wizard_id, **result},
+            })
         except Exception as e:
             logger.error(f"[AGENT_APP:WIZARD] finalize failed: {e}")
             await self._broadcast(
@@ -3344,225 +3013,11 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
             )
 
-    async def _handle_agent_app_theme_update(self, data: Dict[str, Any]) -> None:
-        """Persist a project's display theme so it follows the user across
-        browsers ({"projectId", "theme": {"themeId", "customColors"}})."""
-        try:
-            project_id = str(data.get("projectId", ""))
-            theme = data.get("theme")
-            if project_id:
-                self._agent_app_manager.set_project_ui_theme(project_id, theme)
-                # Other tabs and browsers refetch the list, which carries uiTheme.
-                notify_resource_changed(Resource.AGENT_APPS, [project_id])
-        except Exception as e:
-            logger.debug(f"[AGENT_APP] theme update failed: {e}")
-
-    async def _handle_agent_app_create(self, data: Dict[str, Any]) -> None:
-        """Create a new Agent App project."""
-        try:
-            name = data.get("name", "")
-            description = data.get("description", "")
-            features = data.get("features", [])
-            data_source = data.get("dataSource")
-            theme = data.get("theme", "system")
-
-            if not name or not description:
-                await self._broadcast(
-                    {
-                        "type": "agent_app_error",
-                        "data": {
-                            "projectId": "",
-                            "error": tui("agentapp_name_desc_required"),
-                        },
-                    }
-                )
-                return
-
-            # Create the project (directory/template)
-            auth_mode = data.get("authMode", "none")
-            layout = data.get("layout", "")
-            style_pack = data.get("stylePack", "")
-            ref_files = data.get("referenceFiles") or []
-
-            # Fold wizard choices into the build description so they land in
-            # the task instruction and reference/requirements.md.
-            extras = []
-            if layout and layout != "free":
-                extras.append(f"Layout preference: {layout}")
-            if style_pack:
-                extras.append(f"Style pack (visual theme): {style_pack}")
-            if ref_files:
-                names = ", ".join(Path(f).name for f in ref_files[:10])
-                extras.append(
-                    f"Reference files (design sketches/docs) in reference/: {names} — "
-                    "study them before designing the UI."
-                )
-            if extras:
-                description = description + "\n\n" + "\n".join(extras)
-
-            project = await self._agent_app_manager.create_project(
-                name=name,
-                description=description,
-                features=features,
-                data_source=data_source,
-                theme=theme,
-                auth_mode=auth_mode,
-                style_pack=style_pack,
-            )
-
-            # Move staged reference files into the project.
-            if ref_files:
-                ref_dir = Path(project.path) / "reference"
-                ref_dir.mkdir(parents=True, exist_ok=True)
-                for f in ref_files[:10]:
-                    src = Path(f)
-                    staging_root = (
-                        Path(self._agent_app_manager.agent_app_dir) / "_staging"
-                    )
-                    if src.exists() and staging_root in src.parents:
-                        await asyncio.to_thread(
-                            shutil.move, str(src), str(ref_dir / src.name)
-                        )
-
-            # Create the session BEFORE broadcasting so the project snapshot
-            # carries sessionId (the Agent App page's chat panel keys on it;
-            # nothing back-fills it later). start_development_run reuses it.
-            self._agent_app_manager.ensure_project_session(project)
-
-            # Broadcast project created
-            await self._broadcast(
-                {
-                    "type": "agent_app_create",
-                    "data": {
-                        "success": True,
-                        "projectId": project.id,
-                        "project": project.to_dict(),
-                        "stylePack": style_pack,
-                    },
-                }
-            )
-
-            # Post the "what you asked for" summary as the first bubble in the
-            # PROJECT'S session (never main) — it heads the Agent App chat the
-            # user is auto-switched into, so the build has a visible cause.
-            try:
-                await self._display_chat_message(
-                    "System",
-                    f"**Agent App: {name}**\n\n{description}\n\n"
-                    "Building your app now — follow the progress here.",
-                    "system",
-                    session_id=project.session_id,
-                )
-            except Exception as e:
-                logger.debug(f"[AGENT_APP] create chat message failed: {e}")
-
-            # Broadcast initial status update
-            await self._broadcast(
-                {
-                    "type": "agent_app_status",
-                    "data": {
-                        "projectId": project.id,
-                        "phase": "initializing",
-                        "progress": 10,
-                        "message": tui("agentapp_project_created"),
-                    },
-                }
-            )
-
-            # Queue the build run in the project's dedicated session.
-            # The manager handles: session creation, status update, trigger firing.
-            session_id = await self._agent_app_manager.start_development_run(project.id)
-
-            if session_id:
-                logger.info(
-                    f"[AGENT_APP] Queued build run in session {session_id} "
-                    f"for project {project.id}"
-                )
-            else:
-                logger.error(
-                    f"[AGENT_APP] Failed to start development run for project {project.id}"
-                )
-                await self._broadcast(
-                    {
-                        "type": "agent_app_error",
-                        "data": {
-                            "projectId": project.id,
-                            "error": tui("agentapp_dev_run_failed"),
-                        },
-                    }
-                )
-
-        except Exception as e:
-            logger.error(f"[AGENT_APP] Error creating project: {e}")
-            await self._broadcast(
-                {
-                    "type": "agent_app_error",
-                    "data": {
-                        "projectId": "",
-                        "error": str(e),
-                    },
-                }
-            )
 
     async def _handle_agent_app_list(self) -> None:
-        """Get list of all Agent App projects."""
         self._schedule_framework_app_list()
-        try:
-            projects = self._agent_app_manager.list_projects()
-            await self._broadcast(
-                {
-                    "type": "agent_app_list",
-                    "data": {
-                        "success": True,
-                        "projects": [p.to_dict() for p in projects],
-                    },
-                }
-            )
-            # Replay buffered build events for any in-progress build so a
-            # reconnecting client repopulates the construction dock feed.
-            try:
-                from app.agent_app import construction_events
-
-                live_ids = {p.id for p in projects}
-                for stale_id in [
-                    pid for pid in self._agent_app_todos if pid not in live_ids
-                ]:
-                    del self._agent_app_todos[stale_id]
-                for p in projects:
-                    if getattr(p, "status", None) not in ("creating", "error"):
-                        continue
-                    todos = self._agent_app_todos.get(p.id)
-                    if todos:
-                        await self._broadcast(
-                            {
-                                "type": "agent_app_todos",
-                                "data": {"projectId": p.id, "todos": todos},
-                            }
-                        )
-                    events = construction_events.get_buffered_events(p.id)
-                    if events:
-                        await self._broadcast(
-                            {
-                                "type": "agent_app_build_events_replay",
-                                "data": {"projectId": p.id, "events": events},
-                            }
-                        )
-            except Exception as e:
-                logger.debug(f"[AGENT_APP] build-event replay skipped: {e}")
-        except Exception as e:
-            logger.error(f"[AGENT_APP] Error listing projects: {e}")
-            await self._broadcast(
-                {
-                    "type": "agent_app_list",
-                    "data": {
-                        "success": False,
-                        "error": str(e),
-                    },
-                }
-            )
 
     async def _framework_changed(self) -> None:
-        self._schedule_framework_app_list()
         await self._handle_agent_app_list()
         await self._handle_session_list()
 
@@ -3680,8 +3135,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 # A newly connected tab may have joined this obsolete read after
                 # the newer snapshot was broadcast. Give it a fresh observation.
                 continue
-            # A separate snapshot keeps canonical framework IDs out of the legacy
-            # manager, its persisted projects, lifecycle controls and iframe host.
+            # Publish registry identity and status as one coherent snapshot.
             await self._publish_framework_app_list(result, version)
             return
 
@@ -3702,228 +3156,6 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             result = {**result, "data": {**result["data"], "aliases": aliases}}
         await self._broadcast({"type": "agent_app_framework_list", "data": result})
 
-    async def _broadcast_agent_app_trigger_blocked(
-        self, project_id: str, trigger: str, request_id: str
-    ) -> None:
-        from app.agent_app.trigger_consent import status
-
-        project = self._agent_app_manager.get_project(project_id)
-        if project is None:
-            return
-        await self._broadcast(
-            {
-                "type": "agent_app_trigger_blocked",
-                "data": {
-                    "projectId": project_id,
-                    "projectName": project.name,
-                    "trigger": trigger,
-                    "requestId": request_id,
-                    "consent": status(project),
-                },
-            }
-        )
-
-    async def _handle_agent_app_trigger_consent(self, data: dict) -> None:
-        """An authenticated UI decision about the definitions actually displayed."""
-        from app.agent_app.trigger_consent import decide, status
-
-        project_id = data.get("projectId", "")
-        project = self._agent_app_manager.get_project(project_id)
-        error = None
-        consent = None
-        try:
-            if project is None:
-                raise ValueError("App not found.")
-            if not isinstance(data.get("allow"), bool):
-                raise ValueError("Choose whether to allow agent requests.")
-            consent = decide(project, data.get("revision", ""), data["allow"])
-        except Exception as exc:
-            error = str(exc)
-            if project is not None:
-                consent = status(project)
-        await self._broadcast(
-            {
-                "type": "agent_app_trigger_consent",
-                "data": {
-                    "success": error is None,
-                    "projectId": project_id,
-                    "requestId": data.get("requestId"),
-                    "consent": consent,
-                    "error": error,
-                },
-            }
-        )
-        if error is None:
-            await self._handle_agent_app_list()
-
-    async def _handle_agent_app_launch(self, project_id: str) -> None:
-        """Launch a Agent App project."""
-        try:
-            success = await self._agent_app_manager.launch_project(project_id)
-            project = self._agent_app_manager.get_project(project_id)
-
-            if success and project:
-                await self._broadcast(
-                    {
-                        "type": "agent_app_launch",
-                        "data": {
-                            "success": True,
-                            "projectId": project_id,
-                            "url": project.url,
-                            "port": project.port,
-                            "triggerConsent": project.trigger_consent_status(),
-                        },
-                    }
-                )
-            else:
-                await self._broadcast(
-                    {
-                        "type": "agent_app_launch",
-                        "data": {
-                            "success": False,
-                            "projectId": project_id,
-                            "error": project.error if project else "Project not found",
-                        },
-                    }
-                )
-        except Exception as e:
-            logger.error(f"[AGENT_APP] Error launching project: {e}")
-            await self._broadcast(
-                {
-                    "type": "agent_app_launch",
-                    "data": {
-                        "success": False,
-                        "projectId": project_id,
-                        "error": str(e),
-                    },
-                }
-            )
-
-    async def _handle_agent_app_stop(self, project_id: str) -> None:
-        """Stop a running Agent App project."""
-        try:
-            success = await self._agent_app_manager.stop_project(project_id)
-            await self._broadcast(
-                {
-                    "type": "agent_app_stop",
-                    "data": {
-                        "success": success,
-                        "projectId": project_id,
-                    },
-                }
-            )
-        except Exception as e:
-            logger.error(f"[AGENT_APP] Error stopping project: {e}")
-            await self._broadcast(
-                {
-                    "type": "agent_app_stop",
-                    "data": {
-                        "success": False,
-                        "projectId": project_id,
-                        "error": str(e),
-                    },
-                }
-            )
-
-    async def _handle_agent_app_delete(
-        self, project_id: str, delete_backups: bool = False
-    ) -> None:
-        """Delete a Agent App project (and its dedicated session)."""
-        try:
-            project = self._agent_app_manager.get_project(project_id)
-            session_id = project.session_id if project else None
-
-            success = await self._agent_app_manager.delete_project(
-                project_id, delete_backups=delete_backups
-            )
-            try:
-                from app.agent_app import construction_events
-
-                construction_events.clear_buffer(project_id)
-            except Exception:
-                pass
-            await self._broadcast(
-                {
-                    "type": "agent_app_delete",
-                    "data": {
-                        "success": success,
-                        "projectId": project_id,
-                    },
-                }
-            )
-            # The manager deletes the project's session as part of
-            # delete_project — tell the sidebar to drop it too.
-            if success and session_id:
-                await self._broadcast(
-                    {
-                        "type": "session_deleted",
-                        "data": {"sessionId": session_id},
-                    }
-                )
-        except Exception as e:
-            logger.error(f"[AGENT_APP] Error deleting project: {e}")
-            await self._broadcast(
-                {
-                    "type": "agent_app_delete",
-                    "data": {
-                        "success": False,
-                        "projectId": project_id,
-                        "error": str(e),
-                    },
-                }
-            )
-
-    async def _agent_app_export_handler(self, request: "web.Request") -> "web.Response":
-        """HTTP handler: download a Agent App project as a ZIP file."""
-        from aiohttp import web
-
-        project_id = request.match_info["project_id"]
-        try:
-            zip_path = self._agent_app_manager.export_project_zip(project_id)
-            project = self._agent_app_manager.get_project(project_id)
-            filename = (
-                f"{project.name.replace(' ', '_')}.zip"
-                if project
-                else f"{project_id}.zip"
-            )
-
-            response = web.FileResponse(
-                zip_path,
-                headers={
-                    "Content-Disposition": f'attachment; filename="{filename}"',
-                    "Content-Type": "application/zip",
-                },
-            )
-            # Schedule cleanup after response is sent
-            response._zip_cleanup_path = zip_path
-            return response
-        except (ValueError, FileNotFoundError) as e:
-            from agent_core.core.errors import ErrorCategory, ErrorInfo, redact
-            from app.errors.web import error_json_response
-
-            return error_json_response(
-                ErrorInfo(
-                    category=ErrorCategory.NOT_FOUND,
-                    code="AGENT_APP_EXPORT_NOT_FOUND",
-                    title="Export not found",
-                    message=redact(str(e)),
-                ),
-                status=404,
-            )
-        except Exception as e:
-            logger.error(f"[AGENT_APP] Export error: {e}")
-            from agent_core.core.errors import ErrorCategory, ErrorInfo, redact
-            from app.errors.web import error_json_response
-
-            return error_json_response(
-                ErrorInfo(
-                    category=ErrorCategory.INTERNAL,
-                    code="AGENT_APP_EXPORT_FAILED",
-                    title="Export failed",
-                    message=redact(str(e)),
-                ),
-                status=500,
-            )
 
     async def _agent_app_stage_handler(self, request: "web.Request") -> "web.Response":
         """Stage a reference file (sketch/screenshot/doc) for a NEW Agent App.
@@ -3949,13 +3181,13 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     filename = Path(part.filename or "reference.bin").name
                     if wizard_id:
                         staging = wizard.staging_dir(
-                            Path(self._agent_app_manager.agent_app_dir), wizard_id
+                            Path(AGENT_WORKSPACE_ROOT) / "agent_app", wizard_id
                         )
                         if kind == "icon":
                             filename = f"icon{Path(filename).suffix.lower() or '.png'}"
                     else:
                         staging = (
-                            Path(self._agent_app_manager.agent_app_dir)
+                            Path(AGENT_WORKSPACE_ROOT) / "agent_app"
                             / "_staging"
                             / "refs"
                         )
@@ -3987,69 +3219,11 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         except Exception as e:
             return web.json_response({"error": str(e)}, status=500)
 
-    async def _agent_app_icon_handler(
-        self, request: "web.Request"
-    ) -> "web.StreamResponse":
-        """Serve a project's uploaded icon (project.icon == "file:<relpath>")."""
-        from aiohttp import web
-
-        project = self._agent_app_manager.get_project(
-            request.match_info.get("project_id", "")
-        )
-        if project and (project.icon or "").startswith("file:"):
-            icon_path = (Path(project.path) / project.icon[5:]).resolve()
-            # The relpath is server-written, but never serve outside the project.
-            if icon_path.is_file() and str(icon_path).startswith(
-                str(Path(project.path).resolve())
-            ):
-                return web.FileResponse(icon_path)
-        return web.json_response({"error": "no icon"}, status=404)
-
-    async def _marketplace_thumbnail_handler(
-        self, request: "web.Request"
-    ) -> "web.Response":
-        """Serve a marketplace card thumbnail downscaled to the requested width.
-
-        Only preview URLs from a catalogue this process listed are proxied;
-        the key is a hash of that URL.
-        """
-        from aiohttp import web
-
-        from app.agent_app import marketplace_source
-
-        source = self._marketplace_previews.get(request.match_info.get("key", ""))
-        if not source:
-            return web.json_response({"error": "unknown thumbnail"}, status=404)
-        try:
-            requested = int(request.query.get("w", "720"))
-        except ValueError:
-            requested = 720
-        widths = marketplace_source.THUMBNAIL_WIDTHS
-        width = next((w for w in widths if w >= requested), widths[-1])
-
-        data = self._marketplace_thumbnails.get((source, width))
-        if data is None:
-            try:
-                data = await asyncio.wait_for(
-                    asyncio.to_thread(
-                        marketplace_source.fetch_thumbnail, source, width
-                    ),
-                    timeout=30,
-                )
-            except Exception as e:
-                logger.debug(f"[MARKETPLACE] thumbnail {source} failed: {e}")
-                return web.json_response({"error": "thumbnail unavailable"}, status=502)
-            self._marketplace_thumbnails[(source, width)] = data
-        return web.Response(
-            body=data,
-            content_type="image/webp",
-            headers={"Cache-Control": "public, max-age=86400"},
-        )
 
     async def _agent_app_import_handler(self, request: "web.Request") -> "web.Response":
         """HTTP handler: stage a ZIP file upload and return the temp path.
 
-        The frontend then sends a agent_app_import WebSocket message with
+        The frontend then sends a framework install request with
         the path so the agent handles extraction via the importer skill.
         """
         from aiohttp import web
@@ -4067,7 +3241,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 elif part.name == "file":
                     # Save uploaded file to a staging location
                     staging_dir = (
-                        Path(self._agent_app_manager.agent_app_dir) / "_staging"
+                        Path(AGENT_WORKSPACE_ROOT) / "agent_app" / "_staging"
                     )
                     staging_dir.mkdir(parents=True, exist_ok=True)
                     tmp = tempfile.NamedTemporaryFile(
@@ -4354,13 +3528,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 tmp.write(bundle_bytes)
                 tmp_path = tmp.name
 
-            # Pass the live AgentAppManager so imported projects land in its
-            # in-memory state. Without this, the manager's stale state will
-            # overwrite our file on the next status update / watchdog tick.
             result = import_profile(
                 tmp_path,
                 mode=mode,
-                agent_app_manager=self._agent_app_manager,
             )
             if result.get("success"):
                 # Packages install alongside existing apps through upstream.
@@ -4392,232 +3562,13 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
         return web.json_response(result)
 
-    async def _handle_agent_app_state_update(self, data: Dict[str, Any]) -> None:
-        """Handle state update from a Agent App for agent awareness."""
-        try:
-            project_id = data.get("projectId", "")
-            state = data.get("state", {})
 
-            # Store the state for agent context
-            from app.state import STATE
-
-            if hasattr(STATE, "update_agent_app_state"):
-                STATE.update_agent_app_state(project_id, state)
-
-            # Also forward to any listening clients (for debugging/monitoring)
-            await self._broadcast(
-                {
-                    "type": "agent_app_state_update",
-                    "data": {
-                        "projectId": project_id,
-                        "state": state,
-                    },
-                }
-            )
-        except Exception as e:
-            logger.error(f"[AGENT_APP] Error handling state update: {e}")
-
-    async def _handle_agent_app_sharing_info(
-        self, project_id: str, error: Optional[Dict[str, str]] = None
-    ) -> None:
-        """Broadcast the project's share links: {channel: link | None}. A
-        link carries its secret — the bare URL admits nobody."""
-        await self._broadcast(
-            {
-                "type": "agent_app_sharing_info",
-                "data": {
-                    "projectId": project_id,
-                    "links": self._agent_app_manager.share_links(project_id),
-                    "error": error,
-                },
-            }
-        )
-
-    async def _handle_agent_app_share(
-        self, project_id: str, channel: str, open_it: bool
-    ) -> None:
-        """Open or close one share channel ("lan" | "tunnel"), then answer
-        with the current links (and why, if opening failed)."""
-        error = None
-        try:
-            if open_it:
-                await self._agent_app_manager.open_share(project_id, channel)
-            else:
-                await self._agent_app_manager.close_share(project_id, channel)
-        except Exception as e:
-            logger.error(
-                f"[AGENT_APP] Share {channel} {'open' if open_it else 'close'} "
-                f"failed for {project_id}: {e}",
-                exc_info=not isinstance(e, ShareError),
-            )
-            error = {"channel": channel, "message": str(e)}
-        await self._handle_agent_app_sharing_info(project_id, error)
-
-    async def broadcast_agent_app_ready(
-        self, project_id: str, url: str, port: int
-    ) -> bool:
-        """
-        Broadcast that a Agent App is ready (called from agent action).
-
-        This method launches the Agent App server via the manager and notifies
-        the browser. The agent should NOT start the server itself - just build
-        and call this action.
-
-        Returns:
-            True if project was found and launched successfully, False otherwise
-        """
-        project = self._agent_app_manager.get_project(project_id)
-        if not project:
-            logger.error(
-                f"[AGENT_APP] Project not found for ready notification: {project_id}"
-            )
-            # Broadcast error to browser so it can display the error state
-            await self._broadcast(
-                {
-                    "type": "agent_app_error",
-                    "data": {
-                        "projectId": project_id,
-                        "error": f"Project '{project_id}' not found. Check that the project_id matches the one from the build instruction.",
-                    },
-                }
-            )
+    async def broadcast_agent_app_wizard_open(self, payload: Dict[str, Any]) -> bool:
+        if not self._ws_clients:
             return False
-
-        # The delivery/deploy paths (finalize_first_delivery, finalize_modify)
-        # hand this method an app that is ALREADY running and healthy — the
-        # unconditional status-flip + launch_project below then killed the
-        # just-delivered app and re-ran the full pipeline a second time
-        # (observed 2026-08-04, kanban_board_1bb64990: every delivery and
-        # every modify-flip restarted the app twice, ~9 s of extra downtime
-        # right after the user was told "ready"). Launch only when the app
-        # is not actually up.
-        if (
-            project.status == "running"
-            and project.port
-            and self._agent_app_manager._is_port_in_use(project.port)
-        ):
-            success = True
-        else:
-            # Update project status to "ready" (build complete, about to launch)
-            self._agent_app_manager.update_project_status(project_id, "ready")
-
-            # Launch the project server via manager (centralizes process management)
-            success = await self._agent_app_manager.launch_project(project_id)
-
-        if success:
-            # Get updated project info with URL
-            project = self._agent_app_manager.get_project(project_id)
-            await self._broadcast(
-                {
-                    "type": "agent_app_ready",
-                    "data": {
-                        "projectId": project_id,
-                        "url": project.url if project else url,
-                        "port": project.port if project else port,
-                        "sessionId": project.session_id if project else None,
-                        "triggerConsent": project.trigger_consent_status()
-                        if project
-                        else None,
-                    },
-                }
-            )
-            logger.info(f"[AGENT_APP] Project {project_id} launched and ready")
-            # Build finished — drop the buffered construction-dock feed so a
-            # later rebuild of the same project starts from a clean slate.
-            try:
-                from app.agent_app import construction_events
-
-                construction_events.clear_buffer(project_id)
-            except Exception:
-                pass
-            return True
-        else:
-            # Launch failed
-            await self._broadcast(
-                {
-                    "type": "agent_app_error",
-                    "data": {
-                        "projectId": project_id,
-                        "error": tui("agentapp_launch_failed"),
-                    },
-                }
-            )
-            logger.error(f"[AGENT_APP] Failed to launch project {project_id}")
-            return False
-
-    async def broadcast_agent_app_wizard_open(self, payload: Dict[str, Any]) -> None:
-        """Open the Create Custom wizard at the interview step (chat-path
-        requirements phase: agent_app_scaffold has questions for the user)."""
         await self._broadcast({"type": "agent_app_wizard_open", "data": payload})
+        return True
 
-    async def broadcast_agent_app_created(self, project: Dict[str, Any]) -> None:
-        """Broadcast that a Agent App project was created (called from agent action).
-
-        Mirrors the modal create flow's broadcast so a chat-created Agent App is
-        registered in the browser's project list and shows its build progress.
-        """
-        await self._broadcast(
-            {
-                "type": "agent_app_create",
-                "data": {
-                    "success": True,
-                    "projectId": project.get("id", ""),
-                    "project": project,
-                },
-            }
-        )
-
-    async def broadcast_agent_app_progress(
-        self, project_id: str, phase: str, progress: int, message: str
-    ) -> None:
-        """Broadcast Agent App creation progress (called from agent action)."""
-        await self._broadcast(
-            {
-                "type": "agent_app_status",
-                "data": {
-                    "projectId": project_id,
-                    "phase": phase,
-                    "progress": progress,
-                    "message": message,
-                },
-            }
-        )
-
-    async def broadcast_agent_app_todos(
-        self,
-        project_id: str,
-        todos: list,
-    ) -> None:
-        """Broadcast the agent's current todo list for a Agent App build.
-
-        Fired from the SessionManager's post-update-todos hook whenever the
-        agent updates its todos during a Agent App build run.
-        """
-        self._agent_app_todos[project_id] = todos
-        await self._broadcast(
-            {
-                "type": "agent_app_todos",
-                "data": {
-                    "projectId": project_id,
-                    "todos": todos,
-                },
-            }
-        )
-
-    async def broadcast_agent_app_build_event(
-        self, project_id: str, event: dict
-    ) -> None:
-        """Broadcast one construction-dock build event (from the read-only
-        observer in construction_events). Fire-and-forget UI observation."""
-        await self._broadcast(
-            {
-                "type": "agent_app_build_event",
-                "data": {
-                    "projectId": project_id,
-                    "event": event,
-                },
-            }
-        )
 
     async def _handle_option_click(
         self, value: str, session_id: str, message_id: str
@@ -5272,14 +4223,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     }
                 )
 
-            # If AgentApp apps were deleted, push refreshed (now-empty) lists so
-            # the frontend reflects the deletion. Both the main AgentApp page
-            # (agent_app_list) and the Settings > AgentApp page
-            # (agent_app_settings_get) cache their own project lists and won't
-            # refetch on their own, so we must push to both.
+            # Publish the registry after reset so all app views reconcile.
             if components is not None and "agentapp" in components:
                 await self._handle_agent_app_list()
-                await self._handle_agent_app_settings_get()
 
             await self._broadcast(
                 {
@@ -8764,129 +7710,6 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
             )
 
-    # ==========================
-    # Agent App Settings Handlers
-    # ==========================
-
-    async def _handle_agent_app_settings_get(self) -> None:
-        """Get all Agent App projects with their settings."""
-        from app.ui_layer.settings.agent_app_settings import get_agent_app_projects
-
-        result = get_agent_app_projects()
-        await self._broadcast({"type": "agent_app_settings_get", "data": result})
-
-    async def _handle_agent_app_project_setting_update(
-        self, project_id: str, setting: str, value
-    ) -> None:
-        """Update a per-project setting."""
-        from app.ui_layer.settings.agent_app_settings import update_project_setting
-
-        result = update_project_setting(project_id, setting, value)
-        await self._broadcast(
-            {"type": "agent_app_project_setting_update", "data": result}
-        )
-
-    # Backups (spec docs/plans/agent-app-backups-plan.md Phase 4). Thin
-    # handlers: all policy lives in the manager/BackupStore. Restore and
-    # backup-now run as background tasks (stop+relaunch can take a minute)
-    # so the WS loop stays responsive; results broadcast with *_result types.
-
-    async def _handle_agent_app_backups_list(self, project_id: str) -> None:
-        from app.agent_app import get_agent_app_manager
-
-        payload = {"projectId": project_id, "backups": [], "totalSize": 0}
-        try:
-            manager = get_agent_app_manager()
-            entries = manager.backups.store.list_backups(project_id)
-            payload["backups"] = [
-                {
-                    "filename": e.filename,
-                    "ts": int(e.ts * 1000),
-                    "trigger": e.trigger,
-                    "size": e.size,
-                }
-                for e in entries
-            ]
-            payload["totalSize"] = sum(e.size for e in entries)
-        except Exception as e:
-            payload["error"] = str(e)
-        await self._broadcast({"type": "agent_app_backups_list", "data": payload})
-
-    async def _handle_agent_app_backup_now(self, project_id: str) -> None:
-        from app.agent_app import get_agent_app_manager
-
-        async def _run() -> None:
-            try:
-                result = await get_agent_app_manager().backup_now(project_id)
-            except Exception as e:
-                result = {"status": "error", "errors": [str(e)]}
-            await self._broadcast(
-                {
-                    "type": "agent_app_backup_now_result",
-                    "data": {"projectId": project_id, **result},
-                }
-            )
-            await self._handle_agent_app_backups_list(project_id)
-
-        asyncio.create_task(_run())
-
-    async def _handle_agent_app_backup_restore(
-        self, project_id: str, filename: str, source_project_id: str | None = None
-    ) -> None:
-        """source_project_id: restore an archive from ANOTHER project's
-        backup dir (a deleted app's leftovers) into project_id."""
-        from app.agent_app import get_agent_app_manager
-
-        async def _run() -> None:
-            try:
-                result = await get_agent_app_manager().restore_backup(
-                    project_id, filename, source_project_id=source_project_id
-                )
-            except Exception as e:
-                result = {"status": "error", "errors": [str(e)]}
-            await self._broadcast(
-                {
-                    "type": "agent_app_backup_restore_result",
-                    "data": {"projectId": project_id, "filename": filename, **result},
-                }
-            )
-            await self._handle_agent_app_backups_list(project_id)
-
-        asyncio.create_task(_run())
-
-    async def _handle_agent_app_backup_delete(
-        self, project_id: str, filename: str, orphan: bool = False
-    ) -> None:
-        from app.agent_app import get_agent_app_manager
-
-        data = {"projectId": project_id, "filename": filename, "success": True}
-        orphan_reaped = False
-        try:
-            manager = get_agent_app_manager()
-            if orphan:
-                # Whole-dir cleanup of a deleted project's leftovers (D5) —
-                # refuse if the id is (again) a registered project.
-                if project_id in manager.projects:
-                    raise ValueError("not an orphan — project exists")
-                manager.backups.store.delete_project_backups(project_id)
-            else:
-                manager.backups.store.delete(project_id, filename)
-                # An unregistered (deleted-app) dir whose last archive just
-                # went is pure residue (meta.json only) — reap it so the
-                # orphan row disappears instead of lingering empty.
-                if project_id not in manager.projects and not (
-                    manager.backups.store.list_backups(project_id)
-                ):
-                    manager.backups.store.delete_project_backups(project_id)
-                    orphan_reaped = True
-        except Exception as e:
-            data = {**data, "success": False, "error": str(e)}
-        await self._broadcast({"type": "agent_app_backup_delete", "data": data})
-        if not orphan:
-            await self._handle_agent_app_backups_list(project_id)
-        if orphan or orphan_reaped:
-            await self._handle_agent_app_settings_get()
-
     # =====================
     # Playbook Handlers
     # =====================
@@ -8946,307 +7769,6 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     },
                 }
             )
-
-    # =====================
-    # Marketplace Handlers
-    # =====================
-
-    @staticmethod
-    def _fetch_catalogue() -> dict:
-        """Blocking fetch + parse of the marketplace catalogue.
-
-        Split out so the caller can run it off the event loop — see
-        _handle_marketplace_list.
-        """
-        from app.agent_app import marketplace_source
-
-        return marketplace_source.fetch_catalogue(timeout=15)
-
-    async def _handle_marketplace_list(self) -> None:
-        """Fetch marketplace catalogue from GitHub."""
-        try:
-            # MUST run off the event loop. urlopen is blocking, and this used
-            # to be called inline in an async handler: a slow fetch froze the
-            # whole loop, so the websocket could neither deliver this reply
-            # nor anything else. `timeout=15` does not bound it either — name
-            # resolution happens before the socket timeout applies, so a DNS
-            # blackhole hangs indefinitely and the UI spinner never resolves.
-            # Every other network call in this module already uses to_thread.
-            catalogue = await asyncio.wait_for(
-                asyncio.to_thread(self._fetch_catalogue),
-                timeout=30,
-            )
-            # The shared fetcher resolves thumbnails against the repository
-            # and branch that actually supplied the catalogue.
-            apps = catalogue.get("apps", [])
-            # Cards load a resized copy through the backend; the full-size
-            # preview is far too large to downscale well in the browser.
-            for app in apps:
-                preview = app.get("preview") if isinstance(app, dict) else None
-                if isinstance(preview, str) and preview.startswith("https://"):
-                    key = hashlib.sha1(preview.encode("utf-8")).hexdigest()[:16]
-                    self._marketplace_previews[key] = preview
-                    app["thumbnail"] = f"/api/agent-app/marketplace-thumbnail/{key}"
-            await self._broadcast(
-                {
-                    "type": "agent_app_marketplace_list",
-                    "data": {"success": True, "apps": apps},
-                }
-            )
-        except asyncio.TimeoutError:
-            # str(TimeoutError()) is "", which would reach the UI as a blank
-            # error and read as "it failed for no reason".
-            await self._broadcast(
-                {
-                    "type": "agent_app_marketplace_list",
-                    "data": {
-                        "success": False,
-                        "error": (
-                            "The marketplace did not respond within 30 seconds. "
-                            "Check your internet connection and try again."
-                        ),
-                        "apps": [],
-                    },
-                }
-            )
-        except Exception as e:
-            await self._broadcast(
-                {
-                    "type": "agent_app_marketplace_list",
-                    "data": {
-                        "success": False,
-                        "error": f"{type(e).__name__}: {e}",
-                        "apps": [],
-                    },
-                }
-            )
-
-    async def _handle_marketplace_install(
-        self,
-        app_id: str,
-        app_name: str,
-        app_description: str,
-        custom_fields: dict = None,
-    ) -> None:
-        """Install a marketplace app."""
-        if not app_id or not app_name:
-            await self._broadcast(
-                {
-                    "type": "agent_app_marketplace_install",
-                    "data": {
-                        "success": False,
-                        "error": tui("agentapp_app_id_name_required"),
-                        "appId": app_id,
-                    },
-                }
-            )
-            return
-
-        # A second copy of an app you already have is a legitimate thing to
-        # want, and a very easy thing to install by accident. Either way the
-        # user has to KNOW: the two run on different ports, and work done on
-        # one never appears in the other (observed live 2026-09-02).
-        try:
-            existing = self._agent_app_manager.find_marketplace_installs(app_id)
-        except Exception as e:
-            logger.debug(f"[AGENT_APP] duplicate-install check skipped: {e}")
-            existing = []
-        if existing:
-            logger.warning(
-                f"[AGENT_APP] '{app_id}' is already installed as "
-                + ", ".join(f"{p.name} ({p.id})" for p in existing)
-                + " — installing an additional separate copy."
-            )
-
-        # Spawn a placeholder tab immediately so the user sees the install is
-        # underway (the install itself is synchronous and can take a while).
-        # install_from_marketplace adopts this id so the same tab becomes the
-        # running app.
-        placeholder = self._agent_app_manager.create_placeholder_project(
-            app_name, app_description
-        )
-        project_id = placeholder.id
-        await self.broadcast_agent_app_created(placeholder.to_dict())
-        await self._broadcast(
-            {
-                "type": "agent_app_status",
-                "data": {
-                    "projectId": project_id,
-                    "phase": "initializing",
-                    "progress": 10,
-                    "message": tui("agentapp_installing_marketplace"),
-                },
-            }
-        )
-
-        result = await self._agent_app_manager.install_from_marketplace(
-            app_id=app_id,
-            app_name=app_name,
-            app_description=app_description,
-            custom_fields=custom_fields,
-            project_id=project_id,
-        )
-
-        if result.get("status") == "success":
-            # The project already exists as a tab (placeholder adopted) — flip
-            # it to running so the iframe loads.
-            await self._broadcast(
-                {
-                    "type": "agent_app_ready",
-                    "data": {
-                        "projectId": project_id,
-                        "url": result.get("url"),
-                        "port": result["project"].get("port"),
-                        "sessionId": result["project"].get("sessionId"),
-                        "triggerConsent": result["project"].get("triggerConsent"),
-                    },
-                }
-            )
-
-            # Mirror the install into chat as a system message so the request
-            # is visible in the conversation (not just the new tab).
-            body = f"{app_description}\n\n" if app_description else ""
-            note = "Installed from the marketplace — open it in the new tab."
-            if existing:
-                others = ", ".join(f"**{p.name}**" for p in existing)
-                note = (
-                    "Installed from the marketplace as a **second, separate "
-                    f"copy** — you already have {others}. The two run "
-                    "independently on different ports, so changes I make to "
-                    "one will not appear in the other. Open the new tab to "
-                    "use this copy."
-                )
-            try:
-                await self._display_chat_message(
-                    "System",
-                    f"**Agent App: {app_name}**\n\n{body}{note}",
-                    "system",
-                )
-            except Exception as e:
-                logger.debug(f"[AGENT_APP] marketplace chat message failed: {e}")
-        else:
-            # Install failed — surface the error on the spawned tab. The
-            # placeholder must be settled in the manager too, or the next
-            # agent_app_list overwrites the error state with the stale
-            # "creating" record and the spinner comes back for good.
-            error_msg = result.get("error", "Marketplace install failed")
-            self._agent_app_manager.fail_placeholder_project(project_id, error_msg)
-            await self._broadcast(
-                {
-                    "type": "agent_app_error",
-                    "data": {
-                        "projectId": project_id,
-                        "error": error_msg,
-                    },
-                }
-            )
-
-        await self._broadcast(
-            {
-                "type": "agent_app_marketplace_install",
-                "data": {**result, "projectId": project_id, "appId": app_id},
-            }
-        )
-
-    async def _handle_agent_app_import(self, source: str, name: str) -> None:
-        """Import a Agent App from a ZIP, a local folder path, or a git URL
-        (one door — LIFECYCLE-PLAN Phase 4). After registering, a
-        launch-and-verify run is queued in the project's session so the
-        import finishes as a running, verified app without further clicks."""
-        if not source:
-            return
-        # Every outcome is LOGGED and answered with agent_app_import_result:
-        # the first live test failed with no server log line and no UI
-        # feedback at all (2026-08-05 — "I paste the path and nothing
-        # happens"), because failures only broadcast a generic error the
-        # already-closed modal never saw.
-        logger.info(f"[AGENT_APP] import requested: {source!r} (name={name!r})")
-        # Mirror progress to the browser for the duration of THIS import.
-        # The fetch/extract/copy run on a worker thread (they used to block
-        # the event loop for 13 minutes), so the sink has to hop back onto
-        # the loop — run_coroutine_threadsafe, never a bare await.
-        from app.agent_app.manager import set_import_progress_sink
-
-        loop = asyncio.get_running_loop()
-
-        def _sink(event: Dict[str, Any]) -> None:
-            try:
-                asyncio.run_coroutine_threadsafe(
-                    self._broadcast(
-                        {
-                            "type": "agent_app_import_progress",
-                            "data": {**event, "source": source, "name": name},
-                        }
-                    ),
-                    loop,
-                )
-            except Exception:
-                pass
-
-        set_import_progress_sink(_sink)
-        # Tell the UI the import is under way NOW, so the modal can close and
-        # hand the outcome to a toast instead of holding a dialog open for
-        # the length of a 300MB download.
-        await self._broadcast(
-            {
-                "type": "agent_app_import_progress",
-                "data": {
-                    "phase": "starting",
-                    "done": 0,
-                    "total": 0,
-                    "unit": "files",
-                    "source": source,
-                    "name": name,
-                },
-            }
-        )
-        try:
-            project = await self._agent_app_manager.import_project_source(
-                source, name or None
-            )
-            await self.broadcast_agent_app_created(project.to_dict())
-            await self._broadcast(
-                {
-                    "type": "agent_app_import_result",
-                    "data": {"success": True, "projectId": project.id},
-                }
-            )
-            try:
-                from app.triggers import TriggerSource
-
-                is_ext = getattr(project, "project_type", "native") == "external"
-                await self._agent_app_manager.start_development_run(
-                    project.id,
-                    brief=self._agent_app_manager.post_import_brief(project),
-                    trigger_source=TriggerSource.AGENT_APP_IMPORT,
-                    workflow_skill=(
-                        "agent-app-importer" if is_ext else "agent-app-modify"
-                    ),
-                    # External adoption is a build-like run: "creating" shows
-                    # the construction dock while the agent writes the
-                    # pipeline verbs + operations map. Native imports stay
-                    # untouched (verify-only).
-                    status=("creating" if is_ext else None),
-                )
-            except Exception as e:
-                logger.warning(f"[AGENT_APP] import verify dispatch failed: {e}")
-        except Exception as e:
-            logger.error(f"[AGENT_APP] import failed for {source!r}: {e}")
-            await self._broadcast(
-                {
-                    "type": "agent_app_import_result",
-                    "data": {"success": False, "error": f"Import failed: {e}"},
-                }
-            )
-            await self._broadcast(
-                {
-                    "type": "agent_app_error",
-                    "data": {"projectId": "", "error": f"Import failed: {e}"},
-                }
-            )
-        finally:
-            set_import_progress_sink(None)
-        return
 
     async def _send_to(self, ws, message: Dict[str, Any]) -> None:
         """Send to one connection (session-scoped flows); falls back to a
@@ -10076,7 +8598,6 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 service = create_reference_service(
                     sessions=self._controller.agent.session_manager,
                     storage=self._chat._storage,
-                    apps=self._agent_app_manager,
                     llm=self._controller.agent.llm,
                 )
                 snapshots = await service.resolve(references, session_id)

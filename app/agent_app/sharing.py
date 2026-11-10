@@ -1,27 +1,7 @@
-"""Sharing a running Agent App beyond this machine.
-
-Apps only ever bind loopback. Sharing one means opening a CHANNEL: a
-transport that relays visitors to 127.0.0.1:<port>, plus a GRANT the app's
-guards read (a2app_proxy.guard_request, _a2app_lib.js authorizeCaller):
-
-  lan     private — an in-process relay on this machine's LAN address.
-          Reachable by devices on the same network, only while switched on.
-  tunnel  public  — a cloudflared quick tunnel (https://*.trycloudflare.com).
-
-Both are shared the same way: by LINK. A grant is two files in the project
-dir, `.<name>-origin` (the origin browsers use through the channel) and
-`.<name>-secret` (what `?a2app_share=` trades for a session). Every relay
-stamps what it forwards, so the guards treat all of it as remote: no
-credential, no access, reads included. Closing a channel deletes its grant,
-which ends every session opened through it at once.
-
-The grant files are also the channel's state of record: `link()` is derived
-from them, so there is nothing to keep in sync on the project object.
-"""
+"""LAN relay and cloudflared transport for CraftBot framework app sharing."""
 
 import asyncio
 import os
-import secrets
 import shutil
 import socket
 import subprocess
@@ -29,10 +9,11 @@ import sys
 import tempfile
 import threading
 import time
-from abc import ABC, abstractmethod
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional, Tuple
+
+from app.process_ledger import ROLE_TUNNEL, get_ledger
 
 try:
     from loguru import logger
@@ -41,118 +22,20 @@ except ImportError:  # pragma: no cover
 
     logger = logging.getLogger(__name__)
 
-from app.agent_app.a2app_proxy import HOP_HEADERS, SHARE_CHANNELS, SHARE_PARAM
-from app.process_ledger import ROLE_TUNNEL, get_ledger
-
-# Host-local, channel-lifetime state: never exported, never trusted on import.
-SHARE_STATE_FILES = tuple(
-    f".{name}-{kind}" for name in SHARE_CHANNELS for kind in ("origin", "secret")
-)
-
+HOP_HEADERS = {
+    "connection",
+    "keep-alive",
+    "proxy-authenticate",
+    "proxy-authorization",
+    "te",
+    "trailers",
+    "transfer-encoding",
+    "upgrade",
+    "host",
+}
 
 class ShareError(RuntimeError):
     """A channel could not be opened; the message is for the owner."""
-
-
-def _read(path: Path) -> str:
-    try:
-        return path.read_text(encoding="utf-8").strip()
-    except Exception:
-        return ""
-
-
-class ShareGrant:
-    """One channel's grant files — the only thing the app's guards see."""
-
-    def __init__(self, name: str):
-        self.name = name
-
-    def _origin_file(self, project_dir: Path) -> Path:
-        return Path(project_dir) / f".{self.name}-origin"
-
-    def _secret_file(self, project_dir: Path) -> Path:
-        return Path(project_dir) / f".{self.name}-secret"
-
-    def origin(self, project_dir: Path) -> str:
-        return _read(self._origin_file(project_dir))
-
-    def publish(self, project_dir: Path, origin: str) -> None:
-        """Trust `origin` and mint the link secret. An existing secret is
-        kept, so re-publishing the same channel keeps links already sent."""
-        self._origin_file(project_dir).write_text(
-            origin.rstrip("/") + "\n", encoding="utf-8"
-        )
-        secret_file = self._secret_file(project_dir)
-        if not _read(secret_file):
-            secret_file.write_text(secrets.token_urlsafe(32), encoding="utf-8")
-            try:
-                os.chmod(secret_file, 0o600)
-            except Exception:
-                pass
-
-    def revoke(self, project_dir: Path) -> None:
-        """Idempotent: closing runs often."""
-        for path in (self._origin_file(project_dir), self._secret_file(project_dir)):
-            try:
-                path.unlink(missing_ok=True)
-            except Exception as e:
-                logger.warning(f"[AGENT_APP:SHARE] Could not remove {path.name}: {e}")
-
-    def link(self, project_dir: Path) -> Optional[str]:
-        """The link to hand out: origin + secret. The bare origin admits nobody."""
-        origin = self.origin(project_dir)
-        secret = _read(self._secret_file(project_dir))
-        if not (origin and secret):
-            return None
-        return f"{origin}/?{SHARE_PARAM}={secret}"
-
-
-class ShareChannel(ABC):
-    """A transport + its grant. Subclasses supply only the transport."""
-
-    name: str
-
-    def __init__(self) -> None:
-        self.grant = ShareGrant(self.name)
-
-    async def open(self, project: Any, port: int) -> str:
-        """Open (or re-open) the channel and return its share link."""
-        project_dir = Path(project.path)
-        # No agent token = no credential the guards can check. They fail
-        # closed remotely anyway, but refuse here so the owner is told why
-        # instead of handed a link that only ever answers 503. Checked before
-        # touching anything, so a refused open leaves an existing share as is.
-        if not _read(project_dir / ".agent-token"):
-            raise ShareError(
-                "This app has no access token, so it can't be shared safely. "
-                "Restart the app and try again."
-            )
-        await self.close(project)
-        origin = await self._connect(project, port)
-        self.grant.publish(project_dir, origin)
-        logger.info(f"[AGENT_APP:SHARE] {self.name} open for {project.name}: {origin}")
-        return self.grant.link(project_dir)  # type: ignore[return-value]
-
-    async def close(self, project: Any) -> None:
-        await self._disconnect(project)
-        self.grant.revoke(Path(project.path))
-
-    def link(self, project: Any) -> Optional[str]:
-        return self.grant.link(Path(project.path))
-
-    def restore(self, project: Any) -> None:
-        """At CraftBot start: most transports did not survive the restart,
-        so a leftover grant is revoked. Override when one can."""
-        self.grant.revoke(Path(project.path))
-
-    @abstractmethod
-    async def _connect(self, project: Any, port: int) -> str:
-        """Bring the transport up for 127.0.0.1:`port`; return the origin
-        visitors will use. Raise ShareError with an owner-facing reason."""
-
-    @abstractmethod
-    async def _disconnect(self, project: Any) -> None:
-        """Tear the transport down. Must be a no-op when it is not up."""
 
 
 # ── private: the LAN relay ─────────────────────────────────────────────────
@@ -345,50 +228,26 @@ class LanRelay:
         return server_ws
 
 
-class LanChannel(ShareChannel):
-    """Private link: devices on the same network, via LanRelay."""
-
-    name = "lan"
-
-    def __init__(self) -> None:
-        super().__init__()
-        self._relays: Dict[str, LanRelay] = {}
-
-    @staticmethod
-    def lan_ip() -> Optional[str]:
-        """This machine's address on the network its default route uses."""
+def lan_ip() -> Optional[str]:
+    """This machine's address on the network its default route uses."""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.settimeout(1)
+        s.connect(("8.8.8.8", 80))  # no packet is sent; picks the interface
+        ip = s.getsockname()[0]
+        s.close()
+    except Exception:
         try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.settimeout(1)
-            s.connect(("8.8.8.8", 80))  # no packet is sent; picks the interface
-            ip = s.getsockname()[0]
-            s.close()
+            ip = socket.gethostbyname(socket.gethostname())
         except Exception:
-            try:
-                ip = socket.gethostbyname(socket.gethostname())
-            except Exception:
-                return None
-        return None if ip.startswith("127.") else ip
-
-    async def _connect(self, project: Any, port: int) -> str:
-        ip = self.lan_ip()
-        if not ip:
-            raise ShareError("This computer isn't connected to a local network.")
-        relay = LanRelay(ip, port, port)
-        bound = await relay.start()
-        self._relays[project.id] = relay
-        return f"http://{ip}:{bound}"
-
-    async def _disconnect(self, project: Any) -> None:
-        relay = self._relays.pop(project.id, None)
-        if relay is not None:
-            await relay.stop()
+            return None
+    return None if ip.startswith("127.") else ip
 
 
 # ── public: the cloudflared tunnel ─────────────────────────────────────────
 
 
-class TunnelChannel(ShareChannel):
+class TunnelChannel:
     """Public link: a cloudflared quick tunnel, one process per project."""
 
     name = "tunnel"
@@ -401,7 +260,6 @@ class TunnelChannel(ShareChannel):
     _BIN_DIR = Path(__file__).parent.parent / "bin"
 
     def __init__(self, terminate: Callable[[subprocess.Popen], None]):
-        super().__init__()
         self._terminate = terminate
         # project id -> (cloudflared process, its open log file)
         self._running: Dict[str, Tuple[subprocess.Popen, Any]] = {}
@@ -429,12 +287,7 @@ class TunnelChannel(ShareChannel):
         if log_handle is None:
             raise ShareError("No writable location for the cloudflared log.")
 
-        # 127.0.0.1, NOT localhost: PocketBase binds --http=127.0.0.1:<port>
-        # (runner.start) and the external-app proxy binds the same, so neither
-        # ever listens on ::1. cloudflared resolves 'localhost' to ::1 first on
-        # Windows and got "connectex: No connection could be made" on every
-        # single request — the tunnel came up healthy, announced its URL, and
-        # then refused every visitor.
+        # The share gateway binds IPv4 loopback; avoid localhost resolving to ::1.
         origin_url = f"http://127.0.0.1:{port}"
         # Where cloudflared reports on itself (see _await_ready). Chosen here:
         # its default port is picked at runtime and only named in its log.
@@ -475,28 +328,6 @@ class TunnelChannel(ShareChannel):
             self._terminate(proc)
         self._close_log(log_handle)
 
-    def restore(self, project: Any) -> None:
-        """cloudflared outlives CraftBot: keep a grant whose tunnel still
-        answers (401 is the app refusing a visitor with no session — the
-        tunnel is up), revoke one that does not."""
-        origin = self.grant.origin(Path(project.path))
-        if not origin:
-            return
-        import urllib.error
-        import urllib.request
-
-        try:
-            try:
-                urllib.request.urlopen(
-                    urllib.request.Request(origin, method="HEAD"), timeout=3
-                )
-            except urllib.error.HTTPError as he:
-                if he.code != 401:
-                    raise
-            logger.info(f"[AGENT_APP:SHARE] Tunnel still active for {project.name}")
-        except Exception:
-            logger.info(f"[AGENT_APP:SHARE] Tunnel expired for {project.name}")
-            self.grant.revoke(Path(project.path))
 
     async def _kill_orphans(self) -> None:
         """Reap cloudflared processes a previous CraftBot run left behind.
@@ -676,39 +507,3 @@ class TunnelChannel(ShareChannel):
 
 
 # ── the service the manager composes ──────────────────────────────────────
-
-
-class SharingService:
-    """Every share channel, behind one interface. The manager decides WHEN
-    (project running, which port); the channels decide HOW."""
-
-    def __init__(self, terminate: Callable[[subprocess.Popen], None]):
-        self.channels: Dict[str, ShareChannel] = {
-            c.name: c for c in (LanChannel(), TunnelChannel(terminate))
-        }
-        assert set(self.channels) == set(SHARE_CHANNELS), (
-            "guards must know every channel"
-        )
-
-    def channel(self, name: str) -> ShareChannel:
-        try:
-            return self.channels[name]
-        except KeyError:
-            raise ShareError(f"Unknown share channel: {name}") from None
-
-    async def open(self, project: Any, name: str, port: int) -> str:
-        return await self.channel(name).open(project, port)
-
-    async def close(self, project: Any, name: str) -> None:
-        await self.channel(name).close(project)
-
-    async def close_all(self, project: Any) -> None:
-        for channel in self.channels.values():
-            await channel.close(project)
-
-    def links(self, project: Any) -> Dict[str, Optional[str]]:
-        return {name: c.link(project) for name, c in self.channels.items()}
-
-    def restore(self, project: Any) -> None:
-        for channel in self.channels.values():
-            channel.restore(project)

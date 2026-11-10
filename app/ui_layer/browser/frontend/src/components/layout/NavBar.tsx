@@ -10,7 +10,6 @@ import {
   Settings,
   Waypoints,
   Box,
-  Loader2,
   PanelLeftClose,
   PanelLeftOpen,
   ChevronRight,
@@ -22,27 +21,18 @@ import {
   Eraser,
   Trash2,
   Sparkles,
-  Play,
-  Square,
-  Palette,
-  ShieldCheck,
 } from 'lucide-react'
 import { useWebSocket } from '../../contexts/WebSocketContext'
 import { useTheme } from '../../contexts/ThemeContext'
-import { removeIframe } from '../../features/agentApps/frameHost'
 import { FrameworkAppList, type SidebarAppEntry } from '../../features/agentApps/FrameworkAppList'
 import { frameworkKey, frameworkSessionIdentity } from '../../features/agentApps/frameworkIdentity'
 import { CreateAgentAppModal } from '../ui/CreateAgentAppModal'
-import { ConfirmModal } from '../ui/ConfirmModal'
 import { tourAnchorProps, useTourEnvAction, type TourAnchorId } from '../../tour'
 import { applySavedOrder, usePersistedState, useSkillCreator, useSortableList } from '../../hooks'
 import { SkillCreatorModal } from '../ui/SkillCreatorModal'
-import { AgentAppIcon } from '../ui/AgentAppIcon'
 import type { SessionInfo } from '../../types'
-import { useAppDispatch, useAppSelector } from '../../store/hooks'
-import { openTriggerReview } from '../../store/slices/agentAppSlice'
+import { useAppSelector } from '../../store/hooks'
 import { UI_STATE } from '../../store/uiState'
-import { selectAgentAppProjects } from '../../store/selectors/agentApp'
 import { selectSkillMeta } from '../../store/selectors/agent'
 import { selectMainSession, selectChatSessions, selectFrameworkAppSessionIds, selectPendingFrameworkApps } from '../../store/selectors/sessions'
 import { selectLastMessageIdBySession } from '../../store/selectors/messages'
@@ -120,7 +110,6 @@ const GROUP_PREVIEW_COUNT = 5
 const CHAT_PAGE_SIZE = 30
 
 export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
-  const dispatch = useAppDispatch()
   const { t } = useTranslation(['nav', 'common', 'agentapp'])
   const location = useLocation()
   const navigate = useNavigate()
@@ -137,31 +126,22 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
   )
   const {
     requestAgentAppList,
-    launchAgentApp,
-    stopAgentApp,
-    deleteAgentApp,
     deleteSession,
     renameSession,
     clearSession,
   } = useWebSocket()
   // Apps retain their saved drag-and-drop order; chats follow latest activity.
   const [agentAppOrder, setAgentAppOrder] = usePersistedState(UI_STATE.nav.agentAppOrder)
-  const unorderedAgentAppProjects = useAppSelector(selectAgentAppProjects)
   const framework = useAppSelector(state => state.agentApp.framework)
   const frameworkSessionIds = useAppSelector(selectFrameworkAppSessionIds)
   const pendingFrameworkApps = useAppSelector(selectPendingFrameworkApps)
   const frameworkEmpty = framework.status === 'success' && !framework.warning
     && framework.apps.length === 0 && framework.connected.length === 0 && pendingFrameworkApps.length === 0
-  const agentAppProjects = useMemo(
-    () => applySavedOrder(unorderedAgentAppProjects, agentAppOrder, p => p.id, 'last'),
-    [unorderedAgentAppProjects, agentAppOrder],
-  )
   const sidebarApps = useMemo(() => applySavedOrder<SidebarAppEntry>([
-    ...unorderedAgentAppProjects.map(project => ({ kind: 'legacy' as const, id: project.id, project })),
     ...framework.apps.map(app => ({ kind: 'framework' as const, id: frameworkKey(app.path, app.id), app })),
     ...framework.connected.map(app => ({ kind: 'connected' as const, id: `connected:${JSON.stringify([app.origin, app.credentialId])}`, app })),
     ...pendingFrameworkApps.map(session => ({ kind: 'pending' as const, id: `pending:${session.id}`, session })),
-  ], agentAppOrder, entry => entry.id, 'last'), [unorderedAgentAppProjects, framework.apps, framework.connected, pendingFrameworkApps, agentAppOrder])
+  ], agentAppOrder, entry => entry.id, 'last'), [framework.apps, framework.connected, pendingFrameworkApps, agentAppOrder])
   const skillMeta = useAppSelector(selectSkillMeta)
   const [lastSeenBySession] = usePersistedState(UI_STATE.chat.lastSeenMessageIds)
   const { theme } = useTheme()
@@ -169,8 +149,6 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
   // Which Agent App row's "…" menu is open (and its button's rect), and the
   // app queued for a delete confirmation (delete is destructive, so it always
   // confirms).
-  const [agentMenu, setAgentMenu] = useState<{ id: string; anchor: DOMRect } | null>(null)
-  const [agentDelete, setAgentDelete] = useState<{ id: string; name: string } | null>(null)
 
   const mainSession = useAppSelector(selectMainSession)
   const chatSessions = useAppSelector(selectChatSessions)
@@ -391,16 +369,7 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
   // and can't fire the mousedown close. Clicking into the iframe blurs the top
   // window, so we close on window blur too (this also closes on tab switch,
   // which is fine).
-  useEffect(() => {
-    if (!agentMenu) return
-    const close = () => setAgentMenu(null)
-    document.addEventListener('mousedown', close)
-    window.addEventListener('blur', close)
-    return () => {
-      document.removeEventListener('mousedown', close)
-      window.removeEventListener('blur', close)
-    }
-  }, [agentMenu])
+
 
   useEffect(() => {
     if (renamingId) {
@@ -476,13 +445,12 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
 
   // Popovers are placed once, in viewport coordinates, so they'd drift off
   // their row if the sidebar scrolled or the window resized: close them.
-  const popoverOpen = menu !== null || agentMenu !== null || mainTip !== null
+  const popoverOpen = menu !== null || mainTip !== null
   useEffect(() => {
     if (!popoverOpen) return
     const el = scrollRef.current
     const close = () => {
       setMenu(null)
-      setAgentMenu(null)
       setMainTip(null)
     }
     el?.addEventListener('scroll', close)
@@ -608,140 +576,6 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
     )
   }
 
-  const confirmDeleteAgentApp = () => {
-    if (!agentDelete) return
-    const { id } = agentDelete
-    removeIframe(id)
-    deleteAgentApp(id)
-    setAgentDelete(null)
-    // Deleting the open app navigates back to Main.
-    if (activeAgentAppId === id) navigate('/')
-  }
-
-  // Agent App row. Reuses the exact session-row hover mechanics (.sessionRow /
-  // .sessionMenuButton / .sessionMenu) so the Agent App and Chats lists behave
-  // identically. Everything lives behind the "…" menu: lifecycle (start/stop),
-  // theme, and delete. A stopped/idle app is dimmed so its state reads at a
-  // glance.
-  const renderAgentAppRow = (project: typeof agentAppProjects[number]) => {
-    const path = `/agent-app/${project.id}`
-    const active = isActive(path)
-    const status = project.status
-    const transitional = status === 'creating' || status === 'launching' || status === 'stopping'
-    const running = status === 'running'
-    const dimmed = !running && !transitional
-    const canDelete = status !== 'running'
-    // Lifecycle: running → offer Stop; a settled idle app → offer Start;
-    // mid-transition → no lifecycle action (the spinner already tells the story).
-    const lifecycle: 'stop' | 'start' | null = running ? 'stop' : (!transitional ? 'start' : null)
-    // Theme edits happen on the mounted (active) page, which owns the iframe
-    // bridge — so it's only offered for the active app.
-    const showTheme = active
-    const showRequestReview = !!project.triggerConsent
-      && (project.triggerConsent.required || project.triggerConsent.triggers.length > 0)
-    const showKebab = lifecycle !== null || showTheme || canDelete || showRequestReview
-    const dragging = agentAppSortable.draggingId === project.id
-
-    return (
-      <div
-        key={project.id}
-        ref={agentAppSortable.rowRef(project.id)}
-        style={agentAppSortable.rowStyle(project.id)}
-        className={`${styles.sessionRow} ${styles.agentAppRow} ${active ? styles.agentAppRowActive : ''} ${dimmed ? styles.agentAppRowDimmed : ''} ${dragging ? styles.rowDragging : ''}`}
-        title={project.name}
-      >
-        <button
-          className={`${styles.agentAppTab} ${active ? styles.agentAppTabActive : ''}`}
-          onClick={() => navigate(path)}
-          title={project.name}
-          {...agentAppSortable.handleProps(project.id)}
-        >
-          <span className={styles.agentAppTabIcon}>
-            {transitional
-              ? <Loader2 size={13} className={styles.spinner} />
-              : <AgentAppIcon icon={project.icon} projectId={project.id} size={13} />}
-          </span>
-          <span className={styles.agentAppTabLabel}>{project.name}</span>
-          {renderSessionDot(project.sessionId)}
-        </button>
-
-        {showKebab && (
-          <button
-            className={styles.sessionMenuButton}
-            onMouseDown={e => e.stopPropagation()}
-            onClick={e => {
-              e.stopPropagation()
-              const anchor = e.currentTarget.getBoundingClientRect()
-              setAgentMenu(prev => (prev?.id === project.id ? null : { id: project.id, anchor }))
-            }}
-            aria-label={t('nav:sessionMenu.options')}
-            title={t('nav:sessionMenu.options')}
-          >
-            <MoreHorizontal size={14} />
-          </button>
-        )}
-
-        {agentMenu?.id === project.id && showKebab && (
-          <SidebarPopover anchor={agentMenu.anchor} className={styles.sessionMenu} role="menu">
-            {lifecycle === 'stop' && (
-              <button
-                className={styles.sessionMenuItem}
-                onClick={() => {
-                  setAgentMenu(null)
-                  stopAgentApp(project.id)
-                }}
-              >
-                <Square size={13} /> {t('agentapp:page.stop')}
-              </button>
-            )}
-            {lifecycle === 'start' && (
-              <button
-                className={styles.sessionMenuItem}
-                onClick={() => {
-                  setAgentMenu(null)
-                  launchAgentApp(project.id)
-                }}
-              >
-                <Play size={13} /> {t('agentapp:page.launch')}
-              </button>
-            )}
-            {showRequestReview && (
-              <button className={styles.sessionMenuItem} onClick={() => {
-                setAgentMenu(null)
-                dispatch(openTriggerReview(project.id))
-              }}>
-                <ShieldCheck size={13} /> {t('agentapp:triggerConsent.review')}
-              </button>
-            )}
-            {showTheme && (
-              <button
-                className={styles.sessionMenuItem}
-                onClick={() => {
-                  setAgentMenu(null)
-                  window.dispatchEvent(
-                    new CustomEvent('agentapp:open-theme', { detail: { projectId: project.id } }),
-                  )
-                }}
-              >
-                <Palette size={13} /> {t('agentapp:page.theme')}
-              </button>
-            )}
-            {canDelete && (
-              <button
-                className={`${styles.sessionMenuItem} ${styles.sessionMenuItemDanger}`}
-                onClick={() => {
-                  setAgentMenu(null)
-                  setAgentDelete({ id: project.id, name: project.name })
-                }}
-              >
-                <Trash2 size={13} /> {t('common:actions.delete')}
-              </button>
-            )}
-          </SidebarPopover>
-        )}
-      </div>
-    )
-  }
 
   // The Main session is always present in the UI (pinned first) even if the
   // backend hasn't confirmed it yet — its id is the well-known "main".
@@ -839,7 +673,7 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
                   aria-expanded={flyout?.kind === 'agentapp'}
                 >
                   <span className={styles.icon}><Box size={16} /></span>
-                  {renderCollapsedDot([...agentAppProjects.map(p => p.sessionId), ...Object.values(frameworkSessionIds), ...pendingFrameworkApps.map(session => session.id)])}
+                  {renderCollapsedDot([...Object.values(frameworkSessionIds), ...pendingFrameworkApps.map(session => session.id)])}
                 </button>
                 <button
                   className={`${styles.navItem} ${flyout?.kind === 'chats' ? styles.active : ''}`}
@@ -884,10 +718,10 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
             </div>
             {agentAppExpanded && (
               <div className={styles.groupChildren}>
-                <FrameworkAppList entries={visibleSidebarApps} renderLegacy={renderAgentAppRow} sortable={agentAppSortable}
+                <FrameworkAppList entries={visibleSidebarApps} sortable={agentAppSortable}
                   renderPending={session => renderSessionRow(session, { isMain: false, isApp: true })}
                   renderSessionDot={app => renderSessionDot(frameworkSessionIds[frameworkKey(app.path, app.id)])}
-                  otherMenuOpen={!!agentMenu || !!menu} onMenuOpen={() => { setAgentMenu(null); setMenu(null) }} />
+                  otherMenuOpen={!!menu} onMenuOpen={() => { setMenu(null) }} />
                 {sidebarApps.length > GROUP_PREVIEW_COUNT && (
                   <button
                     className={styles.showMoreRow}
@@ -898,7 +732,7 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
                       : t('nav:sidebar.showMoreCount', { count: sidebarApps.length - GROUP_PREVIEW_COUNT })}
                   </button>
                 )}
-                {agentAppProjects.length === 0 && frameworkEmpty && (
+                {frameworkEmpty && (
                   <div className={styles.groupEmpty}>{t('nav:sidebar.noAgentAppApps')}</div>
                 )}
               </div>
@@ -989,32 +823,8 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
               <>
                 <FrameworkAppList entries={sidebarApps} flyout onOpen={() => setFlyout(null)}
                   renderPending={session => renderSessionRow(session, { isMain: false, isApp: true, flyout: true })}
-                  renderSessionDot={app => renderSessionDot(frameworkSessionIds[frameworkKey(app.path, app.id)])} renderLegacy={project => {
-                  const path = `/agent-app/${project.id}`
-                  const transitional = project.status === 'creating' || project.status === 'launching' || project.status === 'stopping'
-                  // Match the expanded rows: a settled, non-running app is dimmed.
-                  const dimmed = project.status !== 'running' && !transitional
-                  return (
-                    <button
-                      key={project.id}
-                      className={`${styles.flyoutItem} ${isActive(path) ? styles.flyoutItemActive : ''} ${dimmed ? styles.flyoutItemDimmed : ''}`}
-                      onClick={() => {
-                        setFlyout(null)
-                        navigate(path)
-                      }}
-                      title={project.name}
-                    >
-                      <span className={styles.flyoutItemIcon}>
-                        {transitional
-                          ? <Loader2 size={13} className={styles.spinner} />
-                          : <AgentAppIcon icon={project.icon} projectId={project.id} size={13} />}
-                      </span>
-                      <span className={styles.flyoutItemLabel}>{project.name}</span>
-                      {renderSessionDot(project.sessionId)}
-                    </button>
-                  )
-                }} />
-                {agentAppProjects.length === 0 && frameworkEmpty && (
+                  renderSessionDot={app => renderSessionDot(frameworkSessionIds[frameworkKey(app.path, app.id)])} />
+                {frameworkEmpty && (
                   <div className={styles.flyoutEmpty}>{t('nav:sidebar.noAgentAppApps')}</div>
                 )}
               </>
@@ -1048,15 +858,7 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
         document.body,
       )}
 
-      <ConfirmModal
-        isOpen={agentDelete !== null}
-        title={t('agentapp:page.deleteModalTitle')}
-        message={t('agentapp:page.deleteModalMessage', { name: agentDelete?.name ?? '' })}
-        confirmText={t('common:actions.delete')}
-        variant="danger"
-        onConfirm={confirmDeleteAgentApp}
-        onCancel={() => setAgentDelete(null)}
-      />
+
 
       <CreateAgentAppModal isOpen={createAppOpen} onClose={() => setCreateAppOpen(false)} />
 

@@ -19,7 +19,7 @@ project is created until the wizard finalizes, so a cancelled wizard
 leaves nothing behind except its staging folder (swept opportunistically).
 
 Attachments upload to a staging area (agent_app/_staging/wizard/<id>)
-and move into the project at finalize time.
+and are passed to the framework creator with the accepted specification.
 """
 
 from __future__ import annotations
@@ -31,7 +31,6 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from . import marketplace_source
 
 try:
     from loguru import logger
@@ -96,76 +95,6 @@ def sweep_stale_staging(agent_app_dir: Path) -> None:
                 continue
     except Exception:
         pass
-
-
-_FAVICON_MIME = {
-    ".png": "image/png",
-    ".svg": "image/svg+xml",
-    ".ico": "image/x-icon",
-    ".jpg": "image/jpeg",
-    ".jpeg": "image/jpeg",
-    ".webp": "image/webp",
-}
-
-
-def _inject_favicon(project_path: Path, favicon_name: str, suffix: str) -> None:
-    """Point the app's frontend/index.html at the uploaded favicon (Vite
-    serves frontend/public/ at the site root). index.html is a SYSTEM file —
-    the caller must re-canonize hashes (kit-sync) after this. Best-effort:
-    a favicon must never break creation."""
-    try:
-        index_html = Path(project_path) / "frontend" / "index.html"
-        text = index_html.read_text(encoding="utf-8", errors="replace")
-        link = (
-            f'    <link rel="icon" type="{_FAVICON_MIME.get(suffix, "image/png")}" '
-            f'href="/{favicon_name}" />'
-        )
-        if '<link rel="icon"' in text:
-            text = re.sub(
-                r'^\s*<link rel="icon"[^\n]*$', link, text, flags=re.MULTILINE
-            )
-        else:
-            marker = "</title>"
-            text = text.replace(marker, marker + "\n" + link, 1)
-        index_html.write_text(text, encoding="utf-8")
-    except Exception as exc:
-        logger.debug(f"[AGENT_APP:WIZARD] favicon injection skipped: {exc}")
-
-
-def move_staging_into_project(
-    agent_app_dir: Path, wizard_id: str, project_path: Path
-) -> Dict[str, Any]:
-    """Move staged files into the project: the uploaded icon (icon.*)
-    becomes frontend/public/favicon.<ext> — both the project's display icon
-    AND the app's real browser-tab favicon (index.html link injected);
-    everything else goes to <project>/reference/. Returns
-    {"icon": "file:<relpath>"|None, "references": [names]}. When "icon" is
-    set the caller MUST re-canonize system hashes (index.html changed).
-    The staging folder is removed afterwards."""
-    icon_value: Optional[str] = None
-    references: List[str] = []
-    d = staging_root(agent_app_dir) / wizard_id
-    if not d.is_dir():
-        return {"icon": None, "references": []}
-    reference_dir = Path(project_path) / "reference"
-    for f in sorted(d.iterdir()):
-        if not f.is_file():
-            continue
-        suffix = f.suffix.lower()
-        if f.stem == "icon" and suffix in ICON_EXTS:
-            public_dir = Path(project_path) / "frontend" / "public"
-            public_dir.mkdir(parents=True, exist_ok=True)
-            favicon_name = f"favicon{suffix}"
-            shutil.move(str(f), str(public_dir / favicon_name))
-            icon_value = f"file:frontend/public/{favicon_name}"
-            _inject_favicon(Path(project_path), favicon_name, suffix)
-        else:
-            reference_dir.mkdir(parents=True, exist_ok=True)
-            target = reference_dir / f.name
-            shutil.move(str(f), str(target))
-            references.append(f.name)
-    shutil.rmtree(d, ignore_errors=True)
-    return {"icon": icon_value, "references": references}
 
 
 # ── LLM plumbing ────────────────────────────────────────────────────────────
@@ -294,68 +223,52 @@ def _render_config(config: Dict[str, Any], image_notes: List[str]) -> str:
 # ── prompts ─────────────────────────────────────────────────────────────────
 
 # One platform-truth block shared by interview + synthesis so the two can
-# never drift apart. Describes the (PocketBase) platform.
-_PLATFORM_REALITY = """PLATFORM REALITY (questions, options, and the final spec MUST fit it):
-- The app runs LOCALLY on the user's machine (localhost) as a single \
-PocketBase process. External services CANNOT reach it: never propose inbound \
-webhooks, callback URLs, or "install a GitHub App" style mechanisms for \
-getting data in.
-- CraftBot already has the user's connected accounts (GitHub, Google, Slack, \
-Discord, Notion, ...) reachable through a built-in ZERO-KEY bridge the app's \
-backend routes can call. External data is PULLED through that bridge — on \
-load, on refresh, or on a schedule. The bridge also offers in-app AI \
-(summarize/classify/generate text). NEVER propose OAuth flows, personal \
-access tokens, API-key entry, or any credential handling; the platform \
-forbids asking users for keys.
-- Available building blocks: a declared database (PocketBase collections \
-with typed fields and relations), file upload fields, LIVE in-app updates of \
-the app's OWN data (realtime subscriptions are native — lists update \
-instantly when records change), custom backend operations (an agent-callable \
-verb surface), scheduled operations ("every 15m" / "daily HH:MM"), in-app AI \
-via the bridge, CSV/JSON export, and an optional email+password multi-user \
-mode (no third-party login).
-- "Real-time" for EXTERNAL data still means periodic refresh or scheduled \
-bridge sync — offer/write THAT, never webhooks. Only the app's own records \
-update live.
-- Browser permission prompts (location, notifications, camera) are \
-unreliable in the embedded tab: location comes from a keyless backend IP \
-lookup or a user-entered setting — never design a feature that depends on \
-the user granting a browser permission. Public data (weather, news, \
-prices) is fetched by the BACKEND from keyless public APIs, cached, \
-degrading gracefully offline."""
+# never drift apart. Describes the framework host contract.
+_PLATFORM_REALITY = """PLATFORM REALITY:
+- Apps run locally inside CraftBot's embedded app view, using the existing
+Agent-App framework. Discover its supported blueprints and capabilities;
+do not assume a particular database, UI stack, port layout or toolkit.
+- Use the app's declared A2App operations and task contract. Apps can request
+work from CraftBot when the owner enables Allow requests to CraftBot.
+CraftBot routes accepted requests into the app's existing conversation.
+- Connected accounts and external tools are available through CraftBot subject
+to its permissions. Do not invent a direct integration bridge, endpoint,
+credential or automatic grant. Describe the desired user outcome so the builder
+can implement it with the framework's actual operations and task support.
+- Preserve the user's chosen layout, theme, access mode and requirements.
+- Clarify external-service and offline behavior instead of promising unsupported
+webhooks or features. Do not weaken user requirements during synthesis.
+"""
 
 
 _MARKETPLACE_CACHE: Dict[str, Any] = {}
 _MARKETPLACE_TTL_SECONDS = 3600
 
 
-def _marketplace_catalogue() -> List[Dict[str, Any]]:
+async def _marketplace_catalogue() -> List[Dict[str, Any]]:
     """[{id, name, description, tags}] of ready-made marketplace apps, or [].
 
-    Local checkout first (developer machines), GitHub raw as fallback,
-    fail-open always — a missing catalogue must never block a build. Cached
-    an hour; the catalogue changes rarely.
+    Uses the framework CLI and caches each marketplace branch for an hour.
+    A missing catalogue must never block a custom build.
     """
     import time as _time
 
-    cached = _MARKETPLACE_CACHE.get("apps")
+    from app.agent_app.marketplace_source import ref
+
+    cache_key = ref()
+    cached = _MARKETPLACE_CACHE.get(cache_key)
     if cached is not None and _time.time() - cached[0] < _MARKETPLACE_TTL_SECONDS:
         return cached[1]
 
     apps: List[Dict[str, Any]] = []
-    raw = None
-    local = marketplace_source.local_catalogue()
-    if local is not None:
-        try:
-            raw = json.loads(local.read_text(encoding="utf-8"))
-        except Exception:
-            raw = None
-    if raw is None:
-        try:
-            raw = marketplace_source.fetch_catalogue(timeout=4)
-        except Exception as e:
-            logger.debug(f"[WIZARD] marketplace catalogue unavailable: {e}")
-            raw = None
+    from app.agent_app.framework_commands import command
+
+    try:
+        result = await command("agent-app", ["catalogue"])
+        raw = result.get("data") if result.get("status") == "success" else None
+    except Exception as exc:
+        logger.debug(f"[WIZARD] marketplace catalogue unavailable: {exc}")
+        raw = None
     if isinstance(raw, dict):
         entries = raw.get("apps") or []
         for entry in entries:
@@ -369,7 +282,7 @@ def _marketplace_catalogue() -> List[Dict[str, Any]]:
                     }
                 )
 
-    _MARKETPLACE_CACHE["apps"] = (_time.time(), apps)
+    _MARKETPLACE_CACHE[cache_key] = (_time.time(), apps)
     return apps
 
 
@@ -521,7 +434,7 @@ Respond with STRICT JSON only (no prose, no markdown fence):
 {"questions": [{"id": "f1", "question": "...", "why": "one short sentence", "multiSelect": false, "options": ["...", "..."]}]}"""
 
 
-def _adapt_target(answers: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+async def _adapt_target(answers: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     """The catalogue entry of the app the user chose to adapt, parsed from
     the mandated option wording. None when unresolvable (fail-open)."""
     chosen = ""
@@ -537,7 +450,7 @@ def _adapt_target(answers: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     if not chosen:
         return None
     try:
-        for app in _marketplace_catalogue():
+        for app in await _marketplace_catalogue():
             if chosen in (
                 str(app.get("id", "")).lower(),
                 str(app.get("name", "")).lower(),
@@ -567,7 +480,7 @@ async def generate_followup_questions(
     # HAS — without the catalogue entry it retreats to category options
     # ("change the columns") that teach the spec writer nothing (observed
     # live 2026-08-05, kanban-board adapt).
-    target = _adapt_target(answers)
+    target = await _adapt_target(answers)
     target_part = (
         (
             f"\n\nThe marketplace app being adapted:\n"
@@ -642,7 +555,7 @@ async def generate_interview(
     marketplace_part = (
         _render_marketplace(
             _rank_marketplace(
-                _marketplace_catalogue(),
+                await _marketplace_catalogue(),
                 f"{config.get('name', '')} {config.get('description', '')}",
             )
         )
@@ -706,9 +619,7 @@ async def generate_interview(
 
 # ── synthesis ───────────────────────────────────────────────────────────────
 
-# The document template + rules shared by BOTH synthesis prompts (interview
-# and source-derived) — one definition so they can never drift apart, same
-# reasoning as _PLATFORM_REALITY.
+# The accepted interview answers become the framework builder's specification.
 _REQUIREMENTS_TEMPLATE = """Respond with a STRICT JSON object (no code fence, no prose \
 outside it) with EXACTLY this shape:
 
@@ -738,10 +649,9 @@ their intent.
 - Data: Every entity the app manages: collections with fields (and types), relations, \
 and lifecycle (how records are created/updated/deleted through the UI). For EVERY \
 entity, state its INGRESS — how records actually enter the app: user forms, pull from \
-a named connected service via the bridge (on load/refresh and/or a scheduled sync), \
-file import, or computed from other entities. An app whose purpose is displaying \
-external data MUST specify the bridge pull and a scheduled sync operation — a spec \
-with no working ingress is unimplementable.
+an explicitly available connected service through authorized app tasks, \
+file import, or computed data. Identify the data source and when it is refreshed; \
+do not assume a direct integration bridge or background scheduler exists.
 - Design: The binding visual contract: the chosen layout translated into concrete \
 regions, the theme/color choices made binding, iconography, empty states, and how the \
 reference images' ideas are incorporated. Where the user chose "agent decides", make a \
@@ -769,9 +679,8 @@ comprehensive, binding specification the builder agent will implement exactly.
 
 The spec is BINDING and the builder cannot question it, so it must be \
 implementable exactly as written. If an interview answer implies a mechanism \
-the platform cannot execute (inbound webhooks, OAuth, token entry), translate \
-the INTENT into the platform's equivalent (bridge pull on load/refresh plus a \
-scheduled sync operation) and write THAT. If an answer promises DATA the \
+the chosen blueprint does not support, record the required integration and \
+permission as a dependency instead of inventing an endpoint. If an answer promises DATA the \
 platform has no source for (found/verified/scraped business contacts, any \
 "the backend pulls X" with no named connected integration or keyless public \
 API behind it), do NOT write the impossible ingress: specify the nearest \
@@ -798,111 +707,16 @@ statements. For an as-is install set "adapt": false and "adaptations": []. If \
 the user chose to adapt but stated no concrete changes anywhere, set \
 "adapt": true and "adaptations": ["none specified — ask the user before \
 changing anything"]; never invent adaptations. The builder installs that app \
-via agent_app_marketplace_install and applies only the adaptations — it must \
+via the existing Agent-App install command and applies only the adaptations — it must \
 NOT build from scratch.
 
 NEVER weaken a user-stated deliverable when rewriting: "email me" means the \
-user RECEIVES an email (via the bridge's send_gmail action) — not "queues", \
+user RECEIVES an email (through an available authorized integration) — not "queues", \
 "logs", or "prepares" one. Preserve user-visible outcomes verbatim.
 
 {_REQUIREMENTS_TEMPLATE}
 - Preserve EVERY decision the user made in the configuration and interview — \
 nothing they chose may be dropped or diluted."""
-
-
-SOURCE_SYNTHESIS_SYSTEM_PROMPT = f"""You write the requirements document for \
-REBUILDING an existing app on a new platform. You receive the app's source \
-code (README, dependency manifests, routes, models, UI files — possibly \
-truncated). The original runs on a DIFFERENT stack; only the BEHAVIOR is \
-being carried over, never the code. Describe what the app DOES for its user \
-— every capability you can actually evidence in the source — as a binding \
-specification the builder agent will implement from scratch.
-
-{_PLATFORM_REALITY}
-
-Ground every statement in the source: a feature you cannot point to in the \
-code does not go in the document. If the source integrates services this \
-platform reaches differently (its own SMTP, OAuth, webhooks), translate the \
-INTENT into the platform's equivalent (bridge actions, scheduled sync) — and \
-if the source's purpose for it is unclear, OMIT it rather than guess. Never \
-describe implementation details of the old stack (frameworks, file names, \
-endpoints) — describe user-visible behavior.
-
-{_REQUIREMENTS_TEMPLATE}"""
-
-
-def _render_source(source_dir: Path) -> str:
-    """Deterministic prompt rendering of a foreign app's source tree: the
-    file listing plus the contents of the most informative files (README
-    first, then dependency manifests, then route/model/schema/UI-looking
-    files), truncated per-file and capped overall. Pure, read-only."""
-    source_dir = Path(source_dir)
-    per_file_cap = 3000
-    total_cap = 24000
-    listing: List[str] = []
-    files: List[Path] = []
-    for f in sorted(source_dir.rglob("*")):
-        if not f.is_file():
-            continue
-        rel = f.relative_to(source_dir)
-        if len(listing) < 200:
-            # POSIX separators: this rendering is a prompt and must read the
-            # same on every platform (Windows backslashes broke both the
-            # scoring regex targets and the deterministic-output tests).
-            listing.append(rel.as_posix())
-        files.append(f)
-
-    def _score(f: Path) -> int:
-        name = f.name.lower()
-        rel = f.relative_to(source_dir).as_posix().lower()
-        if name.startswith("readme"):
-            return 0
-        if name in ("package.json", "pyproject.toml", "go.mod", "cargo.toml"):
-            return 1
-        if re.search(r"(route|model|schema|api|urls|views|controller)", rel):
-            return 2
-        if name.endswith((".md", ".py", ".js", ".ts", ".jsx", ".tsx", ".go", ".rb")):
-            return 3
-        return 4
-
-    parts = ["File tree:\n" + "\n".join(listing)]
-    used = len(parts[0])
-    for f in sorted(files, key=lambda f: (_score(f), str(f))):
-        if _score(f) >= 4 or used >= total_cap:
-            continue
-        try:
-            text = f.read_text(encoding="utf-8", errors="replace")[:per_file_cap]
-        except Exception:
-            continue
-        if not text.strip():
-            continue
-        chunk = f"\n\n--- {f.relative_to(source_dir).as_posix()} ---\n{text}"
-        if used + len(chunk) > total_cap:
-            continue
-        parts.append(chunk)
-        used += len(chunk)
-    return "".join(parts)
-
-
-async def synthesize_requirements_from_source(
-    source_dir: Path, app_name: str, user_hint: str = ""
-) -> str:
-    """Derive the requirements document from a foreign app's source code
-    (LIFECYCLE-PLAN Phase 4: conversion = rebuild with the source as
-    evidence). Same output contract as synthesize_requirements."""
-    user_prompt = (
-        f"App name: {app_name}\n"
-        + (f"User's note on what matters: {user_hint}\n" if user_hint else "")
-        + "\nThe app's source code:\n\n"
-        + _render_source(Path(source_dir))
-        + "\n\nWrite the requirements document now."
-    )
-    data = await _llm_json(
-        SOURCE_SYNTHESIS_SYSTEM_PROMPT,
-        user_prompt,
-        prompt_name="AGENT_APP_SOURCE_SYNTHESIS",
-    )
-    return _render_requirements_doc(data)
 
 
 async def synthesize_requirements(
@@ -998,13 +812,29 @@ def _render_requirements_doc(data: Any) -> str:
 # action handlers execute from registry-extracted source (no module globals).
 
 
-async def synthesize_to_project(
-    project_path: Path, config: Dict[str, Any], answers: List[Dict[str, Any]]
-) -> str:
-    """Synthesize the binding spec and write it where the build and
-    walk-verify read it. Returns the document."""
-    doc = await synthesize_requirements(config, answers, [])
-    reference_dir = Path(project_path) / "reference"
-    reference_dir.mkdir(parents=True, exist_ok=True)
-    (reference_dir / "requirements.md").write_text(doc, encoding="utf-8")
-    return doc
+async def start_framework_build(host, config, requirements, attachments=()):
+    """Pass the accepted wizard specification to the same creator as the modal."""
+    decision = re.match(r"MARKETPLACE DECISION: install ([A-Za-z0-9_-]+); adapt: (yes|no)", requirements)
+    if decision:
+        import uuid
+
+        job = await host.start_install({"id": decision[1]}, uuid.uuid4().hex)
+        task = host.jobs.get(job["id"])
+        if task:
+            await task
+        job = host.store.get("install", job["id"])
+        if job["status"] != "success":
+            raise ValueError(job.get("error") or job.get("stderr") or "App installation failed.")
+        if decision[2] == "no":
+            return {"sessionId": job["sessionId"], "path": job["result"]["dir"]}
+        return await host.workflow("modify", requirements, job["result"]["dir"], job["result"]["id"])
+    request = (
+        "Build from the accepted requirements below. After scaffolding, save them "
+        "in reference/requirements.md for independent verification. Use the framework's "
+        "supported blueprint and styling options. Copy the staged references into the app.\n"
+        + json.dumps({"preferences": config, "attachments": list(attachments)}, ensure_ascii=False)
+        + "\n\n" + requirements
+    )
+    return await host.workflow("create", request, creation={
+        "name": config["name"], "authMode": config.get("authMode") or "none",
+    })

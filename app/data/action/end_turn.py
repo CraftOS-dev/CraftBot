@@ -32,36 +32,17 @@ def end_turn(input_data: dict) -> dict:
     simulated_mode = input_data.get("simulated_mode", False)
 
     if not simulated_mode:
-        # STRUCTURAL GUARD: a Agent App build must never be silently
-        # abandoned mid-creation. Ending the run leaves the session asleep
-        # forever (nothing re-wakes it), stranding the user on the creation
-        # screen. Refuse and keep the run alive.
-        session_id = input_data.get("_session_id")
-        if session_id:
-            try:
-                from app.agent_app import get_agent_app_manager
+        from app.agent_app.framework_host import get_host
 
-                manager = get_agent_app_manager()
-                project = (
-                    manager.get_project_by_session_id(session_id) if manager else None
-                )
-                if project is not None and project.status == "creating":
-                    return {
-                        "status": "error",
-                        "message": (
-                            "REFUSED: this Agent App build is not finished — ending "
-                            "the run now would strand it forever (nothing wakes the "
-                            "session again). Valid ways to stop working: (1) keep "
-                            "building the remaining features, (2) ask the user a "
-                            "question via send_message with wait_for_user_reply=true, "
-                            "or (3) finish with agent_app_notify_ready(project_id="
-                            f"'{project.id}') and report the result. There is no "
-                            "'continue in a later turn' — this run IS the build."
-                        ),
-                        "end_turn": False,
-                    }
-            except Exception:
-                pass  # never let the guard itself break turn-ending
+        host = get_host()
+        creation = host.store.get("creation", input_data.get("_session_id")) if host else None
+        if creation and creation.get("building"):
+            return {
+                "status": "error", "end_turn": False,
+                "message": "This app build is unfinished. Continue the framework creator workflow, "
+                           "validate, independently verify and promote before reporting completion. "
+                           "If blocked, explain the blocker or ask the user through send_message.",
+            }
 
         import app.internal_action_interface as internal_action_interface
 

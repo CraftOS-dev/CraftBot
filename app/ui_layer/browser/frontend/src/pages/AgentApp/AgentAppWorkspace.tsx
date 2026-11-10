@@ -16,7 +16,7 @@ const MOBILE_MIN_RATIO = 0.15
 const MOBILE_MAX_RATIO = 0.85
 const MOBILE_COLLAPSE_RATIO = 0.07
 
-/** The existing CraftBot app/chat split, shared by legacy and registry apps. */
+/** The existing CraftBot app/chat split, used by framework apps and in-progress builds. */
 export function AgentAppWorkspace({ sessionId, chatFallback, children }: {
   sessionId?: string
   chatFallback?: React.ReactNode

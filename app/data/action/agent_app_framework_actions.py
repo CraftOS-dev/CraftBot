@@ -119,8 +119,8 @@ async def agent_app_framework_workflow(input_data: dict) -> dict:
         "args is a literal argument array, starting with an absolute app directory "
         "or remote URL for app commands. Registry commands such as blueprints, "
         "skills, catalogue, inspect and install need no app prefix. Use --help "
-        "for upstream syntax. Follow framework-* skills; do not use legacy "
-        "notify_ready/factory actions for framework apps. For app requests to "
+        "for upstream syntax. Follow framework-* skills. "
+        "For app requests to "
         "CraftBot, use the app settings' Allow requests to CraftBot control; "
         "an unqualified bridge start uses an external default harness. No shell expansion."
     ),
@@ -164,8 +164,7 @@ async def agent_app_framework_command(input_data: dict) -> dict:
     description=(
         "List apps in the Agent-App framework registry, including canonical app "
         "IDs, paths, derived status and connected apps. Uses CraftBot's "
-        "bundled framework CLI. Legacy CraftBot projects are "
-        "listed by agent_app_list_projects until migrated."
+        "bundled framework CLI."
     ),
     default=False,
     mode="CLI",
