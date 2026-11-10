@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next'
 import { Button } from '../../components/ui/Button'
 import i18n from '../../i18n/config'
 import { formatNumber, formatDateTime } from '../../i18n/format'
-import type { AgentAppSettingsProject, AgentAppBackupEntry, AgentAppBackupStatus } from '../../store/slices/agentAppSettingsSlice'
 import styles from './SettingsPage.module.css'
 
 const INTERVAL_VALUES = ['hourly', '6h', 'daily', 'weekly'] as const
@@ -337,4 +336,34 @@ return (
       })}
     </div>
   )
+}
+
+export interface AgentAppBackupStatus {
+  lastAt?: number | null
+  lastError?: string | null
+  count?: number
+  totalSize?: number
+}
+
+export interface AgentAppBackupEntry {
+  filename: string
+  ts: number // ms epoch
+  trigger: 'scheduled' | 'pre_promote' | 'manual' | 'pre_delete' | 'pre_restore'
+  size: number
+}
+
+export interface AgentAppSettingsProject {
+  id: string
+  name: string
+  status: string
+  port: number | null
+  backendPort: number | null
+  path: string
+  projectType?: string
+  autoLaunch: boolean
+  logCleanup: boolean
+  backupsEnabled: boolean
+  backupInterval: 'hourly' | '6h' | 'daily' | 'weekly'
+  backupKeep: number
+  backupStatus?: AgentAppBackupStatus
 }

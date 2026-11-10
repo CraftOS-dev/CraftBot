@@ -18,7 +18,7 @@ export function ReferenceChip({ reference, onRemove }: { reference: ReferenceInp
   const frameworkApp = useAppSelector(state => state.agentApp.framework.apps.find(a => frameworkKey(a.path, a.id) === reference.targetId || state.agentApp.framework.aliases?.[reference.targetId] === frameworkKey(a.path, a.id)))
   const available = useAppSelector(state => reference.kind === 'session'
     ? state.sessions.sessions.some(s => s.id === reference.targetId)
-    : reference.kind === 'agent_app' && (state.agentApp.projects.some(a => a.id === reference.targetId) || !!frameworkApp))
+    : reference.kind === 'agent_app' && !!frameworkApp)
   const Icon = reference.kind === 'session' ? MessageSquare : AppWindow
   return <>
     <span className={styles.chip}>

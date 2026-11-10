@@ -1,3 +1,4 @@
+import { useNavigate } from 'react-router-dom'
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowLeft, ArrowRight, Box, ChevronDown, Loader2, Paperclip,
@@ -210,6 +211,7 @@ export function CreateCustomWizard({ send, onMessage, onClose, onCreated, onConf
   const [followupDone, setFollowupDone] = useState(false)
 
   // — creating state —
+  const navigate = useNavigate()
   const [createError, setCreateError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -240,8 +242,9 @@ export function CreateCustomWizard({ send, onMessage, onClose, onCreated, onConf
           setQuestions(prev => [...prev, ...data.followupQuestions])
           setQIndex(i => i + 1)
           setStep('interview')
-        } else if (data.success && data.projectId) {
-          onCreated?.(data.projectId)
+        } else if (data.success && data.sessionId) {
+          navigate(`/session/${data.sessionId}`)
+          onCreated?.(data.sessionId)
           onClose()
         } else {
           setCreateError(data.error || t('components:createCustomWizard.createFailed'))
@@ -249,7 +252,7 @@ export function CreateCustomWizard({ send, onMessage, onClose, onCreated, onConf
       }),
     ]
     return () => cleanups.forEach(c => c())
-  }, [onMessage, onClose, onCreated])
+  }, [onMessage, onClose, onCreated, navigate])
 
   // ── configure helpers ──────────────────────────────────────────────────
 

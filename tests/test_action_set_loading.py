@@ -22,7 +22,7 @@ from agent_core.core.state.session import StateSession
 _REGISTRY = [
     ActionMetadata(name="send_message", action_sets=["core"]),
     ActionMetadata(name="read_file", action_sets=["core"]),
-    ActionMetadata(name="agent_app_notify_ready", action_sets=["agent_app"]),
+    ActionMetadata(name="agent_app_framework_command", action_sets=["agent_app_framework"]),
     ActionMetadata(name="run_python", action_sets=["code_execution"]),
     ActionMetadata(name="find_files", action_sets=["file_operations"]),
     ActionMetadata(
@@ -135,7 +135,7 @@ def test_actions_follow_the_session_type(sessions):
     assert app.compiled_actions == [
         "send_message",
         "read_file",
-        "agent_app_notify_ready",
+        "agent_app_framework_command",
         "run_python",
         "find_files",
     ]
@@ -153,7 +153,7 @@ def test_restore_ignores_an_accumulated_stored_list(sessions):
     restored = sessions.restore_session(stored)
     assert "send_gmail" not in restored.compiled_actions
     assert "read_pdf" not in restored.compiled_actions
-    assert "agent_app_notify_ready" in restored.compiled_actions
+    assert "agent_app_framework_command" in restored.compiled_actions
 
 
 def test_loading_delivers_schemas_without_touching_actions(loader):

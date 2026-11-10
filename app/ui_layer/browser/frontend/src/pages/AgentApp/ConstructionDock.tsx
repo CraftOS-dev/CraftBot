@@ -1,16 +1,6 @@
 /**
- * ConstructionDock — the read-only build visualizer shown while a Agent App is
- * being created.
- *
- * It is a pure presentational surface driven by two inputs the platform
- * already produces: the agent's todos (progress bar + "Step N of M") and the
- * build-event feed derived read-only by the backend observer
- * (construction_events.py). It shows built-so-far chips, a paced + coalesced
- * feed of what's happening, and a live CodePeek of the code being written.
- *
- * It observes only — nothing here touches or drives the build. There is no app
- * preview behind it (the dock is the whole view); when the build completes and
- * the app launches, AgentAppPage swaps this out for the running app iframe.
+ * CraftBot's construction view, driven by the app conversation's todos.
+ * The shared workspace replaces it with the running app after promotion.
  */
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
@@ -31,12 +21,12 @@ import {
   ListChecks,
 } from 'lucide-react'
 import { DraftMascot } from '@mascot'
-import type { AgentAppProject, AgentAppBuildEvent } from '../../types'
+import type { AgentAppBuildEvent } from '../../types'
 import type { AgentAppTodo, AgentAppSnapshot } from '../../store/slices/agentAppSlice'
 import styles from './AgentAppPage.module.css'
 
 interface Props {
-  project: Pick<AgentAppProject, 'name' | 'status'>
+  project: { name: string; status: string }
   todos: AgentAppTodo[] | undefined
   events: AgentAppBuildEvent[]
   snapshot: AgentAppSnapshot | null

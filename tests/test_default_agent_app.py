@@ -234,13 +234,6 @@ def test_occupied_unregistered_destination_and_missing_registration_fail(tmp_pat
     cli.run.assert_not_called()
 
 
-def test_runner_tools_come_from_code_not_the_users_workspace(tmp_path, monkeypatch):
-    from app import paths
-    from app.agent_app.manager import AgentAppManager
-
-    monkeypatch.setattr(paths, "CODE_ROOT", CODE_ROOT)
-    manager = AgentAppManager(tmp_path / "separate-user-data")
-    assert manager.runner.cli_path == CODE_ROOT / "agent-app/tools/src/cli.ts"
 
 
 def test_bundle_builder_is_repeatable_and_rejects_user_data():

@@ -226,8 +226,8 @@ def test_revoked_owner_cannot_execute_queued_tools():
     update_config("telegram_bot", {"self_user_ids": []})
     result = asyncio.run(
         AgentBase._execute_actions(
-            SimpleNamespace(),
-            [(SimpleNamespace(name="agent_app_list_projects"), {})],
+            SimpleNamespace(session_manager=SimpleNamespace(get=lambda sid: None)),
+            [(SimpleNamespace(name="agent_app_framework_list"), {})],
             TriggerData(query="List apps", session_id="main", payload=origin),
             "",
             "main",
@@ -380,24 +380,23 @@ def test_typing_failure_does_not_end_the_work(monkeypatch):
 
 def test_owner_can_inspect_agent_apps_through_action_execution(monkeypatch, tmp_path):
     from app.agent_base import AgentBase, TriggerData
-    from app.agent_app import (
-        AgentAppManager,
-        get_agent_app_manager,
-        set_agent_app_manager,
-    )
-    from app.data.action.agent_app_actions import agent_app_list_projects
+    from app.agent_app import framework
+    from app.data.action.agent_app_framework_actions import agent_app_framework_list
     from agent_core.core.impl.action.context import current_message_origin
 
     grant_owner()
-    previous_manager = get_agent_app_manager()
-    set_agent_app_manager(AgentAppManager(tmp_path / "apps"))
+    async def empty_registry():
+        return {"status": "success", "data": {"apps": []}}
+
+    monkeypatch.setattr(framework, "list_apps", empty_registry)
     origins = []
 
     async def execute(**kwargs):
         origins.append(current_message_origin.get())
-        return await agent_app_list_projects({})
+        return await agent_app_framework_list({})
 
     agent = SimpleNamespace(
+        session_manager=SimpleNamespace(get=lambda sid: None),
         action_manager=SimpleNamespace(execute_actions_parallel=execute),
         _merge_action_outputs=lambda result: result,
     )
@@ -410,20 +409,17 @@ def test_owner_can_inspect_agent_apps_through_action_execution(monkeypatch, tmp_
         platform="telegram_bot",
         payload=owner_origin(),
     )
-    try:
-        result = asyncio.run(
-            AgentBase._execute_actions(
-                agent,
-                [(SimpleNamespace(name="agent_app_list_projects"), {})],
-                trigger,
-                "",
-                "main",
-            )
+    result = asyncio.run(
+        AgentBase._execute_actions(
+            agent,
+            [(SimpleNamespace(name="agent_app_framework_list"), {})],
+            trigger,
+            "",
+            "main",
         )
-    finally:
-        set_agent_app_manager(previous_manager)
+    )
     assert result["status"] == "success"
-    assert result["projects"] == []
+    assert result["data"]["apps"] == []
     assert origins[0]["owner_authenticated"] is True
     assert current_message_origin.get() is None
 
@@ -431,7 +427,7 @@ def test_owner_can_inspect_agent_apps_through_action_execution(monkeypatch, tmp_
 @pytest.mark.parametrize(
     "action_name",
     [
-        "agent_app_list_projects",
+        "agent_app_framework_list",
         "set_telegram_owner_control",
         "set_telegram_contact_auto_reply",
         "read_file",
@@ -450,6 +446,7 @@ def test_auto_reply_cannot_execute_privileged_tools(action_name, mixed_batch):
         return [{"status": "success", "projects": [{"name": "Private app"}]}]
 
     agent = SimpleNamespace(
+        session_manager=SimpleNamespace(get=lambda sid: None),
         action_manager=SimpleNamespace(execute_actions_parallel=execute),
         _merge_action_outputs=lambda result: result,
     )
@@ -505,7 +502,7 @@ def test_auto_reply_cannot_execute_privileged_tools(action_name, mixed_batch):
         (True, "send_message", False),
         (False, "send_message", True),
         (False, "send_telegram_bot_message", False),
-        (False, "agent_app_list_projects", False),
+        (False, "agent_app_framework_list", False),
     ],
 )
 def test_guest_action_policy_preserves_replies_and_owner_notifications(

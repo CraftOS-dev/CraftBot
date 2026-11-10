@@ -253,31 +253,12 @@ def send_http_requests(input_data: dict) -> dict:
                 "message": "Blocked: requests to cloud metadata endpoints are not allowed.",
             }
 
-        def _agent_app_ports() -> set:
-            try:
-                from app.agent_app import get_agent_app_manager
-
-                _mgr = get_agent_app_manager()
-                if not _mgr:
-                    return set()
-                _ports = set()
-                for _p in _mgr.projects.values():
-                    if _p.port:
-                        _ports.add(int(_p.port))
-                    if _p.backend_port:
-                        _ports.add(int(_p.backend_port))
-                return _ports
-            except Exception:
-                return set()
-
         # Resolve hostname and check for private IPs
         try:
             _resolved = _socket.getaddrinfo(_hostname, None)
             for _family, _type, _proto, _canonname, _sockaddr in _resolved:
                 _ip = _ipaddress.ip_address(_sockaddr[0])
                 if _ip.is_loopback:
-                    if _port and _port in _agent_app_ports():
-                        continue  # Allowed: targeting a known Agent App port
                     return {
                         "status": "error",
                         "status_code": 0,
@@ -285,7 +266,7 @@ def send_http_requests(input_data: dict) -> dict:
                         "body": "",
                         "final_url": "",
                         "elapsed_ms": 0,
-                        "message": f"Blocked: requests to loopback addresses ({_hostname}) are only allowed for registered Agent App ports. Use the agent_app_http action with project_id to talk to your Agent App.",
+                        "message": f"Blocked: requests to loopback addresses ({_hostname}) must use agent_app_framework_command with the a2app surface to talk to your Agent App.",
                     }
                 if _ip.is_private or _ip.is_link_local:
                     return {

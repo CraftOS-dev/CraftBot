@@ -97,7 +97,7 @@ test('+ picker shares selections with @ and supports reference-only sends', asyn
   await expect(page.getByRole('button', { name: 'Weather dashboard', exact: true })).toHaveCount(1)
   await expect(input(page)).toHaveValue('')
   await input(page).press('Enter')
-  expect((await requests(page))[0].references).toEqual([{ kind: 'agent_app', targetId: 'weather' }])
+  expect((await requests(page))[0].references).toEqual([{ kind: 'agent_app', targetId: 'framework:["C:/test/weather","weather"]' }])
 })
 
 test('server echo and history reload retain the captured preview', async ({ page }) => {

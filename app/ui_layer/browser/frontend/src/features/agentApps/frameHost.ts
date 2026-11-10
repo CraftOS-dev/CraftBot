@@ -11,7 +11,6 @@ const MAX_POOL_SIZE = 5
 export const APP_FRAME_PERMISSIONS = 'microphone; camera; display-capture; clipboard-read; clipboard-write; fullscreen'
 
 const pool = new Map<string, HTMLIFrameElement>()
-const frameworkFrames = new Set<string>()
 export const frameworkFrameId = (path: string, appId: string) => `framework:${JSON.stringify([path, appId])}`
 // Track access order for LRU eviction
 const accessOrder: string[] = []
@@ -138,7 +137,6 @@ export function hideIframe(id: string) {
 }
 
 export function removeIframe(id: string) {
-  frameworkFrames.delete(id)
   const iframe = pool.get(id)
   if (iframe) {
     iframe.remove()
@@ -151,7 +149,7 @@ export function removeIframe(id: string) {
 }
 
 /** Exactly one owner places each project frame; stale cleanup is harmless. */
-export function acquireIframe(id: string, src: string, framework = false) {
+export function acquireIframe(id: string, src: string) {
   if (owners.has(id)) return null
   if (!pool.has(id) && pool.size >= MAX_POOL_SIZE) {
     const candidate = accessOrder.find(key => !owners.has(key))
@@ -163,11 +161,9 @@ export function acquireIframe(id: string, src: string, framework = false) {
   let frame: HTMLIFrameElement
   try { frame = getOrCreateIframe(id, src) }
   catch (error) { owners.delete(id); throw error }
-  if (framework) {
-    frameworkFrames.add(id)
-    frame.dataset.framework = id
-    frame.style.background = 'white'
-  }
+  frame.dataset.framework = id
+  frame.style.background = 'white'
+
   return {
     frame,
     update(rect: DOMRect, visible: boolean, interactive: boolean) {
@@ -189,62 +185,7 @@ export function acquireIframe(id: string, src: string, framework = false) {
 }
 
 /** Dispose stopped/deleted frames even when their React surface is absent. */
-export function reconcileIframes(projects: { id: string; status: string }[]) {
-  const running = new Set(projects.filter(p => p.status === 'running').map(p => p.id))
-  for (const id of pool.keys()) if (!frameworkFrames.has(id) && !running.has(id)) removeIframe(id)
-}
-
 export function reconcileFrameworkIframes(apps: { path: string; id: string; status: string }[]) {
   const running = new Set(apps.filter(a => a.status === 'running').map(a => frameworkFrameId(a.path, a.id)))
-  for (const id of frameworkFrames) if (!running.has(id)) removeIframe(id)
-}
-
-// The host does NOT refresh an app's data view — an app owns its own live
-// data (the kit's realtime hooks refetch in place, keeping the open view and
-// any modal intact). The host only navigates the frame on a new DEPLOY, via
-// getOrCreateIframe's version-stamped src.
-
-export function hasIframe(id: string): boolean {
-  return pool.has(id)
-}
-
-export function getIframeWindow(id: string): Window | null {
-  return pool.get(id)?.contentWindow ?? null
-}
-
-/** True if `win` belongs to this project's iframe. */
-export function ownsProjectWindow(id: string, win: unknown): boolean {
-  if (win == null) return false
-  return win === pool.get(id)?.contentWindow
-}
-
-export function broadcastThemeToIframes(theme: string, cssVars: Record<string, string>) {
-  const message = { type: 'craftbot-theme', theme, cssVars }
-  pool.forEach((iframe, id) => {
-    if (frameworkFrames.has(id)) return
-    try {
-      iframe.contentWindow?.postMessage(message, new URL(iframe.src).origin)
-    } catch (e) {}
-  })
-}
-
-export function sendThemeToIframe(id: string, theme: string, cssVars: Record<string, string>) {
-  const iframe = pool.get(id)
-  if (!iframe) return
-  try {
-    iframe.contentWindow?.postMessage({ type: 'craftbot-theme', theme, cssVars }, new URL(iframe.src).origin)
-  } catch (e) {}
-}
-
-export function postMessageToIframe(id: string, data: unknown) {
-  const iframe = pool.get(id)
-  if (!iframe) return
-  try {
-    iframe.contentWindow?.postMessage(data, new URL(iframe.src).origin)
-  } catch (e) {}
-}
-
-export function acceptsFrameMessage(id: string, event: MessageEvent): boolean {
-  const frame = pool.get(id)
-  return !!frame && ownsProjectWindow(id, event.source) && event.origin === new URL(frame.src).origin
+  for (const id of pool.keys()) if (!running.has(id)) removeIframe(id)
 }

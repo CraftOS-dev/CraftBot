@@ -16,7 +16,7 @@ from urllib.parse import urlsplit
 from aiohttp import web
 
 from app.agent_app import framework
-from app.agent_app.sharing import LanChannel, LanRelay, TunnelChannel
+from app.agent_app.sharing import lan_ip, LanRelay, TunnelChannel
 from app.process_ledger import kill_tree
 
 
@@ -148,15 +148,9 @@ class ShareGateway(LanRelay):
 
 
 class FrameworkSharing:
-    def __init__(self, host, legacy_manager=None):
+    def __init__(self, host):
         self.host = host
-        # Share the transport instance so orphan cleanup never kills a live
-        # tunnel belonging to another CraftBot app runtime.
-        self.tunnel = (
-            legacy_manager.sharing.channel("tunnel")
-            if legacy_manager is not None
-            else TunnelChannel(lambda proc: kill_tree(proc.pid, grace=0))
-        )
+        self.tunnel = TunnelChannel(lambda proc: kill_tree(proc.pid, grace=0))
         self.active = {}
 
     def channels(self, path, app_id):
@@ -185,7 +179,7 @@ class FrameworkSharing:
             )
         port = urlsplit(selected["data"]["url"]).port
         await self.close(path, app_id, channel)
-        address = LanChannel.lan_ip() if channel == "lan" else "127.0.0.1"
+        address = lan_ip() if channel == "lan" else "127.0.0.1"
         if not address:
             raise ValueError("This computer is not connected to a local network.")
         gateway = ShareGateway(port, app_id, address)

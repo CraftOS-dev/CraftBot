@@ -6,7 +6,7 @@ import { useWebSocket } from '../../contexts/WebSocketContext'
 import { SidebarPopover } from '../../components/layout/SidebarPopover'
 import { useAppSelector } from '../../store/hooks'
 import { frameworkAppKey } from '../../store/slices/agentAppSlice'
-import type { AgentAppProject, FrameworkRegistryApp, FrameworkConnectedApp, SessionInfo } from '../../types'
+import type { FrameworkRegistryApp, FrameworkConnectedApp, SessionInfo } from '../../types'
 import type { useSortableList } from '../../hooks'
 import { FrameworkAppControls, FrameworkAppFeedback } from './FrameworkAppControls'
 import { FrameworkAppDelete } from './FrameworkAppDialogs'
@@ -15,15 +15,13 @@ import navStyles from '../../components/layout/NavBar.module.css'
 import styles from './FrameworkAppList.module.css'
 
 export type SidebarAppEntry =
-  | { kind: 'legacy'; id: string; project: AgentAppProject }
   | { kind: 'framework'; id: string; app: FrameworkRegistryApp }
   | { kind: 'connected'; id: string; app: FrameworkConnectedApp }
   | { kind: 'pending'; id: string; session: SessionInfo }
 
-/** One ordered list; only legacy rows receive legacy lifecycle handlers. */
-export function FrameworkAppList({ entries, renderLegacy, renderPending, renderSessionDot, sortable, onOpen, onMenuOpen, otherMenuOpen, flyout = false }: {
+/** Registry apps and pending builds share the existing sidebar layout. */
+export function FrameworkAppList({ entries, renderPending, renderSessionDot, sortable, onOpen, onMenuOpen, otherMenuOpen, flyout = false }: {
   entries: SidebarAppEntry[]
-  renderLegacy: (project: AgentAppProject) => ReactNode
   renderPending?: (session: SessionInfo) => ReactNode
   renderSessionDot?: (app: FrameworkRegistryApp) => ReactNode
   sortable?: ReturnType<typeof useSortableList>
@@ -102,7 +100,6 @@ export function FrameworkAppList({ entries, renderLegacy, renderPending, renderS
     <ul className={`${styles.list} ${flyout ? styles.flyoutList : ''}`}>
       {entries.map(entry => {
         if (entry.kind === 'pending') return <li key={entry.id} ref={sortable?.rowRef(entry.id)} style={sortable?.rowStyle(entry.id)}>{renderPending?.(entry.session)}</li>
-        if (entry.kind === 'legacy') return <li key={entry.id}>{renderLegacy(entry.project)}</li>
         if (entry.kind === 'connected') {
           const app = entry.app
           return <li key={entry.id} ref={sortable?.rowRef(entry.id)} style={sortable?.rowStyle(entry.id)}

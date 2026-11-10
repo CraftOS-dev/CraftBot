@@ -4,48 +4,42 @@ import { createRoot } from 'react-dom/client'
 import { Provider } from 'react-redux'
 import { MemoryRouter, Routes, Route, useNavigate, Navigate, useParams } from 'react-router-dom'
 import { getSocketClient } from '../src/store/socket/socketInstance'
-import type { SocketEnvelope } from '../src/store/socket/types'
 import { ToastProvider } from '../src/contexts/ToastContext'
 import { ThemeProvider } from '../src/contexts/ThemeContext'
 import { WebSocketProvider } from '../src/contexts/WebSocketContext'
 import { setConnected } from '../src/store/slices/connectionSlice'
-import { AgentAppTriggerConsentModal } from '../src/components/ui/AgentAppTriggerConsentModal'
-import { AgentAppTriggerBlockedToast } from '../src/components/ui/AgentAppTriggerBlockedToast'
 import i18n from '../src/i18n/config'
 import '../src/styles/global.css'
 import layoutStyles from '../src/components/layout/Layout.module.css'
 
 const requests: Record<string, unknown>[] = []
-const frameworkState = { attachments: [], jobs: [], deliveries: [], inventory: { legacy: [], migrations: [] } }
+const frameworkState = { attachments: [], jobs: [], deliveries: [] }
 const client = getSocketClient()
-// Let tests exercise legacy wizard events through the production middleware,
-// including React subscriptions that the direct Redux receive helper bypasses.
-const socketListeners = new Set<(message: SocketEnvelope) => void>()
-client.onAnyMessage = listener => {
-  socketListeners.add(listener)
-  return () => { socketListeners.delete(listener) }
-}
-let liveFramework: WebSocket | null = null
+const socketHandlers = new Set<(message: any) => void>()
+client.onAnyMessage = handler => { socketHandlers.add(handler); return () => { socketHandlers.delete(handler) } }
 client.connect = () => {}
 client.sendString = payload => { requests.push(JSON.parse(payload)) }
 client.send = (type, data = {}) => {
-  if (liveFramework && type.startsWith('agent_app_framework_')) { client.sendNow(type, data); return }
   requests.push({ type, ...data })
+  if (type === 'agent_app_framework_open') {
+    const app = store.getState().agentApp.framework.apps.find(p => p.id === data.appId) as typeof projects[number] | undefined
+    setTimeout(() => receive({ type, data: {
+      requestId: data.requestId, path: data.path, app_id: data.appId,
+      ...(app?.status === 'running' ? { status: 'success', data: { path: app.path, id: app.id, name: app.name, url: app.url } }
+        : { status: 'error', code: 'stopped', message: 'This app is stopped.' }),
+    } }), 0)
+  }
 }
 client.sendNow = (type, data = {}) => {
   requests.push({ type, ...data })
-  if (liveFramework && type.startsWith('agent_app_framework_')) {
-    if (liveFramework.readyState !== WebSocket.OPEN) return false
-    liveFramework.send(JSON.stringify({ type, ...data })); return true
-  }
   if (type === 'agent_app_framework_request' && data.operation === 'sharing' && data.action === 'info') {
     setTimeout(() => receive({ type: 'agent_app_framework_response', data: { requestId: data.requestId, status: 'success', result: {} } }), 0)
   }
   if (type === 'agent_app_framework_request' && data.operation === 'snapshot') {
     setTimeout(() => receive({ type: 'agent_app_framework_response', data: { requestId: data.requestId, status: 'success', result: frameworkState } }), 0)
   }
-  if (type === 'agent_app_framework_request' && data.operation === 'migration' && data.action === 'inventory') {
-    setTimeout(() => receive({ type: 'agent_app_framework_response', data: { requestId: data.requestId, status: 'success', result: frameworkState.inventory } }), 0)
+  if (type === 'agent_app_framework_request' && data.operation === 'attach') {
+    setTimeout(() => receive({ type: 'agent_app_framework_response', data: { requestId: data.requestId, status: 'success', result: { path: data.path, appId: data.appId, sessionId: `${data.appId}-chat` } } }), 0)
   }
   return true
 }
@@ -63,24 +57,16 @@ const mobileLayout = new URLSearchParams(location.search).has('mobile-layout')
 const TourProvider = (await import('../src/tour')).TourProvider
 const receive = (envelope: { type: string; data: unknown }) => dispatchInbound(envelope, store.dispatch, store.getState)
 const projects = [
-  { id: 'notes', name: 'Notes', description: 'Write notes', path: '', status: 'running', url: 'http://localhost:7935/tests/fixtures/panel-app.html', readyAt: 1, createdAt: 1, sessionId: 'notes-chat', uiTheme: { themeId: 'craftbot' } },
-  { id: 'calendar', name: 'Calendar', description: 'Plan work', path: '', status: 'running', url: 'http://localhost:7935/tests/fixtures/panel-app.html?calendar', readyAt: 1, createdAt: 1 },
-  { id: 'weather', name: 'Weather', description: 'Forecast', path: '', status: 'stopped', createdAt: 1 },
+  { id: 'notes', name: 'Notes', description: 'Write notes', path: 'C:/test/notes', status: 'running', url: 'http://localhost:7935/tests/fixtures/panel-app.html', readyAt: 1, createdAt: 1, sessionId: 'notes-chat', uiTheme: { themeId: 'craftbot' } },
+  { id: 'calendar', name: 'Calendar', description: 'Plan work', path: 'C:/test/calendar', status: 'running', url: 'http://localhost:7935/tests/fixtures/panel-app.html?calendar', readyAt: 1, createdAt: 1 },
+  { id: 'weather', name: 'Weather', description: 'Forecast', path: 'C:/test/weather', status: 'stopped', createdAt: 1 },
 ]
 await i18n.changeLanguage('en')
 store.dispatch(setConnected(true))
-receive({ type: 'agent_app_list', data: { success: true, projects } })
-receive({ type: 'agent_app_settings_get', data: { success: true, projects } })
+receive({ type: 'agent_app_framework_list', data: { status: 'success', data: { apps: projects, connected: [], aliases: Object.fromEntries(projects.map(p => [p.id, `framework:${JSON.stringify([p.path, p.id])}`])) } } })
 receive({ type: 'session_list', data: { sessions: ['dest', 'other', 'notes-chat'].map(id => ({ id, type: 'chat', title: id, createdAt: '2026-10-26', lastActiveAt: '2026-10-26' })) } })
 for (const sessionId of ['dest', 'other', 'notes-chat']) receive({ type: 'chat_history', data: { sessionId, messages: [], hasMore: false } })
-Object.assign(window, { panelRequests: requests, panelReceive: receive, panelProjects: projects, panelStore: store, frameworkState })
-Object.assign(window, { panelReceiveSocket: (message: SocketEnvelope) => socketListeners.forEach(listener => listener(message)) })
-Object.assign(window, { panelConnectFramework: (url: string, token: string) => new Promise<void>((resolve, reject) => {
-  liveFramework = new WebSocket(url.replace('http:', 'ws:') + '/ws', ['craftbot', 'craftbot-auth.' + token])
-  liveFramework.onopen = () => resolve()
-  liveFramework.onerror = () => reject(new Error('The disposable host did not connect'))
-  liveFramework.onmessage = event => receive(JSON.parse(event.data))
-}) })
+Object.assign(window, { panelRequests: requests, panelReceive: receive, panelSocketReceive: (message: any) => socketHandlers.forEach(handler => handler(message)), panelProjects: projects, panelStore: store, frameworkState })
 function SessionFixture() {
   const { id } = useParams()
   return <ChatPage sessionId={id!} />
@@ -99,8 +85,6 @@ function Fixture() {
     </Routes></div>
   </div>
   return <>
-    <AgentAppTriggerConsentModal />
-    <AgentAppTriggerBlockedToast />
     {mobileLayout ? <Layout>{content}</Layout> : <div className={layoutStyles.layout}>
       {NavBar && TourProvider && <aside className={`${layoutStyles.sidebar} ${collapsed ? layoutStyles.sidebarCollapsed : ''}`}>
         <NavBar collapsed={collapsed} onToggleCollapsed={() => setCollapsed(value => !value)} />

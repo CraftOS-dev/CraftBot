@@ -35,10 +35,10 @@ function usableFrameUrl(value: string): string | null {
   } catch { return null }
 }
 
-/** Presentation only: never enters the legacy pool, theme bridge or manager. */
+/** Presentation only; lifecycle and app styling remain with Agent-App. */
 function FrameworkFrame({ id, url, name, blocked, moving, retry }: { id: string; url: string; name: string; blocked: boolean; moving: boolean; retry: () => void }) {
   const { t } = useTranslation('agentapp')
-  const frame = usePersistentAppFrame({ id, url, name, status: 'running' }, true, moving, blocked, false, true)
+  const frame = usePersistentAppFrame({ id, url, name, status: 'running' }, true, moving, blocked)
   const loaded = frame.status === 'ready', failed = frame.status === 'timeout' || frame.status === 'unavailable'
   return <div className={surface.view}>
     <div ref={frame.placeholder} className={surface.placeholder} />

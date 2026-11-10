@@ -132,7 +132,7 @@ async def send_message(input_data: dict) -> dict:
         # suggested_responses is the agent SAYING it expects an answer (the
         # rules tell it to do exactly that when asking), so the distinction
         # comes from the agent's own declared intent rather than from anyone
-        # guessing at the prose. app/factory/host_craftbot.on_run_end reads
-        # this to avoid treating a waiting run as a surrender.
+        # guessing at the prose. App-task completion also uses this flag
+        # to distinguish waiting for input from a finished response.
         "awaiting_answer": bool(ends_run and suggested_responses),
     }

@@ -84,7 +84,7 @@ class TestSessionActionSets:
         assert Session(id="a", type=SessionType.AGENT_APP).base_action_sets == [
             "file_operations",
             "code_execution",
-            "agent_app",
+            "agent_app_framework",
         ]
 
     def test_action_lists_are_not_persisted(self):
@@ -114,7 +114,7 @@ class TestSessionActionSets:
         assert restored.base_action_sets == [
             "file_operations",
             "code_execution",
-            "agent_app",
+            "agent_app_framework",
         ]
         assert restored.compiled_actions == []
 
