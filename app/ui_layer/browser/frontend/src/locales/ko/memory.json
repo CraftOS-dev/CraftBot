@@ -88,6 +88,10 @@
     "supersededLabel": "대체됨 (기록으로 유지, 회상에서 제외)",
     "contentPlaceholder": "예: John은 간결한 답변을 선호함"
   },
+  "entity": {
+    "deleteTitle": "엔티티 삭제",
+    "deleteMessage": "그래프에서 ‘{{name}}’ 및 해당 링크를 제거합니다. 메모리 자체는 변경되지 않습니다."
+  },
   "files": {
     "title": "에이전트 파일",
     "aboutAria": "파일 인덱싱 정보",
@@ -108,6 +112,7 @@
   },
   "toast": {
     "updateFailed": "인덱싱된 파일을 업데이트하지 못했습니다",
-    "skipped": "{{path}} 건너뜀: {{reason}}"
+    "skipped": "{{path}} 건너뜀: {{reason}}",
+    "entityDeleteFailed": "엔티티를 삭제하지 못했습니다"
   }
 }

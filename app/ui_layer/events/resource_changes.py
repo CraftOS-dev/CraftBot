@@ -150,6 +150,7 @@ _RESOURCE_BY_MESSAGE_TYPE: Dict[str, Resource] = {
             "memory_item_add",
             "memory_item_update",
             "memory_item_remove",
+            "memory_entity_remove",
             "memory_reset",
             "memory_process_trigger",
         ),

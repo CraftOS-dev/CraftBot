@@ -88,6 +88,10 @@
     "supersededLabel": "已取代（保留為歷史記錄，不納入回憶）",
     "contentPlaceholder": "例如：John 偏好簡潔的回覆"
   },
+  "entity": {
+    "deleteTitle": "刪除實體",
+    "deleteMessage": "這會從圖譜中移除「{{name}}」及其連結。記憶本身不會變更。"
+  },
   "files": {
     "title": "代理檔案",
     "aboutAria": "關於檔案索引",
@@ -108,6 +112,7 @@
   },
   "toast": {
     "updateFailed": "更新已建立索引的檔案失敗",
-    "skipped": "已略過 {{path}}：{{reason}}"
+    "skipped": "已略過 {{path}}：{{reason}}",
+    "entityDeleteFailed": "刪除實體失敗"
   }
 }

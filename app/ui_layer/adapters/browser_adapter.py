@@ -1863,6 +1863,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             item_id = data.get("itemId", "")
             await self._handle_memory_item_remove(item_id)
 
+        elif msg_type == "memory_entity_remove":
+            name = data.get("name", "")
+            await self._handle_memory_entity_remove(name)
+
         elif msg_type == "memory_reset":
             await self._handle_memory_reset()
 
@@ -5970,6 +5974,29 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         "success": False,
                         "error": result.get("error", "Unknown error"),
                     },
+                }
+            )
+
+    async def _handle_memory_entity_remove(self, name: str) -> None:
+        """Delete an entity from ENTITIES.md and push the rebuilt graph.
+
+        The fresh graph rides in this reply (like the per-file index
+        mutations) so the node disappears in one round-trip.
+        """
+        try:
+            agent = self._controller.agent
+            removed = await asyncio.to_thread(
+                agent.memory_manager.remove_entity, name
+            )
+            data: Dict[str, Any] = {"success": removed, "name": name}
+            if removed:
+                data["graph"] = await self._memory_graph_snapshot()
+            await self._broadcast({"type": "memory_entity_remove", "data": data})
+        except Exception as e:
+            await self._broadcast(
+                {
+                    "type": "memory_entity_remove",
+                    "data": {"success": False, "name": name, "error": str(e)},
                 }
             )
 
