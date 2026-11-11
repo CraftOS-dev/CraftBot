@@ -57,7 +57,7 @@ DEFAULT_SETTINGS = {
         "notion": {"client_id": "", "client_secret": ""},
         "outlook": {"client_id": ""},
     },
-    "web_search": {"google_cse_id": ""},
+    "web_search": {"google_cse_id": "", "google_cse_base_url": ""},
     "browser": {"port": 7926, "startup_ui": False},
 }
 
