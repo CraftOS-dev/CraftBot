@@ -3,7 +3,10 @@
 <script>
 window.fixtureBoot = Math.random()
 window.addEventListener('message', event => {
-  if (event.data?.type === 'livingui-theme') document.querySelector('#theme').textContent = event.data.themeId + ':' + event.data.mode
+  if (event.data?.type === 'livingui-theme') {
+    document.querySelector('#theme').textContent = event.data.themeId + ':' + event.data.mode
+    document.querySelector('#theme').dataset.message = JSON.stringify(event.data)
+  }
 })
 parent.postMessage({ type: 'craftbot-theme-request' }, '*')
 </script></body></html>

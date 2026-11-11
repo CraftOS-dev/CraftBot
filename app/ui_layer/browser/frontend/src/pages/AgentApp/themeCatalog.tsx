@@ -27,6 +27,11 @@ export interface AgentAppCustomColors {
   accent: string
 }
 
+export interface AgentAppTheme {
+  themeId: AgentAppThemeId
+  customColors?: AgentAppCustomColors
+}
+
 export const DEFAULT_CUSTOM_COLORS: AgentAppCustomColors = {
   bg: '#191919',
   surface: '#202020',

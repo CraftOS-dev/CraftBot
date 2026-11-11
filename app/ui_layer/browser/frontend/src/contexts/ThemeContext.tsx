@@ -1,6 +1,8 @@
 import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react'
 import { usePersistedState } from '../hooks/usePersistedState'
 import { UI_STATE, type ThemePreference } from '../store/uiState'
+import { useAppSelector } from '../store/hooks'
+import { syncFrameworkThemes } from '../features/agentApps/frameHost'
 
 type Theme = 'dark' | 'light'
 
@@ -38,10 +40,13 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const [preference, setPreference] = usePersistedState(UI_STATE.theme)
   const systemTheme = useSystemTheme()
   const theme: Theme = preference === 'system' ? systemTheme : preference
+  const apps = useAppSelector(state => state.agentApp.framework.apps)
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme)
   }, [theme])
+
+  useEffect(() => { syncFrameworkThemes(theme, apps) }, [theme, apps])
 
   // Toggling picks the opposite of what is on screen, leaving 'system' behind.
   const toggleTheme = useCallback(() => {

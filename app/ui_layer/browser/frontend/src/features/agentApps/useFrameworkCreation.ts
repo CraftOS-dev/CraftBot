@@ -48,7 +48,7 @@ export function useFrameworkCreation(onClose: () => void) {
     return () => { active = false; clearTimeout(timer) }
   }, [connected, pending, navigate, requestAgentAppList, showToast])
 
-  const workflow = async (activity: string, request: string, creation?: { name: unknown; authMode: unknown }) => {
+  const workflow = async (activity: string, request: string, creation?: { name: unknown; authMode: unknown; uiTheme: unknown }) => {
     if (!connected) throw new Error('Reconnect to CraftBot before continuing.')
     const result = await frameworkRequest<{ sessionId: string }>({ operation: 'workflow', activity, request, ...(creation ? { creation } : {}) })
     onClose(); navigate(`/session/${result.sessionId}`)
@@ -79,7 +79,7 @@ export function useFrameworkCreation(onClose: () => void) {
       if (!response.ok || !result.path) throw new Error(result.error || `Could not upload ${file.name}`)
       references.push({ name: file.name, path: result.path, kind: file === icon ? 'icon' : 'reference' })
     }
-    await workflow('create', `Create an app using these preferences. Clarify any missing requirements in this conversation. Use the framework's supported blueprint and styling options to match the requested design. Copy staged references into the app's reference directory.\n${JSON.stringify({ ...config, attachments: references }, null, 2)}`, { name: config.name, authMode: config.authMode })
+    await workflow('create', `Create an app using these preferences. Clarify any missing requirements in this conversation. Use the framework's supported blueprint and styling options to match the requested design. Copy staged references into the app's reference directory.\n${JSON.stringify({ ...config, attachments: references }, null, 2)}`, { name: config.name, authMode: config.authMode, uiTheme: config.uiTheme })
   }
   return { install, create }
 }

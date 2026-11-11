@@ -837,4 +837,5 @@ async def start_framework_build(host, config, requirements, attachments=()):
     )
     return await host.workflow("create", request, creation={
         "name": config["name"], "authMode": config.get("authMode") or "none",
+        "uiTheme": config.get("uiTheme") or "craftbot",
     })

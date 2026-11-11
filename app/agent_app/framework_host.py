@@ -257,6 +257,9 @@ class FrameworkHost:
             "observedStatus": row.get("status"),
             "observedPort": row.get("port"),
         }
+        creation = self.store.get("creation", session.id) or {}
+        if "uiTheme" not in value and creation.get("uiTheme"):
+            value["uiTheme"] = creation["uiTheme"]
         attachment_changed = value != previous or self.store.get("conversation", session.id) != value
         if attachment_changed:
             self.store.put("attachment", key, value)
@@ -386,9 +389,12 @@ class FrameworkHost:
                 or creation.get("authMode") not in {"none", "multi-user"}
             ):
                 raise ValueError("Choose an app name and supported access mode.")
+            from app.agent_app.framework_maintenance import validate_ui_theme
+
             creation = {
                 "name": creation["name"].strip(),
                 "authMode": creation["authMode"],
+                "uiTheme": validate_ui_theme({"themeId": creation.get("uiTheme") or "craftbot"}),
             }
         cli = await asyncio.to_thread(framework.configured_cli)
         if activity == "create":

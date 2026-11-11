@@ -63,6 +63,10 @@ const agentAppSlice = createSlice({
   name: 'agentApp',
   initialState,
   reducers: {
+    receiveFrameworkTheme(state, action: PayloadAction<Pick<FrameworkRegistryApp, 'path' | 'id' | 'uiTheme'>>) {
+      const app = state.framework.apps.find(app => app.path === action.payload.path && app.id === action.payload.id)
+      if (app) app.uiTheme = action.payload.uiTheme
+    },
     receiveFrameworkAttachment(state, action: PayloadAction<{ path: string; appId: string; sessionId: string }>) {
       const { path, appId, sessionId } = action.payload
       state.frameworkSessions[frameworkAppKey(path, appId)] = sessionId
@@ -170,7 +174,7 @@ const agentAppSlice = createSlice({
     })
   },
 })
-export const { receiveFrameworkAttachment, invalidateFrameworkView, receiveFrameworkLifecycle, requestFrameworkOpen, cancelFrameworkOpen, receiveFrameworkOpen, receiveFrameworkList, setTodos } = agentAppSlice.actions
+export const { receiveFrameworkTheme, receiveFrameworkAttachment, invalidateFrameworkView, receiveFrameworkLifecycle, requestFrameworkOpen, cancelFrameworkOpen, receiveFrameworkOpen, receiveFrameworkList, setTodos } = agentAppSlice.actions
 
 export default agentAppSlice.reducer
 
