@@ -1,6 +1,6 @@
 ---
 name: heartbeat-processor
-description: Process the unified proactive heartbeat by reading PROACTIVE.md and executing all due tasks across every frequency (hourly/daily/weekly/monthly).
+description: Run the proactive tasks from PROACTIVE.md that the scheduler hands to this run (each fires at its own set time) and report the result to the user's main chat in one message.
 user-invocable: false
 action-sets:
   - file_operations
@@ -11,99 +11,91 @@ action-sets:
 
 # Heartbeat Processor
 
-Silent background skill for executing scheduled proactive tasks. A single unified heartbeat runs every hour and checks ALL frequencies — hourly, daily, weekly, and monthly tasks are evaluated in one pass.
+Background skill for running scheduled proactive tasks. Every task in PROACTIVE.md has its own slot (hourly at :MM, daily at HH:MM, weekly on a day at HH:MM, monthly on a date at HH:MM). The scheduler fires this run when one or more tasks reach their slot, or when a slot was missed while CraftBot was off. The heartbeat interval in Settings only sets how often CraftBot double-checks for missed tasks.
 
 ## Trigger Context
 
-You receive a single heartbeat trigger with:
-- `type`: "proactive_heartbeat"
-- The task instruction tells you how many due tasks were found
+Your instruction lists exactly the tasks to run now, each with:
+- its name and id, its schedule, and its tier (notify or silent)
+- its instruction
+- conditions to check first, if it has any
+- a "Late" note when it is running well after its slot
+
+The scheduler has ALREADY selected these tasks and recorded them as run. Do not call `recurring_read` to work out what is due, do not re-check their time or day fields, do not schedule them "for later", and do not call `recurring_update_task` to log them. CraftBot records each task's outcome from your final message.
 
 ---
 
-## CRITICAL: Silent Execution (Override Standard Task Rules)
+## CRITICAL: Background Execution
 
-**This skill overrides standard task completion rules.** Unlike regular tasks:
+This run happens in the background session, not in the user's chat:
 
-- **NO acknowledgement**: Do NOT acknowledge task receipt to user
-- **NO confirmation**: Do NOT wait for user confirmation before ending
-- **MUST end silently**: Use `end_turn` immediately after processing, without user interaction
-- **Can send messages**: You can use `send_message` for tier 1 notifications — notify only, never phrase it as a question that expects an answer
-- **NEVER block on user**: Do not end the run on a question at any point
-
-**Why?** Heartbeat tasks run automatically at regular intervals. Waiting for user confirmation would cause tasks to pile up indefinitely.
+- **Your run-ending `send_message` is the result.** CraftBot posts it to the user's main chat, headed with the task names. Put everything the user should see in that ONE message.
+- **Progress updates are invisible.** `send_message` with `continue_work=true` is not shown to the user. Do not use it for notifications.
+- **Nothing to report → `end_turn`.** If every task was silent (tier 0) or skipped and nothing needs the user's attention, end with `end_turn` and nothing is posted.
+- **Never wait for the user.** Do not end on a question that needs an answer before the task can finish. If a task needs the user (a login, a decision), say so in the final message and stop that task.
 
 ---
 
-## CRITICAL: Two Execution Types
-
-When executing proactive tasks, you MUST choose between two execution types:
+## Two Execution Types
 
 ### INLINE Execution
-Execute the task directly within this heartbeat session.
+Do the task directly in this run.
 
 **Use INLINE when:**
-- Permission tier is 0 or 1
-- Task can be completed with available actions
-- No complex multi-step workflows needed
-- Task is quick (notifications, searches, summaries)
-
-**Examples:** Send notification, search information, read and summarize files
+- The task can be completed with the available actions
+- No long multi-step workflow is needed
+- The task is quick (notifications, searches, summaries)
 
 ### SCHEDULED Execution
-Schedule the task as a separate session using `schedule_task`.
+Hand the task to its own background run with `schedule_task(schedule="immediate")`. It runs right after this one, in the same background session, and its own final message is posted to the main chat separately.
 
 **Use SCHEDULED when:**
-- Task requires complex multi-step execution
-- Task may need to spawn sub-tasks
-- Task requires action sets not available to heartbeat-processor
-- Task runs extended operations that shouldn't block heartbeat
-
-**Examples:** Comprehensive research, multi-file analysis, web scraping, code generation
-
-**IMPORTANT for SCHEDULED tasks:** When scheduling a task, you MUST include in the instruction that the spawned task should call `recurring_update_task(task_id, add_outcome={result, success})` before ending. This ensures the proactive task outcome is recorded.
+- The task needs long multi-step execution or sub-tasks
+- The task needs action sets or skills this run does not have
+- Running it inline would hold up the other due tasks
 
 ```
 schedule_task(
   name="[Task Name]",
-  instruction="Execute [task description]. IMPORTANT: Before ending, call recurring_update_task(task_id='[proactive_task_id]', add_outcome={'result': '[description of what was done]', 'success': true/false}) to record the outcome.",
+  instruction="Execute [task description]. End with one send_message reporting the result to the user.",
   schedule="immediate",
   action_sets=["required", "action", "sets"],
-  skills=["relevant-skills"],
-  payload={"source": "proactive", "task_id": "[proactive_task_id]"}
+  skills=["relevant-skills"]
 )
 ```
 
 ### Tasks That Operate a Website (Mini Browser)
 
-Reading public pages works with `web_search` / `web_fetch`. A task that must USE a site — sign in, open an account page, click through, fill a form — needs the Mini Browser (action set `mini_browser`, a real browser with the user's saved logins):
+Reading public pages works with `web_search` / `web_fetch`. A task that must USE a site (sign in, open an account page, click through, fill a form) needs the Mini Browser (action set `mini_browser`, a real browser with the user's saved logins):
 
 - **Quick check on one page** → INLINE: `add_action_sets(["mini_browser"])` (their schemas arrive in your event stream), then the `mini_browser_*` actions next turn (`mini_browser_navigate`, then act on the numbered elements each result returns; `mini_browser_login` signs in with a saved login).
-- **Multi-step work** → SCHEDULED: `schedule_task(..., schedule="immediate", action_sets=["mini_browser"], skills=["mini-browser"], ...)`.
-- Never wait for the user inside a heartbeat. A login that isn't saved, a CAPTCHA or a 2FA prompt → record the outcome as failed (`success: false`, say what is needed) and notify the user (tier 1).
+- **Multi-step work** → SCHEDULED: `schedule_task(..., schedule="immediate", action_sets=["mini_browser"], skills=["mini-browser"])`.
+- A login that isn't saved, a CAPTCHA or a 2FA prompt → stop that task and say in the final message what is needed.
 
 ---
 
 ## Tiered Permission Model
 
-All recurring proactive tasks use tier 0 or tier 1. Tasks requiring user approval should not be added as recurring tasks.
+Every task in your instruction is marked notify (tier 1) or silent (tier 0).
 
 ```
-Tier 0 - Silent (No Notification):
+Tier 0 - Silent:
   - Search and summarize information
   - Detect anomalies and patterns
   - Draft recommendations internally
   - Read files and analyze data
+  - Report only if the task's instruction asks for it, or something needs attention
 
-Tier 1 - Notify Then Execute:
-  - Notify user with star prefix, then execute immediately
-  - Send a proposed plan or draft to user
-  - Share analysis results or recommendations
+Tier 1 - Notify:
+  - Do the task, then report the result in the final message
+  - Share analysis results, a proposed plan or a draft
 ```
+
+Actions that send messages to other people, spend money or change external accounts are never done on a heartbeat unless the task's instruction explicitly says to.
 
 ## Evaluation Rubric
 
-Score 1-5 for each dimension to determine if you should execute a proactive task:
+Score 1-5 for each dimension to decide whether running a task right now is worth it:
 
 ```
 1. IMPACT (How significant is the outcome?)
@@ -144,175 +136,75 @@ Score 1-5 for each dimension to determine if you should execute a proactive task
 Decision Threshold:
 - Total score >= 18: Strong candidate for execution
 - Total score 13-17: Consider execution, may need user input
-- Total score < 13: Skip or defer this task
+- Total score < 13: Skip this run (say so in the final message if the task is tier 1)
 ```
 
 ## Workflow
 
-### Step 1: Read All Due Recurring Tasks
+### Step 1: Read the Task List
 
-Use `recurring_read` with `frequency="all"` to get all enabled tasks, then process the ones that are due.
+Take the tasks from your instruction, in order. Read MEMORY.md, USER.md or other files only as far as a task needs them.
 
-```
-recurring_read(frequency="all", enabled_only=true)
-```
+### Step 2: Check Each Task
 
-The unified heartbeat checks tasks across ALL frequencies in one pass. Time and day filtering is already handled before tasks reach you — the tasks in your instruction are due now. However, you should still verify:
+1. **Conditions**: if a task lists conditions, check them first and skip the task if one does not hold:
+   - `market_hours_only`: skip outside 9:30 AM - 4:00 PM on weekdays
+   - `weekdays_only`: skip on Saturday and Sunday
+   - `user_available`: skip if the user has not been active recently
+   - Custom conditions as described
+2. **Late note**: a task running late may no longer make sense (a "good morning" brief at 9 PM). Skip it and say so, or adapt it.
+3. **Rubric**: score it; skip below 13.
 
-- **Tasks with a `time` field**: If current time < task time, schedule for later using `schedule_task` with the specified time, then skip
-- **Tasks with a `day` field**: Confirm today matches (the pre-filter handles most cases, but verify edge cases)
+### Step 3: Run Each Task
 
-**Scheduling a task for later:**
-```
-schedule_task(
-  name="[Task Name]",
-  instruction="Execute recurring task: [task_id]. [original instruction]. IMPORTANT: Before ending, call recurring_update_task(task_id='[task_id]', add_outcome={'result': '[what was done]', 'success': true/false}).",
-  schedule="at [task_time]",
-  action_sets=["proactive", "file_operations"],
-  payload={"source": "proactive", "task_id": "[task_id]"}
-)
-```
+Choose INLINE or SCHEDULED, then follow the task's instruction. If a task fails, note why and continue with the next one.
 
-Then record that task was scheduled:
-```
-recurring_update_task(
-  task_id="[task_id]",
-  add_outcome={"result": "Scheduled for [time]", "success": true}
-)
-```
+### Step 4: Finish
 
-### Step 3: Evaluate Each Task
-
-For each task:
-
-1. **Check Conditions**: If the task has conditions, evaluate them:
-   - `market_hours_only`: Skip if outside 9:30 AM - 4:00 PM on weekdays
-   - `user_available`: Check if user has responded recently
-   - Custom conditions as defined
-
-2. **Score Using Rubric**: Evaluate each dimension 1-5 as described above.
-
-3. **Decision**:
-   - Score >= 18: Execute the task
-   - Score 13-17: Consider executing
-   - Score < 13: Skip for this heartbeat
-
-### Step 4: Choose Execution Type (INLINE or SCHEDULED)
-
-For each task that passes evaluation, determine HOW to execute it:
-
-| Criteria | INLINE | SCHEDULED |
-|----------|--------|-----------|
-| Complexity | Simple, single-step | Multi-step, complex |
-| Action sets needed | Available in heartbeat | Requires different sets |
-| Duration | Quick | Extended |
-| Sub-tasks needed | No | Yes |
-
-### Step 5: Execute Tasks
-
-#### For INLINE Execution:
-
-1. **Check Permission Tier**:
-   - **Tier 0 (silent)**: Execute without notification
-   - **Tier 1 (notify)**: Notify user with star prefix, then execute immediately
-
-2. **Execute the Task**: Follow the task's instruction using available actions
-
-3. **Record Outcome**: Use `recurring_update_task` to record:
-   ```
-   recurring_update_task(
-     task_id="task_id",
-     add_outcome={"result": "Description of what was done", "success": true}
-   )
-   ```
-
-#### For SCHEDULED Execution:
-
-1. Use `schedule_task` with the instruction that includes the outcome recording requirement:
-   ```
-   schedule_task(
-     name="Weekly Code Review",
-     instruction="Perform weekly code review. IMPORTANT: Before ending this task, you MUST call recurring_update_task(task_id='weekly_code_review', add_outcome={'result': '[what was done]', 'success': true/false}) to record the outcome.",
-     schedule="immediate",
-     action_sets=["file_operations"],
-     skills=[],
-     payload={"source": "proactive", "task_id": "weekly_code_review"}
-   )
-   ```
-
-2. Record that the task was scheduled:
-   ```
-   recurring_update_task(
-     task_id="task_id",
-     add_outcome={"result": "Scheduled as separate task (session: xxx)", "success": true}
-   )
-   ```
-
-### Step 6: Complete
-
-After processing all tasks, end the task silently.
+- Something to report → ONE `send_message` (no `continue_work`) with a short section per task that has news: what was done, the findings, anything that needs the user.
+- Nothing to report → `end_turn`.
 
 ## Rules
 
-- **END SILENTLY** - Always end with `end_turn` without waiting for user confirmation
-- **NEVER wait for user** - Notifications only; never end the run on a question that expects an answer
-- **NEVER spam users** - Batch notifications when possible
-- **Star emoji prefix** - Use for proactive notifications to user
-- **Silent on no tasks** - If no tasks match the frequency, end silently
-- **Log outcomes** - Always record what happened for each executed task
-- **Handle failures gracefully** - If a task fails, log error and continue to next
-- **Prefer INLINE execution** - Only use SCHEDULED when truly necessary
-- **Always include outcome recording in scheduled task instructions**
-
-## Permission Tier Reference
-
-All recurring proactive tasks use tier 0 or tier 1:
-
-| Tier | Name | Behavior |
-|------|------|----------|
-| 0 | Silent | Execute without notification |
-| 1 | Notify | Notify user then execute immediately |
+- **One final message**: everything the user should see goes into the run-ending `send_message`
+- **No progress messages**: `continue_work=true` messages are never shown to the user
+- **Silent on nothing**: end with `end_turn` when no task has news
+- **Never wait for the user**: report what is needed instead of asking and waiting
+- **Do not re-schedule or re-log**: the scheduler already recorded these tasks as run
+- **Prefer INLINE execution**: use SCHEDULED only when truly necessary
+- **Handle failures gracefully**: note the failure and continue with the next task
 
 ## Example Flows
 
 ### Example 1: INLINE Execution (Daily Briefing)
 
-1. Read tasks: `recurring_read(frequency="all", enabled_only=true)`
-2. Find: `daily_morning_briefing` (daily, tier 1, enabled, due now)
-3. Score: Impact=4, Risk=5, Cost=4, Urgency=3, Confidence=4 = 20 (execute)
-4. Execution type: **INLINE** (simple notification, tier 1)
-5. Permission tier 1: Send message with star prefix
-6. Execute: Gather weather, calendar, tasks
-7. Present briefing to user
-8. Record outcome: `recurring_update_task(task_id="daily_morning_briefing", add_outcome={...})`
-9. Continue to next due task or end
+1. Instruction lists `daily_morning_briefing` (daily at 07:00, notify)
+2. Score: Impact=4, Risk=5, Cost=4, Urgency=3, Confidence=4 = 20 (execute)
+3. Gather weather, calendar and tasks
+4. Final `send_message` with the briefing
 
 ### Example 2: SCHEDULED Execution (Complex Analysis)
 
-1. Read tasks: `recurring_read(frequency="all", enabled_only=true)`
-2. Find: `weekly_code_review` (weekly, tier 1, enabled, today is Sunday, due now)
-3. Score: Impact=4, Risk=5, Cost=3, Urgency=2, Confidence=4 = 18 (execute)
-4. Execution type: **SCHEDULED** (complex multi-step analysis)
-5. Schedule:
-   ```
-   schedule_task(
-     name="Weekly Code Review",
-     instruction="Review code changes from the past week. Analyze for patterns, issues, and improvements. IMPORTANT: Before ending, call recurring_update_task(task_id='weekly_code_review', add_outcome={'result': '[summary of findings]', 'success': true/false}).",
-     schedule="immediate",
-     action_sets=["file_operations"],
-     payload={"source": "proactive", "task_id": "weekly_code_review"}
-   )
-   ```
-6. Record: `recurring_update_task(task_id="weekly_code_review", add_outcome={"result": "Scheduled as separate task", "success": true})`
-7. Continue to next task or end
+1. Instruction lists `weekly_code_review` (weekly on Sunday at 17:00, notify)
+2. Score: Impact=4, Risk=5, Cost=3, Urgency=2, Confidence=4 = 18 (execute)
+3. Too long to run inline: `schedule_task(name="Weekly Code Review", instruction="Review code changes from the past week ... End with one send_message reporting the findings.", schedule="immediate", action_sets=["file_operations"])`
+4. `end_turn` (the scheduled run reports its own result)
+
+### Example 3: Silent Task
+
+1. Instruction lists `hourly_inbox_scan` (hourly at :00, silent)
+2. Nothing urgent found
+3. `end_turn`
 
 ## Allowed Actions
 
-`recurring_read`, `recurring_update_task`, `send_message`, `memory_search`,
-`read_file`, `web_search`, `web_fetch`, `schedule_task`,
-`update_todos`, `end_turn`, and for website tasks `add_action_sets` with
-the `mini_browser_*` actions (see "Tasks That Operate a Website")
+`send_message`, `end_turn`, `memory_search`, `read_file`, `web_search`,
+`web_fetch`, `schedule_task`, `update_todos`, and for website tasks
+`add_action_sets` with the `mini_browser_*` actions (see "Tasks That
+Operate a Website")
 
 ## Forbidden Actions
 
-Direct file writes to PROACTIVE.md (use `recurring_update_task` instead)
+Direct file writes to PROACTIVE.md, and `recurring_update_task` /
+`recurring_add` / `recurring_remove` (task changes need the user, in their
+main chat)

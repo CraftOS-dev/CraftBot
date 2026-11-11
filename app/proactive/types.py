@@ -11,6 +11,56 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 
+FREQUENCIES = ("hourly", "daily", "weekly", "monthly")
+WEEKDAYS = (
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+    "saturday",
+    "sunday",
+)
+
+
+def validate_schedule_fields(
+    frequency: str, time: Optional[str], day: Optional[str]
+) -> None:
+    """Raise ValueError unless frequency/time/day describe a valid schedule.
+
+    time: "HH:MM" 24-hour (hourly tasks use only the minute).
+    day: weekday name for weekly tasks, 1-31 for monthly tasks.
+    """
+    if frequency not in FREQUENCIES:
+        raise ValueError(f"Invalid frequency. Must be one of: {', '.join(FREQUENCIES)}")
+    if time:
+        parts = str(time).split(":")
+        if len(parts) != 2 or not all(p.strip().isdigit() for p in parts):
+            raise ValueError(f"time must be HH:MM (24-hour), got {time!r}")
+        hour, minute = int(parts[0]), int(parts[1])
+        if not (0 <= hour <= 23 and 0 <= minute <= 59):
+            raise ValueError(f"time must be HH:MM (24-hour), got {time!r}")
+    if day:
+        if frequency == "weekly" and str(day).lower() not in WEEKDAYS:
+            raise ValueError(
+                f"day must be a weekday name for weekly tasks, got {day!r}"
+            )
+        if frequency == "monthly":
+            if not str(day).isdigit() or not (1 <= int(day) <= 31):
+                raise ValueError(f"day must be 1-31 for monthly tasks, got {day!r}")
+
+
+def _month_slot(year: int, month: int, day: int, hour: int, minute: int) -> datetime:
+    """The task's slot in a given month, clamping day 29-31 to the month's end."""
+    clamped = min(day, calendar.monthrange(year, month)[1])
+    return datetime(year, month, clamped, hour, minute)
+
+
+def _shift_month(year: int, month: int, delta: int) -> tuple[int, int]:
+    index = year * 12 + (month - 1) + delta
+    return index // 12, index % 12 + 1
+
+
 @dataclass
 class RecurringCondition:
     """Condition for recurring task execution.
@@ -76,6 +126,14 @@ class RecurringOutcome:
 class RecurringTask:
     """Definition of a recurring task.
 
+    Scheduling is slot-based and owned by code, never by the model. Every
+    task has a fixed slot per period (hourly at :MM, daily at HH:MM, weekly
+    on a weekday at HH:MM, monthly on a date at HH:MM; HH:MM defaults to
+    00:00, weekly to Monday, monthly to the 1st). A task is due when its most
+    recent slot is at or after ``active_since`` and it has not been
+    dispatched since that slot. Missed slots are not replayed one by one:
+    only the most recent one runs, late, the next time CraftBot checks.
+
     Attributes:
         id: Unique identifier for the task
         name: Human-readable task name
@@ -83,13 +141,14 @@ class RecurringTask:
         instruction: What the agent should do
         enabled: Whether the task is active
         priority: Task priority (lower = higher priority)
-        permission_tier: Permission level (0-3)
-        time: Time of day for daily+ tasks (HH:MM format)
-        day: Day of week for weekly tasks (e.g., "sunday")
+        permission_tier: Permission level (0 = silent, 1 = notify)
+        time: HH:MM slot time (hourly tasks use only the minute)
+        day: Weekday name for weekly tasks, 1-31 for monthly tasks
         conditions: List of conditions that must be met
-        last_run: Timestamp of last execution
-        next_run: Timestamp of next scheduled execution
-        run_count: Number of times the task has been executed
+        active_since: When the current schedule took effect (created,
+            re-enabled or rescheduled); slots before it never run
+        last_run: When the task was last dispatched (stamped by code)
+        run_count: Number of times the task has been dispatched
         outcome_history: Recent execution outcomes (limited to last 5)
     """
 
@@ -100,292 +159,122 @@ class RecurringTask:
     enabled: bool = True
     priority: int = 50
     permission_tier: int = 0
-    time: Optional[str] = None  # HH:MM for daily+
-    day: Optional[str] = None  # For weekly (e.g., "sunday")
+    time: Optional[str] = None  # HH:MM
+    day: Optional[str] = None  # weekday name (weekly) or 1-31 (monthly)
     conditions: List[RecurringCondition] = field(default_factory=list)
+    active_since: Optional[datetime] = None
     last_run: Optional[datetime] = None
-    next_run: Optional[datetime] = None
     run_count: int = 0
     outcome_history: List[RecurringOutcome] = field(default_factory=list)
 
     MAX_OUTCOME_HISTORY = 5
 
-    # Grace period: tasks must be picked up within this window after their
-    # scheduled time, otherwise the run is skipped until the next period.
-    # Set to 30 minutes to match the heartbeat interval (fires at :00 and :30).
-    GRACE_PERIOD = timedelta(minutes=30)
+    # ─────────────── Slots ───────────────
 
-    def should_run(self, current_frequency: str = "") -> bool:
-        """Check if this task should run.
+    def _hour_minute(self) -> tuple[int, int]:
+        if not self.time:
+            return 0, 0
+        hour, minute = (int(p) for p in str(self.time).split(":"))
+        return hour, minute
 
-        When ``current_frequency`` is given, only tasks matching that exact
-        frequency are considered (legacy per-frequency heartbeat behaviour).
-        When empty or ``"all"``, the method checks the task's own frequency
-        against the current date/time to decide if it is due.
+    def _weekday(self) -> int:
+        name = (self.day or "monday").lower()
+        return WEEKDAYS.index(name) if name in WEEKDAYS else 0
 
-        Tasks with a scheduled time have a 30-minute grace period. If the
-        heartbeat fires more than 30 minutes after the target time, the run
-        is skipped until the next period (no catch-up runs).
+    def _month_day(self) -> int:
+        try:
+            return int(self.day) if self.day else 1
+        except ValueError:
+            return 1
 
-        Args:
-            current_frequency: The frequency being processed, or "" / "all"
-                               to check all frequencies against current time.
+    def latest_slot(self, now: datetime) -> datetime:
+        """The most recent slot at or before ``now``."""
+        hour, minute = self._hour_minute()
+        if self.frequency == "hourly":
+            slot = now.replace(minute=minute, second=0, microsecond=0)
+            return slot if slot <= now else slot - timedelta(hours=1)
+        if self.frequency == "daily":
+            slot = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+            return slot if slot <= now else slot - timedelta(days=1)
+        if self.frequency == "weekly":
+            back = (now.weekday() - self._weekday()) % 7
+            slot = (now - timedelta(days=back)).replace(
+                hour=hour, minute=minute, second=0, microsecond=0
+            )
+            return slot if slot <= now else slot - timedelta(weeks=1)
+        if self.frequency == "monthly":
+            day = self._month_day()
+            slot = _month_slot(now.year, now.month, day, hour, minute)
+            if slot <= now:
+                return slot
+            year, month = _shift_month(now.year, now.month, -1)
+            return _month_slot(year, month, day, hour, minute)
+        raise ValueError(f"Unknown frequency: {self.frequency}")
 
-        Returns:
-            True if the task should run, False otherwise.
-        """
+    def next_slot(self, now: datetime) -> datetime:
+        """The earliest slot strictly after ``now``."""
+        hour, minute = self._hour_minute()
+        if self.frequency == "hourly":
+            slot = now.replace(minute=minute, second=0, microsecond=0)
+            return slot if slot > now else slot + timedelta(hours=1)
+        if self.frequency == "daily":
+            slot = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+            return slot if slot > now else slot + timedelta(days=1)
+        if self.frequency == "weekly":
+            ahead = (self._weekday() - now.weekday()) % 7
+            slot = (now + timedelta(days=ahead)).replace(
+                hour=hour, minute=minute, second=0, microsecond=0
+            )
+            return slot if slot > now else slot + timedelta(weeks=1)
+        if self.frequency == "monthly":
+            day = self._month_day()
+            slot = _month_slot(now.year, now.month, day, hour, minute)
+            if slot > now:
+                return slot
+            year, month = _shift_month(now.year, now.month, 1)
+            return _month_slot(year, month, day, hour, minute)
+        raise ValueError(f"Unknown frequency: {self.frequency}")
+
+    def is_due(self, now: Optional[datetime] = None) -> bool:
+        """Whether the most recent slot is owed a run."""
         if not self.enabled:
             return False
+        now = now or datetime.now()
+        slot = self.latest_slot(now)
+        if self.active_since is not None and slot < self.active_since:
+            return False
+        if self.last_run is not None and self.last_run >= slot:
+            return False
+        return True
 
-        # Legacy per-frequency filter
-        if current_frequency and current_frequency != "all":
-            return self.frequency == current_frequency
-
-        # Unified heartbeat: check if this task is due right now
-        now = datetime.now()
-
-        if self.frequency == "hourly":
-            # Hourly tasks are always due on every heartbeat
-            return True
-
-        if self.frequency == "daily":
-            # Check if already ran today
-            if self.last_run and self.last_run.date() == now.date():
-                return False
-            # Daily tasks: check time field if present
-            if self.time:
-                task_hour, task_minute = (int(p) for p in self.time.split(":"))
-                target_time = now.replace(
-                    hour=task_hour, minute=task_minute, second=0, microsecond=0
-                )
-                if now < target_time:
-                    return False  # Too early
-                if now > target_time + self.GRACE_PERIOD:
-                    return False  # Missed the window, skip until tomorrow
-            return True
-
-        if self.frequency == "weekly":
-            # Check if already ran this week
-            if (
-                self.last_run
-                and self.last_run.isocalendar()[1] == now.isocalendar()[1]
-                and self.last_run.year == now.year
-            ):
-                return False
-            # Weekly tasks: check day field
-            if self.day:
-                today_name = now.strftime("%A").lower()
-                if today_name != self.day.lower():
-                    return False
-            # Check time if present
-            if self.time:
-                task_hour, task_minute = (int(p) for p in self.time.split(":"))
-                target_time = now.replace(
-                    hour=task_hour, minute=task_minute, second=0, microsecond=0
-                )
-                if now < target_time:
-                    return False
-                if now > target_time + self.GRACE_PERIOD:
-                    return False  # Missed the window, skip until next week
-            return True
-
-        if self.frequency == "monthly":
-            # Check if already ran this month
-            if (
-                self.last_run
-                and self.last_run.month == now.month
-                and self.last_run.year == now.year
-            ):
-                return False
-            # Monthly tasks: check day field (day of month)
-            if self.day:
-                try:
-                    target_day = int(self.day)
-                    if now.day != target_day:
-                        return False
-                except ValueError:
-                    pass  # Non-numeric day, skip check
-            # Check time if present
-            if self.time:
-                task_hour, task_minute = (int(p) for p in self.time.split(":"))
-                target_time = now.replace(
-                    hour=task_hour, minute=task_minute, second=0, microsecond=0
-                )
-                if now < target_time:
-                    return False
-                if now > target_time + self.GRACE_PERIOD:
-                    return False  # Missed the window, skip until next month
-            return True
-
-        return False
-
-    @staticmethod
-    def _next_heartbeat(dt: datetime) -> datetime:
-        """Snap a datetime to the next clock-aligned heartbeat slot (:00 or :30).
-
-        Heartbeats fire at fixed 30-minute intervals aligned to the clock.
-        """
-        if dt.minute < 30:
-            return dt.replace(minute=30, second=0, microsecond=0)
-        return (dt + timedelta(hours=1)).replace(minute=0, second=0, microsecond=0)
-
-    def calculate_next_run(self) -> Optional[datetime]:
-        """Calculate the next execution time for this task.
-
-        Returns the next datetime when this task will actually execute,
-        snapped to the next heartbeat slot (every 30 min at :00 and :30).
-        Returns None for disabled tasks.
-        """
+    def next_due_at(self, now: Optional[datetime] = None) -> Optional[datetime]:
+        """When the task next becomes due: ``now`` if it is due already,
+        None while disabled."""
         if not self.enabled:
             return None
+        now = now or datetime.now()
+        if self.is_due(now):
+            return now
+        start = now
+        if self.active_since is not None and self.active_since > start:
+            start = self.active_since
+        return self.next_slot(start)
 
-        now = datetime.now()
-        task_hour, task_minute = 0, 0
-        if self.time:
-            parts = self.time.split(":")
-            task_hour, task_minute = int(parts[0]), int(parts[1])
+    def calculate_next_run(self) -> Optional[datetime]:
+        """Next execution time for display (None for disabled tasks)."""
+        return self.next_due_at()
 
-        if self.frequency == "hourly":
-            # Hourly tasks run on every heartbeat (every 30 min)
-            return self._next_heartbeat(now)
-
-        if self.frequency == "daily":
-            today_at_time = now.replace(
-                hour=task_hour, minute=task_minute, second=0, microsecond=0
-            )
-            if self.last_run and self.last_run.date() == now.date():
-                # Already ran today — next is tomorrow
-                return self._next_heartbeat(
-                    today_at_time + timedelta(days=1) - timedelta(seconds=1)
-                )
-            if now < today_at_time:
-                # Time hasn't passed yet — snap target time to heartbeat
-                return self._next_heartbeat(today_at_time - timedelta(seconds=1))
-            if self.time and now <= today_at_time + self.GRACE_PERIOD:
-                # Within grace period — next heartbeat will pick it up
-                return self._next_heartbeat(now)
-            # Missed the window — skip to tomorrow
-            return self._next_heartbeat(
-                today_at_time + timedelta(days=1) - timedelta(seconds=1)
-            )
-
-        if self.frequency == "weekly":
-            day_names = [
-                "monday",
-                "tuesday",
-                "wednesday",
-                "thursday",
-                "friday",
-                "saturday",
-                "sunday",
-            ]
-            target_day_name = (self.day or "monday").lower()
-            target_weekday = (
-                day_names.index(target_day_name) if target_day_name in day_names else 0
-            )
-
-            days_ahead = target_weekday - now.weekday()
-            if days_ahead < 0:
-                days_ahead += 7
-
-            next_date = now + timedelta(days=days_ahead)
-            next_time = next_date.replace(
-                hour=task_hour, minute=task_minute, second=0, microsecond=0
-            )
-
-            if (
-                self.last_run
-                and self.last_run.isocalendar()[1] == now.isocalendar()[1]
-                and self.last_run.year == now.year
-            ):
-                # Already ran this week — next week
-                next_time = (
-                    now + timedelta(days=(7 - now.weekday() + target_weekday))
-                ).replace(hour=task_hour, minute=task_minute, second=0, microsecond=0)
-                if next_time <= now:
-                    next_time += timedelta(weeks=1)
-                return self._next_heartbeat(next_time - timedelta(seconds=1))
-
-            if next_time <= now:
-                # Target time has passed this week
-                if self.time and now <= next_time + self.GRACE_PERIOD:
-                    # Within grace period
-                    return self._next_heartbeat(now)
-                # Missed the window — skip to next week
-                next_time += timedelta(weeks=1)
-
-            return self._next_heartbeat(next_time - timedelta(seconds=1))
-
-        if self.frequency == "monthly":
-            try:
-                target_day = int(self.day) if self.day else 1
-            except ValueError:
-                target_day = 1
-
-            max_day = calendar.monthrange(now.year, now.month)[1]
-            clamped_day = min(target_day, max_day)
-            this_month_time = now.replace(
-                day=clamped_day,
-                hour=task_hour,
-                minute=task_minute,
-                second=0,
-                microsecond=0,
-            )
-
-            if (
-                self.last_run
-                and self.last_run.month == now.month
-                and self.last_run.year == now.year
-            ):
-                # Already ran this month — go to next month
-                if now.month == 12:
-                    ny, nm = now.year + 1, 1
-                else:
-                    ny, nm = now.year, now.month + 1
-                clamped = min(target_day, calendar.monthrange(ny, nm)[1])
-                target = now.replace(
-                    year=ny,
-                    month=nm,
-                    day=clamped,
-                    hour=task_hour,
-                    minute=task_minute,
-                    second=0,
-                    microsecond=0,
-                )
-                return self._next_heartbeat(target - timedelta(seconds=1))
-
-            if now < this_month_time:
-                return self._next_heartbeat(this_month_time - timedelta(seconds=1))
-
-            if self.time and now <= this_month_time + self.GRACE_PERIOD:
-                # Within grace period
-                return self._next_heartbeat(now)
-
-            # Missed the window — skip to next month
-            if now.month == 12:
-                ny, nm = now.year + 1, 1
-            else:
-                ny, nm = now.year, now.month + 1
-            clamped = min(target_day, calendar.monthrange(ny, nm)[1])
-            target = now.replace(
-                year=ny,
-                month=nm,
-                day=clamped,
-                hour=task_hour,
-                minute=task_minute,
-                second=0,
-                microsecond=0,
-            )
-            return self._next_heartbeat(target - timedelta(seconds=1))
-
-        return None
+    def mark_dispatched(self, when: datetime) -> None:
+        """Record that a run for the current slot was dispatched."""
+        self.last_run = when
+        self.run_count += 1
 
     def add_outcome(self, result: str, success: bool = True) -> None:
         """Add an execution outcome to history.
 
-        Args:
-            result: Description of the outcome
-            success: Whether execution was successful
+        Outcomes are a log only. Dispatch (last_run / run_count) is stamped
+        by code in mark_dispatched, so recording an outcome never changes
+        when the task runs next.
         """
         outcome = RecurringOutcome(
             timestamp=datetime.now(), result=result, success=success
@@ -395,11 +284,6 @@ class RecurringTask:
         # Keep only the last N outcomes
         if len(self.outcome_history) > self.MAX_OUTCOME_HISTORY:
             self.outcome_history = self.outcome_history[-self.MAX_OUTCOME_HISTORY :]
-
-        # Update run metadata
-        self.last_run = outcome.timestamp
-        self.run_count += 1
-        self.next_run = self.calculate_next_run()
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for YAML serialization."""
@@ -421,10 +305,10 @@ class RecurringTask:
             data["conditions"] = [c.to_dict() for c in self.conditions]
         else:
             data["conditions"] = []
+        if self.active_since:
+            data["active_since"] = self.active_since.isoformat()
         if self.last_run:
             data["last_run"] = self.last_run.isoformat()
-        if self.next_run:
-            data["next_run"] = self.next_run.isoformat()
         if self.outcome_history:
             data["outcome_history"] = [o.to_dict() for o in self.outcome_history]
         else:
@@ -443,14 +327,15 @@ class RecurringTask:
         Returns:
             RecurringTask instance
         """
-        # Parse datetime fields
-        last_run = data.get("last_run")
-        if isinstance(last_run, str):
-            last_run = datetime.fromisoformat(last_run.replace("Z", "+00:00"))
 
-        next_run = data.get("next_run")
-        if isinstance(next_run, str):
-            next_run = datetime.fromisoformat(next_run.replace("Z", "+00:00"))
+        def _when(value: Any) -> Optional[datetime]:
+            if isinstance(value, datetime):
+                return value.replace(tzinfo=None)
+            if isinstance(value, str):
+                return datetime.fromisoformat(value.replace("Z", "+00:00")).replace(
+                    tzinfo=None
+                )
+            return None
 
         # Parse conditions
         conditions = []
@@ -464,6 +349,11 @@ class RecurringTask:
             if isinstance(o, dict):
                 outcomes.append(RecurringOutcome.from_dict(o))
 
+        time_value = data.get("time")
+        if isinstance(time_value, int) and not isinstance(time_value, bool):
+            # YAML 1.1 reads an unquoted 09:00 as base-60 (540).
+            time_value = "%02d:%02d" % divmod(time_value, 60)
+        day_value = data.get("day")
         return cls(
             id=data.get("id", ""),
             name=name,
@@ -472,11 +362,11 @@ class RecurringTask:
             enabled=data.get("enabled", True),
             priority=data.get("priority", 50),
             permission_tier=data.get("permission_tier", 0),
-            time=data.get("time"),
-            day=data.get("day"),
+            time=str(time_value) if time_value is not None else None,
+            day=str(day_value) if day_value is not None else None,
             conditions=conditions,
-            last_run=last_run,
-            next_run=next_run,
+            active_since=_when(data.get("active_since")),
+            last_run=_when(data.get("last_run")),
             run_count=data.get("run_count", 0),
             outcome_history=outcomes,
         )

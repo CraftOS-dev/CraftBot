@@ -41,6 +41,12 @@ export const RESOURCES = {
     resource: 'proactive',
     request: (send) => send({ type: 'proactive_mode_get' }),
   },
+  /** Heartbeat interval + day-planner time (Settings → Proactive). */
+  proactiveSchedule: {
+    key: 'proactiveSchedule',
+    resource: 'scheduler',
+    request: (send) => send({ type: 'proactive_schedule_get' }),
+  },
   proactiveTasks: {
     key: 'proactiveTasks',
     resource: 'proactive',

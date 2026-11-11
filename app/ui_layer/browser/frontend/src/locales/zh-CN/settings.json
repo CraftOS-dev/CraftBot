@@ -248,25 +248,24 @@
     "title": "主动行为",
     "subtitle": "配置智能体何时自主行动以及管理计划任务",
     "enableLabel": "启用主动模式",
-    "enableDesc": "允许智能体自动执行计划任务和主动行为",
-    "heartbeatTitle": "心跳计划",
-    "heartbeatDesc": "心跳会根据频率定期检查并执行主动任务",
-    "heartbeat": {
-      "label": "心跳",
-      "desc": "每 30 分钟运行一次，检查并执行所有到期的主动任务"
-    },
+    "enableDesc": "在后台运行你的主动任务和规划器，结果发布到主聊天。",
     "plannersTitle": "规划器",
-    "plannersDesc": "规划器会回顾近期互动并规划主动活动",
+    "plannersDesc": "每个规划器都会在主聊天中发布一份简短摘要",
     "planners": {
       "dayLabel": "每日规划器",
-      "dayDesc": "规划每日活动和优先事项",
+      "dayDesc": "规划你的一天并发送晨间简报",
       "weekLabel": "每周规划器",
-      "weekDesc": "规划每周目标和任务",
+      "weekDesc": "回顾本周并规划下周",
       "monthLabel": "每月规划器",
-      "monthDesc": "规划每月目标和回顾"
+      "monthDesc": "回顾本月和长期目标",
+      "runsOn": "运行日",
+      "time": "时间",
+      "everyDay": "每天",
+      "monthDay": "{{day}} 日",
+      "monthDayHint": "在较短的月份中，29 至 31 日会在当月最后一天运行"
     },
     "tasksTitle": "主动任务",
-    "tasksDesc": "在 PROACTIVE.md 中定义、由智能体在心跳期间执行的任务",
+    "tasksDesc": "在 PROACTIVE.md 中定义的任务。每个任务在设定时间运行，并将结果发布到主聊天",
     "addTask": "添加任务",
     "searchTasks": "搜索任务…",
     "searchCount": "{{total}} 中的 {{shown}}",
@@ -334,22 +333,16 @@
       "saturday": "星期六",
       "sunday": "星期日"
     },
-    "cron": {
-      "twiceHourly": "每小时两次",
-      "hourly": "每小时的 :{{minute}} 分",
-      "daily": "每天 {{time}}",
-      "weekly": "每周{{day}} {{time}}",
-      "monthly": "每月 {{day}} 日 {{time}}",
-      "raw": "Cron：{{cron}}",
-      "days": {
-        "sun": "星期日",
-        "mon": "星期一",
-        "tue": "星期二",
-        "wed": "星期三",
-        "thu": "星期四",
-        "fri": "星期五",
-        "sat": "星期六"
-      }
+    "toast": {
+      "scheduleFailed": "更新计划失败"
+    },
+    "catchUp": {
+      "label": "补跑遗漏的任务",
+      "desc": "CraftBot 检查关闭或休眠期间遗漏任务的频率",
+      "everyMinutes_one": "每 {{count}} 分钟",
+      "everyMinutes_other": "每 {{count}} 分钟",
+      "everyHours_one": "每小时",
+      "everyHours_other": "每 {{count}} 小时"
     }
   },
   "memory": {

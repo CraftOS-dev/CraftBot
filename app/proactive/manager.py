@@ -11,9 +11,9 @@ import tempfile
 import shutil
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Any, Optional
+from typing import Callable, Dict, List, Any, Optional
 
-from .types import RecurringTask, RecurringData
+from .types import RecurringTask, RecurringData, validate_schedule_fields
 from .parser import ProactiveParser
 
 logger = logging.getLogger(__name__)
@@ -22,8 +22,11 @@ logger = logging.getLogger(__name__)
 class ProactiveManager:
     """Manager for recurring tasks stored in PROACTIVE.md.
 
-    Provides thread-safe operations for reading, adding, updating, and
-    removing recurring tasks. Uses atomic file writes to prevent corruption.
+    PROACTIVE.md is shared with the planners (they edit its Goals section
+    with file operations) and with anyone editing it by hand, so the file on
+    disk is always the source of truth: every read reloads it when it changed
+    since the last load, and every write starts from the file as it is now.
+    Writes are atomic (temp file + rename).
     """
 
     def __init__(self, proactive_file_path: Path):
@@ -34,46 +37,82 @@ class ProactiveManager:
         """
         self.file_path = proactive_file_path
         self._data: Optional[RecurringData] = None
-        self._template: Optional[str] = None
+        self._loaded_mtime: Optional[tuple[int, int]] = None
+        # Called after every save; the scheduler re-arms the heartbeat so a
+        # new or rescheduled task fires at its exact slot.
+        self._on_change: Optional[Callable[[], None]] = None
+
+    def set_change_listener(self, callback: Optional[Callable[[], None]]) -> None:
+        """Register a callback invoked after the task list is saved."""
+        self._on_change = callback
+
+    def _file_mtime(self) -> Optional[tuple[int, int]]:
+        """(mtime_ns, size) fingerprint of the file, None when missing."""
+        try:
+            stat = self.file_path.stat()
+        except OSError:
+            return None
+        return stat.st_mtime_ns, stat.st_size
 
     def load(self) -> RecurringData:
         """Load recurring task data from file.
 
+        Tasks without ``active_since`` (written by hand) take effect from the
+        moment they are first loaded, and that moment is saved so restarts
+        don't move it.
+
         Returns:
             RecurringData object
-
-        Raises:
-            FileNotFoundError: If file doesn't exist
         """
         if not self.file_path.exists():
             logger.warning(f"[PROACTIVE] File not found: {self.file_path}")
             self._data = RecurringData()
-            self._template = None
+            self._loaded_mtime = None
             return self._data
 
         content = self.file_path.read_text(encoding="utf-8")
-        self._template = content
+        self._loaded_mtime = self._file_mtime()
         self._data = ProactiveParser.parse(content)
+
+        unanchored = [t for t in self._data.tasks if t.active_since is None]
+        if unanchored:
+            now = datetime.now()
+            for task in unanchored:
+                task.active_since = now
+            self._write(self._data)
+            logger.info(
+                f"[PROACTIVE] Anchored {len(unanchored)} new task(s) at "
+                f"{now.isoformat(timespec='seconds')}"
+            )
+
         logger.info(
             f"[PROACTIVE] Loaded {len(self._data.tasks)} tasks from {self.file_path}"
         )
         return self._data
 
-    def save(self) -> None:
-        """Save proactive data to file atomically.
+    def _refresh(self) -> RecurringData:
+        """Reload when the file changed (or appeared/vanished) since last load."""
+        if self._data is None or self._file_mtime() != self._loaded_mtime:
+            return self.load()
+        return self._data
 
-        Uses atomic write (write to temp file, then rename) to prevent corruption.
+    def _write(self, data: RecurringData) -> None:
+        """Serialize ``data`` over the file's CURRENT content, atomically.
+
+        Only the frontmatter and the tasks section are regenerated; every
+        other section (Goals, Plan, and Status included) is kept exactly as
+        it is on disk at the moment of writing.
         """
-        if self._data is None:
-            raise RuntimeError("No data loaded. Call load() first.")
+        data.last_updated = datetime.now()
+        template = (
+            self.file_path.read_text(encoding="utf-8")
+            if self.file_path.exists()
+            else None
+        )
+        content = ProactiveParser.serialize(data, template)
 
-        self._data.last_updated = datetime.now()
-        content = ProactiveParser.serialize(self._data, self._template)
-
-        # Atomic write
         temp_path = None
         try:
-            # Write to temporary file first
             with tempfile.NamedTemporaryFile(
                 mode="w",
                 encoding="utf-8",
@@ -84,25 +123,32 @@ class ProactiveManager:
                 f.write(content)
                 temp_path = Path(f.name)
 
-            # Atomic rename
             shutil.move(str(temp_path), str(self.file_path))
-            logger.info(
-                f"[PROACTIVE] Saved {len(self._data.tasks)} tasks to {self.file_path}"
-            )
-
+            self._loaded_mtime = self._file_mtime()
         except Exception as e:
-            # Clean up temp file on error
             if temp_path and temp_path.exists():
                 temp_path.unlink()
             logger.error(f"[PROACTIVE] Failed to save: {e}")
             raise
 
+    def save(self) -> None:
+        """Save the loaded task list to file and notify the change listener."""
+        if self._data is None:
+            raise RuntimeError("No data loaded. Call load() first.")
+        self._write(self._data)
+        logger.info(
+            f"[PROACTIVE] Saved {len(self._data.tasks)} tasks to {self.file_path}"
+        )
+        if self._on_change is not None:
+            try:
+                self._on_change()
+            except Exception as e:
+                logger.warning(f"[PROACTIVE] Change listener failed: {e}")
+
     @property
     def data(self) -> RecurringData:
-        """Get loaded data, loading from file if necessary."""
-        if self._data is None:
-            self.load()
-        return self._data
+        """Current task data, reloaded from disk if the file changed."""
+        return self._refresh()
 
     def get_tasks(
         self, frequency: Optional[str] = None, enabled_only: bool = True
@@ -157,10 +203,10 @@ class ProactiveManager:
             frequency: Execution frequency (hourly, daily, weekly, monthly)
             instruction: What the agent should do
             task_id: Optional custom ID (auto-generated if not provided)
-            time: Time of day for daily+ tasks (HH:MM)
-            day: Day of week for weekly tasks
+            time: Slot time HH:MM (hourly tasks use only the minute)
+            day: Weekday name for weekly tasks, 1-31 for monthly tasks
             priority: Task priority (lower = higher)
-            permission_tier: Permission level (0-3)
+            permission_tier: Permission level (0 = silent, 1 = notify)
             enabled: Whether task is active
             conditions: List of condition dictionaries
 
@@ -168,21 +214,17 @@ class ProactiveManager:
             The created RecurringTask
 
         Raises:
-            ValueError: If task ID already exists or frequency is invalid
+            ValueError: If task ID already exists or the schedule is invalid
         """
-        # Validate frequency
-        valid_frequencies = ["hourly", "daily", "weekly", "monthly"]
-        if frequency not in valid_frequencies:
-            raise ValueError(
-                f"Invalid frequency. Must be one of: {', '.join(valid_frequencies)}"
-            )
+        validate_schedule_fields(frequency, time, day)
+        data = self._refresh()
 
         # Generate ID if not provided
         if not task_id:
             task_id = f"{frequency}_{name.lower().replace(' ', '_')}"
 
         # Check for duplicate
-        if self.data.get_task_by_id(task_id):
+        if data.get_task_by_id(task_id):
             raise ValueError(f"Task with ID '{task_id}' already exists")
 
         # Parse conditions
@@ -204,9 +246,10 @@ class ProactiveManager:
             permission_tier=permission_tier,
             enabled=enabled,
             conditions=parsed_conditions,
+            active_since=datetime.now(),
         )
 
-        self.data.tasks.append(task)
+        data.tasks.append(task)
         self.save()
 
         logger.info(f"[PROACTIVE] Added task: {task_id}")
@@ -220,6 +263,10 @@ class ProactiveManager:
     ) -> Optional[RecurringTask]:
         """Update an existing task.
 
+        Re-enabling a task or changing its frequency/time/day restarts its
+        schedule from now (``active_since``), so slots missed while it was
+        off or under the old schedule are not run late.
+
         Args:
             task_id: ID of task to update
             updates: Dictionary of fields to update
@@ -228,18 +275,33 @@ class ProactiveManager:
         Returns:
             The updated task if found, None otherwise
         """
-        task = self.data.get_task_by_id(task_id)
+        task = self._refresh().get_task_by_id(task_id)
         if not task:
             logger.warning(f"[PROACTIVE] Task not found: {task_id}")
             return None
 
-        # Apply updates
         if updates:
+            validate_schedule_fields(
+                updates.get("frequency", task.frequency),
+                updates.get("time", task.time),
+                updates.get("day", task.day),
+            )
+            reschedules = any(
+                key in updates and updates[key] != getattr(task, key)
+                for key in ("frequency", "time", "day")
+            ) or (updates.get("enabled") is True and not task.enabled)
             for key, value in updates.items():
-                if hasattr(task, key) and key not in ["id", "outcome_history"]:
+                if hasattr(task, key) and key not in [
+                    "id",
+                    "outcome_history",
+                    "active_since",
+                    "last_run",
+                    "run_count",
+                ]:
                     setattr(task, key, value)
+            if reschedules:
+                task.active_since = datetime.now()
 
-        # Add outcome
         if add_outcome:
             task.add_outcome(
                 result=add_outcome.get("result", ""),
@@ -259,7 +321,7 @@ class ProactiveManager:
         Returns:
             True if removed, False if not found
         """
-        removed = self.data.remove_task(task_id)
+        removed = self._refresh().remove_task(task_id)
         if removed:
             self.save()
             logger.info(f"[PROACTIVE] Removed task: {task_id}")
@@ -296,64 +358,56 @@ class ProactiveManager:
             task_id, add_outcome={"result": result, "success": success}
         )
 
-    def update_planner_output(self, scope: str, date_info: str, content: str) -> None:
-        """Update planner output section.
+    # ─────────────── Due computation (code-owned) ───────────────
 
-        Args:
-            scope: Planner scope (day, week, month)
-            date_info: Date information (e.g., "2026-02-26" or "Week 9, 2026")
-            content: The planner output content
+    def _valid_tasks(self) -> List[RecurringTask]:
+        """Enabled tasks whose schedule fields are usable.
+
+        A malformed hand-edited task is skipped with a warning instead of
+        breaking every other task's schedule.
         """
-        key = f"{scope}_planner_{date_info}"
-        self.data.planner_outputs[key] = content
-        self.save()
-        logger.info(f"[PROACTIVE] Updated planner output: {key}")
+        valid = []
+        for task in self.get_tasks(enabled_only=True):
+            try:
+                validate_schedule_fields(task.frequency, task.time, task.day)
+            except ValueError as e:
+                logger.warning(f"[PROACTIVE] Skipping task {task.id}: {e}")
+                continue
+            valid.append(task)
+        return valid
 
-    def get_due_tasks(self, frequency: str) -> List[RecurringTask]:
-        """Get tasks that are due for execution for a specific frequency.
-
-        Args:
-            frequency: The heartbeat frequency to check
-
-        Returns:
-            List of tasks that should run
-        """
-        tasks = self.get_tasks(frequency=frequency, enabled_only=True)
-
-        # Filter by should_run logic
-        due_tasks = [t for t in tasks if t.should_run(frequency)]
-
-        logger.info(
-            f"[PROACTIVE] Found {len(due_tasks)} due tasks for {frequency} heartbeat"
-        )
-        return due_tasks
-
-    def get_all_due_tasks(self) -> List[RecurringTask]:
-        """Get all tasks that are due across every frequency.
-
-        Used by the unified heartbeat to collect hourly, daily, weekly,
-        and monthly tasks that should execute right now based on their
-        time/day fields and last_run timestamp.
-
-        Returns:
-            List of due tasks sorted by priority (lower = higher priority)
-        """
-        all_enabled = self.get_tasks(enabled_only=True)
-        due = [t for t in all_enabled if t.should_run()]
+    def get_due_tasks(self, now: Optional[datetime] = None) -> List[RecurringTask]:
+        """Tasks whose most recent slot is owed a run, by priority."""
+        now = now or datetime.now()
+        due = [t for t in self._valid_tasks() if t.is_due(now)]
         due.sort(key=lambda t: t.priority)
-
-        if due:
-            freq_counts = {}
-            for t in due:
-                freq_counts[t.frequency] = freq_counts.get(t.frequency, 0) + 1
-            summary = ", ".join(f"{cnt} {f}" for f, cnt in freq_counts.items())
-            logger.info(
-                f"[PROACTIVE] Found {len(due)} due tasks across all frequencies: {summary}"
-            )
-        else:
-            logger.info("[PROACTIVE] No due tasks found across any frequency")
-
         return due
+
+    def next_due_at(self, now: Optional[datetime] = None) -> Optional[datetime]:
+        """Earliest moment any enabled task becomes due (None if none)."""
+        now = now or datetime.now()
+        times = [t.next_due_at(now) for t in self._valid_tasks()]
+        times = [t for t in times if t is not None]
+        return min(times) if times else None
+
+    def mark_dispatched(self, task_ids: List[str], when: datetime) -> None:
+        """Stamp last_run/run_count for tasks handed to a run, then save.
+
+        Stamping at dispatch is what keeps a slot from running twice (a later
+        check sees last_run >= slot), whatever the run itself does.
+        """
+        data = self._refresh()
+        stamped = []
+        for task_id in task_ids:
+            task = data.get_task_by_id(task_id)
+            if task is not None:
+                task.mark_dispatched(when)
+                stamped.append(task_id)
+        if stamped:
+            self.save()
+            logger.info(
+                f"[PROACTIVE] Dispatched {len(stamped)} task(s): {', '.join(stamped)}"
+            )
 
 
 # Singleton instance (initialized by InternalActionInterface)

@@ -26,10 +26,22 @@ export interface ProactiveTask {
   outcomeHistory: Array<{ timestamp: string; result: string; success: boolean }>
 }
 
+/** Heartbeat interval + planner schedules as Settings → Proactive edits them. */
+export interface ProactiveSchedule {
+  heartbeatMinutes: number
+  dayPlannerTime: string
+  weekPlannerDay: string
+  weekPlannerTime: string
+  monthPlannerDay: number
+  monthPlannerTime: string
+}
+
 interface ProactiveSettingsState {
   schedulerEnabled: boolean
   schedules: ScheduleConfig[]
   tasks: ProactiveTask[]
+  schedule: ProactiveSchedule | null
+  heartbeatOptions: number[]
   hasLoadedMode: boolean
   hasLoadedConfig: boolean
   hasLoadedTasks: boolean
@@ -39,6 +51,8 @@ const initialState: ProactiveSettingsState = {
   schedulerEnabled: true,
   schedules: [],
   tasks: [],
+  schedule: null,
+  heartbeatOptions: [],
   hasLoadedMode: false,
   hasLoadedConfig: false,
   hasLoadedTasks: false,
@@ -64,6 +78,13 @@ const proactiveSettingsSlice = createSlice({
       const t = state.tasks.find(x => x.id === action.payload.taskId)
       if (t) t.enabled = action.payload.enabled
     },
+    setProactiveSchedule(
+      state,
+      action: PayloadAction<{ schedule: ProactiveSchedule; heartbeatOptions: number[] }>,
+    ) {
+      state.schedule = action.payload.schedule
+      state.heartbeatOptions = action.payload.heartbeatOptions
+    },
   },
 })
 
@@ -72,6 +93,7 @@ export const {
   setSchedules,
   setTasks,
   setTaskEnabled,
+  setProactiveSchedule,
 } = proactiveSettingsSlice.actions
 
 export default proactiveSettingsSlice.reducer
@@ -99,4 +121,28 @@ register('scheduler_config_update', (data, dispatch) => {
 register('proactive_tasks_get', (data, dispatch) => {
   const d = data as { success: boolean; tasks: ProactiveTask[] }
   if (d.success) dispatch(setTasks(d.tasks || []))
+})
+
+register('proactive_schedule_get', (data, dispatch) => {
+  const d = data as Partial<ProactiveSchedule> & { success: boolean; heartbeatOptions?: number[] }
+  if (
+    !d.success
+    || d.heartbeatMinutes === undefined
+    || !d.dayPlannerTime
+    || !d.weekPlannerDay
+    || !d.weekPlannerTime
+    || d.monthPlannerDay === undefined
+    || !d.monthPlannerTime
+  ) return
+  dispatch(setProactiveSchedule({
+    schedule: {
+      heartbeatMinutes: d.heartbeatMinutes,
+      dayPlannerTime: d.dayPlannerTime,
+      weekPlannerDay: d.weekPlannerDay,
+      weekPlannerTime: d.weekPlannerTime,
+      monthPlannerDay: d.monthPlannerDay,
+      monthPlannerTime: d.monthPlannerTime,
+    },
+    heartbeatOptions: d.heartbeatOptions ?? [],
+  }))
 })

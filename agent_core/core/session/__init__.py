@@ -7,6 +7,18 @@ It replaces the former Task/task-session split.
 """
 
 from agent_core.core.session.todo import TodoItem, TodoStatus
-from agent_core.core.session.session import Session, SessionType, MAIN_SESSION_ID
+from agent_core.core.session.session import (
+    Session,
+    SessionType,
+    MAIN_SESSION_ID,
+    BACKGROUND_SESSION_ID,
+)
 
-__all__ = ["TodoItem", "TodoStatus", "Session", "SessionType", "MAIN_SESSION_ID"]
+__all__ = [
+    "TodoItem",
+    "TodoStatus",
+    "Session",
+    "SessionType",
+    "MAIN_SESSION_ID",
+    "BACKGROUND_SESSION_ID",
+]

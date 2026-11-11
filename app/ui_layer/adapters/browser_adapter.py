@@ -45,6 +45,15 @@ from app.ui_layer.settings import (
     get_scheduler_config,
     update_scheduler_config,
     toggle_schedule_runtime,
+    HEARTBEAT_SCHEDULE_ID,
+    DAY_PLANNER_SCHEDULE_ID,
+    WEEK_PLANNER_SCHEDULE_ID,
+    MONTH_PLANNER_SCHEDULE_ID,
+    heartbeat_schedule_expression,
+    day_planner_schedule_expression,
+    week_planner_schedule_expression,
+    month_planner_schedule_expression,
+    get_proactive_schedule,
     get_recurring_tasks,
     add_recurring_task,
     update_recurring_task,
@@ -1833,6 +1842,12 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         elif msg_type == "proactive_mode_set":
             enabled = data.get("enabled", True)
             await self._handle_proactive_mode_set(enabled)
+
+        elif msg_type == "proactive_schedule_get":
+            await self._handle_proactive_schedule_get(ws)
+
+        elif msg_type == "proactive_schedule_set":
+            await self._handle_proactive_schedule_set(data)
 
         # Memory operations
         elif msg_type == "memory_mode_get":
@@ -5798,6 +5813,21 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
     async def _handle_proactive_mode_set(self, enabled: bool) -> None:
         """Set the proactive mode on or off."""
         result = set_proactive_mode(enabled)
+        # Proactive mode is the one switch for tasks: turning it on also
+        # turns the heartbeat schedule back on (it has no switch of its own
+        # in the UI). Due tasks wake the heartbeat only while mode is on.
+        scheduler = getattr(self._controller.agent, "scheduler", None)
+        if result.get("success") and enabled:
+            schedules = (get_scheduler_config().get("config") or {}).get(
+                "schedules", []
+            )
+            if any(
+                s.get("id") == HEARTBEAT_SCHEDULE_ID and not s.get("enabled", True)
+                for s in schedules
+            ):
+                await toggle_schedule_runtime(scheduler, HEARTBEAT_SCHEDULE_ID, True)
+        if result.get("success") and scheduler is not None:
+            scheduler.rearm_proactive()
 
         await self._broadcast(
             {
@@ -5809,6 +5839,80 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 },
             }
         )
+
+    async def _handle_proactive_schedule_get(self, ws=None) -> None:
+        """Send the heartbeat interval + planner schedules to the panel."""
+        result = get_proactive_schedule()
+        if result.get("success"):
+            data = {
+                "success": True,
+                "heartbeatMinutes": result["heartbeat_minutes"],
+                "heartbeatOptions": result["heartbeat_options"],
+                "dayPlannerTime": result["day_planner_time"],
+                "weekPlannerDay": result["week_planner_day"],
+                "weekPlannerTime": result["week_planner_time"],
+                "monthPlannerDay": result["month_planner_day"],
+                "monthPlannerTime": result["month_planner_time"],
+            }
+        else:
+            data = {"success": False, "error": result.get("error", "Unknown error")}
+        await self._send_to(ws, {"type": "proactive_schedule_get", "data": data})
+
+    async def _handle_proactive_schedule_set(self, data: dict) -> None:
+        """Apply the heartbeat interval and/or planner schedules.
+
+        Like the memory-processing time: applied live via update_schedule
+        (persists + reschedules), or through the config file when the
+        scheduler holds no runtime copy (master switch off).
+        """
+        try:
+            updates: Dict[str, str] = {}
+            if "heartbeatMinutes" in data:
+                updates[HEARTBEAT_SCHEDULE_ID] = heartbeat_schedule_expression(
+                    int(data["heartbeatMinutes"])
+                )
+            if "dayPlannerHour" in data or "dayPlannerMinute" in data:
+                updates[DAY_PLANNER_SCHEDULE_ID] = day_planner_schedule_expression(
+                    int(data.get("dayPlannerHour", 0)),
+                    int(data.get("dayPlannerMinute", 0)),
+                )
+            if "weekPlannerDay" in data:
+                updates[WEEK_PLANNER_SCHEDULE_ID] = week_planner_schedule_expression(
+                    str(data["weekPlannerDay"]),
+                    int(data.get("weekPlannerHour", 0)),
+                    int(data.get("weekPlannerMinute", 0)),
+                )
+            if "monthPlannerDay" in data:
+                updates[MONTH_PLANNER_SCHEDULE_ID] = (
+                    month_planner_schedule_expression(
+                        int(data["monthPlannerDay"]),
+                        int(data.get("monthPlannerHour", 0)),
+                        int(data.get("monthPlannerMinute", 0)),
+                    )
+                )
+            scheduler = getattr(self._controller.agent, "scheduler", None)
+            for schedule_id, expression in updates.items():
+                applied = bool(
+                    scheduler
+                    and scheduler.get_schedule(schedule_id)
+                    and scheduler.update_schedule(schedule_id, schedule=expression)
+                )
+                if not applied:
+                    result = update_scheduler_config(
+                        {"schedule_updates": {schedule_id: {"schedule": expression}}}
+                    )
+                    if not result.get("success"):
+                        raise RuntimeError(result.get("error", "Update failed"))
+            await self._broadcast(
+                {"type": "proactive_schedule_set", "data": {"success": True}}
+            )
+        except Exception as e:
+            await self._broadcast(
+                {
+                    "type": "proactive_schedule_set",
+                    "data": {"success": False, "error": str(e)},
+                }
+            )
 
     # ─────────────────────────────────────────────────────────────────────
     # Memory Operation Handlers

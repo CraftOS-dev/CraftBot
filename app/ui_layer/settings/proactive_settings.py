@@ -20,6 +20,135 @@ from app.config import (
 # Config paths
 SCHEDULER_CONFIG_PATH = PROJECT_ROOT / "app" / "config" / "scheduler_config.json"
 
+# Built-in schedule ids (scheduler_config.json)
+HEARTBEAT_SCHEDULE_ID = "heartbeat"
+DAY_PLANNER_SCHEDULE_ID = "day-planner"
+WEEK_PLANNER_SCHEDULE_ID = "week-planner"
+MONTH_PLANNER_SCHEDULE_ID = "month-planner"
+
+WEEKDAY_NAMES = (
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+    "saturday",
+    "sunday",
+)
+
+# How often the heartbeat checks for due or missed proactive tasks, in
+# minutes. Tasks also fire at their exact time between checks.
+HEARTBEAT_INTERVAL_OPTIONS = (5, 10, 15, 30, 60, 120)
+HEARTBEAT_INTERVAL_DEFAULT = 30
+DAY_PLANNER_HOUR_DEFAULT = 7
+DAY_PLANNER_MINUTE_DEFAULT = 0
+WEEK_PLANNER_DAY_DEFAULT = "sunday"
+WEEK_PLANNER_HOUR_DEFAULT = 17
+WEEK_PLANNER_MINUTE_DEFAULT = 0
+MONTH_PLANNER_DAY_DEFAULT = 1
+MONTH_PLANNER_HOUR_DEFAULT = 8
+MONTH_PLANNER_MINUTE_DEFAULT = 0
+
+
+def heartbeat_schedule_expression(minutes: int) -> str:
+    """Clock-aligned cron for a heartbeat interval (e.g. 30 -> '*/30 * * * *')."""
+    if minutes not in HEARTBEAT_INTERVAL_OPTIONS:
+        raise ValueError(
+            f"Heartbeat interval must be one of {HEARTBEAT_INTERVAL_OPTIONS} minutes"
+        )
+    if minutes < 60:
+        return f"*/{minutes} * * * *"
+    hours = minutes // 60
+    return "0 * * * *" if hours == 1 else f"0 */{hours} * * *"
+
+
+def heartbeat_interval_minutes(expression: str) -> Optional[int]:
+    """The interval option a heartbeat expression encodes (None if custom)."""
+    for minutes in HEARTBEAT_INTERVAL_OPTIONS:
+        if heartbeat_schedule_expression(minutes) == expression.strip():
+            return minutes
+    return None
+
+
+def _planner_time_phrase(hour: int, minute: int) -> str:
+    from app.ui_layer.settings.memory_settings import _time_phrase
+
+    if not (0 <= hour <= 23 and 0 <= minute <= 59):
+        raise ValueError("Planner time must be a valid HH:MM")
+    return _time_phrase(hour, minute)
+
+
+def day_planner_schedule_expression(hour: int, minute: int) -> str:
+    """Daily expression for the day planner (only the time is configurable)."""
+    return f"every day at {_planner_time_phrase(hour, minute)}"
+
+
+def week_planner_schedule_expression(weekday: str, hour: int, minute: int) -> str:
+    """Weekly expression for the week planner (weekday + time)."""
+    weekday = str(weekday).lower()
+    if weekday not in WEEKDAY_NAMES:
+        raise ValueError(f"Week planner day must be one of {WEEKDAY_NAMES}")
+    return f"every {weekday} at {_planner_time_phrase(hour, minute)}"
+
+
+def month_planner_schedule_expression(day: int, hour: int, minute: int) -> str:
+    """Monthly expression for the month planner (day of month + time)."""
+    if not (1 <= day <= 31):
+        raise ValueError("Month planner day must be 1-31")
+    return f"every month on day {day} at {_planner_time_phrase(hour, minute)}"
+
+
+def get_proactive_schedule() -> Dict[str, Any]:
+    """Heartbeat interval and planner times, read from the scheduler config."""
+    from app.scheduler.parser import ScheduleParser, ScheduleParseError
+
+    result = get_scheduler_config()
+    if not result.get("success"):
+        return result
+    schedules = {s.get("id"): s for s in result["config"].get("schedules", [])}
+
+    heartbeat = schedules.get(HEARTBEAT_SCHEDULE_ID) or {}
+    minutes = heartbeat_interval_minutes(heartbeat.get("schedule", ""))
+
+    def parsed(schedule_id: str, schedule_type: str):
+        expression = (schedules.get(schedule_id) or {}).get("schedule", "")
+        try:
+            result = ScheduleParser.parse(expression)
+        except ScheduleParseError:
+            return None
+        return result if result.schedule_type == schedule_type else None
+
+    def clock(expr, hour_default: int, minute_default: int) -> str:
+        hour, minute = (
+            (expr.hour, expr.minute or 0) if expr else (hour_default, minute_default)
+        )
+        return f"{hour:02d}:{minute:02d}"
+
+    day = parsed(DAY_PLANNER_SCHEDULE_ID, "daily")
+    week = parsed(WEEK_PLANNER_SCHEDULE_ID, "weekly")
+    month = parsed(MONTH_PLANNER_SCHEDULE_ID, "monthly")
+
+    return {
+        "success": True,
+        "heartbeat_minutes": minutes or HEARTBEAT_INTERVAL_DEFAULT,
+        "heartbeat_options": list(HEARTBEAT_INTERVAL_OPTIONS),
+        "day_planner_time": clock(
+            day, DAY_PLANNER_HOUR_DEFAULT, DAY_PLANNER_MINUTE_DEFAULT
+        ),
+        "week_planner_day": (
+            WEEKDAY_NAMES[week.weekday] if week else WEEK_PLANNER_DAY_DEFAULT
+        ),
+        "week_planner_time": clock(
+            week, WEEK_PLANNER_HOUR_DEFAULT, WEEK_PLANNER_MINUTE_DEFAULT
+        ),
+        "month_planner_day": (
+            month.day_of_month if month else MONTH_PLANNER_DAY_DEFAULT
+        ),
+        "month_planner_time": clock(
+            month, MONTH_PLANNER_HOUR_DEFAULT, MONTH_PLANNER_MINUTE_DEFAULT
+        ),
+    }
+
 
 # ─────────────────────────────────────────────────────────────────────
 # Proactive Mode Control
