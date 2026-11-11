@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
-import { Box, Globe, Loader2, MoreHorizontal, Trash2 } from 'lucide-react'
+import { Box, Globe, Loader2, MoreHorizontal, Palette, Trash2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useWebSocket } from '../../contexts/WebSocketContext'
@@ -9,7 +9,7 @@ import { frameworkAppKey } from '../../store/slices/agentAppSlice'
 import type { FrameworkRegistryApp, FrameworkConnectedApp, SessionInfo } from '../../types'
 import type { useSortableList } from '../../hooks'
 import { FrameworkAppControls, FrameworkAppFeedback } from './FrameworkAppControls'
-import { FrameworkAppDelete } from './FrameworkAppDialogs'
+import { FrameworkAppDelete, FrameworkAppTheme } from './FrameworkAppDialogs'
 import { frameworkSessionIdentity } from './frameworkIdentity'
 import navStyles from '../../components/layout/NavBar.module.css'
 import styles from './FrameworkAppList.module.css'
@@ -41,7 +41,7 @@ export function FrameworkAppList({ entries, renderPending, renderSessionDot, sor
   const jobs = useAppSelector(state => state.agentApp.frameworkLifecycle)
   const connected = useAppSelector(state => state.connection.connected)
   const [menu, setMenu] = useState<{ key: string; anchor: DOMRect } | null>(null)
-  const [dialog, setDialog] = useState<{ kind: 'delete'; app: FrameworkRegistryApp } | null>(null)
+  const [dialog, setDialog] = useState<{ kind: 'delete' | 'theme'; app: FrameworkRegistryApp } | null>(null)
   const menuButton = useRef<HTMLButtonElement | null>(null)
   const menuApp = snapshot.apps.find(app => frameworkAppKey(app.path, app.id) === menu?.key)
   useEffect(() => { if (otherMenuOpen) setMenu(null) }, [otherMenuOpen])
@@ -155,12 +155,17 @@ export function FrameworkAppList({ entries, renderPending, renderSessionDot, sor
     </ul>
     {menu && menuApp && <SidebarPopover anchor={menu.anchor} className={navStyles.sessionMenu} role="menu">
       <FrameworkAppControls app={menuApp} menu />
+      <button className={navStyles.sessionMenuItem} disabled={stale || menuApp.status === 'missing'}
+        onClick={() => { setDialog({ kind: 'theme', app: menuApp }); setMenu(null) }}>
+        <Palette size={13} />{t('page.theme')}
+      </button>
       <button className={`${navStyles.sessionMenuItem} ${navStyles.sessionMenuItemDanger}`}
         disabled={stale || jobs[frameworkAppKey(menuApp.path, menuApp.id)]?.status === 'running'}
         onClick={() => { setDialog({ kind: 'delete', app: menuApp }); setMenu(null) }}>
         <Trash2 size={13} />{t('common:actions.delete')}
       </button>
     </SidebarPopover>}
+    {dialog?.kind === 'theme' && <FrameworkAppTheme app={dialog.app} onClose={() => setDialog(null)} />}
     {dialog?.kind === 'delete' && <FrameworkAppDelete app={dialog.app} onClose={() => setDialog(null)} onDeleted={() => {
       setDialog(null)
       requestAgentAppList()

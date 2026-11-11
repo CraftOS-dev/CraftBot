@@ -112,7 +112,7 @@ test('an app keeps its state across panel switches and full-page navigation', as
   await page.goto('/tests/panel-agent-apps.html')
   await show(page, 'Notes')
   await note(page).fill('Keep this draft')
-  await expect(page.frameLocator('iframe[title="Notes"]').locator('#theme')).toHaveText('Waiting for theme')
+  await expect(page.frameLocator('iframe[title="Notes"]').locator('#theme')).toHaveText('craftbot:dark')
   const boot = await page.locator('iframe[title="Notes"]').getAttribute('data-requested-src')
   await page.getByRole('button', { name: "Show this chat's browser", exact: true }).click()
   await expect(page.getByRole('region', { name: 'Browser panel', exact: true })).toBeVisible()

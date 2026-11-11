@@ -4,10 +4,12 @@ import { useTranslation } from 'react-i18next'
 import { Button } from '../../components/ui/Button'
 import { Modal, ModalBody, ModalFooter } from '../../components/ui/Modal'
 import { useToast } from '../../contexts/ToastContext'
-import { useAppSelector } from '../../store/hooks'
-import { frameworkAppKey } from '../../store/slices/agentAppSlice'
+import { useAppDispatch, useAppSelector } from '../../store/hooks'
+import { frameworkAppKey, receiveFrameworkTheme } from '../../store/slices/agentAppSlice'
 import type { FrameworkRegistryApp } from '../../types'
-import { frameworkRequest } from './frameworkApi'
+import { frameworkRequest, type FrameworkAttachment } from './frameworkApi'
+import { AgentAppThemeModal } from '../../pages/AgentApp/AgentAppThemeModal'
+import { DEFAULT_CUSTOM_COLORS, type AgentAppThemeId, type AgentAppCustomColors } from '../../pages/AgentApp/themeCatalog'
 import { frameworkFrameId, removeIframe } from './frameHost'
 import confirmStyles from '../../components/ui/ConfirmModal.module.css'
 
@@ -15,6 +17,32 @@ interface RemovalResult {
   status: string
   stderr?: string
   data?: { ok?: boolean; reason?: string; removed?: { id: string; path: string }; forgot?: { id: string; path: string }; dataBackup?: string | null; backups?: string | null }
+}
+
+export function FrameworkAppTheme({ app, onClose }: { app: FrameworkRegistryApp; onClose: () => void }) {
+  const dispatch = useAppDispatch()
+  const current = useAppSelector(state => state.agentApp.framework.apps.find(item => item.path === app.path && item.id === app.id))
+  const connected = useAppSelector(state => state.connection.connected)
+  const pending = useRef(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const select = async (themeId: AgentAppThemeId, customColors?: AgentAppCustomColors) => {
+    if (!connected || !current || pending.current) return
+    pending.current = true; setBusy(true); setError('')
+    try {
+      const result = await frameworkRequest<FrameworkAttachment>({
+        operation: 'preference', path: app.path, appId: app.id,
+        uiTheme: { themeId, ...(themeId === 'custom' ? { customColors } : {}) },
+      })
+      dispatch(receiveFrameworkTheme({ path: app.path, id: app.id, uiTheme: result.uiTheme }))
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason))
+    } finally { pending.current = false; setBusy(false) }
+  }
+  return <AgentAppThemeModal isOpen activeTheme={current?.uiTheme?.themeId || 'craftbot'}
+    customColors={current?.uiTheme?.customColors || DEFAULT_CUSTOM_COLORS}
+    disabled={!connected || !current || current.status === 'missing' || busy} error={error}
+    onSelect={(id, colors) => { void select(id, colors) }} onClose={onClose} />
 }
 
 export function FrameworkAppDelete({ app, onClose, onDeleted }: {

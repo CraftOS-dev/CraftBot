@@ -3147,13 +3147,24 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         self._framework_app_list_version = version
         host = getattr(self, "_framework_host", None)
         if result.get("status") == "success" and host is not None:
+            # Theme choices belong to this CraftBot profile, not app manifests.
+            preferences = {
+                (a["path"], a["appId"]): a.get("uiTheme")
+                for a in (await host.snapshot())["attachments"]
+            }
+            if version < self._framework_app_list_version:
+                return
+            apps = [
+                {**row, "uiTheme": preferences.get((row["path"], row["id"]))}
+                for row in result["data"]["apps"]
+            ]
             aliases = {}
             for receipt in host.store.all("migration"):
                 if receipt.get("phase") == "complete" and any(row["path"] == receipt["target"] and row["id"] == receipt["appId"] for row in result["data"]["apps"]):
                     aliases[receipt["legacyId"]] = "framework:" + json.dumps([receipt["target"], receipt["appId"]], ensure_ascii=False, separators=(",", ":"))
                 else:
                     aliases.pop(receipt["legacyId"], None)
-            result = {**result, "data": {**result["data"], "aliases": aliases}}
+            result = {**result, "data": {**result["data"], "apps": apps, "aliases": aliases}}
         await self._broadcast({"type": "agent_app_framework_list", "data": result})
 
 

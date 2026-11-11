@@ -6,6 +6,7 @@
  */
 
 import i18n from '../../i18n/config'
+import { buildThemeMessage, DEFAULT_CUSTOM_COLORS, type AgentAppTheme } from '../../pages/AgentApp/themeCatalog'
 
 const MAX_POOL_SIZE = 5
 export const APP_FRAME_PERMISSIONS = 'microphone; camera; display-capture; clipboard-read; clipboard-write; fullscreen'
@@ -16,6 +17,23 @@ export const frameworkFrameId = (path: string, appId: string) => `framework:${JS
 const accessOrder: string[] = []
 const owners = new Map<string, symbol>()
 const listeners = new Set<() => void>()
+let themeMode: 'light' | 'dark' = 'dark'
+let themes = new Map<string, AgentAppTheme>()
+
+function sendTheme(id: string) {
+  const frame = pool.get(id)
+  const theme = themes.get(id)
+  if (!frame?.contentWindow || !theme) return
+  // Target the embedded app's exact origin, never a wildcard or another tab.
+  frame.contentWindow.postMessage(buildThemeMessage(theme.themeId, themeMode, theme.customColors || DEFAULT_CUSTOM_COLORS), new URL(frame.src).origin)
+}
+
+/** Also updates parked frames: switching apps must not restore an old mode. */
+export function syncFrameworkThemes(mode: 'light' | 'dark', apps: { path: string; id: string; uiTheme?: AgentAppTheme | null }[]) {
+  themeMode = mode
+  themes = new Map(apps.map(app => [frameworkFrameId(app.path, app.id), app.uiTheme || { themeId: 'craftbot' }]))
+  for (const id of pool.keys()) sendTheme(id)
+}
 
 export function subscribeFrameHost(listener: () => void) {
   listeners.add(listener)
@@ -33,6 +51,15 @@ function getContainer(): HTMLDivElement {
     container.style.cssText =
       'position:fixed;top:0;left:0;width:0;height:0;overflow:visible;z-index:0;pointer-events:none;'
     document.body.appendChild(container)
+    window.addEventListener('message', event => {
+      if (event.data?.type !== 'craftbot-theme-request') return
+      for (const [id, frame] of pool) {
+        if (event.source === frame.contentWindow && event.origin === new URL(frame.src).origin) {
+          sendTheme(id)
+          break
+        }
+      }
+    })
   }
   return container
 }
@@ -97,7 +124,10 @@ export function getOrCreateIframe(id: string, src: string): HTMLIFrameElement {
     // Recorded here, not by a surface: a frame can finish loading while no
     // surface holds it (its tab is in the background), and must not then be
     // reported as still loading when it is shown again.
-    iframe.addEventListener('load', function () { this.dataset.loadedSrc = this.dataset.requestedSrc })
+    iframe.addEventListener('load', function () {
+      this.dataset.loadedSrc = this.dataset.requestedSrc
+      sendTheme(id)
+    })
     getContainer().appendChild(iframe)
     pool.set(id, iframe)
   } else if (iframe.dataset.requestedSrc !== src) {

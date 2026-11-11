@@ -35,7 +35,7 @@ function usableFrameUrl(value: string): string | null {
   } catch { return null }
 }
 
-/** Presentation only; lifecycle and app styling remain with Agent-App. */
+/** Presentation only; the frame host supplies CraftBot's saved theme. */
 function FrameworkFrame({ id, url, name, blocked, moving, retry }: { id: string; url: string; name: string; blocked: boolean; moving: boolean; retry: () => void }) {
   const { t } = useTranslation('agentapp')
   const frame = usePersistentAppFrame({ id, url, name, status: 'running' }, true, moving, blocked)

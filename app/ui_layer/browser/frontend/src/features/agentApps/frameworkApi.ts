@@ -29,7 +29,7 @@ export function frameworkRequest<T = unknown>(data: Record<string, unknown>, tim
   })
 }
 
-export interface FrameworkAttachment { key: string; path: string; appId: string; name: string; sessionId: string; tasksAllowed?: boolean; ownerToolsAllowed?: boolean; bridgeError?: string; autoStart?: boolean; startError?: string; logCleanup?: boolean; backupsEnabled?: boolean; backupInterval?: 'hourly' | '6h' | 'daily' | 'weekly'; backupKeep?: number }
+export interface FrameworkAttachment { key: string; path: string; appId: string; name: string; sessionId: string; tasksAllowed?: boolean; ownerToolsAllowed?: boolean; bridgeError?: string; autoStart?: boolean; startError?: string; logCleanup?: boolean; backupsEnabled?: boolean; backupInterval?: 'hourly' | '6h' | 'daily' | 'weekly'; backupKeep?: number; uiTheme?: import('../../pages/AgentApp/themeCatalog').AgentAppTheme }
 export interface FrameworkInstallJob {
   id: string; status: string; request: { id?: string; from?: string }; error?: string; stderr?: string; sessionId?: string; linkError?: string
   steps: { step: string; status: string; error?: string }[]
