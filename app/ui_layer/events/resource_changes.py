@@ -32,7 +32,7 @@ class Resource(str, Enum):
     MCP_SERVERS = "mcp_servers"
     INTEGRATIONS = "integrations"
     PROACTIVE = "proactive"  # recurring tasks and proactive mode
-    SCHEDULER = "scheduler"  # scheduler config and the memory-processing schedule
+    SCHEDULER = "scheduler"  # scheduler config, memory + proactive schedules
     MEMORY = "memory"  # items, graph, indexed files and memory mode
     AGENT_FILES = "agent_files"  # ids = USER.md / AGENT.md / SOUL.md
     GENERAL_SETTINGS = "general_settings"
@@ -142,7 +142,8 @@ _RESOURCE_BY_MESSAGE_TYPE: Dict[str, Resource] = {
         Resource.PROACTIVE,
     ),
     **dict.fromkeys(
-        ("scheduler_config_update", "memory_schedule_set"), Resource.SCHEDULER
+        ("scheduler_config_update", "memory_schedule_set", "proactive_schedule_set"),
+        Resource.SCHEDULER,
     ),
     **dict.fromkeys(
         (

@@ -97,9 +97,10 @@ export const QUESTION_DISMISSED = '__dismissed__'
 // Session Types
 // ─────────────────────────────────────────────────────────────────────
 
-// 'agent_app' sessions never appear in the sidebar's chat list (that list
-// keeps only type 'chat').
-export type SessionType = 'main' | 'chat' | 'agent_app'
+// 'agent_app' and 'background' sessions never appear in the sidebar's chat
+// list (that list keeps only type 'chat'). The background session runs
+// scheduled work and posts its results into main.
+export type SessionType = 'main' | 'chat' | 'agent_app' | 'background'
 
 /** How hard the model reasons, picked per chat session in the chat input
  *  (agent_core/core/models/reasoning.py ReasoningChoice). */

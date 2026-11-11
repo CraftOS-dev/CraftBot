@@ -1,6 +1,6 @@
 ---
 name: day-planner
-description: Daily planning skill that reviews recent interactions, scans external environment, identifies tasks for today, and updates the Goals, Plan, and Status section in PROACTIVE.md.
+description: Daily planning skill that reviews recent interactions, scans external environment, identifies tasks for today, updates the Goals, Plan, and Status section in PROACTIVE.md, and ends with a short morning brief for the user.
 user-invocable: false
 action-sets:
   - file_operations
@@ -23,22 +23,22 @@ You receive a planner trigger with:
 
 ---
 
-## CRITICAL: Silent Execution (Override Standard Task Rules)
+## CRITICAL: Background Execution (Override Standard Task Rules)
 
-**This skill overrides standard task completion rules.** Unlike regular tasks:
+This skill runs in the background session, not in the user's chat. **This skill overrides standard task completion rules:**
 
 - **NO acknowledgement**: Do NOT acknowledge task receipt to user
-- **NO confirmation**: Do NOT wait for user confirmation before ending
-- **MUST end silently**: Use `end_turn` immediately after completing planning work
+- **ONE result message**: End the run with ONE `send_message` (no `continue_work`): the morning brief. CraftBot posts it to the user's main chat, headed with this planner's name. Messages sent with `continue_work=true` are never shown to the user.
+- **Message last**: That message ends the run, so finish every file update (PROACTIVE.md, MEMORY.md) before sending it.
+- **NEVER wait for the user**: The run ends on that message.
 
-**EXCEPTION - Suggesting New Tasks:**
+**Suggesting New Tasks:**
 When you want to suggest a new recurring or scheduled task:
-1. Send the suggestion as your FINAL `send_message` (no `continue_work`) — the run ends on that question
-2. The user's reply arrives as a new run: if they approve → add the task, then end silently
-3. If they reject → end silently without adding
-4. If no reply ever comes, nothing is added — the suggestion simply lapses
+1. Put the suggestion at the end of the morning brief as ONE question, with `suggested_responses`
+2. The user answers in their main chat, where the main agent adds the task if they approve
+3. Do not add the task yourself in this run; if no answer ever comes, nothing is added
 
-**Why?** Planner runs happen automatically. Waiting for confirmation would cause work to pile up.
+**Why?** Planner runs happen automatically while the user may be away. One short message they can read later beats a stream of notifications.
 
 ---
 
@@ -56,12 +56,12 @@ Focus only on what can realistically be accomplished in a single day. Do not ove
 
 1. **Check existing scheduled tasks**: Use `scheduled_task_list` to see what's already scheduled
 2. **Read PROACTIVE.md**: Check existing recurring tasks and the Goals, Plan, and Status section
-3. **Check past work**: `memory_search` and grep `agent_file_system/EVENT.md` to see what has already been done
+3. **Check past work**: `memory_search` and grep `agent_file_system/workspace/sessions/main/EVENT.md` (large: grep it, never read it whole) to see what has already been done
 4. **Read MEMORY.md**: Understand user context, preferences, and past interactions
 
 ### Duplicate Prevention (EXTREMELY IMPORTANT)
 
-- **NEVER suggest a task the user has already performed** (check EVENT.md / memory_search)
+- **NEVER suggest a task the user has already performed** (check the event log / memory_search)
 - **NEVER suggest a task that already exists** as a recurring or scheduled task
 - **NEVER add a recurring task that duplicates an existing one**
 - If user performed a one-time task before and you suggest it again = **VERY BAD**
@@ -147,12 +147,12 @@ Before suggesting ANY proactive task, you must have OVERWHELMING evidence. Most 
 - No clear evidence user wants this help
 - You're assuming user needs something they never mentioned
 - **User only did this task 1-2 times** (NOT ENOUGH)
-- **You cannot cite 3+ specific instances from past work (EVENT.md / memory)**
+- **You cannot cite 3+ specific instances from past work (the event log / memory)**
 
 ### Green Flags - May Consider If:
 
 - User explicitly asked for proactive help with this area and it is not processed yet
-- User has done this exact task **3+ times** manually (with evidence in EVENT.md / memory)
+- User has done this exact task **3+ times** manually (with evidence in the event log / memory)
 - User **explicitly said** "I want this automated" or "Can you do this regularly"
 - Task is tier 0 (silent, no interruption)
 
@@ -249,7 +249,7 @@ Read the following files:
 
 1. **USER.md** - User profile, preferences, location, work hours
 2. **MEMORY.md** - Recent memories, learnings, user preferences
-3. **EVENT.md** (grep recent entries) - Recently completed work (to avoid duplicates!)
+3. **Event log** (`agent_file_system/workspace/sessions/main/EVENT.md`, grep recent entries) - Recently completed work (to avoid duplicates!)
 4. **PROACTIVE.md** - Current recurring tasks and Goals/Plan/Status via `recurring_read`
 
 Also check:
@@ -311,7 +311,7 @@ IF user works in specific domain (tech, finance, etc.):
 Consider from internal files:
 - What day of the week is it?
 - What are the user's long-term goals? (from Goals, Plan, and Status)
-- What did the user work on yesterday? (from EVENT.md)
+- What did the user work on yesterday? (from the event log)
 - Are there any recurring tasks enabled for today?
 - What is the user's current focus area?
 
@@ -408,7 +408,7 @@ Update MEMORY.md when you discover:
 | User's stated preferences | Your assumptions |
 | Facts user shared | Temporary info |
 | Patterns you observed | Trivial details |
-| Important deadlines | Already in EVENT.md |
+| Important deadlines | Already in the event log |
 | Context for future help | Duplicate information |
 
 ### Format
@@ -424,15 +424,33 @@ Update MEMORY.md when you discover:
 
 ## Outputs
 
-### Output 1: Update PROACTIVE.md
+### Output 1: Morning Brief (REQUIRED, LAST)
+
+End the run with the morning brief as your ONE `send_message`:
+
+```
+[Weekday, Month Day]
+- [Priority 1, with the deadline or meeting it serves]
+- [Priority 2]
+- [Today's events worth knowing: time, title]
+- [Anything waiting on the user]
+```
+
+Rules:
+- Keep under 120 words; 1-3 priorities from Upcoming Priorities
+- Facts from today's checks only, no invented details
+- If nothing is scheduled and nothing is pending, say so in one line
+- At most 1 question, and only for a new-task suggestion (see Background Execution)
+
+### Output 2: Update PROACTIVE.md
 
 Update "Upcoming Priorities" and optionally "Current Focus" and "Recent Accomplishments".
 
-### Output 2: Update MEMORY.md
+### Output 3: Update MEMORY.md
 
 Only if you discovered important context during analysis.
 
-### Output 3: Manage Recurring Tasks (WITH PERMISSION - RARE)
+### Output 4: Manage Recurring Tasks (WITH PERMISSION - RARE)
 
 Only if ALL of these are true:
 1. User explicitly requested this automation
@@ -451,7 +469,7 @@ recurring_add(
 )
 ```
 
-### Output 4: Suggest Immediate/Scheduled Tasks (WITH PERMISSION - RARE)
+### Output 5: Suggest Immediate/Scheduled Tasks (WITH PERMISSION - RARE)
 
 Only if ALL of these are true:
 1. Not already scheduled or completed
@@ -486,5 +504,5 @@ schedule_task(
 
 1. Update "Goals, Plan, and Status" section in PROACTIVE.md
 2. Update MEMORY.md if relevant context discovered
-3. (Rarely, with permission) Add recurring tasks if truly necessary
-4. (Rarely, with permission) Schedule tasks if truly necessary
+3. (Rarely, as a question in the brief) Suggest a recurring or scheduled task
+4. Morning brief to the user: the run-ending `send_message` (required, last)

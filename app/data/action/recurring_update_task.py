@@ -3,7 +3,7 @@ from agent_core import action
 
 @action(
     name="recurring_update_task",
-    description="Update an existing recurring task in PROACTIVE.md. Can update task properties or add execution outcomes. Use this to enable/disable tasks, change instructions, or record task execution results.",
+    description="Update an existing recurring task in PROACTIVE.md: enable/disable it or change its instruction, time, day or priority. Re-enabling a task or changing its time/day restarts its schedule from now. Runs and outcomes are recorded automatically; add_outcome only appends a manual note.",
     action_sets=["proactive"],
     input_schema={
         "task_id": {
@@ -21,7 +21,7 @@ from agent_core import action
         "add_outcome": {
             "type": "object",
             "required": False,
-            "description": "Optional outcome to add to task history. Include 'result' (string) and optionally 'success' (boolean, default true)",
+            "description": "Optional manual note for the task's outcome history. Include 'result' (string) and optionally 'success' (boolean, default true). Does not change when the task runs next.",
             "example": {"result": "Task completed successfully", "success": True},
         },
     },

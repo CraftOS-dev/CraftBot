@@ -14,15 +14,17 @@ class ScheduleExpression:
     """
     Parsed schedule expression.
 
-    Supports five types:
+    Supports six types:
     - "daily": Fire at a specific time every day
     - "weekly": Fire at a specific time on specific weekday(s)
+    - "monthly": Fire at a specific time on a day of the month (29-31 fall
+      back to the last day in shorter months)
     - "interval": Fire at regular intervals
     - "cron": Fire based on cron expression
     - "once": Fire once at a specific time (one-time scheduled task)
     """
 
-    schedule_type: str  # "daily", "weekly", "interval", "cron", "once"
+    schedule_type: str  # "daily", "weekly", "monthly", "interval", "cron", "once"
     raw_expression: str  # Original string (e.g., "every day at 7am")
 
     # For time-based schedules (daily, weekly)
@@ -31,6 +33,9 @@ class ScheduleExpression:
 
     # For weekly schedules
     weekday: Optional[int] = None  # 0=Monday, 6=Sunday
+
+    # For monthly schedules
+    day_of_month: Optional[int] = None  # 1-31
 
     # For interval-based schedules
     interval_seconds: Optional[float] = None
@@ -43,19 +48,26 @@ class ScheduleExpression:
 
     def __post_init__(self):
         """Validate schedule expression."""
-        valid_types = {"daily", "weekly", "interval", "cron", "once"}
+        valid_types = {"daily", "weekly", "monthly", "interval", "cron", "once"}
         if self.schedule_type not in valid_types:
             raise ValueError(
                 f"Invalid schedule_type: {self.schedule_type}. Must be one of {valid_types}"
             )
 
-        if self.schedule_type in ("daily", "weekly"):
+        if self.schedule_type in ("daily", "weekly", "monthly"):
             if self.hour is None:
                 raise ValueError(f"hour is required for {self.schedule_type} schedules")
             if not (0 <= self.hour <= 23):
                 raise ValueError(f"hour must be 0-23, got {self.hour}")
             if not (0 <= self.minute <= 59):
                 raise ValueError(f"minute must be 0-59, got {self.minute}")
+
+        if self.schedule_type == "monthly":
+            if self.day_of_month is None or not (1 <= self.day_of_month <= 31):
+                raise ValueError(
+                    f"day_of_month must be 1-31 for monthly schedules, "
+                    f"got {self.day_of_month}"
+                )
 
         if self.schedule_type == "weekly" and self.weekday is None:
             raise ValueError("weekday is required for weekly schedules")
@@ -85,6 +97,7 @@ class ScheduleExpression:
             "hour": self.hour,
             "minute": self.minute,
             "weekday": self.weekday,
+            "day_of_month": self.day_of_month,
             "interval_seconds": self.interval_seconds,
             "cron_expression": self.cron_expression,
             "fire_at": self.fire_at,
@@ -99,6 +112,7 @@ class ScheduleExpression:
             hour=data.get("hour"),
             minute=data.get("minute", 0),
             weekday=data.get("weekday"),
+            day_of_month=data.get("day_of_month"),
             interval_seconds=data.get("interval_seconds"),
             cron_expression=data.get("cron_expression"),
             fire_at=data.get("fire_at"),

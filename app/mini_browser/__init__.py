@@ -42,5 +42,6 @@ ACTION_SET = "mini_browser"
 SKILL_NAME = "mini-browser"
 
 # The main session's id: its browser serves actions that arrive without a
-# session id (should be rare) and scheduled runs (they run in the main session).
+# session id (should be rare). Scheduled runs use the background session's
+# own browser.
 DEFAULT_OWNER = "main"

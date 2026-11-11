@@ -18,6 +18,7 @@ from agent_core.core.session import (
     TodoItem,
     TodoStatus,
     MAIN_SESSION_ID,
+    BACKGROUND_SESSION_ID,
 )
 from agent_core.core.action_framework import (
     ActionRegistry,
@@ -67,6 +68,7 @@ __all__ = [
     "TodoItem",
     "TodoStatus",
     "MAIN_SESSION_ID",
+    "BACKGROUND_SESSION_ID",
     # Action framework
     "ActionRegistry",
     "ActionMetadata",

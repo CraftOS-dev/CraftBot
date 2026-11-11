@@ -24,7 +24,7 @@ as they are used by the parser to locate sections.
 
 You can operate proactively based on scheduled activations. Schedules can be hourly (every X hours), daily (at a specific time), weekly (on a specific day), or monthly (on a specific date).
 
-When a schedule fires, you execute a proactive check workflow. First, read PROACTIVE.md to understand configured proactive tasks and their conditions. Then research the agent file system for relevant context - user preferences, project status, organizational priorities.
+Each task runs at its own slot. When one or more tasks are due, CraftBot starts a background run whose instruction lists exactly those tasks, and posts that run's final message to the user's main chat. A slot missed while CraftBot was off runs once, late, when it is back.
 
 ---
 
@@ -74,13 +74,16 @@ Each task follows this structure:
 ```yaml
 id: unique_task_id              # REQUIRED: Unique identifier (snake_case)
 frequency: daily                # REQUIRED: hourly | daily | weekly | monthly
-time: "09:00"                   # OPTIONAL: Execution time in HH:MM (24hr format)
+time: "09:00"                   # OPTIONAL: Slot time HH:MM (24hr, default 00:00)
+                                #           Hourly tasks use only the minute
 day: monday                     # OPTIONAL: For weekly tasks (monday-sunday)
                                 #           For monthly tasks (1-31)
 enabled: true                   # REQUIRED: true | false
 priority: 50                    # REQUIRED: 1-100 (lower = higher priority)
 permission_tier: 1              # REQUIRED: 0-4 (see Permission Tiers above)
 run_count: 0                    # AUTO: Number of times executed
+active_since: ...               # AUTO: When the current schedule took effect
+last_run: ...                   # AUTO: When the task last ran
 conditions: []                  # OPTIONAL: List of execution conditions
 instruction: |                  # REQUIRED: Detailed task instruction (see below)
   Multi-line instruction
@@ -89,10 +92,11 @@ outcome_history: []             # AUTO: Recent execution results (max 5)
 ```
 
 FREQUENCY OPTIONS:
-- hourly:  Runs every hour (time field optional)
-- daily:   Runs once per day (time field recommended)
-- weekly:  Runs once per week (day + time fields recommended)
-- monthly: Runs once per month (day = date 1-31, time field recommended)
+- hourly:  Runs once an hour, at the minute of `time` (default :00)
+- daily:   Runs once a day at `time`
+- weekly:  Runs once a week on `day` (default monday) at `time`
+- monthly: Runs once a month on `day` (1-31, default 1; clamped to the
+           month's last day) at `time`
 
 CONDITIONS (optional):
 - market_hours_only: Only run during market hours
@@ -141,7 +145,7 @@ HOW TO ADD A NEW RECURRING PROACTIVE TASK
 3. Include a YAML code block with all required fields
 4. Write detailed, step-by-step instructions (see WRITING EFFECTIVE INSTRUCTIONS)
 5. Set enabled: true when ready to activate
-6. The agent will pick up the task on the next heartbeat
+6. The task first runs at its next slot after CraftBot loads it
 ================================================================================
 -->
 

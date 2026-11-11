@@ -22,6 +22,7 @@ Usage:
 from .types import ScheduleExpression, ScheduledTask, SchedulerConfig
 from .parser import ScheduleParser, ScheduleParseError
 from .manager import SchedulerManager
+from .background import BackgroundRun, background_runs
 
 __all__ = [
     # Types
@@ -33,4 +34,7 @@ __all__ = [
     "ScheduleParseError",
     # Manager
     "SchedulerManager",
+    # Background run ledger
+    "BackgroundRun",
+    "background_runs",
 ]

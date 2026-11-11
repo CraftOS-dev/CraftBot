@@ -248,25 +248,24 @@
     "title": "プロアクティブな動作",
     "subtitle": "エージェントが自律的に動作するタイミングを設定し、スケジュールされたタスクを管理します",
     "enableLabel": "プロアクティブモードを有効化",
-    "enableDesc": "エージェントがスケジュールされたタスクやプロアクティブな動作を自動的に実行できるようにします",
-    "heartbeatTitle": "ハートビートのスケジュール",
-    "heartbeatDesc": "ハートビートは頻度に基づいてプロアクティブなタスクを定期的に確認・実行します",
-    "heartbeat": {
-      "label": "ハートビート",
-      "desc": "30 分ごとに実行され、期限が来たすべてのプロアクティブなタスクを確認・実行します"
-    },
+    "enableDesc": "プロアクティブなタスクとプランナーをバックグラウンドで実行し、結果をメインチャットに投稿します。",
     "plannersTitle": "プランナー",
-    "plannersDesc": "プランナーは最近のやり取りを確認し、プロアクティブな活動を計画します",
+    "plannersDesc": "各プランナーはメインチャットに短いまとめを投稿します",
     "planners": {
       "dayLabel": "デイリープランナー",
-      "dayDesc": "日々の活動と優先事項を計画します",
+      "dayDesc": "1 日の計画を立て、朝のブリーフィングを送ります",
       "weekLabel": "ウィークリープランナー",
-      "weekDesc": "週間の目標とタスクを計画します",
+      "weekDesc": "1 週間を振り返り、翌週を計画します",
       "monthLabel": "マンスリープランナー",
-      "monthDesc": "月間の目標を計画し、振り返ります"
+      "monthDesc": "1 か月と長期目標を振り返ります",
+      "runsOn": "実行日",
+      "time": "時刻",
+      "everyDay": "毎日",
+      "monthDay": "{{day}} 日",
+      "monthDayHint": "29〜31 日は、短い月ではその月の最終日に実行されます"
     },
     "tasksTitle": "プロアクティブなタスク",
-    "tasksDesc": "PROACTIVE.md で定義され、エージェントがハートビート中に実行するタスク",
+    "tasksDesc": "PROACTIVE.md で定義されたタスク。各タスクは設定時刻に実行され、結果がメインチャットに投稿されます",
     "addTask": "タスクを追加",
     "searchTasks": "タスクを検索...",
     "searchCount": "{{total}} 件中 {{shown}} 件",
@@ -334,22 +333,16 @@
       "saturday": "土曜日",
       "sunday": "日曜日"
     },
-    "cron": {
-      "twiceHourly": "1 時間に 2 回",
-      "hourly": "毎時 :{{minute}} 分",
-      "daily": "毎日 {{time}}",
-      "weekly": "毎週 {{day}} {{time}}",
-      "monthly": "毎月 {{day}} 日 {{time}}",
-      "raw": "Cron: {{cron}}",
-      "days": {
-        "sun": "日曜日",
-        "mon": "月曜日",
-        "tue": "火曜日",
-        "wed": "水曜日",
-        "thu": "木曜日",
-        "fri": "金曜日",
-        "sat": "土曜日"
-      }
+    "toast": {
+      "scheduleFailed": "スケジュールの更新に失敗しました"
+    },
+    "catchUp": {
+      "label": "実行漏れのタスクを補完",
+      "desc": "CraftBot が終了中やスリープ中に実行できなかったタスクを確認する間隔",
+      "everyMinutes_one": "{{count}} 分ごと",
+      "everyMinutes_other": "{{count}} 分ごと",
+      "everyHours_one": "{{count}} 時間ごと",
+      "everyHours_other": "{{count}} 時間ごと"
     }
   },
   "memory": {

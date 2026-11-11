@@ -248,25 +248,24 @@
     "title": "능동적 동작",
     "subtitle": "에이전트가 자율적으로 행동하는 시점을 구성하고 예약된 작업을 관리합니다",
     "enableLabel": "능동 모드 사용",
-    "enableDesc": "에이전트가 예약된 작업과 능동적 동작을 자동으로 실행하도록 허용합니다",
-    "heartbeatTitle": "하트비트 일정",
-    "heartbeatDesc": "하트비트는 빈도에 따라 능동적 작업을 주기적으로 확인하고 실행합니다",
-    "heartbeat": {
-      "label": "하트비트",
-      "desc": "30분마다 실행되어 예정된 모든 능동적 작업을 확인하고 실행합니다"
-    },
+    "enableDesc": "능동적 작업과 플래너를 백그라운드에서 실행하고 결과를 메인 채팅에 게시합니다.",
     "plannersTitle": "플래너",
-    "plannersDesc": "플래너는 최근 상호작용을 검토하고 능동적 활동을 계획합니다",
+    "plannersDesc": "각 플래너는 메인 채팅에 짧은 요약을 게시합니다",
     "planners": {
       "dayLabel": "일일 플래너",
-      "dayDesc": "일일 활동과 우선순위를 계획합니다",
+      "dayDesc": "하루를 계획하고 아침 브리핑을 보냅니다",
       "weekLabel": "주간 플래너",
-      "weekDesc": "주간 목표와 작업을 계획합니다",
+      "weekDesc": "한 주를 돌아보고 다음 주를 계획합니다",
       "monthLabel": "월간 플래너",
-      "monthDesc": "월간 목표와 검토를 계획합니다"
+      "monthDesc": "한 달과 장기 목표를 돌아봅니다",
+      "runsOn": "실행일",
+      "time": "시간",
+      "everyDay": "매일",
+      "monthDay": "{{day}}일",
+      "monthDayHint": "29~31일은 짧은 달에는 그 달의 마지막 날에 실행됩니다"
     },
     "tasksTitle": "능동적 작업",
-    "tasksDesc": "에이전트가 하트비트 동안 실행하는, PROACTIVE.md에 정의된 작업",
+    "tasksDesc": "PROACTIVE.md에 정의된 작업입니다. 각 작업은 설정된 시간에 실행되고 결과를 메인 채팅에 게시합니다",
     "addTask": "작업 추가",
     "searchTasks": "작업 검색...",
     "searchCount": "{{total}}개 중 {{shown}}개",
@@ -334,22 +333,16 @@
       "saturday": "토요일",
       "sunday": "일요일"
     },
-    "cron": {
-      "twiceHourly": "매시간 두 번",
-      "hourly": "매시간 :{{minute}}에",
-      "daily": "매일 {{time}}에",
-      "weekly": "매주 {{day}} {{time}}에",
-      "monthly": "매월 {{day}}일 {{time}}에",
-      "raw": "Cron: {{cron}}",
-      "days": {
-        "sun": "일요일",
-        "mon": "월요일",
-        "tue": "화요일",
-        "wed": "수요일",
-        "thu": "목요일",
-        "fri": "금요일",
-        "sat": "토요일"
-      }
+    "toast": {
+      "scheduleFailed": "일정을 업데이트하지 못했습니다"
+    },
+    "catchUp": {
+      "label": "놓친 작업 보완",
+      "desc": "CraftBot이 꺼져 있거나 절전 중일 때 놓친 작업을 확인하는 주기",
+      "everyMinutes_one": "{{count}}분마다",
+      "everyMinutes_other": "{{count}}분마다",
+      "everyHours_one": "{{count}}시간마다",
+      "everyHours_other": "{{count}}시간마다"
     }
   },
   "memory": {

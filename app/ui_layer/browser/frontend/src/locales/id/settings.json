@@ -248,25 +248,24 @@
     "title": "Perilaku Proaktif",
     "subtitle": "Konfigurasikan kapan agen bertindak secara mandiri dan mengelola tugas terjadwal",
     "enableLabel": "Aktifkan Mode Proaktif",
-    "enableDesc": "Izinkan agen menjalankan tugas terjadwal dan perilaku proaktif secara otomatis",
-    "heartbeatTitle": "Jadwal Heartbeat",
-    "heartbeatDesc": "Heartbeat secara berkala memeriksa dan menjalankan tugas proaktif berdasarkan frekuensinya",
-    "heartbeat": {
-      "label": "Heartbeat",
-      "desc": "Berjalan setiap 30 menit untuk memeriksa dan menjalankan semua tugas proaktif yang jatuh tempo"
-    },
+    "enableDesc": "Menjalankan tugas proaktif dan perencana Anda di latar belakang. Hasilnya dikirim ke chat utama Anda.",
     "plannersTitle": "Perencana",
-    "plannersDesc": "Perencana meninjau interaksi terbaru dan merencanakan aktivitas proaktif",
+    "plannersDesc": "Setiap perencana mengirim ringkasan singkat ke chat utama Anda",
     "planners": {
       "dayLabel": "Perencana Harian",
-      "dayDesc": "Merencanakan aktivitas dan prioritas harian",
+      "dayDesc": "Merencanakan hari Anda dan mengirim ringkasan pagi",
       "weekLabel": "Perencana Mingguan",
-      "weekDesc": "Merencanakan tujuan dan tugas mingguan",
+      "weekDesc": "Meninjau minggu Anda dan merencanakan minggu berikutnya",
       "monthLabel": "Perencana Bulanan",
-      "monthDesc": "Merencanakan sasaran dan tinjauan bulanan"
+      "monthDesc": "Meninjau bulan Anda dan tujuan jangka panjang",
+      "runsOn": "Hari",
+      "time": "Waktu",
+      "everyDay": "Setiap hari",
+      "monthDay": "Tanggal {{day}}",
+      "monthDayHint": "Tanggal 29 sampai 31 berjalan pada hari terakhir bulan yang lebih pendek"
     },
     "tasksTitle": "Tugas Proaktif",
-    "tasksDesc": "Tugas yang didefinisikan dalam PROACTIVE.md yang dijalankan agen selama heartbeat",
+    "tasksDesc": "Tugas yang didefinisikan dalam PROACTIVE.md. Setiap tugas berjalan pada waktunya dan mengirim hasilnya ke chat utama Anda",
     "addTask": "Tambah Tugas",
     "searchTasks": "Cari tugas...",
     "searchCount": "{{shown}} dari {{total}}",
@@ -334,22 +333,16 @@
       "saturday": "Sabtu",
       "sunday": "Minggu"
     },
-    "cron": {
-      "twiceHourly": "Dua kali setiap jam",
-      "hourly": "Setiap jam pada menit ke-:{{minute}}",
-      "daily": "Setiap hari pukul {{time}}",
-      "weekly": "Setiap minggu pada {{day}} pukul {{time}}",
-      "monthly": "Setiap bulan pada tanggal {{day}} pukul {{time}}",
-      "raw": "Cron: {{cron}}",
-      "days": {
-        "sun": "Minggu",
-        "mon": "Senin",
-        "tue": "Selasa",
-        "wed": "Rabu",
-        "thu": "Kamis",
-        "fri": "Jumat",
-        "sat": "Sabtu"
-      }
+    "toast": {
+      "scheduleFailed": "Gagal memperbarui jadwal"
+    },
+    "catchUp": {
+      "label": "Kejar tugas yang terlewat",
+      "desc": "Seberapa sering CraftBot memeriksa tugas yang terlewat saat ditutup atau dalam mode tidur",
+      "everyMinutes_one": "Setiap {{count}} menit",
+      "everyMinutes_other": "Setiap {{count}} menit",
+      "everyHours_one": "Setiap jam",
+      "everyHours_other": "Setiap {{count}} jam"
     }
   },
   "memory": {

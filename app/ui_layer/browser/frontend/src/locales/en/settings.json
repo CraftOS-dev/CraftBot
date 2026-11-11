@@ -252,25 +252,24 @@
     "title": "Proactive Behavior",
     "subtitle": "Configure when the agent acts autonomously and manages scheduled tasks",
     "enableLabel": "Enable Proactive Mode",
-    "enableDesc": "Allow agent to execute scheduled tasks and proactive behaviors automatically",
-    "heartbeatTitle": "Heartbeat Schedules",
-    "heartbeatDesc": "Heartbeats periodically check and execute proactive tasks based on their frequency",
-    "heartbeat": {
-      "label": "Heartbeat",
-      "desc": "Runs every 30 minutes to check and execute all due proactive tasks"
-    },
+    "enableDesc": "Runs your proactive tasks and planners in the background. Results are posted to your main chat.",
     "plannersTitle": "Planners",
-    "plannersDesc": "Planners review recent interactions and plan proactive activities",
+    "plannersDesc": "Each planner posts a short brief to your main chat",
     "planners": {
       "dayLabel": "Daily Planner",
-      "dayDesc": "Plans daily activities and priorities",
+      "dayDesc": "Plans your day and sends a morning brief",
       "weekLabel": "Weekly Planner",
-      "weekDesc": "Plans weekly goals and tasks",
+      "weekDesc": "Reviews your week and plans the next",
       "monthLabel": "Monthly Planner",
-      "monthDesc": "Plans monthly objectives and reviews"
+      "monthDesc": "Reviews your month and long-term goals",
+      "runsOn": "Runs on",
+      "time": "Time",
+      "everyDay": "Every day",
+      "monthDay": "Day {{day}}",
+      "monthDayHint": "Days 29 to 31 run on the last day of shorter months"
     },
     "tasksTitle": "Proactive Tasks",
-    "tasksDesc": "Tasks defined in PROACTIVE.md that the agent executes during heartbeats",
+    "tasksDesc": "Tasks defined in PROACTIVE.md. Each runs at its set time and posts its result to your main chat",
     "addTask": "Add Task",
     "searchTasks": "Search tasks...",
     "searchCount": "{{shown}} of {{total}}",
@@ -338,22 +337,16 @@
       "saturday": "Saturday",
       "sunday": "Sunday"
     },
-    "cron": {
-      "twiceHourly": "Twice every hour",
-      "hourly": "Every hour at :{{minute}}",
-      "daily": "Daily at {{time}}",
-      "weekly": "Weekly on {{day}} at {{time}}",
-      "monthly": "Monthly on day {{day}} at {{time}}",
-      "raw": "Cron: {{cron}}",
-      "days": {
-        "sun": "Sunday",
-        "mon": "Monday",
-        "tue": "Tuesday",
-        "wed": "Wednesday",
-        "thu": "Thursday",
-        "fri": "Friday",
-        "sat": "Saturday"
-      }
+    "toast": {
+      "scheduleFailed": "Failed to update schedule"
+    },
+    "catchUp": {
+      "label": "Catch up on missed tasks",
+      "desc": "How often CraftBot checks for tasks it missed while it was closed or asleep",
+      "everyMinutes_one": "Every {{count}} minute",
+      "everyMinutes_other": "Every {{count}} minutes",
+      "everyHours_one": "Every hour",
+      "everyHours_other": "Every {{count}} hours"
     }
   },
   "memory": {

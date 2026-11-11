@@ -12,15 +12,17 @@ import { useTranslation } from 'react-i18next'
 import { Button, Badge, ConfirmModal } from '../../components/ui'
 import { useConfirmModal, usePersistedState, useServerDraft } from '../../hooks'
 import i18n from '../../i18n/config'
-import { formatNumber, formatDate, formatTime } from '../../i18n/format'
+import { formatNumber, formatDate } from '../../i18n/format'
 import styles from './SettingsPage.module.css'
 import { useSettingsWebSocket } from './useSettingsWebSocket'
 import { RemoteChangeHint } from './RemoteChangeHint'
+import { useToast } from '../../contexts/ToastContext'
 import { RESOURCES, useResource } from '../../store/resources'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import {
   setTaskEnabled,
   type ProactiveTask,
+  type ProactiveSchedule,
 } from '../../store/slices/proactiveSettingsSlice'
 import {
   selectSchedulerEnabled,
@@ -29,60 +31,45 @@ import {
   selectProactiveHasLoadedMode,
   selectProactiveHasLoadedConfig,
   selectProactiveHasLoadedTasks,
+  selectProactiveSchedule,
+  selectHeartbeatOptions,
 } from '../../store/selectors/proactiveSettings'
 import { UI_STATE } from '../../store/uiState'
 
-// Convert cron expression to human-readable format. Uses the i18n instance
-// directly (module scope, no hook available); components re-render on language
-// change so the localized string refreshes.
-function formatCronExpression(cron: string): string {
-  const parts = cron.split(' ')
-  if (parts.length !== 5) return cron
+// Types come from the slice now.
 
-  const [minute, hour, dayOfMonth, month, dayOfWeek] = parts
-
-  const clock = (h: string, m: string): string => {
-    const d = new Date()
-    d.setHours(parseInt(h, 10) || 0, parseInt(m, 10) || 0, 0, 0)
-    return formatTime(d)
-  }
-
-  const dayName = (dow: string): string => {
-    const map: Record<string, string> = {
-      '0': i18n.t('settings:proactive.cron.days.sun'),
-      '7': i18n.t('settings:proactive.cron.days.sun'),
-      '1': i18n.t('settings:proactive.cron.days.mon'),
-      '2': i18n.t('settings:proactive.cron.days.tue'),
-      '3': i18n.t('settings:proactive.cron.days.wed'),
-      '4': i18n.t('settings:proactive.cron.days.thu'),
-      '5': i18n.t('settings:proactive.cron.days.fri'),
-      '6': i18n.t('settings:proactive.cron.days.sat'),
-    }
-    return map[dow] || dow
-  }
-
-  if (hour === '*' && dayOfMonth === '*' && month === '*' && dayOfWeek === '*') {
-    const minNum = parseInt(minute, 10)
-    if (minNum === 0) return i18n.t('settings:proactive.cron.twiceHourly')
-    return i18n.t('settings:proactive.cron.hourly', { minute: minute.padStart(2, '0') })
-  }
-
-  if (dayOfMonth === '*' && month === '*' && dayOfWeek === '*') {
-    return i18n.t('settings:proactive.cron.daily', { time: clock(hour, minute) })
-  }
-
-  if (dayOfMonth === '*' && month === '*' && dayOfWeek !== '*') {
-    return i18n.t('settings:proactive.cron.weekly', { day: dayName(dayOfWeek), time: clock(hour, minute) })
-  }
-
-  if (dayOfMonth !== '*' && month === '*' && dayOfWeek === '*') {
-    return i18n.t('settings:proactive.cron.monthly', { day: dayOfMonth, time: clock(hour, minute) })
-  }
-
-  return i18n.t('settings:proactive.cron.raw', { cron })
+const DEFAULT_SCHEDULE: ProactiveSchedule = {
+  heartbeatMinutes: 30,
+  dayPlannerTime: '07:00',
+  weekPlannerDay: 'sunday',
+  weekPlannerTime: '17:00',
+  monthPlannerDay: 1,
+  monthPlannerTime: '08:00',
 }
 
-// Types come from the slice now.
+const WEEKDAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] as const
+const MONTH_DAYS = Array.from({ length: 31 }, (_, i) => i + 1)
+
+// What this tab's auto-save sent, per control.
+interface SentTiming {
+  heartbeat?: number
+  day?: string
+  week?: { day: string; time: string }
+  month?: { day: number; time: string }
+}
+
+const sameValue = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
+
+type PlannerId = 'day-planner' | 'week-planner' | 'month-planner'
+
+const clockParts = (time: string) => time.split(':').map(n => parseInt(n, 10) || 0)
+
+// Catch-up interval option label ("Every 30 minutes", "Every 2 hours").
+function formatInterval(minutes: number): string {
+  return minutes < 60
+    ? i18n.t('settings:proactive.catchUp.everyMinutes', { count: minutes })
+    : i18n.t('settings:proactive.catchUp.everyHours', { count: minutes / 60 })
+}
 
 // Helper functions for task display
 function getPriorityLabel(value: number): string {
@@ -305,6 +292,7 @@ export function ProactiveSettings() {
   const { t } = useTranslation(['settings', 'common'])
   const { send, onMessage } = useSettingsWebSocket()
   const dispatch = useAppDispatch()
+  const { showToast } = useToast()
 
   // Slice-backed
   const schedulerEnabled = useAppSelector(selectSchedulerEnabled)
@@ -321,6 +309,35 @@ export function ProactiveSettings() {
   useResource(RESOURCES.proactiveMode)
   useResource(RESOURCES.schedulerConfig)
   useResource(RESOURCES.proactiveTasks)
+  useResource(RESOURCES.proactiveSchedule)
+
+  // Heartbeat interval + planner schedules: one draft per control over the
+  // saved values, so a change made elsewhere shows up here unless that
+  // control is mid-edit. Auto-saved while edited, like Settings → Memory's
+  // daily time.
+  const savedTiming = useAppSelector(selectProactiveSchedule)
+  const heartbeatOptions = useAppSelector(selectHeartbeatOptions)
+  const hasLoadedTiming = savedTiming !== null
+  const saved = savedTiming ?? DEFAULT_SCHEDULE
+  const heartbeatDraft = useServerDraft(saved.heartbeatMinutes)
+  const dayDraft = useServerDraft(saved.dayPlannerTime)
+  const weekDraft = useServerDraft({ day: saved.weekPlannerDay, time: saved.weekPlannerTime })
+  const monthDraft = useServerDraft({ day: saved.monthPlannerDay, time: saved.monthPlannerTime })
+  const resetHeartbeat = heartbeatDraft.reset
+  const resetDay = dayDraft.reset
+  const resetWeek = weekDraft.reset
+  const resetMonth = monthDraft.reset
+  // What this tab's auto-save sent, until its reply arrives. A draft settles
+  // only if it still holds that value (the user may have kept editing).
+  const sentTimingRef = React.useRef<SentTiming | null>(null)
+  const timingValueRef = React.useRef<SentTiming>({})
+  timingValueRef.current = {
+    heartbeat: heartbeatDraft.value,
+    day: dayDraft.value,
+    week: weekDraft.value,
+    month: monthDraft.value,
+  }
+  const timingTimerRef = React.useRef<number | undefined>(undefined)
 
   // UI state (transient)
   const [showTaskForm, setShowTaskForm] = useState(false)
@@ -350,9 +367,72 @@ export function ProactiveSettings() {
       onMessage('proactive_task_add', closeFormOnSaved),
       onMessage('proactive_task_update', closeFormOnSaved),
       onMessage('proactive_tasks_reset', () => setIsResettingTasks(false)),
+      onMessage('proactive_schedule_set', (data: unknown) => {
+        const sent = sentTimingRef.current
+        if (!sent) return
+        sentTimingRef.current = null
+        const d = data as { success: boolean; error?: string }
+        if (!d.success) {
+          showToast('error', d.error || t('settings:proactive.toast.scheduleFailed'))
+          return
+        }
+        const current = timingValueRef.current
+        if (sent.heartbeat !== undefined && current.heartbeat === sent.heartbeat) resetHeartbeat()
+        if (sent.day !== undefined && current.day === sent.day) resetDay()
+        if (sent.week !== undefined && sameValue(current.week, sent.week)) resetWeek()
+        if (sent.month !== undefined && sameValue(current.month, sent.month)) resetMonth()
+      }),
     ]
     return () => cleanups.forEach(c => c())
-  }, [onMessage])
+  }, [onMessage, showToast, t, resetHeartbeat, resetDay, resetWeek, resetMonth])
+
+  // Auto-save the heartbeat interval / planner schedules while edited
+  // (debounced). Clean drafts are the saved values, so loads and remote
+  // changes aren't echoed back; only the edited controls are sent.
+  const anyTimingDirty = heartbeatDraft.isDirty || dayDraft.isDirty || weekDraft.isDirty || monthDraft.isDirty
+  useEffect(() => {
+    if (!anyTimingDirty) return
+    window.clearTimeout(timingTimerRef.current)
+    timingTimerRef.current = window.setTimeout(() => {
+      const update: Record<string, number | string> = {}
+      const sent: SentTiming = {}
+      if (heartbeatDraft.isDirty) {
+        update.heartbeatMinutes = heartbeatDraft.value
+        sent.heartbeat = heartbeatDraft.value
+      }
+      if (dayDraft.isDirty && dayDraft.value) {
+        const [h, m] = clockParts(dayDraft.value)
+        update.dayPlannerHour = h
+        update.dayPlannerMinute = m
+        sent.day = dayDraft.value
+      }
+      if (weekDraft.isDirty && weekDraft.value.time) {
+        const [h, m] = clockParts(weekDraft.value.time)
+        update.weekPlannerDay = weekDraft.value.day
+        update.weekPlannerHour = h
+        update.weekPlannerMinute = m
+        sent.week = weekDraft.value
+      }
+      if (monthDraft.isDirty && monthDraft.value.time) {
+        const [h, m] = clockParts(monthDraft.value.time)
+        update.monthPlannerDay = monthDraft.value.day
+        update.monthPlannerHour = h
+        update.monthPlannerMinute = m
+        sent.month = monthDraft.value
+      }
+      if (Object.keys(update).length === 0) return
+      sentTimingRef.current = sent
+      send('proactive_schedule_set', update)
+    }, 500)
+    return () => window.clearTimeout(timingTimerRef.current)
+  }, [
+    anyTimingDirty,
+    heartbeatDraft.isDirty, heartbeatDraft.value,
+    dayDraft.isDirty, dayDraft.value,
+    weekDraft.isDirty, weekDraft.value,
+    monthDraft.isDirty, monthDraft.value,
+    send,
+  ])
 
   const getSchedule = (id: string) => schedules.find(s => s.id === id)
 
@@ -360,7 +440,7 @@ export function ProactiveSettings() {
     send('proactive_mode_set', { enabled })
   }
 
-  const handleToggleSchedule = (scheduleId: string, enabled: boolean) => {
+  const handleToggleSchedule = (scheduleId: PlannerId, enabled: boolean) => {
     send('scheduler_config_update', {
       updates: { schedules: [{ id: scheduleId, enabled }] }
     })
@@ -421,15 +501,44 @@ export function ProactiveSettings() {
     monthly: filteredTasks.filter(t => t.frequency === 'monthly'),
   }
 
-  const heartbeatSchedules = [
-    { id: 'heartbeat', label: t('settings:proactive.heartbeat.label'), desc: t('settings:proactive.heartbeat.desc') },
-  ]
-
-  const plannerSchedules = [
+  const plannerRows: { id: PlannerId; label: string; desc: string }[] = [
     { id: 'day-planner', label: t('settings:proactive.planners.dayLabel'), desc: t('settings:proactive.planners.dayDesc') },
     { id: 'week-planner', label: t('settings:proactive.planners.weekLabel'), desc: t('settings:proactive.planners.weekDesc') },
     { id: 'month-planner', label: t('settings:proactive.planners.monthLabel'), desc: t('settings:proactive.planners.monthDesc') },
   ]
+
+  // A planner row's "Runs on" and "Time" cells, plus its out-of-date hint.
+  const plannerCells = (id: PlannerId, label: string, disabled: boolean) => {
+    const runsOnLabel = `${label}: ${t('settings:proactive.planners.runsOn')}`
+    const timeLabel = `${label}: ${t('settings:proactive.planners.time')}`
+    if (id === 'day-planner') {
+      return {
+        runsOn: <span className={styles.plannerStatic}>{t('settings:proactive.planners.everyDay')}</span>,
+        time: <input type="time" className={styles.plannerInput} aria-label={timeLabel} value={dayDraft.value} onChange={e => dayDraft.set(e.target.value)} disabled={disabled} />,
+        hint: dayDraft.remoteChanged && <RemoteChangeHint onLoadLatest={dayDraft.acceptRemote} />,
+      }
+    }
+    if (id === 'week-planner') {
+      return {
+        runsOn: (
+          <select className={styles.plannerInput} aria-label={runsOnLabel} value={weekDraft.value.day} onChange={e => weekDraft.set(v => ({ ...v, day: e.target.value }))} disabled={disabled}>
+            {WEEKDAYS.map(day => <option key={day} value={day}>{t(`settings:proactive.weekdays.${day}`)}</option>)}
+          </select>
+        ),
+        time: <input type="time" className={styles.plannerInput} aria-label={timeLabel} value={weekDraft.value.time} onChange={e => weekDraft.set(v => ({ ...v, time: e.target.value }))} disabled={disabled} />,
+        hint: weekDraft.remoteChanged && <RemoteChangeHint onLoadLatest={weekDraft.acceptRemote} />,
+      }
+    }
+    return {
+      runsOn: (
+        <select className={styles.plannerInput} aria-label={runsOnLabel} title={t('settings:proactive.planners.monthDayHint')} value={monthDraft.value.day} onChange={e => monthDraft.set(v => ({ ...v, day: Number(e.target.value) }))} disabled={disabled}>
+          {MONTH_DAYS.map(day => <option key={day} value={day}>{t('settings:proactive.planners.monthDay', { day: formatNumber(day) })}</option>)}
+        </select>
+      ),
+      time: <input type="time" className={styles.plannerInput} aria-label={timeLabel} value={monthDraft.value.time} onChange={e => monthDraft.set(v => ({ ...v, time: e.target.value }))} disabled={disabled} />,
+      hint: monthDraft.remoteChanged && <RemoteChangeHint onLoadLatest={monthDraft.acceptRemote} />,
+    }
+  }
 
   return (
     <div className={styles.settingsSection}>
@@ -438,18 +547,19 @@ export function ProactiveSettings() {
         <p>{t('settings:proactive.subtitle')}</p>
       </div>
 
-      {/* Master Toggle */}
+      {/* Master Toggle: the one switch for tasks and planners */}
       <div className={styles.settingsForm}>
         <div className={styles.toggleGroup}>
           <div className={styles.toggleInfo}>
             <span className={styles.toggleLabel}>{t('settings:proactive.enableLabel')}</span>
-            <span className={styles.toggleDesc}>
+            <span className={`${styles.toggleDesc} ${styles.readableDesc}`}>
               {t('settings:proactive.enableDesc')}
             </span>
           </div>
           <input
             type="checkbox"
             className={styles.toggle}
+            aria-label={t('settings:proactive.enableLabel')}
             checked={schedulerEnabled}
             onChange={(e) => handleToggleScheduler(e.target.checked)}
             disabled={isLoadingScheduler}
@@ -459,68 +569,6 @@ export function ProactiveSettings() {
 
       {/* Toggleable Content */}
       <div className={`${styles.toggleableContent} ${!schedulerEnabled ? styles.disabledContent : ''}`}>
-        {/* Heartbeat Schedules */}
-        <div className={styles.subsection}>
-          <h4 className={styles.subsectionTitle}>{t('settings:proactive.heartbeatTitle')}</h4>
-          <p className={styles.subsectionDesc}>
-            {t('settings:proactive.heartbeatDesc')}
-          </p>
-          <div className={styles.scheduleList}>
-            {heartbeatSchedules.map(item => {
-              const schedule = getSchedule(item.id)
-              return (
-                <div key={item.id} className={styles.scheduleCard}>
-                  <div className={styles.scheduleInfo}>
-                    <span className={styles.scheduleName}>{item.label}</span>
-                    <span className={styles.scheduleDesc}>{item.desc}</span>
-                    {schedule && (
-                      <span className={styles.scheduleTime}>{formatCronExpression(schedule.schedule)}</span>
-                    )}
-                  </div>
-                  <input
-                    type="checkbox"
-                    className={styles.toggle}
-                    checked={schedule?.enabled ?? false}
-                    onChange={(e) => handleToggleSchedule(item.id, e.target.checked)}
-                    disabled={isLoadingScheduler || !schedulerEnabled}
-                  />
-                </div>
-              )
-            })}
-          </div>
-        </div>
-
-        {/* Planners */}
-        <div className={styles.subsection}>
-          <h4 className={styles.subsectionTitle}>{t('settings:proactive.plannersTitle')}</h4>
-          <p className={styles.subsectionDesc}>
-            {t('settings:proactive.plannersDesc')}
-          </p>
-          <div className={styles.scheduleList}>
-            {plannerSchedules.map(item => {
-              const schedule = getSchedule(item.id)
-              return (
-                <div key={item.id} className={styles.scheduleCard}>
-                  <div className={styles.scheduleInfo}>
-                    <span className={styles.scheduleName}>{item.label}</span>
-                    <span className={styles.scheduleDesc}>{item.desc}</span>
-                    {schedule && (
-                      <span className={styles.scheduleTime}>{formatCronExpression(schedule.schedule)}</span>
-                    )}
-                  </div>
-                  <input
-                    type="checkbox"
-                    className={styles.toggle}
-                    checked={schedule?.enabled ?? false}
-                    onChange={(e) => handleToggleSchedule(item.id, e.target.checked)}
-                    disabled={isLoadingScheduler || !schedulerEnabled}
-                  />
-                </div>
-              )
-            })}
-          </div>
-        </div>
-
         {/* Proactive Tasks */}
         <div className={styles.subsection}>
           <div className={styles.subsectionHeader}>
@@ -625,6 +673,70 @@ export function ProactiveSettings() {
                         </div>
                       ))}
                     </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          {/* How often missed tasks are picked up (the heartbeat interval) */}
+          {hasLoadedTiming && (
+            <div className={styles.catchUpRow}>
+              <div className={styles.plannerText}>
+                <label htmlFor="proactive-catch-up" className={styles.plannerName}>{t('settings:proactive.catchUp.label')}</label>
+                <span className={styles.plannerDesc}>{t('settings:proactive.catchUp.desc')}</span>
+                {heartbeatDraft.remoteChanged && <RemoteChangeHint onLoadLatest={heartbeatDraft.acceptRemote} />}
+              </div>
+              <select
+                id="proactive-catch-up"
+                className={styles.plannerInput}
+                value={heartbeatDraft.value}
+                onChange={e => heartbeatDraft.set(Number(e.target.value))}
+                disabled={!schedulerEnabled}
+              >
+                {heartbeatOptions.map(minutes => (
+                  <option key={minutes} value={minutes}>{formatInterval(minutes)}</option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
+
+        {/* Planners: one aligned row each (name, runs on, time, on/off) */}
+        <div className={styles.subsection}>
+          <h4 className={styles.subsectionTitle}>{t('settings:proactive.plannersTitle')}</h4>
+          <p className={styles.subsectionDesc}>
+            {t('settings:proactive.plannersDesc')}
+          </p>
+          {hasLoadedTiming && (
+            <div className={styles.plannerTable}>
+              <div className={styles.plannerHead} aria-hidden="true">
+                <span />
+                <span>{t('settings:proactive.planners.runsOn')}</span>
+                <span>{t('settings:proactive.planners.time')}</span>
+                <span />
+              </div>
+              {plannerRows.map(item => {
+                const schedule = getSchedule(item.id)
+                const enabled = schedule?.enabled ?? false
+                const cells = plannerCells(item.id, item.label, !schedulerEnabled || !enabled)
+                return (
+                  <div key={item.id} className={`${styles.plannerRow} ${!enabled ? styles.plannerOff : ''}`}>
+                    <div className={styles.plannerText}>
+                      <span className={styles.plannerName}>{item.label}</span>
+                      <span className={styles.plannerDesc}>{item.desc}</span>
+                      {cells.hint}
+                    </div>
+                    {cells.runsOn}
+                    {cells.time}
+                    <input
+                      type="checkbox"
+                      className={styles.toggle}
+                      aria-label={item.label}
+                      checked={enabled}
+                      onChange={(e) => handleToggleSchedule(item.id, e.target.checked)}
+                      disabled={isLoadingScheduler || !schedulerEnabled}
+                    />
                   </div>
                 )
               })}

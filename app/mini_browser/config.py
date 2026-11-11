@@ -402,7 +402,7 @@ def persisted_session_ids() -> Optional[FrozenSet[str]]:
 # Sub-agent ids (app/subagent/manager.py) start with this; a sub-agent drives
 # its parent session's browser.
 SUBAGENT_ID_PREFIX = "sub_"
-MAIN_SESSION_KEY = DEFAULT_OWNER  # the main session: scheduled runs browse there
+MAIN_SESSION_KEY = DEFAULT_OWNER  # the main session's browser
 _MAX_SUBAGENT_DEPTH = 3
 
 

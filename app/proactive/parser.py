@@ -268,7 +268,7 @@ last_updated: {data.last_updated.isoformat() if data.last_updated else datetime.
         """Get the standard overview text for PROACTIVE.md."""
         return """You can operate proactively based on scheduled activations. Schedules can be hourly (every X hours), daily (at a specific time), weekly (on a specific day), or monthly (on a specific date).
 
-When a schedule fires, you execute a proactive check workflow. First, read PROACTIVE.md to understand configured proactive tasks and their conditions. Then research the agent file system for relevant context - user preferences, project status, organizational priorities.
+Each task runs at its own slot. When one or more tasks are due, CraftBot starts a background run whose instruction lists exactly those tasks, and posts that run's final message to the user's main chat. A slot missed while CraftBot was off runs once, late, when it is back.
 
 Evaluate each potential proactive task using a five-dimension rubric. Score each dimension from 1 to 5:
 - Impact: How significant is the outcome? (1=negligible, 5=critical)
@@ -287,7 +287,7 @@ Before acting on any proactive task, follow the tiered permission model:
 
 When requesting permission for proactive tasks, prefix your message with the star emoji to indicate it is a proactive request.
 
-After executing proactive tasks, update PROACTIVE.md with what was done, when, and the outcome."""
+CraftBot records each run and its outcome on the task entry."""
 
 
 def validate_yaml_block(yaml_str: str) -> Tuple[bool, Optional[str]]:

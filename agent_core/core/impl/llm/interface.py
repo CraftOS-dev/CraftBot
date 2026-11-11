@@ -87,6 +87,13 @@ _active_session_key: contextvars.ContextVar[Optional[str]] = contextvars.Context
     "_active_session_key", default=None
 )
 
+# How long the consecutive-failure latch blocks calls once it trips. After
+# this, one call is let through to probe the provider: success clears the
+# latch, failure re-arms it. Without the expiry only a user chat message or a
+# reinitialize cleared it, so unattended scheduled runs stayed dead for days
+# after a single outage.
+FAILURE_LATCH_COOLDOWN_S = 300
+
 
 def _call_type_name(task_id: str, key: str) -> str:
     """The call type a session key ("<task_id>:<call_type>") was built from,
@@ -290,6 +297,9 @@ class LLMInterface:
         # Consecutive failure tracking to prevent infinite retry loops
         self._consecutive_failures = 0
         self._max_consecutive_failures = 5
+        # monotonic() when the counter last reached the threshold (None while
+        # the latch is open). See _check_failure_latch.
+        self._latched_at: Optional[float] = None
 
         # Cross-provider fallback (Phase 5, FR-9). Turn-scoped: a fallback
         # serves the current turn only; the next turn retries the primary.
@@ -773,11 +783,41 @@ class LLMInterface:
             f"(category={category.value})"
         )
         if self._consecutive_failures >= self._max_consecutive_failures:
+            self._latched_at = time.monotonic()
             raise LLMConsecutiveFailureError(
                 self._consecutive_failures,
                 last_error=raw_error,
                 last_error_info=error_info,
             )
+
+    def _check_failure_latch(self) -> None:
+        """Pre-flight backstop: refuse calls while the failure latch is set.
+
+        The latch expires FAILURE_LATCH_COOLDOWN_S after it tripped: the next
+        call is let through as a probe with the counter one below the
+        threshold, so a single further failure re-arms the latch and a
+        success resets the counter to zero.
+        """
+        if self._consecutive_failures < self._max_consecutive_failures:
+            return
+        latched_at = getattr(self, "_latched_at", None)
+        if (
+            latched_at is not None
+            and time.monotonic() - latched_at >= FAILURE_LATCH_COOLDOWN_S
+        ):
+            logger.info(
+                f"[LLM] Failure latch expired after "
+                f"{FAILURE_LATCH_COOLDOWN_S}s; probing the provider again"
+            )
+            self._consecutive_failures = self._max_consecutive_failures - 1
+            self._latched_at = None
+            return
+        logger.critical(
+            f"[LLM ABORT] Consecutive failure threshold reached "
+            f"({self._consecutive_failures}/{self._max_consecutive_failures}). "
+            f"Aborting to prevent infinite retries."
+        )
+        raise LLMConsecutiveFailureError(self._consecutive_failures)
 
     # ─────────────── Cross-provider fallback (Phase 5, FR-9) ───────────────
 
@@ -1087,13 +1127,7 @@ class LLMInterface:
             raise ValueError("`user_prompt` cannot be None.")
 
         # Check if we've hit the consecutive failure threshold
-        if self._consecutive_failures >= self._max_consecutive_failures:
-            logger.critical(
-                f"[LLM ABORT] Consecutive failure threshold reached "
-                f"({self._consecutive_failures}/{self._max_consecutive_failures}). "
-                f"Aborting to prevent infinite retries."
-            )
-            raise LLMConsecutiveFailureError(self._consecutive_failures)
+        self._check_failure_latch()
 
         if log_response:
             logger.info(f"[LLM SEND] system={system_prompt} | user={user_prompt}")
@@ -1786,13 +1820,7 @@ class LLMInterface:
         # Same consecutive-failure backstop as `_generate_response_sync`. The
         # session path previously had none, so a persistent provider error
         # (e.g. out-of-credits) retried forever instead of aborting.
-        if self._consecutive_failures >= self._max_consecutive_failures:
-            logger.critical(
-                f"[LLM ABORT] Consecutive failure threshold reached "
-                f"({self._consecutive_failures}/{self._max_consecutive_failures}). "
-                f"Aborting to prevent infinite retries."
-            )
-            raise LLMConsecutiveFailureError(self._consecutive_failures)
+        self._check_failure_latch()
 
         if log_response:
             logger.info(

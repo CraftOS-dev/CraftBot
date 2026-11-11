@@ -248,25 +248,24 @@
     "title": "Comportamiento proactivo",
     "subtitle": "Configura cuándo el agente actúa de forma autónoma y gestiona las tareas programadas",
     "enableLabel": "Activar el modo proactivo",
-    "enableDesc": "Permite que el agente ejecute tareas programadas y comportamientos proactivos automáticamente",
-    "heartbeatTitle": "Programación de latidos",
-    "heartbeatDesc": "Los latidos comprueban y ejecutan periódicamente las tareas proactivas según su frecuencia",
-    "heartbeat": {
-      "label": "Latido",
-      "desc": "Se ejecuta cada 30 minutos para comprobar y ejecutar todas las tareas proactivas pendientes"
-    },
+    "enableDesc": "Ejecuta tus tareas proactivas y planificadores en segundo plano. Los resultados se publican en tu chat principal.",
     "plannersTitle": "Planificadores",
-    "plannersDesc": "Los planificadores revisan las interacciones recientes y planifican actividades proactivas",
+    "plannersDesc": "Cada planificador publica un breve resumen en tu chat principal",
     "planners": {
       "dayLabel": "Planificador diario",
-      "dayDesc": "Planifica las actividades y prioridades diarias",
+      "dayDesc": "Planifica tu día y envía un resumen matutino",
       "weekLabel": "Planificador semanal",
-      "weekDesc": "Planifica los objetivos y tareas semanales",
+      "weekDesc": "Repasa tu semana y planifica la siguiente",
       "monthLabel": "Planificador mensual",
-      "monthDesc": "Planifica los objetivos mensuales y las revisiones"
+      "monthDesc": "Repasa tu mes y tus objetivos a largo plazo",
+      "runsOn": "Día",
+      "time": "Hora",
+      "everyDay": "Todos los días",
+      "monthDay": "Día {{day}}",
+      "monthDayHint": "Los días 29 a 31 se ejecutan el último día de los meses más cortos"
     },
     "tasksTitle": "Tareas proactivas",
-    "tasksDesc": "Tareas definidas en PROACTIVE.md que el agente ejecuta durante los latidos",
+    "tasksDesc": "Tareas definidas en PROACTIVE.md. Cada una se ejecuta a su hora y publica su resultado en tu chat principal",
     "addTask": "Añadir tarea",
     "searchTasks": "Buscar tareas...",
     "searchCount": "{{shown}} de {{total}}",
@@ -334,22 +333,16 @@
       "saturday": "Sábado",
       "sunday": "Domingo"
     },
-    "cron": {
-      "twiceHourly": "Dos veces cada hora",
-      "hourly": "Cada hora en el minuto :{{minute}}",
-      "daily": "Cada día a las {{time}}",
-      "weekly": "Cada semana el {{day}} a las {{time}}",
-      "monthly": "Cada mes el día {{day}} a las {{time}}",
-      "raw": "Cron: {{cron}}",
-      "days": {
-        "sun": "Domingo",
-        "mon": "Lunes",
-        "tue": "Martes",
-        "wed": "Miércoles",
-        "thu": "Jueves",
-        "fri": "Viernes",
-        "sat": "Sábado"
-      }
+    "toast": {
+      "scheduleFailed": "Error al actualizar la programación"
+    },
+    "catchUp": {
+      "label": "Recuperar tareas perdidas",
+      "desc": "Con qué frecuencia CraftBot busca tareas que se perdió mientras estaba cerrado o en reposo",
+      "everyMinutes_one": "Cada {{count}} minuto",
+      "everyMinutes_other": "Cada {{count}} minutos",
+      "everyHours_one": "Cada hora",
+      "everyHours_other": "Cada {{count}} horas"
     }
   },
   "memory": {

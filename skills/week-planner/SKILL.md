@@ -23,22 +23,22 @@ You receive a planner trigger with:
 
 ---
 
-## CRITICAL: Silent Execution (Override Standard Task Rules)
+## CRITICAL: Background Execution (Override Standard Task Rules)
 
-**This skill overrides standard task completion rules.** Unlike regular tasks:
+This skill runs in the background session, not in the user's chat. **This skill overrides standard task completion rules:**
 
 - **NO acknowledgement**: Do NOT acknowledge task receipt to user
-- **NO confirmation**: Do NOT wait for user confirmation before ending
-- **MUST end silently**: Use `end_turn` immediately after completing planning work
+- **ONE result message**: End the run with ONE `send_message` (no `continue_work`): the weekly review. CraftBot posts it to the user's main chat, headed with this planner's name. Messages sent with `continue_work=true` are never shown to the user.
+- **Message last**: That message ends the run, so finish every file update (PROACTIVE.md, MEMORY.md) before sending it.
+- **NEVER wait for the user**: The run ends on that message.
 
-**EXCEPTION - Suggesting New Tasks:**
+**Suggesting New Tasks:**
 When you want to suggest a new recurring or scheduled task:
-1. Send the suggestion as your FINAL `send_message` (no `continue_work`) — the run ends on that question
-2. The user's reply arrives as a new run: if they approve → add the task, then end silently
-3. If they reject → end silently without adding
-4. If no reply ever comes, nothing is added — the suggestion simply lapses
+1. Put the suggestion at the end of the weekly review as ONE question, with `suggested_responses`
+2. The user answers in their main chat, where the main agent adds the task if they approve
+3. Do not add the task yourself in this run; if no answer ever comes, nothing is added
 
-**Why?** Planner runs happen automatically. Waiting for confirmation would cause work to pile up.
+**Why?** Planner runs happen automatically while the user may be away. One short message they can read later beats a stream of notifications.
 
 ---
 
@@ -56,12 +56,12 @@ Focus only on what can realistically be accomplished in a single week. Leave lon
 
 1. **Check existing scheduled tasks**: Use `scheduled_task_list` to see what's already scheduled
 2. **Read PROACTIVE.md**: Check existing recurring tasks and the Goals, Plan, and Status section
-3. **Check past work**: `memory_search` and grep `agent_file_system/EVENT.md` for what has already been done this week
+3. **Check past work**: `memory_search` and grep `agent_file_system/workspace/sessions/main/EVENT.md` (large: grep it, never read it whole) for what has already been done this week
 4. **Read MEMORY.md**: Understand user context, preferences, and patterns
 
 ### Duplicate Prevention (EXTREMELY IMPORTANT)
 
-- **NEVER suggest a task the user has already performed** (check EVENT.md / memory_search)
+- **NEVER suggest a task the user has already performed** (check the event log / memory_search)
 - **NEVER suggest a task that already exists** as a recurring or scheduled task
 - **NEVER add a recurring task that duplicates an existing one**
 - If user performed a one-time task before and you suggest it again = **VERY BAD**
@@ -147,12 +147,12 @@ Before suggesting ANY proactive task, you must have OVERWHELMING evidence. Most 
 - No clear evidence user wants this help
 - You're assuming user needs something they never mentioned
 - **User only did this task 1-2 times** (NOT ENOUGH)
-- **You cannot cite 3+ specific instances from past work (EVENT.md / memory)**
+- **You cannot cite 3+ specific instances from past work (the event log / memory)**
 
 ### Green Flags - May Consider If:
 
 - User explicitly asked for proactive help with this area and it is not processed yet
-- User has done this exact task **3+ times** manually (with evidence in EVENT.md / memory)
+- User has done this exact task **3+ times** manually (with evidence in the event log / memory)
 - User **explicitly said** "I want this automated" or "Can you do this regularly"
 - Task is tier 0 (silent, no interruption)
 
@@ -247,7 +247,7 @@ Use Layer 1 + Layer 2 to determine which external sources to check in Layer 3.
 
 Gather and analyze the week's data:
 
-1. **EVENT.md** (grep this week's entries) - Work completed this week
+1. **Event log** (`agent_file_system/workspace/sessions/main/EVENT.md`, grep this week's entries) - Work completed this week
 2. **MEMORY.md** - Learnings and facts recorded this week
 3. **PROACTIVE.md** - Recurring task execution history and Goals/Plan/Status
 4. **USER.md** - User preferences and context
@@ -329,7 +329,7 @@ If a task is consistently ignored or disabled, consider suggesting to disable it
 ### Step 5: Prepare Weekly Summary
 
 Create summary including:
-- Work completed this week (from EVENT.md)
+- Work completed this week (from the event log)
 - Progress toward goals (from Goals section)
 - Recurring task performance (if any)
 - External context (calendar load, task backlog, relevant events)
@@ -412,7 +412,7 @@ Update MEMORY.md with:
 | User's stated preferences | Your assumptions |
 | Facts user shared | Daily minutiae |
 | Patterns you observed | Temporary states |
-| Important deadlines | Already in EVENT.md |
+| Important deadlines | Already in the event log |
 | Context for future help | Duplicate information |
 
 ### Format
@@ -428,9 +428,9 @@ Update MEMORY.md with:
 
 ## Outputs
 
-### Output 1: Weekly Summary Message (REQUIRED)
+### Output 1: Weekly Review Message (REQUIRED, LAST)
 
-Send weekly summary to user via `send_message` with star prefix.
+End the run with the weekly review as your ONE `send_message` (see Background Execution). Do it last: it ends the run.
 
 ### Output 2: Update PROACTIVE.md
 
@@ -488,8 +488,8 @@ recurring_update_task(
 
 ## Output Format
 
-1. Weekly summary message to user (required)
-2. Update "Goals, Plan, and Status" section in PROACTIVE.md
-3. Update MEMORY.md with weekly observations
-4. (Rarely, with permission) Add or update recurring tasks
-5. (Rarely) Disable ineffective tasks with notification
+1. Update "Goals, Plan, and Status" section in PROACTIVE.md
+2. Update MEMORY.md with weekly observations
+3. (Rarely, as a question in the review) Suggest adding or updating recurring tasks
+4. (Rarely) Disable ineffective tasks, and say so in the review
+5. Weekly review message to the user: the run-ending `send_message` (required, last)

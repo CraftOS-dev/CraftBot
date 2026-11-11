@@ -248,25 +248,24 @@
     "title": "主動行為",
     "subtitle": "設定代理何時自主行動並管理排程任務",
     "enableLabel": "啟用主動模式",
-    "enableDesc": "允許代理自動執行排程任務與主動行為",
-    "heartbeatTitle": "心跳排程",
-    "heartbeatDesc": "心跳會依頻率定期檢查並執行主動任務",
-    "heartbeat": {
-      "label": "心跳",
-      "desc": "每 30 分鐘執行一次，檢查並執行所有到期的主動任務"
-    },
+    "enableDesc": "在背景執行你的主動任務與規劃器，結果發布到主聊天。",
     "plannersTitle": "規劃器",
-    "plannersDesc": "規劃器會檢視近期互動並規劃主動活動",
+    "plannersDesc": "每個規劃器都會在主聊天中發布一份簡短摘要",
     "planners": {
       "dayLabel": "每日規劃器",
-      "dayDesc": "規劃每日的活動與優先事項",
+      "dayDesc": "規劃你的一天並傳送晨間簡報",
       "weekLabel": "每週規劃器",
-      "weekDesc": "規劃每週的目標與任務",
+      "weekDesc": "回顧本週並規劃下週",
       "monthLabel": "每月規劃器",
-      "monthDesc": "規劃每月的目標與檢討"
+      "monthDesc": "回顧本月與長期目標",
+      "runsOn": "執行日",
+      "time": "時間",
+      "everyDay": "每天",
+      "monthDay": "{{day}} 日",
+      "monthDayHint": "在較短的月份中，29 至 31 日會在當月最後一天執行"
     },
     "tasksTitle": "主動任務",
-    "tasksDesc": "在 PROACTIVE.md 中定義、代理會於心跳期間執行的任務",
+    "tasksDesc": "在 PROACTIVE.md 中定義的任務。每個任務會在設定時間執行，並將結果發布到主聊天",
     "addTask": "新增任務",
     "searchTasks": "搜尋任務…",
     "searchCount": "{{shown}} / {{total}}",
@@ -334,22 +333,16 @@
       "saturday": "星期六",
       "sunday": "星期日"
     },
-    "cron": {
-      "twiceHourly": "每小時兩次",
-      "hourly": "每小時的 :{{minute}} 分",
-      "daily": "每天 {{time}}",
-      "weekly": "每週{{day}} {{time}}",
-      "monthly": "每月 {{day}} 日 {{time}}",
-      "raw": "Cron：{{cron}}",
-      "days": {
-        "sun": "星期日",
-        "mon": "星期一",
-        "tue": "星期二",
-        "wed": "星期三",
-        "thu": "星期四",
-        "fri": "星期五",
-        "sat": "星期六"
-      }
+    "toast": {
+      "scheduleFailed": "更新排程失敗"
+    },
+    "catchUp": {
+      "label": "補跑遺漏的任務",
+      "desc": "CraftBot 檢查關閉或休眠期間遺漏任務的頻率",
+      "everyMinutes_one": "每 {{count}} 分鐘",
+      "everyMinutes_other": "每 {{count}} 分鐘",
+      "everyHours_one": "每小時",
+      "everyHours_other": "每 {{count}} 小時"
     }
   },
   "memory": {

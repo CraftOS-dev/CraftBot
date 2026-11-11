@@ -1354,6 +1354,155 @@
   margin-top: var(--space-1);
 }
 
+/* Planners (Settings > Proactive): one row per planner on a shared grid, so
+   every "Runs on" and "Time" control lines up in a column across rows. */
+.plannerTable {
+  --planner-columns: minmax(0, 1fr) 132px 132px 40px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.plannerHead,
+.plannerRow {
+  display: grid;
+  grid-template-columns: var(--planner-columns);
+  align-items: center;
+  column-gap: var(--space-3);
+}
+
+.plannerHead {
+  padding: 0 var(--space-3);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+
+.plannerRow {
+  padding: var(--space-3);
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-md);
+}
+
+.plannerText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.plannerName {
+  font-size: var(--text-base);
+  font-weight: var(--font-medium);
+  color: var(--text-primary);
+}
+
+.plannerDesc {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+
+.plannerStatic {
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  padding: 0 var(--space-3);
+}
+
+.plannerInput {
+  width: 100%;
+  min-width: 0;
+  padding: var(--space-1) var(--space-3);
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: border-color var(--transition-fast);
+}
+
+.plannerInput:hover:not(:disabled) {
+  border-color: var(--border-hover);
+}
+
+.plannerInput:focus {
+  outline: none;
+  border-color: var(--border-hover);
+}
+
+.plannerInput:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+select.plannerInput {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23a0a0a0' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right var(--space-2) center;
+  background-size: 14px;
+  padding-right: var(--space-6);
+}
+
+[data-theme="light"] select.plannerInput {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23666666' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+}
+
+select.plannerInput option {
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+}
+
+input[type="time"].plannerInput {
+  color-scheme: dark;
+}
+
+[data-theme="light"] input[type="time"].plannerInput {
+  color-scheme: light;
+}
+
+/* A planner switched off: its schedule stays visible but recedes. */
+.plannerOff .plannerText {
+  opacity: 0.6;
+}
+
+/* The missed-task check, under the task list: text left, picker right. */
+.catchUpRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 176px;
+  align-items: center;
+  column-gap: var(--space-3);
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-md);
+}
+
+/* Descriptions on this page sit on the card colour: keep them readable. */
+.readableDesc {
+  color: var(--text-secondary);
+}
+
+/* Narrow panels: the schedule controls drop under the planner's name. */
+@media (max-width: 640px) {
+  .plannerHead {
+    display: none;
+  }
+
+  .plannerRow {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 40px;
+    row-gap: var(--space-2);
+  }
+
+  .plannerText {
+    grid-column: 1 / -1;
+  }
+
+  .catchUpRow {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: var(--space-2);
+  }
+}
+
 /* Task Groups */
 .taskGroups {
   display: flex;
@@ -1435,9 +1584,14 @@
 
 .taskMeta {
   display: flex;
-  gap: var(--space-3);
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
   font-size: var(--text-xs);
-  color: var(--text-muted);
+  color: var(--text-secondary);
+}
+
+.taskMeta > span {
+  white-space: nowrap;
 }
 
 .taskActions {

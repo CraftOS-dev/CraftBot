@@ -3,7 +3,7 @@ from agent_core import action
 
 @action(
     name="recurring_add",
-    description="Add a new recurring task to PROACTIVE.md. The task will be executed by the heartbeat processor at the specified frequency. IMPORTANT: Only add recurring tasks with user consent - ask the user first before adding recurring tasks.",
+    description="Add a new recurring task to PROACTIVE.md. It runs at its own slot (hourly at :MM, daily at HH:MM, weekly on a day at HH:MM, monthly on a date at HH:MM) in the background, and its result is posted to the user's main chat. A slot missed while CraftBot was off runs once, late, when it is back. IMPORTANT: Only add recurring tasks with user consent - ask the user first before adding recurring tasks.",
     action_sets=["proactive"],
     input_schema={
         "name": {
@@ -27,13 +27,13 @@ from agent_core import action
         "time": {
             "type": "string",
             "required": False,
-            "description": "Time of day for daily/weekly/monthly tasks in HH:MM format (24-hour). Optional for hourly.",
+            "description": "Slot time in HH:MM format (24-hour); defaults to 00:00. Hourly tasks use only the minute (e.g. '00:15' runs at :15 every hour).",
             "example": "07:00",
         },
         "day": {
             "type": "string",
             "required": False,
-            "description": "Day of week for weekly tasks (e.g., 'sunday', 'monday'). Optional for other frequencies.",
+            "description": "Weekday for weekly tasks (e.g., 'sunday'; default monday), or day of month 1-31 for monthly tasks (default 1; clamped to the month's last day).",
             "example": "sunday",
         },
         "priority": {
@@ -45,7 +45,7 @@ from agent_core import action
         "permission_tier": {
             "type": "integer",
             "required": False,
-            "description": "Permission level 0-4. 0=silent, 1=suggest, 2=low-risk, 3=high-risk, 4=prohibited. Default is 1.",
+            "description": "Permission level: 0 = silent (report only when something needs attention), 1 = notify (report the result). Default is 1.",
             "example": 1,
         },
         "enabled": {

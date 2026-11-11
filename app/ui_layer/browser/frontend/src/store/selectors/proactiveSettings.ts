@@ -6,3 +6,5 @@ export const selectProactiveTasks = (state: RootState) => state.proactiveSetting
 export const selectProactiveHasLoadedMode = (state: RootState) => state.proactiveSettings.hasLoadedMode
 export const selectProactiveHasLoadedConfig = (state: RootState) => state.proactiveSettings.hasLoadedConfig
 export const selectProactiveHasLoadedTasks = (state: RootState) => state.proactiveSettings.hasLoadedTasks
+export const selectProactiveSchedule = (state: RootState) => state.proactiveSettings.schedule
+export const selectHeartbeatOptions = (state: RootState) => state.proactiveSettings.heartbeatOptions
