@@ -9,7 +9,7 @@ import React from 'react'
  * tokens.css) that carries light AND dark palettes and follows the host's
  * mode. 'custom' pins the four core colors via the bridge's customColors.
  * Applied over postMessage: { type: 'livingui-theme', themeId, mode,
- * customColors? } (see agent-app/kit/src/theme/bridge.ts). The wire type stays
+ * customColors? }. The wire type stays
  * 'livingui-theme' — a frozen contract with already-built apps.
  */
 

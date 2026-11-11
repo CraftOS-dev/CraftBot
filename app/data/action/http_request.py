@@ -266,7 +266,7 @@ def send_http_requests(input_data: dict) -> dict:
                         "body": "",
                         "final_url": "",
                         "elapsed_ms": 0,
-                        "message": f"Blocked: requests to loopback addresses ({_hostname}) must use agent_app_framework_command with the a2app surface to talk to your Agent App.",
+                        "message": f"Blocked: requests to loopback addresses ({_hostname}) must use a2app_command to talk to your Agent App.",
                     }
                 if _ip.is_private or _ip.is_link_local:
                     return {

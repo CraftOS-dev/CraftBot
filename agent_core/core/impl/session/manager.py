@@ -486,7 +486,7 @@ class SessionManager:
         )
         if session.isolated_app_task:
             session.compiled_actions = [
-                "agent_app_framework_command",
+                "a2app_command",
                 "send_message",
                 "end_turn",
             ]

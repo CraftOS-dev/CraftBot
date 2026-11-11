@@ -23,7 +23,7 @@ class TaskAuthority:
     check: object = field(default=None, repr=False)
     allowed_actions: frozenset[str] = field(
         default_factory=lambda: frozenset(
-            {"agent_app_framework_command", "send_message", "end_turn"}
+            {"a2app_command", "send_message", "end_turn"}
         )
     )
 
@@ -218,8 +218,8 @@ def context_note(path: str, app_id: str) -> str:
         "selected records through A2App before describing or acting on them. "
         "Never infer the selected project from modification timestamps or a list "
         "of saved projects. If no current selection is published, say so specifically. "
-        "Use agent_app_framework_command with surface='agent-app' for lifecycle "
-        "and builds, surface='a2app' for operations; args is a literal argv array "
+        "Use a2app_command from the a2app action set for operations. For lifecycle "
+        "and builds, load agent_app and use agent_app_command; args is a literal argv array "
         "starting with the app directory. No global executable is required. "
         "CraftBot already presents the app in its embedded Agent App workspace. "
         "After data operations, use that existing view; do not open another browser "

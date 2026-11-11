@@ -7,6 +7,7 @@ development. Framework state uses the shared A2APP_HOME (or ~/.a2app).
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 from itertools import count
 from pathlib import Path
@@ -65,6 +66,7 @@ async def _list_apps(cli: AgentAppCLI) -> dict:
     ):
         message = "Agent-App returned an invalid registry response."
     else:
+        await asyncio.to_thread(_add_marketplace_sources, data["apps"])
         return {"status": "success", "data": data, **response}
     return {
         "status": "error",
@@ -72,6 +74,25 @@ async def _list_apps(cli: AgentAppCLI) -> dict:
         "stdout": result.stdout,
         **response,
     }
+
+
+def _add_marketplace_sources(apps: list[dict]) -> None:
+    """Present upstream provenance; names alone never identify an install."""
+    for app in apps:
+        if app.get("status") == "missing":
+            continue
+        try:
+            manifest = json.loads((Path(app["path"]) / "manifest.json").read_text(encoding="utf-8"))
+            source = manifest.get("source")
+            if manifest.get("id") != app.get("id") or not isinstance(source, dict) or source.get("kind") != "marketplace":
+                continue
+            if not all(isinstance(source.get(key), str) and source[key] for key in ("catalogueId", "location")):
+                continue
+            app["marketplace"] = {"id": source["catalogueId"], "location": source["location"]}
+            if isinstance(source.get("ref"), str):
+                app["marketplace"]["ref"] = source["ref"]
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
+            continue  # A missing/unreadable manifest must not hide the registry row.
 
 
 async def open_app_view(path: str, app_id: str) -> dict:

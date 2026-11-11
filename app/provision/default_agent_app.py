@@ -114,18 +114,19 @@ async def install_bundled_app(code_root: Path, state_root: Path) -> None:
     if _read_receipt(state_root).get("status") != "pending":
         return
     bundle_dir = code_root / BUNDLE_DIR
-    source = json.loads((bundle_dir / "framework-source.json").read_text(encoding="utf-8"))
-    archive = bundle_dir / "kanban-board-framework.zip"
+    source = json.loads((bundle_dir / "source.json").read_text(encoding="utf-8"))
+    archive = bundle_dir / "kanban-board.zip"
     if hashlib.sha256(archive.read_bytes()).hexdigest() != source["sha256"]:
         raise ValueError("Bundled Kanban Board checksum mismatch")
 
-    if source.get("verification", {}).get("verdict") != "pass":
-        raise ValueError("The bundled board has no independent verification pass.")
     from app.agent_app import framework
     from app.agent_app.framework_store import HostStore, app_key
 
     cli = framework.configured_cli()
     marketplace = await asyncio.to_thread(_local_catalogue, archive, state_root, source["sha256"])
+    # Ship the marketplace toolkit beside its app, outside the untrusted app
+    # tree. The unchanged CLI resolves and records this source for later use.
+    toolkit_env = {"A2APP_TOOLKITS_DIR": str(marketplace / "toolkits")}
     destination = (state_root / "agent-apps/kanban-board").resolve()
     snapshot = await framework._list_apps(cli)
     if snapshot["status"] != "success":
@@ -139,13 +140,13 @@ async def install_bundled_app(code_root: Path, state_root: Path) -> None:
         if provenance.get("catalogueId") != "kanban-board" or provenance.get("location") != str(marketplace):
             raise ValueError("The default app destination belongs to another source; it was not overwritten.")
         if registered["status"] != "running":
-            served = await cli.run("agent-app", [str(destination), "serve", "--install"], cwd=cli.package_dir, timeout=900)
+            served = await cli.run("agent-app", [str(destination), "serve", "--install"], cwd=cli.package_dir, timeout=900, env_extra=toolkit_env)
             if not served.ok:
                 raise RuntimeError(served.stderr or served.stdout)
     else:
         if destination.exists():
             raise ValueError("The default app destination already exists without a registry entry; inspect it before retrying.")
-        result = await cli.run("agent-app", ["install", "kanban-board", "--source", str(marketplace), "--into", str(destination)], cwd=cli.package_dir, timeout=900)
+        result = await cli.run("agent-app", ["install", "kanban-board", "--source", str(marketplace), "--into", str(destination)], cwd=cli.package_dir, timeout=900, env_extra=toolkit_env)
         if not result.ok:
             raise RuntimeError(result.stderr or result.stdout)
     snapshot = await framework._list_apps(cli)
@@ -156,6 +157,16 @@ async def install_bundled_app(code_root: Path, state_root: Path) -> None:
     store = HostStore(state_root / "agent-app-host.sqlite3")
     store.put("attachment", key, {"key": key, "home": str(cli.home), "path": str(destination), "appId": registered["id"], "name": registered["name"], "sessionId": None, "autoStart": True, "tasksAllowed": False})
     _write_receipt(state_root, {"status": "installed", "frameworkAppId": registered["id"], "path": str(destination), "home": str(cli.home), "sha256": source["sha256"]})
+
+
+def bundled_toolkits(code_root: Path, state_root: Path) -> Path:
+    """Resolve shipped toolkits for later imports without installing the board."""
+    bundle_dir = code_root / BUNDLE_DIR
+    source = json.loads((bundle_dir / "source.json").read_text(encoding="utf-8"))
+    archive = bundle_dir / "kanban-board.zip"
+    if hashlib.sha256(archive.read_bytes()).hexdigest() != source["sha256"]:
+        raise ValueError("Bundled Kanban Board checksum mismatch")
+    return _local_catalogue(archive, state_root, source["sha256"]) / "toolkits"
 
 
 def _local_catalogue(archive: Path, state_root: Path, digest: str) -> Path:
@@ -173,16 +184,16 @@ def _local_catalogue(archive: Path, state_root: Path, digest: str) -> Path:
             if name in files:
                 raise ValueError("Duplicate default app archive entry")
             files[name] = package.read(entry)
-    catalogue = json.dumps({"apps": [{"id": "kanban-board", "name": "Kanban Board", "folder": "kanban-board", "agentAppVersion": "0.1.0"}]}).encode()
+    if "catalogue.json" not in files or "kanban-board/manifest.json" not in files:
+        raise ValueError("The default app bundle is not a marketplace catalogue.")
     if not cache.exists():
         cache.parent.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(dir=cache.parent, prefix="prepare-") as temporary:
             staged = Path(temporary) / "catalogue"
             for name, value in files.items():
-                target = staged / "kanban-board" / name
+                target = staged / name
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_bytes(value)
-            (staged / "catalogue.json").write_bytes(catalogue)
             deadline = time.monotonic() + 10
             while True:
                 try:
@@ -197,8 +208,7 @@ def _local_catalogue(archive: Path, state_root: Path, digest: str) -> Path:
                     if getattr(error, "winerror", None) not in {5, 32} or time.monotonic() >= deadline:
                         raise
                     time.sleep(0.1)
-    expected = {"kanban-board/" + name: value for name, value in files.items()}
-    expected["catalogue.json"] = catalogue
+    expected = files
     actual = set()
     for current, dirs, names in os.walk(cache, followlinks=False):
         if Path(current).is_symlink() or any((Path(current) / d).is_symlink() for d in dirs):

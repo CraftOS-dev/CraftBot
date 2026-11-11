@@ -59,13 +59,7 @@ EXCLUDE_PREFIXES = (
 
 EXCLUDE_SUFFIXES = (".md",)
 
-# These Markdown files are runtime inputs, not just repository documentation:
-# create.ts substitutes the blueprint, and the creator skill reads the guide.
-AGENT_APP_RUNTIME_DOCS = {
-    "agent-app/blueprint/AGENT_APP.md",
-    "agent-app/docs/agent-guide.md",
-}
-KEEP_EXACT = {"README.md", "LICENSE"} | AGENT_APP_RUNTIME_DOCS
+KEEP_EXACT = {"README.md", "LICENSE"}
 
 
 def tracked_files() -> List[str]:
@@ -146,7 +140,6 @@ def build(output: Path) -> int:
     # ways that surface far from the cause. Fail the build instead.
     required = (
         ripgrep_runtime.bundled_files()
-        + sorted(AGENT_APP_RUNTIME_DOCS)
         + agent_app_package.bundled_files()
         + [
             "run.py",
@@ -164,17 +157,9 @@ def build(output: Path) -> int:
             "app/provision/__init__.py",
             "app/runtime-manifest.json",
             "app/runtime_manifest.py",
-            "agent-app/package.json",
-            "agent-app/package-lock.json",
-            "agent-app/tools/package.json",
-            "agent-app/tools/src/cli.ts",
-            "agent-app/spec/pocketbase.version",
-            "agent-app/spec/pocketbase-checksums.json",
             "app/provision/default_agent_app.py",
             "app/data/default_agent_app/kanban-board.zip",
             "app/data/default_agent_app/source.json",
-            "app/data/default_agent_app/kanban-board-framework.zip",
-            "app/data/default_agent_app/framework-source.json",
             "app/ui_layer/browser/frontend/dist/index.html",
             "craftos_integrations/providers/whatsapp_web/bridge.js",
             # craftbot.py imports these at module scope; without them every

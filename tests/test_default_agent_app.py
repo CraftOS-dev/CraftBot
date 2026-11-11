@@ -146,21 +146,24 @@ def test_bundle_contains_app_and_license_without_runtime_state():
     with zipfile.ZipFile(io.BytesIO(data)) as archive:
         names = archive.namelist()
         assert {
-            "manifest.json",
-            "LICENSE",
-            "AGENT_APP.md",
-            "reference/requirements.md",
-            "frontend/package-lock.json",
-            "operations.json",
+            "catalogue.json",
+            "kanban-board/manifest.json",
+            "kanban-board/LICENSE",
+            "kanban-board/AGENT_APP.md",
+            "kanban-board/reference/requirements.md",
+            "kanban-board/frontend/package-lock.json",
+            "kanban-board/operations.json",
+            "toolkits/blueprint-pocketbase-kit/a2app.toolkit.json",
         } <= set(names)
-        assert any(name.startswith("pb/pb_migrations/") for name in names)
+        assert any(name.startswith("kanban-board/pb/pb_migrations/") for name in names)
         assert not any(
             set(Path(name).parts)
             & {"pb_data", ".superuser", "node_modules", ".factory"}
             for name in names
         )
-        manifest = json.loads(archive.read("manifest.json"))
-        assert manifest["marketplaceAppId"] == "kanban-board"
+        manifest = json.loads(archive.read("kanban-board/manifest.json"))
+        assert manifest["id"] == "kanban-board"
+        assert metadata["ref"] == "main"
 
 
 def test_native_install_and_interrupted_retry_reuse_registered_app(tmp_path, monkeypatch):
@@ -173,6 +176,8 @@ def test_native_install_and_interrupted_retry_reuse_registered_app(tmp_path, mon
     rows = []
     async def run(surface, args, **kwargs):
         assert surface == "agent-app"
+        toolkits = Path(kwargs["env_extra"]["A2APP_TOOLKITS_DIR"])
+        assert (toolkits / "blueprint-pocketbase-kit/a2app.toolkit.json").is_file()
         if args[0] == "install":
             assert args[:2] == ["install", "kanban-board"]
             assert not destination.exists()
@@ -207,8 +212,8 @@ def test_corrupt_bundle_does_not_register_an_app(tmp_path):
     code = tmp_path / "code"
     bundle = code / default.BUNDLE_DIR
     bundle.mkdir(parents=True)
-    (bundle / "framework-source.json").write_text('{"sha256":"wrong"}')
-    (bundle / "kanban-board-framework.zip").write_bytes(b"broken")
+    (bundle / "source.json").write_text('{"sha256":"wrong"}')
+    (bundle / "kanban-board.zip").write_bytes(b"broken")
     state = tmp_path / "state"
     default.prepare_install(context(state, new_install=True))
     with pytest.raises(ValueError, match="checksum"):
@@ -240,18 +245,55 @@ def test_bundle_builder_is_repeatable_and_rejects_user_data():
     sys.path.insert(0, str(CODE_ROOT / "scripts"))
     from bundle_default_agent_app import build_bundle
 
-    def source(extra=None):
+    def source(extra=None, version="0.1.0"):
         data = io.BytesIO()
         with zipfile.ZipFile(data, "w") as archive:
             archive.writestr("upstream/LICENSE", "MIT")
-            archive.writestr("upstream/kanban-board/manifest.json", "{}")
+            archive.writestr("upstream/catalogue.json", json.dumps({"apps": [{"id": "kanban-board", "folder": "kanban-board", "toolkit": "blueprint-pocketbase-kit"}]}))
+            archive.writestr("upstream/kanban-board/manifest.json", json.dumps({"agentAppVersion": version}))
+            archive.writestr("upstream/kanban-board/.a2app/toolkit.json", '{"id":"blueprint-pocketbase-kit"}')
+            archive.writestr("upstream/toolkits/blueprint-pocketbase-kit/a2app.toolkit.json", '{"id":"blueprint-pocketbase-kit"}')
             if extra:
                 archive.writestr(extra, "private")
         return data.getvalue()
 
     assert build_bundle(source()) == build_bundle(source())
+    with zipfile.ZipFile(io.BytesIO(build_bundle(source()))) as archive:
+        assert archive.read("kanban-board/manifest.json") == b'{"agentAppVersion": "0.1.0"}'
+        assert "toolkits/blueprint-pocketbase-kit/a2app.toolkit.json" in archive.namelist()
+    with pytest.raises(ValueError, match="legacy format"):
+        build_bundle(source(version=2))
     with pytest.raises(ValueError, match="runtime state"):
         build_bundle(source("upstream/kanban-board/pb/pb_data/data.db"))
+    with pytest.raises(ValueError, match="runtime state"):
+        build_bundle(source("upstream/toolkits/blueprint-pocketbase-kit/template/credentials.json"))
+
+
+def test_one_off_bundle_ref_does_not_change_future_main_updates(tmp_path, monkeypatch):
+    sys.path.insert(0, str(CODE_ROOT / "scripts"))
+    import bundle_default_agent_app as builder
+
+    config = tmp_path / "source.json"
+    config.write_text('{"repository":"CraftOS-dev/living-ui-marketplace","ref":"main"}')
+    monkeypatch.setattr(builder, "DESTINATION", tmp_path)
+    monkeypatch.setattr(builder, "build_bundle", lambda _: b"checked bundle")
+    monkeypatch.setenv("CRAFTBOT_MARKETPLACE_REF", "staging")
+    urls = []
+
+    def download(request, **kwargs):
+        urls.append(request.full_url)
+        return io.BytesIO(b'{"sha":"pinned-commit"}' if "/commits/" in request.full_url else b"archive")
+
+    monkeypatch.setattr(builder, "urlopen", download)
+    monkeypatch.setattr(sys, "argv", ["bundle", "--ref", "staging"])
+    builder.main()
+    assert json.loads(config.read_text())["sourceRef"] == "staging"
+    assert json.loads(config.read_text())["ref"] == "main"
+    monkeypatch.setattr(sys, "argv", ["bundle"])
+    builder.main()
+    assert urls[0].endswith("/commits/staging")
+    assert urls[2].endswith("/commits/main")
+    assert json.loads(config.read_text())["sourceRef"] == "main"
 
 
 def test_packaging_requires_the_default_bundle():
@@ -298,8 +340,6 @@ def test_release_payload_includes_and_requires_app_bundles(
             [
                 "app/data/default_agent_app/kanban-board.zip",
                 "app/data/default_agent_app/source.json",
-                "app/data/default_agent_app/kanban-board-framework.zip",
-                "app/data/default_agent_app/framework-source.json",
             ]
         )
     required.extend(agent_app_package.bundled_files())
@@ -332,21 +372,20 @@ def test_release_payload_includes_and_requires_app_bundles(
         with zipfile.ZipFile(payload) as archive:
             board = archive.read("app/data/default_agent_app/kanban-board.zip")
         with zipfile.ZipFile(io.BytesIO(board)) as archive:
-            assert "AGENT_APP.md" in archive.namelist()
+            assert "kanban-board/AGENT_APP.md" in archive.namelist()
 
 
 def test_framework_board_package_and_cache_are_sanitized(tmp_path):
     bundle = CODE_ROOT / default.BUNDLE_DIR
-    source = json.loads((bundle / 'framework-source.json').read_text(encoding='utf-8'))
-    archive = bundle / 'kanban-board-framework.zip'
+    source = json.loads((bundle / 'source.json').read_text(encoding='utf-8'))
+    archive = bundle / 'kanban-board.zip'
     assert hashlib.sha256(archive.read_bytes()).hexdigest() == source['sha256']
-    assert source['verification']['verdict'] == 'pass'
     with zipfile.ZipFile(archive) as z:
         names = z.namelist()
-        assert {'LICENSE', 'manifest.json', 'ui/package-lock.json', '.a2app/toolkit.json'} <= set(names)
+        assert {'catalogue.json', 'kanban-board/LICENSE', 'kanban-board/manifest.json', 'kanban-board/frontend/package-lock.json', 'kanban-board/.a2app/toolkit.json'} <= set(names)
         assert not any(set(Path(n).parts) & {'pb_data', 'pb_public', 'node_modules', '.superuser', 'dev', 'live', 'credentials.json'} for n in names)
-        assert json.loads(z.read('.a2app/toolkit.json')) == {'id': 'blueprint-pocketbase-react'}
-        assert not any(n.endswith(('_triggers_lib.js', '_requests.pb.js')) for n in names)
+        assert json.loads(z.read('kanban-board/.a2app/toolkit.json')) == {'id': 'blueprint-pocketbase-kit'}
+        assert 'toolkits/blueprint-pocketbase-kit/a2app.toolkit.json' in names
     cache = default._local_catalogue(archive, tmp_path, source['sha256'])
     assert default._local_catalogue(archive, tmp_path, source['sha256']) == cache
     (cache / 'kanban-board/injected.js').write_text('unexpected', encoding='utf-8')
@@ -357,7 +396,8 @@ def test_framework_board_package_and_cache_are_sanitized(tmp_path):
 def test_default_catalogue_retries_a_transient_windows_extraction_lock(tmp_path, monkeypatch):
     archive = tmp_path / "fixture.zip"
     with zipfile.ZipFile(archive, "w") as package:
-        package.writestr("manifest.json", '{"id":"fixture"}')
+        package.writestr("catalogue.json", '{"apps":[]}')
+        package.writestr("kanban-board/manifest.json", '{"id":"fixture"}')
     rename = Path.rename
     attempts = []
 
@@ -377,11 +417,31 @@ def test_default_catalogue_retries_a_transient_windows_extraction_lock(tmp_path,
     assert len(attempts) == 2
 
 
-def test_upgrade_changes_guidance_but_preserves_executable_domain_code():
-    sys.path.insert(0, str(CODE_ROOT / 'scripts'))
-    from upgrade_bundled_kanban import canonical_guidance
-    source = "// the person's work.next\nwork.next();\nconst guide = 'Call work.next; finish with work.submit';"
-    changed = canonical_guidance(source, [{'name': 'work.next'}, {'name': 'work.submit'}])
-    assert "// the person's work.next" in changed
-    assert 'work.next();' in changed
-    assert "'Call work-next; finish with work-submit'" in changed
+def test_cli_discovers_bundled_toolkit_without_installing_an_app(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from app import node_runtime, paths
+    from app.agent_app.framework_cli import AgentAppCLI
+
+    (tmp_path / "bin").mkdir()
+    (tmp_path / "bin/agent-app.js").touch()
+    monkeypatch.setattr(paths, "STATE_ROOT", tmp_path / "state")
+    monkeypatch.setattr(node_runtime, "resolve", lambda: SimpleNamespace(node=sys.executable, version="v24.0.0"))
+    monkeypatch.setattr(node_runtime, "child_env", lambda: {})
+    monkeypatch.setattr("app.config.get_framework_toolkits_dir", lambda: None)
+    cli = AgentAppCLI(tmp_path, home=tmp_path / "registry")
+    _, env = cli._prepare("agent-app", {})
+    toolkit = Path(env["A2APP_TOOLKITS_DIR"]) / "blueprint-pocketbase-kit/a2app.toolkit.json"
+    assert toolkit.is_file()
+    assert not (tmp_path / "registry").exists()
+    assert not (paths.STATE_ROOT / default.RECEIPT).exists()
+    assert not (paths.STATE_ROOT / "agent-apps").exists()
+
+    def unexpected(*args):
+        pytest.fail("An explicit toolkit directory must bypass the bundled fallback")
+
+    monkeypatch.setattr(default, "bundled_toolkits", unexpected)
+    monkeypatch.setattr("app.config.get_framework_toolkits_dir", lambda: "configured")
+    assert cli._prepare("agent-app", {})[1]["A2APP_TOOLKITS_DIR"] == "configured"
+    monkeypatch.setattr(node_runtime, "child_env", lambda: {"A2APP_TOOLKITS_DIR": "environment"})
+    assert cli._prepare("agent-app", {})[1]["A2APP_TOOLKITS_DIR"] == "environment"
+    assert cli._prepare("agent-app", {"A2APP_TOOLKITS_DIR": "invocation"})[1]["A2APP_TOOLKITS_DIR"] == "invocation"

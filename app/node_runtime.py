@@ -4,9 +4,9 @@ CraftBot spawns Node from several places — the browser frontend dev server,
 the WhatsApp bridge, Agent App's agent-app CLI, npm installs, and Agent App app
 pipeline steps. They must all agree on a single binary: deployments run
 multiple Nodes side by side (a VPC pins its default to 20.x for other
-services while local apps use 24.x), and the agent-app CLI needs >= 24 (it is
-TypeScript executed through Node's native type stripping — older majors
-throw ERR_UNKNOWN_FILE_EXTENSION).
+services while local apps use 24.x). CraftBot selects Node 24 consistently for
+its tooling; the packaged Agent-App CLI is compiled JavaScript and checks its
+own minimum version in the binding.
 
 Resolution is cached per process. An explicit valid CRAFTBOT_NODE override
 wins. Managed installs then use the release-pinned private Node/npm pair.

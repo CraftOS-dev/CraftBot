@@ -1,6 +1,8 @@
 {
   "repository": "CraftOS-dev/living-ui-marketplace",
-  "revision": "b09584c6bb858237e8eaa6f2d4a0dc0d558a10eb",
+  "ref": "main",
+  "sourceRef": "ff504d123b0d1ea51bf6ec9fc297bd337d9e789e",
+  "revision": "ff504d123b0d1ea51bf6ec9fc297bd337d9e789e",
   "appId": "kanban-board",
-  "sha256": "3d0b963ea4391cd53476d0cba417f495e90c6b5e82adfa4b4a4c8e93f9a920f8"
+  "sha256": "39b59e71578bd7693b37dde4ff575b8e220d61db4b4f45b8b895b30f8ee36457"
 }

@@ -1,8 +1,0 @@
-@import 'tailwindcss';
-@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
-.kb-confirm-backdrop { position: fixed; inset: 0; z-index: 1000; background: var(--kb-overlay); display: grid; place-items: center; }
-.kb-confirm { max-width: 28rem; padding: 1.5rem; border-radius: var(--agent-app-radius); background: var(--agent-app-surface); color: var(--agent-app-text); box-shadow: var(--kb-shadow-lg); }
-.kb-confirm button { padding: .5rem 1rem; margin: 1rem .5rem 0 0; border: 1px solid var(--agent-app-border); border-radius: var(--agent-app-radius); }
-.kb-confirm button:focus-visible { outline: 2px solid var(--agent-app-accent); }
-.kb-update { position: fixed; bottom: 1rem; left: 1rem; right: 1rem; z-index: 900; padding: 1rem; background: var(--agent-app-surface); border: 1px solid var(--agent-app-accent); border-radius: var(--agent-app-radius); box-shadow: var(--kb-shadow-lg); }
-.kb-update button { padding: .5rem; margin-left: .5rem; text-decoration: underline; }

@@ -69,9 +69,8 @@ async def describe_reference(row):
             if isinstance(m, dict)
         ],
         "operationDiscovery": {
-            "actionSet": "agent_app_framework",
-            "action": "agent_app_framework_command",
-            "surface": "a2app",
+            "actionSet": "a2app",
+            "action": "a2app_command",
             "args": [row["path"]],
         },
     }

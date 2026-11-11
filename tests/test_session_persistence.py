@@ -84,7 +84,7 @@ class TestSessionActionSets:
         assert Session(id="a", type=SessionType.AGENT_APP).base_action_sets == [
             "file_operations",
             "code_execution",
-            "agent_app_framework",
+            "a2app",
         ]
 
     def test_action_lists_are_not_persisted(self):
@@ -98,7 +98,7 @@ class TestSessionActionSets:
         restored = Session.from_dict(session.to_dict())
         assert restored.agent_app_framework_key == session.agent_app_framework_key
         assert restored.agent_app_project_id is None
-        assert restored.base_action_sets == ["file_operations", "code_execution", "agent_app_framework"]
+        assert restored.base_action_sets == ["file_operations", "code_execution", "a2app"]
 
     def test_stored_action_lists_are_not_read(self):
         # A row written before the list was derived (it had accumulated 14
@@ -114,7 +114,7 @@ class TestSessionActionSets:
         assert restored.base_action_sets == [
             "file_operations",
             "code_execution",
-            "agent_app_framework",
+            "a2app",
         ]
         assert restored.compiled_actions == []
 

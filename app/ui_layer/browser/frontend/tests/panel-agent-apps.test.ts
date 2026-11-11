@@ -8,6 +8,24 @@ const note = (page: Page, app = 'Notes') => page.frameLocator(`iframe[title="${a
 const requests = (page: Page, types: string[]) => page.evaluate(types => (window as any).panelRequests.filter((r: any) => types.includes(r.type)), types)
 const receive = (page: Page, type: string, data: unknown) => page.evaluate(({ type, data }) => (window as any).panelReceive({ type, data }), { type, data })
 
+test('independent verification replaces stale builder progress in the app workspace', async ({ page }) => {
+  const route = '/framework-app?path=C%3A%2Ftest%2Fnotes&id=notes'
+  await page.goto(`/tests/panel-agent-apps.html?route=${encodeURIComponent(route)}`)
+  await page.waitForFunction(() => typeof (window as any).panelReceive === 'function')
+  const session = {
+    id: 'notes-chat', type: 'agent_app', title: 'Notes',
+    agentAppFrameworkKey: JSON.stringify(['test-home', 'C:/test/notes', 'notes']),
+    agentAppBuild: { building: true, verifying: false, todos: [{ id: 'plan', content: 'Draft the plan', status: 'in_progress' }] },
+  }
+  await receive(page, 'session_updated', { session })
+  await expect(page.getByText('Draft the plan', { exact: true })).toBeVisible()
+  await receive(page, 'session_updated', { session: { ...session, agentAppBuild: { ...session.agentAppBuild, verifying: true } } })
+  await expect(page.getByText('Independently testing the app…', { exact: true })).toBeVisible()
+  await expect(page.getByText('Draft the plan', { exact: true })).toHaveCount(0)
+  await receive(page, 'session_updated', { session })
+  await expect(page.getByText('Independently testing the app…', { exact: true })).toHaveCount(0)
+})
+
 /** Ask the chat's apps button for an app and show it in the panel. */
 async function show(page: Page, name: string) {
   await appsButton(page).click()

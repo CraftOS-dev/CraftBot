@@ -107,7 +107,8 @@ export function ImportProfileModal({
   const contents = manifest?.contents ?? {}
   const skills = contents.skills ?? []
   const mcps = contents.mcp_servers ?? []
-  const apps = [...(contents.agent_app_apps ?? []), ...(contents.framework_apps ?? [])]
+  // Current bundles also publish the same names under the legacy field.
+  const apps = contents.framework_apps ?? contents.agent_app_apps ?? []
   const mds = contents.md_files ?? []
 
   const title = manifest

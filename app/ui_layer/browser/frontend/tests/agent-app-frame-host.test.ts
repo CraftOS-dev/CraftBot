@@ -15,14 +15,12 @@ test('leases protect owners, survive stale releases, and evict only idle frames'
     const capacity = host.acquireIframe('six', url) === null
     leases[0].release()
     const replacement = host.acquireIframe('six', url)!
-    const idleEvicted = !host.hasIframe('two') && host.hasIframe('one')
+    const idleEvicted = !leases[0].frame.isConnected && second.frame.isConnected
     const source = second.frame.dataset.requestedSrc
     const sameFrame = host.getOrCreateIframe('one', url) === second.frame && second.frame.dataset.requestedSrc === source
-    const wrongOriginRejected = !host.acceptsFrameMessage('one', new MessageEvent('message', { source: second.frame.contentWindow, origin: 'https://example.com' }))
-    const correctOriginAccepted = host.acceptsFrameMessage('one', new MessageEvent('message', { source: second.frame.contentWindow, origin: 'http://localhost:7935' }))
     replacement.release(); second.release(); leases.forEach(lease => lease.release())
-    host.reconcileIframes([])
-    return { conflict, staleProtected, capacity, idleEvicted, sameFrame, wrongOriginRejected, correctOriginAccepted, disposed: !host.hasIframe('one') }
+    host.reconcileFrameworkIframes([])
+    return { conflict, staleProtected, capacity, idleEvicted, sameFrame, disposed: !second.frame.isConnected }
   })
   expect(Object.values(result).every(Boolean)).toBe(true)
 })

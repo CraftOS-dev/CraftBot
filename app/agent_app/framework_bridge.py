@@ -285,6 +285,7 @@ class FrameworkBridge:
                 raise RuntimeError(
                     stopped.stderr or "The previous bridge could not be stopped."
                 )
+        self.owned_paths.discard(path)
         if allow:
             fingerprint = await asyncio.to_thread(capability_fingerprint, path)
             if revision and revision != fingerprint:
@@ -304,6 +305,14 @@ class FrameworkBridge:
                     != attachment["ownerToolsAllowed"]
                 ):
                     await self.terminate(run, "permissions_changed", settle=False)
+            row = await self.host.selected(path, app_id)
+            if row.get("status") != "running":
+                # Permissions can be saved while stopped. The lifecycle hook
+                # reconnects the bridge when the person starts the app.
+                attachment.pop("bridgeError", None)
+                self.store.put("attachment", attachment["key"], attachment)
+                await self.host.changed()
+                return attachment
             result = await cli.run(
                 "agent-app",
                 [path, "bridge", "start", "--harness", self.profile_id],
@@ -324,7 +333,8 @@ class FrameworkBridge:
             self.store.put("attachment", attachment["key"], attachment)
             self.owned_paths.add(path)
         else:
-            self.owned_paths.discard(path)
+            attachment.pop("bridgeError", None)
+            self.store.put("attachment", attachment["key"], attachment)
         await self.host.changed()
         return attachment
 
@@ -334,6 +344,13 @@ class FrameworkBridge:
             if grant.get("home") != str(cli.home) or not grant.get("tasksAllowed"):
                 continue
             try:
+                row = await self.host.selected(grant["path"], grant["appId"])
+                if row.get("status") != "running":
+                    # A saved grant is a preference, not a request to launch an
+                    # app. Start reconnects the bridge through lifecycle_changed.
+                    grant.pop("bridgeError", None)
+                    self.store.put("attachment", grant["key"], grant)
+                    continue
                 if grant.get("capabilityFingerprint") != await asyncio.to_thread(
                     capability_fingerprint, grant["path"]
                 ):
@@ -578,8 +595,8 @@ class FrameworkBridge:
         # Use the structured verified task, not an arbitrary prompt in the POST.
         prompt = (
             f"Agent App task {task['id']} requests capability {task['request']['capability']}. "
-            f"It is claimed already. Operate only {target} through agent_app_framework_command "
-            "with surface='a2app', args starting with that address. Discover the root and "
+            f"It is claimed already. Operate only {target} through a2app_command "
+            "with args starting with that address. Discover the root and "
             "follow module screens. App access is supplied privately by CraftBot. "
             "Report progress and finish with tasks complete, a summary or reason. "
             "Use send_message with suggested_responses for a question in this task's chat. "
@@ -600,7 +617,7 @@ class FrameworkBridge:
                     description=prompt,
                     payload={
                         "workflow_skills": ["framework-operator"],
-                        "workflow_action_sets": ["agent_app_framework"],
+                        "workflow_action_sets": ["a2app"],
                         "run_source": "framework_task",
                         "framework_task_key": receipt_key,
                     },
@@ -705,11 +722,11 @@ class FrameworkBridge:
         trigger.payload = {**payload, "framework_task_key": run["key"],
                            "run_source": "framework_task",
                            "workflow_skills": ["framework-operator"],
-                           "workflow_action_sets": ["agent_app_framework"]}
+                           "workflow_action_sets": ["a2app"]}
         if trigger.source == "run_continuation":
             trigger.next_action_description = (
                 f"Continue Agent App task {run['taskId']} for capability {run['capability']}. "
-                f"Use only {run['authority'].target} through agent_app_framework_command. "
+                f"Use only {run['authority'].target} through a2app_command. "
                 "This turn's credential belongs to this task, even if other requests appear "
                 "later in the conversation. Save the app result before completing this task."
             )

@@ -8,16 +8,17 @@ from agent_core import action
     description="Read independent verification status for an app. Use agent_app_framework_workflow(activity='verify') to await a verifier subagent; CraftBot records its verdict. Report is reserved for already-assigned legacy verifier runs. A pass must cover the current upstream validation stamp.",
     default=False,
     mode="CLI",
-    action_sets=["agent_app_framework"],
+    action_sets=["agent_app"],
     parallelizable=False,
     input_schema={
         "operation": {"type": "string", "enum": ["status", "report"], "required": True},
-        "path": {"type": "string"},
+        "path": {"type": "string", "required": False},
         "verdict": {
             "type": "string",
             "enum": ["pass", "defects", "incomplete", "blocked"],
+            "required": False,
         },
-        "evidence": {"type": "string"},
+        "evidence": {"type": "string", "required": False},
     },
     output_schema={
         "status": {"type": "string"},
@@ -55,20 +56,20 @@ async def agent_app_framework_verification(input_data: dict) -> dict:
 
 @action(
     name="agent_app_framework_workflow",
-    description="Start the unchanged Agent-App creator, modify, importer or operator workflow. For activity='verify', run the installed walk-verify skill in an independent CraftBot subagent and WAIT for its verdict in this action's verification field. It creates no separate chat. Run validate first. Repair defects, validate again and re-run verify before promotion; never treat queued/running/blocked/incomplete as pass.",
+    description="Start the unchanged Agent-App creator, modify or importer workflow. Use the a2app action set to connect to or operate existing apps. For activity='verify', run the installed walk-verify skill in an independent CraftBot subagent and WAIT for its verdict in this action's verification field. It creates no separate chat. Run validate first. Repair defects, validate again and re-run verify before promotion; never treat queued/running/blocked/incomplete as pass.",
     default=False,
     mode="CLI",
-    action_sets=["agent_app_framework"],
+    action_sets=["agent_app"],
     parallelizable=False,
     input_schema={
         "activity": {
             "type": "string",
-            "enum": ["create", "modify", "import", "convert", "operate", "verify"],
+            "enum": ["create", "modify", "import", "convert", "verify"],
             "required": True,
         },
         "request": {"type": "string", "required": True},
-        "path": {"type": "string"},
-        "app_id": {"type": "string"},
+        "path": {"type": "string", "required": False},
+        "app_id": {"type": "string", "required": False},
     },
     output_schema={
         "status": {"type": "string"},
@@ -111,11 +112,11 @@ async def agent_app_framework_workflow(input_data: dict) -> dict:
 
 
 @action(
-    name="agent_app_framework_command",
+    name="agent_app_command",
     description=(
-        "Run the bundled unchanged Agent-App CLI. Choose surface agent-app for "
+        "Build, evolve and manage apps through the bundled unchanged agent-app CLI: "
         "scaffold/dev/validate/promote/serve/stop/backup/restore/export/bridge/"
-        "owner/invite/remove, or a2app for hierarchical discovery and operations. "
+        "owner/invite/remove. Use a2app_command to connect, inspect and operate app data. "
         "args is a literal argument array, starting with an absolute app directory "
         "or remote URL for app commands. Registry commands such as blueprints, "
         "skills, catalogue, inspect and install need no app prefix. Use --help "
@@ -126,13 +127,13 @@ async def agent_app_framework_workflow(input_data: dict) -> dict:
     ),
     default=False,
     mode="CLI",
-    action_sets=["agent_app_framework"],
+    action_sets=["agent_app"],
     parallelizable=False,
     input_schema={
-        "surface": {"type": "string", "enum": ["agent-app", "a2app"], "required": True},
         "args": {"type": "array", "items": {"type": "string"}, "required": True},
         "cwd": {
             "type": "string",
+            "required": False,
             "description": "Optional absolute working directory.",
         },
     },
@@ -146,15 +147,59 @@ async def agent_app_framework_workflow(input_data: dict) -> dict:
     },
     test_payload={"simulated_mode": True},
 )
-async def agent_app_framework_command(input_data: dict) -> dict:
+async def agent_app_command(input_data: dict) -> dict:
     if input_data.get("simulated_mode"):
         return {"status": "success", "stdout": "", "exit_code": 0}
     try:
         from app.agent_app.framework_commands import command
 
         return await command(
-            input_data["surface"], input_data["args"], cwd=input_data.get("cwd")
+            "agent-app", input_data["args"], cwd=input_data.get("cwd")
         )
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@action(
+    name="a2app_command",
+    description=(
+        "Connect to, inspect and control apps through the bundled unchanged a2app CLI. "
+        "Discover modules and operations, read current context, invoke operations, "
+        "and report task progress/completion. args is a literal argument array, "
+        "starting with the absolute app directory or remote URL. Start at the root "
+        "and follow its discovery screens; use --help for upstream syntax. Follow "
+        "framework-operator or framework-connect. No shell expansion. "
+        "For builds and lifecycle changes, load agent_app and use agent_app_command."
+    ),
+    default=False,
+    mode="CLI",
+    action_sets=["a2app"],
+    parallelizable=False,
+    input_schema={
+        "args": {"type": "array", "items": {"type": "string"}, "required": True},
+        "cwd": {
+            "type": "string",
+            "required": False,
+            "description": "Optional absolute working directory.",
+        },
+    },
+    output_schema={
+        "status": {"type": "string"},
+        "stdout": {"type": "string"},
+        "stderr": {"type": "string"},
+        "data": {"type": "object"},
+        "exit_code": {"type": "integer"},
+        "message": {"type": "string"},
+    },
+    test_payload={"simulated_mode": True},
+)
+async def a2app_command(input_data: dict) -> dict:
+    if input_data.get("simulated_mode"):
+        return {"status": "success", "stdout": "", "exit_code": 0}
+    try:
+        from app.agent_app.framework_commands import command
+
+        return await command("a2app", input_data["args"], cwd=input_data.get("cwd"))
     except Exception as exc:
         return {"status": "error", "message": str(exc)}
 
@@ -168,7 +213,7 @@ async def agent_app_framework_command(input_data: dict) -> dict:
     ),
     default=False,
     mode="CLI",
-    action_sets=["agent_app"],
+    action_sets=["a2app"],
     parallelizable=True,
     input_schema={},
     output_schema={
