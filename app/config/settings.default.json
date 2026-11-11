@@ -74,7 +74,8 @@
     }
   },
   "web_search": {
-    "google_cse_id": ""
+    "google_cse_id": "",
+    "google_cse_base_url": ""
   },
   "browser": {
     "port": 7926,
