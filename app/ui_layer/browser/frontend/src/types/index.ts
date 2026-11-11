@@ -126,7 +126,7 @@ export interface SessionInfo {
   agentAppProjectId?: string | null
   agentAppFrameworkKey?: string | null
   agentAppFrameworkPending?: boolean
-  agentAppBuild?: { building: boolean; todos: { id: string; content?: string; active_form?: string; status: 'pending' | 'in_progress' | 'completed' }[] } | null
+  agentAppBuild?: { building: boolean; verifying?: boolean; todos: { id: string; content?: string; active_form?: string; status: 'pending' | 'in_progress' | 'completed' }[] } | null
   /** Always set by the backend; null only on the client-side placeholder for
    *  the main session before the backend has sent it. */
   reasoningEffort: ReasoningChoice | null
@@ -896,6 +896,7 @@ export interface FrameworkRegistryApp {
   path: string
   status: 'running' | 'stopped' | 'missing' | 'unreachable'
   port?: number
+  marketplace?: { id: string; location: string; ref?: string }
 }
 
 export interface FrameworkConnectedApp {

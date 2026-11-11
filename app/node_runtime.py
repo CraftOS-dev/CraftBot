@@ -4,9 +4,9 @@ CraftBot spawns Node from several places — the browser frontend dev server,
 the WhatsApp bridge, Agent App's agent-app CLI, npm installs, and Agent App app
 pipeline steps. They must all agree on a single binary: deployments run
 multiple Nodes side by side (a VPC pins its default to 20.x for other
-services while local apps use 24.x), and the agent-app CLI needs >= 24 (it is
-TypeScript executed through Node's native type stripping — older majors
-throw ERR_UNKNOWN_FILE_EXTENSION).
+services while local apps use 24.x). CraftBot selects Node 24 consistently for
+its tooling; the packaged Agent-App CLI is compiled JavaScript and checks its
+own minimum version in the binding.
 
 Resolution order (cached per process):
   1. CRAFTBOT_NODE env var — explicit override (ignored with a warning when
@@ -18,10 +18,10 @@ Resolution order (cached per process):
      never block a good Node, but must not shadow a working install either.
 
 The system default Node is NEVER upgraded, replaced, or shadowed outside
-CraftBot's own subprocesses. When nothing >= MIN resolves, resolve() returns
-None and callers fall back to plain PATH lookup — the frontend and bridge
-run fine on Node 20; only Agent App hard-requires the resolved runtime
-(runner.ensure_available raises the actionable message).
+CraftBot's own subprocesses. When nothing >= MIN resolves, callers handle an
+unavailable runtime or validate the last-resort PATH binary against their own
+requirements. The Agent-App binding reports an actionable error if Node is
+missing or too old.
 
 Stdlib-only on purpose: install.py and run.py import this before any
 dependencies exist (app/__init__.py is empty).

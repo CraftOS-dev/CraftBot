@@ -313,7 +313,11 @@ class FrameworkHost:
         creation = self.store.get("creation", session.id) or {}
         if not (session.agent_app_framework_pending or creation.get("building")):
             return None
-        return {"building": True, "todos": [todo.to_dict() for todo in session.todos]}
+        return {
+            "building": True,
+            "verifying": session.agent_app_framework_key in self.verification_runs,
+            "todos": [todo.to_dict() for todo in session.todos],
+        }
 
     def _can_bind_conversation(self, session, key, path, app_id, home):
         if (
@@ -415,6 +419,8 @@ class FrameworkHost:
                     return await task
                 finally:
                     self.verification_runs.pop(key, None)
+                    if not self.closing:
+                        await self.changed()
             # Browser/API requests queue the work in the app's existing owner
             # conversation. That agent invokes the same action and awaits its
             # child; the HTTP/WebSocket request itself never waits for a walk.
@@ -427,7 +433,7 @@ class FrameworkHost:
                 session_id=attached["sessionId"],
                 description=(f"Run agent_app_framework_workflow with activity='verify', path={path!r}, app_id={app_id!r}. "
                              f"It runs an independent subagent and returns the verdict in the same action. Requested checks: {request}"),
-                payload={"workflow_skills": [], "workflow_action_sets": ["agent_app_framework"], "run_source": "framework_workflow"},
+                payload={"workflow_skills": [], "workflow_action_sets": ["agent_app"], "run_source": "framework_workflow"},
             ))
             await self.changed()
             return {"sessionId": attached["sessionId"], "path": path, "queued": True}
@@ -462,7 +468,7 @@ class FrameworkHost:
         if activity == "create":
             prompt += "The destination below is allocated but DOES NOT EXIST yet. Discover the blueprints and scaffold it with the existing CLI before following the creator workflow.\n"
             if creation:
-                prompt += "CraftBot binds the selected name and access mode to this destination's scaffold command. Use agent_app_framework_command for scaffolding; do not replace the user's selections.\n"
+                prompt += "CraftBot binds the selected name and access mode to this destination's scaffold command. Use agent_app_command for scaffolding; do not replace the user's selections.\n"
         if path:
             prompt += context_note(path, app_id or "new app")
         await self.agent.trigger_service.emit(
@@ -473,7 +479,8 @@ class FrameworkHost:
                 payload={
                     "workflow_skills": [f"framework-{activities[activity]}"],
                     "workflow_action_sets": [
-                        "agent_app_framework",
+                        *(["agent_app"] if activity != "operate" else []),
+                        "a2app",
                         "file_operations",
                         "shell",
                         "mini_browser",
@@ -574,7 +581,7 @@ class FrameworkHost:
                 description=f"Independent verification for {result['path']} returned {result['verdict']}. Evidence: {result['evidence']}\nContinue the framework workflow. A pass authorizes promotion only while its validation stamp remains current; successful serving is required before announcing delivery. For defects, repair and request a new independent verification. For incomplete/blocked, explain the remaining check or blocker without claiming readiness.",
                 payload={
                     "workflow_skills": [],
-                    "workflow_action_sets": ["agent_app_framework", "mini_browser"],
+                    "workflow_action_sets": ["agent_app", "a2app", "mini_browser"],
                     "run_source": "framework_workflow",
                 },
                 dedup_key=f"framework-verdict:{result['sessionId']}:{result['at']}",

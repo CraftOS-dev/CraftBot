@@ -315,7 +315,7 @@ docs, CRM, chat, repo, ...)                      list_available_integrations. If
                                                  around it.
 
 sounds like something an app of yours already    Agent App. agent_app_framework_list; on a match,
-does                                             agent_app_usage + the agent-app CLI/ops to read its data
+does                                             framework-operator + a2app_command to read its data
                                                  or perform the operation instead of redoing the
                                                  work by hand.
 
@@ -1153,9 +1153,9 @@ DO NOT silently change FORMAT.md. The user owns their style guide.
 CraftBot hosts apps through the unchanged Agent-App framework. The framework owns scaffolding, installation, validation, runtime, operations and data; CraftBot supplies its familiar UI, app conversations, permissions, scheduling and sharing controls.
 
 - In an ordinary chat, call `agent_app_scaffold(name, description, features, chat_context)` to gather requirements through the existing setup wizard. It starts the build in the app's own conversation. Do not also build it in the requesting chat.
-- Discover installed apps with `agent_app_framework_list`. Use their exact registry paths and IDs.
+- Load `a2app` and discover installed apps with `agent_app_framework_list`. Use their exact registry paths and IDs.
 - Load the appropriate bundled skill: `framework-creator`, `framework-modify`, `framework-importer` or `framework-operator`. These are the existing framework skills, including their relative references.
-- Run CLI commands through `agent_app_framework_command(surface, args)`. Choose `agent-app` for lifecycle/discovery/install and `a2app` to inspect or operate app data. Pass literal argument arrays; consult `--help` for syntax instead of guessing it.
+- Load `agent_app` for building, evolving and managing app lifecycle; use `agent_app_command(args)`. Load `a2app` for connecting, discovery and app-data operations; use `a2app_command(args)`. Pass literal argument arrays to either command; consult `--help` for upstream syntax instead of guessing it.
 - Marketplace and compatible package installs use the CLI directly. Use the importer workflow for foreign sources that require conversion; an install is not a reason to start a conversion agent.
 - Before answering questions about an app's current data, selection or visible files, inspect its A2App context and declared operations. A folder listing does not describe the open UI.
 - For code changes, follow the framework lifecycle: develop the candidate, validate, then call `agent_app_framework_workflow(activity='verify', path, app_id, request)` and await its independent CraftBot subagent verdict. Repair defects and repeat validation/verification before promotion. A queued, blocked or incomplete check is not a pass.
@@ -1274,9 +1274,9 @@ proactive / scheduler    schedule_task, scheduled_task_list, schedule_task_toggl
                          remove_scheduled_task, recurring_add, recurring_read,
                          recurring_update_task, recurring_remove
 
-agent_app                agent_app_scaffold, agent_app_framework_list
-agent_app_framework      agent_app_framework_command, agent_app_framework_workflow,
-                         agent_app_framework_verification
+agent_app                agent_app_scaffold, agent_app_command,
+                         agent_app_framework_workflow, agent_app_framework_verification
+a2app                    agent_app_framework_list, a2app_command
 
 per-integration sets     Discord, Slack, Telegram (bot/user), Notion, LinkedIn, Jira, GitHub,
                          Outlook, WhatsApp, Twitter, HubSpot, Stripe, LINE, Lark (+calendar/drive),

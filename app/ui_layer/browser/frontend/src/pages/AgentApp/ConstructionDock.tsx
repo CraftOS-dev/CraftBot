@@ -30,6 +30,7 @@ interface Props {
   todos: AgentAppTodo[] | undefined
   events: AgentAppBuildEvent[]
   snapshot: AgentAppSnapshot | null
+  activity?: string
 }
 
 // ── progress derived from the agent's todos ────────────────────────────────
@@ -251,7 +252,7 @@ function PoppingChip({
 
 // ── main view ───────────────────────────────────────────────────────────────
 
-export function ConstructionDock({ project, todos, events, snapshot }: Props) {
+export function ConstructionDock({ project, todos, events, snapshot, activity }: Props) {
   const { t } = useTranslation(['agentapp', 'common'])
   const displayed = usePacedEvents(events)
   const view = useMemo(() => deriveProgress(todos), [todos])
@@ -276,6 +277,7 @@ export function ConstructionDock({ project, todos, events, snapshot }: Props) {
   const feed = useMemo(() => coalesce(displayed).slice(-5).reverse(), [displayed])
 
   const activityLabel =
+    activity ||
     view.todoLabel ||
     (isLaunching
       ? t('agentapp:construction.finalChecks')

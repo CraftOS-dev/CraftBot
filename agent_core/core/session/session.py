@@ -38,7 +38,7 @@ class SessionType:
     BASE_ACTION_SETS: Dict[str, Tuple[str, ...]] = {
         MAIN: (),
         CHAT: (),
-        AGENT_APP: ("file_operations", "code_execution", "agent_app_framework"),
+        AGENT_APP: ("file_operations", "code_execution", "a2app"),
     }
 
 
@@ -125,10 +125,6 @@ class Session:
     @property
     def base_action_sets(self) -> List[str]:
         """The action sets this session prints in <actions> (besides core)."""
-        if self.type == SessionType.AGENT_APP and (
-            self.agent_app_framework_key or self.agent_app_framework_pending
-        ):
-            return ["file_operations", "code_execution", "agent_app_framework"]
         return list(SessionType.BASE_ACTION_SETS[self.type])
 
     def touch(self) -> None:

@@ -81,7 +81,12 @@ class AgentAppCLI:
 
         env["A2APP_MARKETPLACE_REF"] = ref()
         toolkits = get_framework_toolkits_dir()
-        if toolkits and not env.get("A2APP_TOOLKITS_DIR", "").strip():
+        if not (env_extra.get("A2APP_TOOLKITS_DIR") or env.get("A2APP_TOOLKITS_DIR", "")).strip():
+            if not toolkits:
+                from app import paths
+                from app.provision.default_agent_app import bundled_toolkits
+
+                toolkits = str(bundled_toolkits(paths.CODE_ROOT, paths.STATE_ROOT))
             env["A2APP_TOOLKITS_DIR"] = toolkits
         # A delegated run must not inherit another run's ambient credential.
         env.pop("A2APP_TOKEN", None)

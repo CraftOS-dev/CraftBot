@@ -160,8 +160,6 @@ def build(output: Path) -> int:
             "app/provision/default_agent_app.py",
             "app/data/default_agent_app/kanban-board.zip",
             "app/data/default_agent_app/source.json",
-            "app/data/default_agent_app/kanban-board-framework.zip",
-            "app/data/default_agent_app/framework-source.json",
             "app/ui_layer/browser/frontend/dist/index.html",
             "craftos_integrations/providers/whatsapp_web/bridge.js",
             # craftbot.py imports these at module scope; without them every

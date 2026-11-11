@@ -173,7 +173,8 @@ function FrameworkWorkspace({ path, appId, knownSessionId }: { path: string; app
   </div> : undefined
   return <AgentAppWorkspace sessionId={sessionId} chatFallback={fallback}>
     {moving => building ? <ConstructionDock project={{ name: app?.name || session?.title || t('registry.view.title'), status: 'creating' }}
-      todos={todos} events={NO_BUILD_EVENTS} snapshot={null} />
+      todos={todos} events={NO_BUILD_EVENTS} snapshot={null}
+      activity={session?.agentAppBuild?.verifying ? t('registry.view.verifying') : undefined} />
       : <FrameworkView path={path} appId={appId} moving={moving} />}
   </AgentAppWorkspace>
 }

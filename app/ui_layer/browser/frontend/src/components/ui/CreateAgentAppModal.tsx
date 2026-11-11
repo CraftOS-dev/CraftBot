@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
-import { Sparkles, Download, Loader2, Package, Store, FolderInput, Upload, Search } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { Sparkles, Download, ArrowRight, Loader2, Package, Store, FolderInput, Upload, Search } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Button } from './Button'
 import { Modal } from './Modal'
@@ -10,6 +11,7 @@ import { tourAnchorProps, useTourEnvAction, type TourAnchorId } from '../../tour
 import styles from './CreateAgentAppModal.module.css'
 import { frameworkRequest } from '../../features/agentApps/frameworkApi'
 import { useFrameworkCreation } from '../../features/agentApps/useFrameworkCreation'
+import { frameworkRoute } from '../../features/agentApps/frameworkIdentity'
 import { useAppSelector } from '../../store/hooks'
 
 // The modal's tabs, in the order the guided tour walks them.
@@ -40,6 +42,20 @@ export function CreateAgentAppModal({ isOpen, onClose, onInstalled }: CreateAgen
   const { t } = useTranslation(['components', 'common'])
   const [activeTab, setActiveTab] = useState<'marketplace' | 'custom' | 'import'>('marketplace')
   const native = useFrameworkCreation(onClose)
+  const navigate = useNavigate()
+  const registryApps = useAppSelector(state => state.agentApp.framework.apps)
+  const [catalogueSource, setCatalogueSource] = useState<{ location: string; ref?: string }>()
+  const installedApps = useMemo(() => {
+    const result = new Map<string, typeof registryApps[number]>()
+    for (const app of registryApps) {
+      const source = app.marketplace
+      if (!source || !catalogueSource || app.status === 'missing') continue
+      const location = source.ref ? `${source.location}@${source.ref}` : source.location
+      if ((location === catalogueSource.location || source.location === catalogueSource.location)
+        && source.ref === catalogueSource.ref && !result.has(source.id)) result.set(source.id, app)
+    }
+    return result
+  }, [registryApps, catalogueSource])
 
   // Import tab state
   const [importSource, setImportSource] = useState('')
@@ -149,10 +165,11 @@ export function CreateAgentAppModal({ isOpen, onClose, onInstalled }: CreateAgen
   const fetchMarketplace = useCallback(() => {
     setMarketplaceLoading(true)
     setMarketplaceError(null)
-    void frameworkRequest<{ status: string; data?: { apps: MarketplaceApp[] }; stderr?: string }>({ operation: 'catalogue' })
+    void frameworkRequest<{ status: string; data?: { apps: MarketplaceApp[]; source?: { location: string; ref?: string } }; stderr?: string }>({ operation: 'catalogue' })
       .then(result => {
         if (result.status !== 'success' || !result.data) throw new Error(result.stderr || 'The marketplace could not be loaded.')
         setApps(result.data.apps)
+        setCatalogueSource(result.data.source)
       }).catch(error => setMarketplaceError(String(error))).finally(() => setMarketplaceLoading(false))
   }, [])
 
@@ -329,9 +346,10 @@ export function CreateAgentAppModal({ isOpen, onClose, onInstalled }: CreateAgen
                     {filteredApps.map(app => {
                       const appKey = app.id
                       const installing = installingIds.has(appKey)
+                      const installed = installedApps.get(appKey)
                       const addLabel = installing
                         ? t('common:status.installing')
-                        : t('common:actions.add')
+                        : t(installed ? 'common:actions.open' : 'common:actions.add')
                       return (
                         <div key={app.id} className={styles.appCard}>
                           {app.preview && !thumbFailures.has(appKey) ? (
@@ -360,14 +378,18 @@ export function CreateAgentAppModal({ isOpen, onClose, onInstalled }: CreateAgen
                             <button
                               type="button"
                               className={styles.appCardAdd}
-                              onClick={() => !installing && installApp(app)}
+                              onClick={() => {
+                                if (installing) return
+                                if (installed) { onClose(); navigate(frameworkRoute(installed.path, installed.id)) }
+                                else installApp(app)
+                              }}
                               disabled={installing || !isConnected}
                               aria-label={addLabel}
                               title={addLabel}
                             >
                               {installing
                                 ? <Loader2 size={14} className={styles.spinner} />
-                                : <Download size={14} />}
+                                : installed ? <ArrowRight size={14} /> : <Download size={14} />}
                             </button>
                           </div>
                         </div>

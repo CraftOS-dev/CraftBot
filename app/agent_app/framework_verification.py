@@ -113,6 +113,7 @@ async def run_verification(host, row, stamp, request, parent_session_id):
         host.report_verification(
             sub.id, "incomplete", "Independent verification is running."
         )
+        await host.changed()
         runner = SubAgentRunner(manager, actions, library, events, llm)
         sink = add_subagent_log_sink(agent_tag, parent.id)
         with logger.contextualize(agent=agent_tag, session=parent.id):

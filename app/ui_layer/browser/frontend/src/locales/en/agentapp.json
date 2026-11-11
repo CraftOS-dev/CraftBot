@@ -8,7 +8,7 @@
       "startApp": "Start {{name}}",
       "stopApp": "Stop {{name}}",
       "startHint": "Start the live app using Agent-App's build and launch steps.",
-      "stopHint": "Stop the live app. Development instances and task bridges keep running.",
+      "stopHint": "Stop the live app and its CraftBot request bridge. Development instances keep running.",
       "failed": "Agent-App could not complete the command.",
       "unknown": "Connection interrupted. The command may still be running. Check the app status after reconnecting before trying again.",
       "remaining": "A development instance or task bridge is still running."
@@ -26,6 +26,7 @@
     "view": {
       "title": "App view",
       "checking": "Checking the app…",
+      "verifying": "Independently testing the app…",
       "chatLoading": "Opening the app conversation…",
       "chatFailed": "Could not open the app conversation.",
       "loading": "Loading the app view…",

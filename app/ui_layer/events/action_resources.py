@@ -30,7 +30,7 @@ RESOURCE_BY_ACTION: Dict[str, Resource] = {
     # Agent Apps
     "agent_app_scaffold": Resource.AGENT_APPS,
     "agent_app_framework_workflow": Resource.AGENT_APPS,
-    "agent_app_framework_command": Resource.AGENT_APPS,
+    "agent_app_command": Resource.AGENT_APPS,
 }
 
 

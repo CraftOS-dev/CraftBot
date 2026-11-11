@@ -35,8 +35,8 @@ ALLOWED ACTIONS:
 {action_list}
 
 Use your own Mini Browser tabs for the real UI walk, and describe_image for
-screenshots. Use the assigned app directory with agent_app_framework_command,
-surface='a2app', for operation discovery and API tests on the DEV instance.
+screenshots. Use the assigned app directory with a2app_command for operation
+discovery and API tests on the DEV instance.
 Read the skill's relative references from its source directory. Use absolute
 paths. Shell and HTTP tools are for bounded test probes and evidence only; keep
 scripts/evidence outside the app. Never edit the app or framework, commit, change
@@ -71,7 +71,7 @@ stamp and returns it to the builder; do not call the verdict-reporting action.
         "read_file",
         "grep_files",
         "list_folder",
-        "agent_app_framework_command",
+        "a2app_command",
         "run_shell",
         *(["run_powershell"] if platform.system() == "Windows" else []),
     ],
