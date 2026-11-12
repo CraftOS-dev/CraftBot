@@ -19,7 +19,7 @@ class TriggerSource(str, Enum):
 
     # User input
     USER_MESSAGE = "user_message"
-    # Scheduler (land in the background session)
+    # Scheduler
     SCHEDULED = "scheduled"
     SCHEDULED_ONCE = "scheduled_once"
     SCHEDULED_IMMEDIATE = "scheduled_immediate"
@@ -27,10 +27,9 @@ class TriggerSource(str, Enum):
     RUN_CONTINUATION = "run_continuation"
     RESTART_NOTICE = "restart_notice"
     LIMIT_REACHED = "limit_reached"
-    # Background workflows (memory, onboarding and skill workflows land in
-    # the main session; the proactive heartbeat and planners in the
-    # background session)
+    # Background workflows (all land in the main session)
     MEMORY = "memory"
+    CRON_JOB = "cron_job"
     PROACTIVE_HEARTBEAT = "proactive_heartbeat"
     PROACTIVE_PLANNER = "proactive_planner"
     ONBOARDING = "onboarding"

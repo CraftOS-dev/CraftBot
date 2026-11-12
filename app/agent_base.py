@@ -90,12 +90,7 @@ from agent_core import (
     LLMCallType,
 )
 from agent_core.core.models.reasoning import ReasoningChoice
-from agent_core.core.session import (
-    Session,
-    SessionType,
-    MAIN_SESSION_ID,
-    BACKGROUND_SESSION_ID,
-)
+from agent_core.core.session import Session, SessionType, MAIN_SESSION_ID
 from agent_core.core.state.session import StateSession
 from app.context_engine import ContextEngine
 from app.state.state_manager import StateManager
@@ -162,6 +157,7 @@ RUN_START_SOURCES = {
     TriggerSource.SCHEDULED_ONCE.value,
     TriggerSource.SCHEDULED_IMMEDIATE.value,
     TriggerSource.MEMORY.value,
+    TriggerSource.CRON_JOB.value,
     TriggerSource.PROACTIVE_HEARTBEAT.value,
     TriggerSource.PROACTIVE_PLANNER.value,
     TriggerSource.ONBOARDING.value,
@@ -205,7 +201,8 @@ TRIGGER_ANNOUNCEMENTS: Dict[str, tuple[str, str]] = {
     TriggerSource.SCHEDULED_ONCE.value: ("⏰", "Scheduled task"),
     TriggerSource.SCHEDULED_IMMEDIATE.value: ("⏰", "Scheduled task"),
     TriggerSource.MEMORY.value: ("⚙️", "Memory processing workflow"),
-    TriggerSource.PROACTIVE_HEARTBEAT.value: ("⚙️", "Proactive check"),
+    TriggerSource.CRON_JOB.value: ("⏰", "Cron job"),
+    TriggerSource.PROACTIVE_HEARTBEAT.value: ("⚙️", "Heartbeat"),
     TriggerSource.PROACTIVE_PLANNER.value: ("⚙️", "Proactive planning"),
     TriggerSource.ONBOARDING.value: ("⚙️", "Onboarding workflow"),
     TriggerSource.SKILL_WORKFLOW.value: ("⚙️", "Skill workflow"),
@@ -392,11 +389,10 @@ class AgentBase:
         # (will be updated again in run() based on selected interface)
         self._interface_mode: str = "cli"
 
-        # Restore persisted sessions (main + chats + agent app + background)
-        # from the previous run, then guarantee main and background exist.
+        # Restore persisted sessions (main + chats + agent app) from the
+        # previous run, then guarantee the main session exists.
         self._restore_sessions()
         self.session_manager.ensure_main()
-        self.session_manager.ensure_background()
 
         # ── memory manager for proactive agent ──
         # extra_files_provider: user-selected files from the Memory panel
@@ -494,8 +490,9 @@ class AgentBase:
         proactive_file = AGENT_FILE_SYSTEM_PATH / "PROACTIVE.md"
         self.proactive_manager = initialize_proactive_manager(proactive_file)
         InternalActionInterface.proactive_manager = self.proactive_manager
-        # The heartbeat fires each PROACTIVE.md task at its exact slot and
-        # re-arms whenever the task list is saved.
+        # The scheduler fires PROACTIVE.md cron jobs at their exact slots
+        # (re-armed whenever the jobs are saved) and gives the heartbeat its
+        # checklist.
         self.scheduler.set_proactive_manager(self.proactive_manager)
 
         self._command_registry: Dict[str, AgentCommand] = {}
@@ -561,7 +558,7 @@ class AgentBase:
     async def delete_session(self, session_id: str) -> bool:
         """Delete a session: triggers, runtime lane, streams, persistence."""
         session = self.session_manager.get(session_id)
-        if not session or session.type in (SessionType.MAIN, SessionType.BACKGROUND):
+        if not session or session.type == SessionType.MAIN:
             return False
         await self.trigger_service.cancel_sessions([session_id])
         # Removing its event stream also deletes its Mini Browser and profile
@@ -674,8 +671,6 @@ class AgentBase:
             if session is None:
                 if session_id == MAIN_SESSION_ID:
                     session = self.session_manager.ensure_main()
-                elif session_id == BACKGROUND_SESSION_ID:
-                    session = self.session_manager.ensure_background()
                 else:
                     logger.warning(
                         f"[REACT] Trigger for unknown session {session_id} — dropping"
@@ -716,6 +711,7 @@ class AgentBase:
                     trigger.payload.update(workflow)
                     self._update_aggregated_description(trigger, desc)
             elif trigger.source in (
+                TriggerSource.CRON_JOB.value,
                 TriggerSource.PROACTIVE_HEARTBEAT.value,
                 TriggerSource.PROACTIVE_PLANNER.value,
             ):
@@ -793,17 +789,6 @@ class AgentBase:
                 self.session_manager.start_run(session_id)
                 self._emit_run_state(session_id, "running")
                 await self._apply_workflow_capabilities(session, trigger.payload)
-
-            # Background runs: record what this run is for, so its end can
-            # post the result into the main chat under that name.
-            if session_id == BACKGROUND_SESSION_ID:
-                from app.scheduler.background import background_runs
-
-                causes, task_ids = self._background_causes(trigger)
-                if trigger.source in RUN_START_SOURCES:
-                    background_runs.start(causes, task_ids)
-                else:
-                    background_runs.join(causes, task_ids)
 
             # Refresh per-turn state for this session
             await self.state_manager.start_turn(session_id)
@@ -930,14 +915,15 @@ class AgentBase:
                 logger.error(f"[ENTITY-JUDGE] Pipeline failed: {e}")
 
     def _prepare_proactive_run(self, trigger: Trigger) -> Optional[tuple[str, dict]]:
-        """Pre-check a proactive heartbeat/planner trigger.
+        """Pre-check a cron-job, heartbeat or planner trigger.
 
         Returns (instruction, workflow_payload) when there is work to do, or
-        None to skip (proactive disabled / nothing due).
+        None to skip (proactive disabled / nothing to do).
 
-        The scheduler already chose and stamped the due tasks when it fired
-        the heartbeat; the trigger's description lists them with their
-        instructions, so the run never re-derives what is due.
+        Cron jobs: the scheduler already chose and stamped the due jobs; the
+        trigger's description lists them with their instructions, so the run
+        never re-derives what is due. Heartbeat: the description carries the
+        checklist the run must go through.
         """
         from app.ui_layer.settings.proactive_settings import is_proactive_enabled
 
@@ -945,21 +931,27 @@ class AgentBase:
             logger.info("[PROACTIVE] Proactive mode is disabled, skipping trigger")
             return None
 
-        if trigger.source == TriggerSource.PROACTIVE_HEARTBEAT.value:
-            task_ids = (trigger.payload or {}).get("proactive_task_ids") or []
-            if not task_ids:
-                logger.info("[PROACTIVE] Heartbeat carries no due tasks, skipping")
+        action_sets = ["file_operations", "proactive", "web_research"]
+        if trigger.source == TriggerSource.CRON_JOB.value:
+            job_ids = (trigger.payload or {}).get("cron_job_ids") or []
+            if not job_ids:
+                logger.info("[PROACTIVE] Cron-job trigger carries no jobs, skipping")
                 return None
+            workflow = {
+                "run_source": TriggerSource.CRON_JOB.value,
+                "workflow_skills": ["cron-job-runner"],
+                "workflow_action_sets": action_sets,
+            }
+            logger.info(f"[PROACTIVE] Cron-job run: {', '.join(job_ids)}")
+            return trigger.next_action_description, workflow
+
+        if trigger.source == TriggerSource.PROACTIVE_HEARTBEAT.value:
             workflow = {
                 "run_source": TriggerSource.PROACTIVE_HEARTBEAT.value,
                 "workflow_skills": ["heartbeat-processor"],
-                "workflow_action_sets": [
-                    "file_operations",
-                    "proactive",
-                    "web_research",
-                ],
+                "workflow_action_sets": action_sets,
             }
-            logger.info(f"[PROACTIVE] Heartbeat run: {', '.join(task_ids)}")
+            logger.info("[PROACTIVE] Heartbeat run")
             return trigger.next_action_description, workflow
 
         # Planner
@@ -970,8 +962,7 @@ class AgentBase:
         instruction = (
             f"Run the {scope} planner: follow the {scope}-planner skill, update "
             f"the Goals, Plan, and Status section of PROACTIVE.md, then end with "
-            f"ONE send_message that is the user's {brief}. That message is "
-            f"posted to the user's main chat."
+            f"ONE send_message: the user's {brief}."
         )
         workflow = {
             "run_source": TriggerSource.PROACTIVE_PLANNER.value,
@@ -980,92 +971,6 @@ class AgentBase:
         }
         logger.info(f"[PROACTIVE] Planner run: {scope}")
         return instruction, workflow
-
-    @staticmethod
-    def _background_causes(trigger: Trigger) -> tuple[list[str], list[str]]:
-        """(cause names, proactive task ids) of a background-session turn.
-
-        Built from typed trigger fields only. Heartbeat causes are named by
-        their tasks (resolved at run end), continuations by nothing.
-        """
-        payload = trigger.payload or {}
-        causes = payload.get("aggregated_triggers")
-        if causes is None:
-            causes = [
-                {"source": trigger.source, "name": payload.get("schedule_name") or ""}
-            ]
-        scheduled = {
-            TriggerSource.SCHEDULED.value,
-            TriggerSource.SCHEDULED_ONCE.value,
-            TriggerSource.SCHEDULED_IMMEDIATE.value,
-        }
-        unnamed = {
-            TriggerSource.PROACTIVE_HEARTBEAT.value,
-            TriggerSource.RUN_CONTINUATION.value,
-        }
-        names: list[str] = []
-        for cause in causes:
-            source = cause.get("source") or ""
-            name = (cause.get("name") or "").strip()
-            if source in unnamed:
-                continue
-            if source in scheduled:
-                names.append(f"Scheduled task: {name}" if name else "Scheduled task")
-            elif name:
-                names.append(name)
-        return names, list(payload.get("proactive_task_ids") or [])
-
-    async def _finish_background_run(self, failure: Optional[str] = None) -> None:
-        """Close the background run and post its ONE result into main.
-
-        A run that ended on a message posts that message, headed by what the
-        run was for; a run that failed posts a short note instead; a run that
-        ended without a message (end_turn) posts nothing. Each proactive task
-        the run carried gets the outcome logged on its PROACTIVE.md entry.
-        """
-        from app.scheduler.background import background_runs
-
-        run = background_runs.finish()
-        if run is None:
-            return
-
-        task_names = []
-        for task_id in run.proactive_task_ids:
-            task = self.proactive_manager.get_task(task_id)
-            task_names.append(task.name if task else task_id)
-        header = " · ".join(run.causes + task_names) or "Background task"
-
-        text = None
-        suggestions: list[str] = []
-        if failure is not None:
-            text = f"**{header}** did not finish: {failure}"
-        elif run.final_message:
-            text = f"**{header}**\n\n{run.final_message}"
-            suggestions = run.suggested_responses
-        if text:
-            try:
-                self.state_manager.record_agent_message(
-                    text,
-                    session_id=MAIN_SESSION_ID,
-                    suggested_responses=suggestions or None,
-                    allow_free_text=run.allow_free_text,
-                )
-                self._persist_session_stream(MAIN_SESSION_ID)
-            except Exception as e:
-                logger.error(f"[BACKGROUND] Failed to post result to main: {e}")
-
-        result = failure or run.final_message or "Finished without a message"
-        for task_id in run.proactive_task_ids:
-            try:
-                self.proactive_manager.record_outcome(
-                    task_id, result[:300], success=failure is None
-                )
-            except Exception as e:
-                logger.warning(f"[BACKGROUND] Outcome not recorded for {task_id}: {e}")
-        logger.info(
-            f"[BACKGROUND] Run finished ({header}): "
-            f"{'failed' if failure else 'posted' if text else 'silent'}"
-        )
 
     async def _apply_workflow_capabilities(
         self, session: Session, payload: dict
@@ -1698,13 +1603,6 @@ class AgentBase:
         if not await self._check_agent_limits(session.id):
             # Run is paused on the Continue/Stop prompt — not busy anymore.
             self._emit_run_state(session.id, "idle")
-            if session.id == BACKGROUND_SESSION_ID:
-                # Nobody can answer a prompt in the background session: the
-                # run ends here and main hears why.
-                self._remove_workflow_capabilities(session, trigger.payload or {})
-                await self._finish_background_run(
-                    failure="it reached its action or token limit."
-                )
             return
 
         run_ends = bool(action_output.get("run_ends", False))
@@ -1776,10 +1674,6 @@ class AgentBase:
 
         # Unload temporary workflow skills loaded at run start.
         self._remove_workflow_capabilities(session, run_payload)
-
-        # A background run's result goes to the main chat.
-        if session.id == BACKGROUND_SESSION_ID:
-            await self._finish_background_run()
 
         # Memory runs freeze the unprocessed buffers while they work —
         # release them when the run ends.
@@ -2254,11 +2148,6 @@ class AgentBase:
                 )
                 self._emit_run_state(session_id, "idle")
                 await self._display_react_error(session_id, info, critical=is_critical)
-                if session_id == BACKGROUND_SESSION_ID:
-                    await self._finish_background_run(
-                        failure=getattr(info, "message", None)
-                        or "the AI service failed."
-                    )
             else:
                 # Recoverable turn error: still tell the user what happened,
                 # but let the run continue so the LLM sees the error event
@@ -2368,11 +2257,6 @@ class AgentBase:
         new message).
         """
         label = "Action" if limit_type == "action" else "Token"
-
-        # The background session has no chat to answer in; its run ends and
-        # the main chat is told instead (see _finalize_turn).
-        if session_id == BACKGROUND_SESSION_ID:
-            return
 
         session = self.session_manager.get(session_id)
         session_suffix = f' in "{session.title}"' if session and session.title else ""
@@ -3336,7 +3220,7 @@ class AgentBase:
         self._recreate_session_streams()
         self.session_manager.clear_session(MAIN_SESSION_ID)
         for session in list(self.session_manager.sessions.values()):
-            if session.type in (SessionType.AGENT_APP, SessionType.BACKGROUND):
+            if session.type == SessionType.AGENT_APP:
                 self._clear_surviving_session(session)
 
         # 2. Stop file watcher to prevent interference during reset
@@ -3366,9 +3250,8 @@ class AgentBase:
         except Exception as e:
             logger.warning(f"[RESET] Failed to clear session storage: {e}")
 
-        # Recreate a fresh main (and background) session after the wipe.
+        # Recreate a fresh main session after the wipe.
         self.session_manager.ensure_main()
-        self.session_manager.ensure_background()
         # Step 7 also deleted the rows of the sessions that survive the reset:
         # persist them again so a restart restores them (and their streams).
         for session_id in list(self.session_manager.sessions):
@@ -3457,10 +3340,7 @@ class AgentBase:
                 get_usage_storage().clear_events()
                 self.session_manager.clear_session(MAIN_SESSION_ID)
                 for session in list(self.session_manager.sessions.values()):
-                    if session.type in (
-                        SessionType.AGENT_APP,
-                        SessionType.BACKGROUND,
-                    ):
+                    if session.type == SessionType.AGENT_APP:
                         self.session_manager.clear_session(session.id)
                 done.append(f"sessions ({count} chats deleted)")
             except Exception as e:
@@ -4463,13 +4343,7 @@ class AgentBase:
                 f"⚠️ A background trigger failed repeatedly and was "
                 f'parked: "{desc}". I won\'t retry it automatically — '
                 f"ask me to try again if it still matters.",
-                # Background runs have no visible chat: their dead letters
-                # are reported in main, like their results.
-                session_id=(
-                    MAIN_SESSION_ID
-                    if trig.session_id in (None, "", BACKGROUND_SESSION_ID)
-                    else trig.session_id
-                ),
+                session_id=trig.session_id or MAIN_SESSION_ID,
             )
 
         self.trigger_service.set_dead_letter_handler(_on_dead_letter)

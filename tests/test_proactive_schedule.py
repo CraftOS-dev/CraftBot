@@ -5,14 +5,16 @@ Proactive tasks and the scheduler (2026-11-11 study fixes).
 - Cron schedules fire in local time. croniter's get_next(float) read the
   naive local start as UTC, so in Tokyo the 30-minute heartbeat slept 569
   minutes between fires, and west of UTC it fired every minute.
-- "Due" is decided by code: each task has a slot per period, last_run is
-  stamped at dispatch, a missed slot runs once (late), and active_since keeps
-  a new, re-enabled or rescheduled task from firing a slot it never had.
+- Cron jobs (PROACTIVE.md "Cron Jobs"): "due" is decided by code. Each job
+  has a slot per period, last_run is stamped at dispatch, a missed slot runs
+  once (late), and active_since keeps a new, re-enabled or rescheduled job
+  from firing a slot it never had. The cron-job runner fires them at their
+  exact slot.
+- Heartbeat: every tick, a non-empty PROACTIVE.md "Heartbeat" checklist is
+  handed to one run; an empty one costs nothing.
 - PROACTIVE.md is re-read whenever it changed on disk, and saves write over
-  the file as it is now (a planner's Goals edit, a hand-added task survive).
-- The heartbeat fires exactly when a task is due and hands the run those
-  tasks; scheduler work runs in the background session and posts ONE result
-  into main.
+  the file as it is now (a planner's Goals edit, a hand-added job survive).
+- Every scheduler fire lands in the main session.
 - The LLM failure latch expires after a cooldown instead of waiting for a
   user chat message.
 """
@@ -27,15 +29,10 @@ from pathlib import Path
 
 import pytest
 
-from agent_core.core.session import (
-    BACKGROUND_SESSION_ID,
-    MAIN_SESSION_ID,
-    SessionType,
-)
+from agent_core.core.session import MAIN_SESSION_ID
 from app.proactive.manager import ProactiveManager
-from app.proactive.types import RecurringTask, validate_schedule_fields
-from app.scheduler.background import background_runs
-from app.scheduler.manager import BACKGROUND_RESULT_NOTE, SchedulerManager
+from app.proactive.types import CronJob, validate_schedule_fields
+from app.scheduler.manager import SchedulerManager
 from app.scheduler.parser import ScheduleParser
 from app.scheduler.types import ScheduledTask
 from app.triggers.sources import TriggerSource
@@ -120,8 +117,8 @@ class TestMonthlySchedule:
 # ─────────────────────────── Task slots and due ───────────────────────────
 
 
-def _task(frequency, time_=None, day=None, **kw) -> RecurringTask:
-    return RecurringTask(
+def _job(frequency, time_=None, day=None, **kw) -> CronJob:
+    return CronJob(
         id="t",
         name="T",
         frequency=frequency,
@@ -136,35 +133,35 @@ class TestSlots:
     NOW = datetime(2026, 11, 11, 10, 0)  # a Wednesday
 
     def test_daily(self):
-        t = _task("daily", "09:00")
+        t = _job("daily", "09:00")
         assert t.latest_slot(self.NOW) == datetime(2026, 11, 11, 9, 0)
         assert t.next_slot(self.NOW) == datetime(2026, 11, 12, 9, 0)
 
     def test_hourly_uses_the_minute(self):
-        t = _task("hourly", "00:15")
+        t = _job("hourly", "00:15")
         assert t.latest_slot(self.NOW) == datetime(2026, 11, 11, 9, 15)
         assert t.next_slot(self.NOW) == datetime(2026, 11, 11, 10, 15)
 
     def test_weekly(self):
-        t = _task("weekly", "17:00", "sunday")
+        t = _job("weekly", "17:00", "sunday")
         assert t.latest_slot(self.NOW) == datetime(2026, 11, 8, 17, 0)
         assert t.next_slot(self.NOW) == datetime(2026, 11, 15, 17, 0)
 
     def test_monthly_clamps_to_the_last_day(self):
-        t = _task("monthly", "08:00", "31")
+        t = _job("monthly", "08:00", "31")
         assert t.latest_slot(self.NOW) == datetime(2026, 10, 31, 8, 0)
         assert t.next_slot(self.NOW) == datetime(2026, 11, 30, 8, 0)
         assert t.next_slot(datetime(2027, 2, 15)) == datetime(2027, 2, 28, 8, 0)
 
     def test_defaults_to_midnight(self):
-        assert _task("daily").latest_slot(self.NOW) == datetime(2026, 11, 11, 0, 0)
+        assert _job("daily").latest_slot(self.NOW) == datetime(2026, 11, 11, 0, 0)
 
 
 class TestDue:
     NOW = datetime(2026, 11, 11, 10, 0)
 
     def test_due_after_slot_until_dispatched(self):
-        t = _task("daily", "09:00", active_since=datetime(2026, 11, 1))
+        t = _job("daily", "09:00", active_since=datetime(2026, 11, 1))
         assert t.is_due(self.NOW)
         t.mark_dispatched(self.NOW)
         assert not t.is_due(self.NOW)
@@ -172,7 +169,7 @@ class TestDue:
         assert t.next_due_at(self.NOW) == datetime(2026, 11, 12, 9, 0)
 
     def test_missed_slots_run_once_not_per_slot(self):
-        t = _task(
+        t = _job(
             "daily",
             "09:00",
             active_since=datetime(2026, 11, 1),
@@ -183,23 +180,23 @@ class TestDue:
         assert not t.is_due(self.NOW)
 
     def test_slot_before_active_since_never_runs(self):
-        t = _task("daily", "09:00", active_since=datetime(2026, 11, 11, 9, 30))
+        t = _job("daily", "09:00", active_since=datetime(2026, 11, 11, 9, 30))
         assert not t.is_due(self.NOW)
         assert t.next_due_at(self.NOW) == datetime(2026, 11, 12, 9, 0)
 
     def test_hourly_runs_once_an_hour(self):
-        t = _task("hourly", "00:00", active_since=datetime(2026, 11, 1))
+        t = _job("hourly", "00:00", active_since=datetime(2026, 11, 1))
         t.mark_dispatched(datetime(2026, 11, 11, 10, 0))
         assert not t.is_due(datetime(2026, 11, 11, 10, 30))
         assert t.is_due(datetime(2026, 11, 11, 11, 0))
 
     def test_disabled_is_never_due(self):
-        t = _task("daily", "09:00", enabled=False, active_since=datetime(2026, 11, 1))
+        t = _job("daily", "09:00", enabled=False, active_since=datetime(2026, 11, 1))
         assert not t.is_due(self.NOW)
         assert t.next_due_at(self.NOW) is None
 
     def test_outcome_does_not_reschedule(self):
-        t = _task("daily", "09:00", active_since=datetime(2026, 11, 1))
+        t = _job("daily", "09:00", active_since=datetime(2026, 11, 1))
         t.add_outcome("Scheduled for later")
         assert t.last_run is None and t.run_count == 0
         assert t.is_due(self.NOW)
@@ -221,8 +218,8 @@ class TestValidation:
             validate_schedule_fields(frequency, time_, day)
 
     def test_unquoted_yaml_time_reads_as_clock(self):
-        task = RecurringTask.from_dict({"id": "x", "frequency": "daily", "time": 540})
-        assert task.time == "09:00"
+        job = CronJob.from_dict({"id": "x", "frequency": "daily", "time": 540})
+        assert job.time == "09:00"
 
 
 # ─────────────────────────── PROACTIVE.md on disk ───────────────────────────
@@ -244,16 +241,16 @@ def _bump_mtime(path: Path) -> None:
 
 
 class TestProactiveFile:
-    def test_add_task_anchors_and_persists(self, proactive_file):
+    def test_add_job_anchors_and_persists(self, proactive_file):
         mgr = ProactiveManager(proactive_file)
         mgr.load()
-        task = mgr.add_task(
+        job = mgr.add_job(
             name="Brief", frequency="daily", instruction="x", time="09:00"
         )
-        assert task.active_since is not None
+        assert job.active_since is not None
         reloaded = ProactiveManager(proactive_file)
         reloaded.load()
-        assert reloaded.get_task(task.id).active_since is not None
+        assert reloaded.get_job(job.id).active_since is not None
 
     def test_save_keeps_a_planner_goals_edit(self, proactive_file):
         mgr = ProactiveManager(proactive_file)
@@ -264,67 +261,114 @@ class TestProactiveFile:
             encoding="utf-8",
         )
         _bump_mtime(proactive_file)
-        mgr.add_task(name="Brief", frequency="daily", instruction="x", time="09:00")
+        mgr.add_job(name="Brief", frequency="daily", instruction="x", time="09:00")
         assert "PLANNER GOAL" in proactive_file.read_text(encoding="utf-8")
 
-    def test_hand_added_task_is_seen_anchored_and_kept(self, proactive_file):
+    def test_hand_added_job_is_seen_kept_and_anchored_at_the_edit(self, proactive_file):
+        import os
+
         mgr = ProactiveManager(proactive_file)
         mgr.load()
+        slot = datetime.now() - timedelta(minutes=30)
         text = proactive_file.read_text(encoding="utf-8")
         block = (
             "### [DAILY] Hand added\n```yaml\nid: hand_added\nfrequency: daily\n"
-            'time: "09:00"\nenabled: true\ninstruction: y\n```\n\n'
+            f'time: "{slot:%H:%M}"\nenabled: true\ninstruction: y\n```\n\n'
         )
         proactive_file.write_text(
-            text.replace(
-                "<!-- PROACTIVE_TASKS_END -->",
-                block + "<!-- PROACTIVE_TASKS_END -->",
-                1,
-            ),
+            text.replace("<!-- CRON_JOBS_END -->", block + "<!-- CRON_JOBS_END -->", 1),
             encoding="utf-8",
         )
-        _bump_mtime(proactive_file)
-        task = mgr.get_task("hand_added")
-        assert task is not None and task.active_since is not None
-        assert "active_since" in proactive_file.read_text(encoding="utf-8")
-        mgr.add_task(name="Other", frequency="hourly", instruction="z")
+        # Written an hour ago, read only now: the 30-minutes-ago slot is
+        # after the edit, so it is owed a run (not skipped for the day).
+        written = (datetime.now() - timedelta(hours=1)).timestamp()
+        os.utime(proactive_file, (written, written))
+        job = mgr.get_job("hand_added")
+        assert job is not None
+        assert abs(job.active_since.timestamp() - written) < 2
+        assert job.is_due()
+        mgr.add_job(name="Other", frequency="hourly", instruction="z")
         assert "hand_added" in proactive_file.read_text(encoding="utf-8")
 
     def test_mark_dispatched_persists(self, proactive_file):
         mgr = ProactiveManager(proactive_file)
         mgr.load()
-        task = mgr.add_task(name="Brief", frequency="daily", instruction="x")
+        job = mgr.add_job(name="Brief", frequency="daily", instruction="x")
         when = datetime(2026, 11, 11, 9, 0, 1)
-        mgr.mark_dispatched([task.id], when)
+        mgr.mark_dispatched([job.id], when)
         reloaded = ProactiveManager(proactive_file)
         reloaded.load()
-        stored = reloaded.get_task(task.id)
+        stored = reloaded.get_job(job.id)
         assert stored.last_run == when and stored.run_count == 1
 
     def test_re_enabling_restarts_the_schedule(self, proactive_file):
         mgr = ProactiveManager(proactive_file)
         mgr.load()
-        task = mgr.add_task(
+        job = mgr.add_job(
             name="Brief", frequency="daily", instruction="x", enabled=False
         )
-        task.active_since = datetime(2020, 1, 1)
+        job.active_since = datetime(2020, 1, 1)
         mgr.save()
-        mgr.update_task(task.id, updates={"enabled": True})
-        assert mgr.get_task(task.id).active_since > datetime(2026, 1, 1)
+        mgr.update_job(job.id, updates={"enabled": True})
+        assert mgr.get_job(job.id).active_since > datetime(2026, 1, 1)
 
     def test_invalid_time_is_rejected(self, proactive_file):
         mgr = ProactiveManager(proactive_file)
         mgr.load()
         with pytest.raises(ValueError):
-            mgr.add_task(name="Bad", frequency="daily", instruction="x", time="7am")
+            mgr.add_job(name="Bad", frequency="daily", instruction="x", time="7am")
 
     def test_change_listener_fires_on_save(self, proactive_file):
         mgr = ProactiveManager(proactive_file)
         mgr.load()
         calls = []
         mgr.set_change_listener(lambda: calls.append(1))
-        mgr.add_task(name="Brief", frequency="daily", instruction="x")
+        mgr.add_job(name="Brief", frequency="daily", instruction="x")
         assert calls
+
+
+class TestHeartbeatChecklist:
+    def test_template_checklist_is_empty(self, proactive_file):
+        mgr = ProactiveManager(proactive_file)
+        mgr.load()
+        assert mgr.get_heartbeat_checklist() == ""
+
+    def test_set_and_read_back_between_the_markers(self, proactive_file):
+        mgr = ProactiveManager(proactive_file)
+        mgr.load()
+        mgr.set_heartbeat_checklist("- Check my inbox\n- Watch the deploy\n")
+        text = proactive_file.read_text(encoding="utf-8")
+        section = text[
+            text.index("<!-- HEARTBEAT_START -->") : text.index(
+                "<!-- HEARTBEAT_END -->"
+            )
+        ]
+        assert "- Check my inbox\n- Watch the deploy" in section
+        assert "No long-term goals defined yet." in text  # Goals untouched
+        reloaded = ProactiveManager(proactive_file)
+        reloaded.load()
+        assert (
+            reloaded.get_heartbeat_checklist() == "- Check my inbox\n- Watch the deploy"
+        )
+
+    def test_clearing_brings_back_the_placeholder(self, proactive_file):
+        mgr = ProactiveManager(proactive_file)
+        mgr.load()
+        mgr.set_heartbeat_checklist("- Check my inbox")
+        mgr.set_heartbeat_checklist("")
+        assert mgr.get_heartbeat_checklist() == ""
+        assert "Add what the heartbeat should check" in proactive_file.read_text(
+            encoding="utf-8"
+        )
+
+    def test_cron_job_saves_keep_the_checklist(self, proactive_file):
+        mgr = ProactiveManager(proactive_file)
+        mgr.load()
+        mgr.set_heartbeat_checklist("- Check my inbox")
+        mgr.add_job(name="Brief", frequency="daily", instruction="x")
+        reloaded = ProactiveManager(proactive_file)
+        reloaded.load()
+        assert reloaded.get_heartbeat_checklist() == "- Check my inbox"
 
 
 # ─────────────────────────── Scheduler fires ───────────────────────────
@@ -357,7 +401,7 @@ def _scheduler(proactive_file):
     heartbeat = ScheduledTask(
         id="heartbeat",
         name="Heartbeat",
-        instruction="Run the PROACTIVE.md tasks that are due",
+        instruction="Go through the Heartbeat checklist in PROACTIVE.md",
         schedule=ScheduleParser.parse("*/30 * * * *"),
         skills=["heartbeat-processor"],
         payload={"type": "proactive_heartbeat"},
@@ -366,95 +410,144 @@ def _scheduler(proactive_file):
     return sm, mgr, heartbeat
 
 
-def _overdue_task(mgr):
-    """A daily task whose slot was an hour ago, active for days."""
+def _overdue_job(mgr):
+    """A daily cron job whose slot was an hour ago, active for days."""
     slot = datetime.now() - timedelta(hours=1)
-    task = mgr.add_task(
+    job = mgr.add_job(
         name="Morning brief",
         frequency="daily",
         instruction="Brief the user",
         time=f"{slot:%H:%M}",
         permission_tier=1,
     )
-    stored = mgr.get_task(task.id)
+    stored = mgr.get_job(job.id)
     stored.active_since = datetime.now() - timedelta(days=3)
     mgr.save()
-    return task.id
+    return job.id
 
 
-class TestHeartbeatFire:
-    def test_due_task_goes_to_background_with_its_id_and_is_stamped(
+class TestCronJobRunner:
+    def test_due_job_goes_to_main_with_its_id_and_is_stamped(
         self, proactive_file, proactive_on
     ):
-        sm, mgr, heartbeat = _scheduler(proactive_file)
-        task_id = _overdue_task(mgr)
+        sm, mgr, _ = _scheduler(proactive_file)
+        job_id = _overdue_job(mgr)
 
-        asyncio.run(sm._fire_schedule(heartbeat))
+        asyncio.run(sm._fire_cron_jobs())
 
         (spec,) = sm._trigger_service.specs
-        assert spec.session_id == BACKGROUND_SESSION_ID
-        assert spec.source == TriggerSource.PROACTIVE_HEARTBEAT
-        assert spec.payload["proactive_task_ids"] == [task_id]
-        assert spec.dedup_key.startswith(f"proactive:{task_id}@")
+        assert spec.session_id == MAIN_SESSION_ID
+        assert spec.source == TriggerSource.CRON_JOB
+        assert spec.payload["cron_job_ids"] == [job_id]
+        assert spec.payload["workflow_skills"] == ["cron-job-runner"]
+        assert spec.dedup_key.startswith(f"cron:{job_id}@")
         assert "Brief the user" in spec.description
         assert "Late:" in spec.description
-        assert mgr.get_task(task_id).run_count == 1
+        assert "cron_job_update(job_id, add_outcome=" in spec.description
+        assert mgr.get_job(job_id).run_count == 1
 
-        asyncio.run(sm._fire_schedule(heartbeat))
+        asyncio.run(sm._fire_cron_jobs())
         assert len(sm._trigger_service.specs) == 1  # nothing due any more
 
     def test_failed_stamp_never_refires_the_slot(self, proactive_file, proactive_on):
-        sm, mgr, heartbeat = _scheduler(proactive_file)
-        _overdue_task(mgr)
+        sm, mgr, _ = _scheduler(proactive_file)
+        _overdue_job(mgr)
 
         def locked(*_a, **_k):
             raise OSError("file locked")
 
         mgr.mark_dispatched = locked
         with pytest.raises(OSError):
-            asyncio.run(sm._fire_schedule(heartbeat))
-        asyncio.run(sm._fire_schedule(heartbeat))
+            asyncio.run(sm._fire_cron_jobs())
+        asyncio.run(sm._fire_cron_jobs())
         assert len(sm._trigger_service.specs) == 1
 
     def test_nothing_due_emits_nothing(self, proactive_file, proactive_on):
-        sm, mgr, heartbeat = _scheduler(proactive_file)
-        asyncio.run(sm._fire_schedule(heartbeat))
+        sm, mgr, _ = _scheduler(proactive_file)
+        asyncio.run(sm._fire_cron_jobs())
         assert sm._trigger_service.specs == []
 
     def test_proactive_off_emits_nothing_and_stamps_nothing(
         self, proactive_file, proactive_on
     ):
-        sm, mgr, heartbeat = _scheduler(proactive_file)
-        task_id = _overdue_task(mgr)
+        sm, mgr, _ = _scheduler(proactive_file)
+        job_id = _overdue_job(mgr)
         proactive_on["enabled"] = False
-        asyncio.run(sm._fire_schedule(heartbeat))
+        asyncio.run(sm._fire_cron_jobs())
         assert sm._trigger_service.specs == []
-        assert mgr.get_task(task_id).run_count == 0
+        assert mgr.get_job(job_id).run_count == 0
 
-    def test_heartbeat_wakes_exactly_when_a_task_is_due(
+    def test_runner_fires_a_due_job_and_sleeps_until_the_next(
         self, proactive_file, proactive_on
     ):
-        sm, mgr, heartbeat = _scheduler(proactive_file)
-        now = time.time()
-        assert sm._next_fire(heartbeat, now) > now  # only the interval tick
-        _overdue_task(mgr)
-        assert sm._next_fire(heartbeat, now) == pytest.approx(now, abs=1)
+        sm, mgr, _ = _scheduler(proactive_file)
+        _overdue_job(mgr)
 
-    def test_task_change_rearms_the_heartbeat(self, proactive_file, proactive_on):
-        sm, mgr, heartbeat = _scheduler(proactive_file)
+        async def scenario():
+            sm._is_running = True
+            sm._loop = asyncio.get_running_loop()
+            sm._cron_wake = asyncio.Event()
+            task = asyncio.create_task(sm._cron_jobs_loop())
+            for _ in range(50):
+                if sm._trigger_service.specs:
+                    break
+                await asyncio.sleep(0.02)
+            sm._is_running = False
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+        asyncio.run(scenario())
+        assert len(sm._trigger_service.specs) == 1
+
+    def test_job_change_rearms_the_runner(self, proactive_file, proactive_on):
+        sm, mgr, _ = _scheduler(proactive_file)
 
         async def scenario():
             sm._loop = asyncio.get_running_loop()
-            event = asyncio.Event()
-            sm._wake_events[heartbeat.id] = event
-            mgr.add_task(name="Brief", frequency="daily", instruction="x")
-            return event.is_set()
+            sm._cron_wake = asyncio.Event()
+            mgr.add_job(name="Brief", frequency="daily", instruction="x")
+            return sm._cron_wake.is_set()
 
         assert asyncio.run(scenario())
 
 
+class TestHeartbeat:
+    def test_empty_checklist_never_fires(self, proactive_file, proactive_on):
+        sm, mgr, heartbeat = _scheduler(proactive_file)
+        assert sm._should_fire(heartbeat) is False
+        asyncio.run(sm._fire_schedule(heartbeat))
+        assert sm._trigger_service.specs == []
+
+    def test_checklist_goes_to_main_in_the_instruction(
+        self, proactive_file, proactive_on
+    ):
+        sm, mgr, heartbeat = _scheduler(proactive_file)
+        mgr.set_heartbeat_checklist("- Check my inbox for urgent client email")
+        asyncio.run(sm._fire_schedule(heartbeat))
+        (spec,) = sm._trigger_service.specs
+        assert spec.source == TriggerSource.PROACTIVE_HEARTBEAT
+        assert spec.session_id == MAIN_SESSION_ID
+        assert "- Check my inbox for urgent client email" in spec.description
+        assert "end_turn" in spec.description
+
+    def test_proactive_off_stops_the_heartbeat(self, proactive_file, proactive_on):
+        sm, mgr, heartbeat = _scheduler(proactive_file)
+        mgr.set_heartbeat_checklist("- Check my inbox")
+        proactive_on["enabled"] = False
+        assert sm._should_fire(heartbeat) is False
+
+    def test_heartbeat_keeps_its_own_interval(self, proactive_file, proactive_on):
+        sm, mgr, heartbeat = _scheduler(proactive_file)
+        _overdue_job(mgr)  # a due cron job does not pull the heartbeat in
+        start = _ts(2026, 11, 6, 10, 1)
+        nxt = ScheduleParser.calculate_next_fire_time(
+            heartbeat.schedule, from_time=start
+        )
+        assert nxt == _ts(2026, 11, 6, 10, 30)
+
+
 class TestRouting:
-    def test_memory_stays_in_main(self, monkeypatch):
+    def test_memory_runs_in_main(self, monkeypatch):
         import app.ui_layer.settings.memory_settings as memory_settings
 
         monkeypatch.setattr(memory_settings, "memory_scheduled_run_due", lambda: True)
@@ -470,9 +563,8 @@ class TestRouting:
         asyncio.run(sm._fire_schedule(task))
         (spec,) = sm._trigger_service.specs
         assert spec.session_id == MAIN_SESSION_ID
-        assert BACKGROUND_RESULT_NOTE not in spec.description
 
-    def test_user_schedule_runs_in_background(self):
+    def test_user_schedule_runs_in_main(self):
         sm = SchedulerManager()
         sm._trigger_service = _FakeTriggerService()
         task = ScheduledTask(
@@ -483,15 +575,14 @@ class TestRouting:
         )
         asyncio.run(sm._fire_schedule(task))
         (spec,) = sm._trigger_service.specs
-        assert spec.session_id == BACKGROUND_SESSION_ID
-        assert BACKGROUND_RESULT_NOTE in spec.description
+        assert spec.session_id == MAIN_SESSION_ID
 
-    def test_immediate_runs_in_background(self):
+    def test_immediate_runs_in_main(self):
         sm = SchedulerManager()
         sm._trigger_service = _FakeTriggerService()
         asyncio.run(sm.queue_immediate_trigger(name="Now", instruction="Do it"))
         (spec,) = sm._trigger_service.specs
-        assert spec.session_id == BACKGROUND_SESSION_ID
+        assert spec.session_id == MAIN_SESSION_ID
 
 
 # ─────────────────────────── LLM failure latch ───────────────────────────
@@ -528,152 +619,6 @@ class TestFailureLatch:
 
         with pytest.raises(LLMConsecutiveFailureError):
             interface.LLMInterface._check_failure_latch(self._fake())
-
-
-# ─────────────────────────── Background results ───────────────────────────
-
-
-@pytest.fixture
-def agent():
-    from app.agent_base import AgentBase
-
-    background_runs.finish()
-    bare = AgentBase.__new__(AgentBase)
-    bare.posted = []
-    bare.outcomes = []
-    bare.state_manager = types.SimpleNamespace(
-        record_agent_message=lambda text, **kw: bare.posted.append((text, kw))
-    )
-    bare.proactive_manager = types.SimpleNamespace(
-        get_task=lambda task_id: types.SimpleNamespace(name="Morning brief"),
-        record_outcome=lambda task_id, result, success=True: bare.outcomes.append(
-            (task_id, result, success)
-        ),
-    )
-    bare._persist_session_stream = lambda session_id: None
-    yield bare
-    background_runs.finish()
-
-
-class TestBackgroundResult:
-    def test_final_message_is_posted_to_main_once(self, agent):
-        background_runs.start(["Daily Planning"], ["daily_brief"])
-        background_runs.note_final_message("Today: ship it", ["Yes", "No"])
-        asyncio.run(agent._finish_background_run())
-
-        ((text, kw),) = agent.posted
-        assert text == "**Daily Planning · Morning brief**\n\nToday: ship it"
-        assert kw["session_id"] == MAIN_SESSION_ID
-        assert kw["suggested_responses"] == ["Yes", "No"]
-        assert agent.outcomes == [("daily_brief", "Today: ship it", True)]
-
-    def test_end_turn_posts_nothing(self, agent):
-        background_runs.start([], ["hourly_scan"])
-        asyncio.run(agent._finish_background_run())
-        assert agent.posted == []
-        assert agent.outcomes == [("hourly_scan", "Finished without a message", True)]
-
-    def test_failure_posts_a_note(self, agent):
-        background_runs.start(["Scheduled task: Call mom"], [])
-        background_runs.note_final_message("partial")
-        asyncio.run(agent._finish_background_run(failure="the AI service failed."))
-        ((text, _),) = agent.posted
-        assert (
-            text
-            == "**Scheduled task: Call mom** did not finish: the AI service failed."
-        )
-
-    def test_progress_updates_are_not_the_result(self):
-        from app.internal_action_interface import InternalActionInterface
-
-        background_runs.finish()
-        background_runs.start(["X"], [])
-        InternalActionInterface._note_background_result(
-            "working...", BACKGROUND_SESSION_ID, continue_work=True
-        )
-        InternalActionInterface._note_background_result(
-            "main chat", MAIN_SESSION_ID, continue_work=False
-        )
-        assert background_runs.finish().final_message is None
-
-    def test_causes_come_from_typed_trigger_fields(self):
-        from agent_core.core.trigger import Trigger
-        from app.agent_base import AgentBase
-
-        trig = Trigger(
-            fire_at=0,
-            priority=50,
-            next_action_description="",
-            payload={
-                "proactive_task_ids": ["a"],
-                "aggregated_triggers": [
-                    {
-                        "source": TriggerSource.PROACTIVE_HEARTBEAT.value,
-                        "name": "Heartbeat",
-                    },
-                    {
-                        "source": TriggerSource.PROACTIVE_PLANNER.value,
-                        "name": "Daily Planning",
-                    },
-                    {"source": TriggerSource.SCHEDULED_ONCE.value, "name": "Call mom"},
-                ],
-            },
-            session_id=BACKGROUND_SESSION_ID,
-            source=TriggerSource.PROACTIVE_HEARTBEAT.value,
-        )
-        causes, task_ids = AgentBase._background_causes(trig)
-        assert causes == ["Daily Planning", "Scheduled task: Call mom"]
-        assert task_ids == ["a"]
-
-    def test_merged_batches_keep_every_task_id(self):
-        from agent_core.core.trigger import Trigger
-        from app.triggers.runtime import _merge_triggers
-
-        def trig(ids):
-            return Trigger(
-                fire_at=0,
-                priority=50,
-                next_action_description="d",
-                payload={"proactive_task_ids": ids},
-                session_id=BACKGROUND_SESSION_ID,
-                source=TriggerSource.PROACTIVE_HEARTBEAT.value,
-            )
-
-        merged = _merge_triggers(trig(["a"]), [trig(["b", "a"])])
-        assert merged.payload["proactive_task_ids"] == ["a", "b"]
-
-
-# ─────────────────────────── Background session ───────────────────────────
-
-
-@pytest.fixture
-def sessions(tmp_path, monkeypatch):
-    from agent_core.core.impl.session.manager import SessionManager
-    from agent_core.core.state.session import StateSession
-    from app.action.action_set import action_set_manager
-
-    monkeypatch.setattr(action_set_manager, "actions_in_sets", lambda *a, **k: [])
-    monkeypatch.setattr(action_set_manager, "list_all_sets", lambda: {})
-    manager = SessionManager(event_stream_manager=None, workspace_root=tmp_path)
-    yield manager
-    for sid in list(manager.sessions):
-        StateSession.end(sid)
-
-
-class TestBackgroundSession:
-    def test_ensure_background_is_idempotent_and_undeletable(self, sessions):
-        first = sessions.ensure_background()
-        assert first.id == BACKGROUND_SESSION_ID
-        assert first.type == SessionType.BACKGROUND
-        assert first.title == "Background"
-        assert sessions.ensure_background() is first
-        assert sessions.delete_session(BACKGROUND_SESSION_ID) is False
-        assert BACKGROUND_SESSION_ID in sessions.sessions
-
-    def test_main_still_lists_first(self, sessions):
-        sessions.ensure_background()
-        sessions.ensure_main()
-        assert sessions.list_sessions()[0].id == MAIN_SESSION_ID
 
 
 # ─────────────────────────── Settings helpers ───────────────────────────

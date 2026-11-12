@@ -246,11 +246,54 @@
   },
   "proactive": {
     "title": "능동적 동작",
-    "subtitle": "에이전트가 자율적으로 행동하는 시점을 구성하고 예약된 작업을 관리합니다",
+    "subtitle": "에이전트가 스스로 일하게 하세요: 정해진 시간에 작업 실행, 중요한 일 지켜보기, 미리 계획하기",
     "enableLabel": "능동 모드 사용",
-    "enableDesc": "능동적 작업과 플래너를 백그라운드에서 실행하고 결과를 메인 채팅에 게시합니다.",
+    "enableDesc": "에이전트가 백그라운드에서 일하고, 완료된 일이나 확인이 필요한 일을 메인 채팅으로 알려 줍니다.",
+    "cronJobs": {
+      "title": "크론 작업",
+      "desc": "매일 아침 9시나 매주 금요일처럼 정해진 시간에 에이전트가 하는 일입니다. 결과는 메인 채팅으로 받습니다.",
+      "add": "크론 작업 추가",
+      "search": "크론 작업 검색...",
+      "loading": "크론 작업 불러오는 중...",
+      "empty": "아직 크론 작업이 없습니다.",
+      "createFirst": "첫 크론 작업 만들기",
+      "count_one": "작업 {{count}}개",
+      "count_other": "작업 {{count}}개",
+      "deleteTitle": "크론 작업 삭제",
+      "deleteMessage": "이 크론 작업을 삭제하시겠습니까?",
+      "searchCount": "{{total}}개 중 {{shown}}개",
+      "tip": {
+        "aria": "크론 작업 정보",
+        "title": "크론 작업의 작동 방식",
+        "line1": "'크론 작업'은 일정에 따라 실행되는 작업을 흔히 부르는 이름입니다. 각 작업은 지시와 시간(매시간, 매일, 매주, 매월)으로 이루어집니다.",
+        "line2": "그 시간이 되면 에이전트가 백그라운드에서 작업을 하고 결과 하나를 메인 채팅에 게시합니다. 그때 에이전트가 실행 중이 아니었다면 다시 실행될 때 작업을 하며, 더 이상 의미가 없으면 건너뜁니다.",
+        "line3": "채팅으로 요청할 수도 있습니다. 예: “매주 금요일 오후 5시에 한 주를 정리해 줘”. 작업은 에이전트 파일의 PROACTIVE.md에 저장됩니다."
+      }
+    },
+    "heartbeat": {
+      "title": "하트비트",
+      "desc": "에이전트가 주기적으로 아래 체크리스트를 확인하고, 주의가 필요한 일이 있을 때만 나섭니다.",
+      "label": "하트비트",
+      "rowDesc": "체크리스트에 항목이 있을 때만 실행됩니다",
+      "interval": "간격",
+      "everyMinutes_one": "{{count}}분마다",
+      "everyMinutes_other": "{{count}}분마다",
+      "everyHours_one": "{{count}}시간마다",
+      "everyHours_other": "{{count}}시간마다",
+      "checklistLabel": "체크리스트",
+      "checklistPlaceholder": "- 고객의 긴급 이메일이 있는지 받은편지함 확인\n- 야간 빌드가 실패하면 알려주기",
+      "checklistHint": "한 줄에 한 항목. 에이전트는 하트비트마다 이것을 읽습니다. 비워 두면 하트비트가 실행되지 않습니다.",
+      "idle": "실행 안 함: 체크리스트가 비어 있습니다",
+      "tip": {
+        "aria": "하트비트 정보",
+        "title": "하트비트의 작동 방식",
+        "line1": "정해진 간격마다 에이전트가 깨어나 체크리스트를 확인하며, 항목에 필요하면 연결된 앱도 사용합니다.",
+        "line2": "확인할 일이 없으면 메시지 없이 다시 잠듭니다. 있으면 백그라운드에서 처리하고 결과를 메인 채팅에 게시합니다.",
+        "line3": "체크리스트는 에이전트 파일의 PROACTIVE.md에 있는 Heartbeat 섹션입니다. 채팅으로 요청하면 에이전트가 수정할 수도 있습니다."
+      }
+    },
     "plannersTitle": "플래너",
-    "plannersDesc": "각 플래너는 메인 채팅에 짧은 요약을 게시합니다",
+    "plannersDesc": "에이전트가 정기적으로 목표와 다가오는 일을 살펴보고 미리 계획한 뒤, 메인 채팅으로 짧은 요약을 보냅니다.",
     "planners": {
       "dayLabel": "일일 플래너",
       "dayDesc": "하루를 계획하고 아침 브리핑을 보냅니다",
@@ -262,18 +305,15 @@
       "time": "시간",
       "everyDay": "매일",
       "monthDay": "{{day}}일",
-      "monthDayHint": "29~31일은 짧은 달에는 그 달의 마지막 날에 실행됩니다"
+      "monthDayHint": "29~31일은 짧은 달에는 그 달의 마지막 날에 실행됩니다",
+      "tip": {
+        "aria": "플래너 정보",
+        "title": "플래너가 하는 일",
+        "line1": "일일 플래너는 오늘 집중할 일을 정합니다. 주간 플래너는 지난 한 주를 돌아보고 다음 주를 계획합니다. 월간 플래너는 장기 목표의 진행 상황을 확인합니다.",
+        "line2": "각 플래너는 최근 채팅과 캨린더 같은 연결된 앱을 살펴본 뒤, PROACTIVE.md(Goals, Plan, and Status 섹션)에 보관하는 계획을 업데이트합니다.",
+        "line3": "계획은 서로 이어집니다. 월간 목표가 주간 계획을 이끌고, 주간 계획이 매일을 이끝니다."
+      }
     },
-    "tasksTitle": "능동적 작업",
-    "tasksDesc": "PROACTIVE.md에 정의된 작업입니다. 각 작업은 설정된 시간에 실행되고 결과를 메인 채팅에 게시합니다",
-    "addTask": "작업 추가",
-    "searchTasks": "작업 검색...",
-    "searchCount": "{{total}}개 중 {{shown}}개",
-    "loadingTasks": "작업 불러오는 중...",
-    "noTasks": "아직 정의된 능동적 작업이 없습니다.",
-    "createFirst": "첫 작업 만들기",
-    "taskCount_one": "작업 {{count}}개",
-    "taskCount_other": "작업 {{count}}개",
     "active": "활성",
     "disabled": "비활성",
     "meta": {
@@ -282,10 +322,6 @@
       "runs": "실행: {{value}}",
       "last": "마지막: {{date}}"
     },
-    "resetTitle": "능동적 작업 초기화",
-    "resetDesc": "모든 능동적 작업을 제거하고 PROACTIVE.md를 기본 템플릿에서 복원합니다. 이 작업은 되돌릴 수 없습니다.",
-    "resetButton": "모든 작업 초기화",
-    "resetting": "초기화 중...",
     "priority": {
       "high": "높음",
       "medium": "보통",
@@ -301,29 +337,6 @@
       "weekly": "매주",
       "monthly": "매월"
     },
-    "deleteConfirmTitle": "작업 삭제",
-    "deleteConfirmMessage": "이 작업을 삭제하시겠습니까?",
-    "resetConfirmTitle": "작업 초기화",
-    "resetConfirmMessage": "모든 능동적 작업을 초기화하시겠습니까? 템플릿에서 기본 PROACTIVE.md를 복원합니다.",
-    "taskForm": {
-      "editTitle": "작업 편집",
-      "addTitle": "능동적 작업 추가",
-      "name": "작업 이름",
-      "namePlaceholder": "예: 이메일 확인",
-      "frequency": "빈도",
-      "priority": "우선순위",
-      "priorityHint": "(높을수록 먼저 실행)",
-      "time": "시간 (HH:MM)",
-      "dayOfWeek": "요일",
-      "selectDay": "요일 선택",
-      "notifyLabel": "실행 전에 알림",
-      "notifyDesc": "활성화하면 에이전트가 이 작업을 실행하기 전에 알려줍니다. 비활성화하면 작업이 무음으로 실행됩니다.",
-      "instruction": "지시",
-      "instructionPlaceholder": "에이전트가 해야 할 일을 설명하세요...",
-      "instructionHint": "구체적이고 실행 가능하게 작성하세요. 에이전트는 실행 중 이 지시를 따릅니다.",
-      "enabledLabel": "사용",
-      "enabledDesc": "하트비트 동안 작업이 실행됩니다"
-    },
     "weekdays": {
       "monday": "월요일",
       "tuesday": "화요일",
@@ -334,15 +347,41 @@
       "sunday": "일요일"
     },
     "toast": {
-      "scheduleFailed": "일정을 업데이트하지 못했습니다"
+      "scheduleFailed": "일정을 업데이트하지 못했습니다",
+      "checklistFailed": "체크리스트를 저장하지 못했습니다"
     },
-    "catchUp": {
-      "label": "놓친 작업 보완",
-      "desc": "CraftBot이 꺼져 있거나 절전 중일 때 놓친 작업을 확인하는 주기",
-      "everyMinutes_one": "{{count}}분마다",
-      "everyMinutes_other": "{{count}}분마다",
-      "everyHours_one": "{{count}}시간마다",
-      "everyHours_other": "{{count}}시간마다"
+    "cronJobForm": {
+      "editTitle": "크론 작업 편집",
+      "addTitle": "크론 작업 추가",
+      "name": "작업 이름",
+      "namePlaceholder": "예: 이메일 확인",
+      "frequency": "빈도",
+      "priority": "우선순위",
+      "priorityHint": "(높을수록 먼저 실행)",
+      "time": "시간 (HH:MM)",
+      "dayOfWeek": "요일",
+      "selectDay": "요일 선택",
+      "notifyLabel": "실행 전에 알림",
+      "notifyDesc": "켜면 에이전트가 이 작업의 결과를 알려줍니다. 끄면 작업이 조용히 실행되고 주의가 필요한 것만 알려줍니다.",
+      "instruction": "지시",
+      "instructionPlaceholder": "에이전트가 해야 할 일을 설명하세요...",
+      "instructionHint": "구체적이고 실행 가능하게 작성하세요. 에이전트는 실행 중 이 지시를 따릅니다.",
+      "enabledLabel": "사용",
+      "enabledDesc": "작업이 설정된 시간에 실행됩니다"
+    },
+    "reset": {
+      "title": "기본값으로 초기화",
+      "desc": "모든 크론 작업을 삭제하고, 하트비트 체크리스트를 비우고, 플래너의 계획을 지웁니다. 되돌릴 수 없습니다.",
+      "button": "기본값으로 초기화",
+      "confirmTitle": "기본값으로 초기화할까요?",
+      "confirmMessage": "모든 크론 작업이 삭제되고, 하트비트 체크리스트가 비워지며, 플래너의 계획이 지워집니다. 되돌릴 수 없습니다.",
+      "resetting": "초기화 중...",
+      "tip": {
+        "aria": "초기화 정보",
+        "title": "초기화하면 일어나는 일",
+        "line1": "크론 작업, 하트비트 체크리스트, 플래너의 계획은 모두 에이전트 파일의 PROACTIVE.md라는 파일 하나에 저장됩니다.",
+        "line2": "초기화하면 이 파일이 원래 버전으로 돌아갑니다. 플래너 시간, 하트비트 간격, 메모리와 채팅은 그대로 유지됩니다."
+      }
     }
   },
   "memory": {

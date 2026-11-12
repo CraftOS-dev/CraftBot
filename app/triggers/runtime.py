@@ -122,7 +122,7 @@ def _merge_triggers(base: Trigger, extras: list[Trigger]) -> Trigger:
     london*" as the user settling on the last item and drops the rest
     (observed in production). Routing fields (platform/contact/channel)
     take the most recent non-empty value; workflow skill/action-set
-    lists and proactive task ids union.
+    lists union.
     """
     group = [base] + extras
 
@@ -209,11 +209,7 @@ def _merge_triggers(base: Trigger, extras: list[Trigger]) -> Trigger:
         for key in _IDENTITY_KEYS:
             if p.get(key) and not base.payload.get(key):
                 base.payload[key] = p[key]
-        for list_key in (
-            "workflow_skills",
-            "workflow_action_sets",
-            "proactive_task_ids",
-        ):
+        for list_key in ("workflow_skills", "workflow_action_sets"):
             incoming = p.get(list_key)
             if incoming:
                 current = list(base.payload.get(list_key) or [])

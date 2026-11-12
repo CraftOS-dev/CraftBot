@@ -19,7 +19,7 @@
     {
       "id": "heartbeat",
       "name": "Heartbeat",
-      "instruction": "Run the PROACTIVE.md tasks that are due",
+      "instruction": "Go through the Heartbeat checklist in PROACTIVE.md",
       "schedule": "*/30 * * * *",
       "enabled": true,
       "priority": 50,

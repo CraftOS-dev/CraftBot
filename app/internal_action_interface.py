@@ -622,31 +622,6 @@ class InternalActionInterface:
             allow_free_text=allow_free_text,
             ui_artifact=ui_artifact,
         )
-        InternalActionInterface._note_background_result(
-            message, session_id, continue_work, suggested_responses, allow_free_text
-        )
-
-    @staticmethod
-    def _note_background_result(
-        message: str,
-        session_id: Optional[str],
-        continue_work: bool,
-        suggested_responses: Optional[List[str]] = None,
-        allow_free_text: bool = True,
-    ) -> None:
-        """A run-ending message in the background session is that run's
-        result: keep it so run end can post it into the main chat."""
-        from agent_core.core.session import BACKGROUND_SESSION_ID
-
-        if session_id != BACKGROUND_SESSION_ID or continue_work:
-            return
-        from app.scheduler.background import background_runs
-
-        background_runs.note_final_message(
-            message,
-            suggested_responses=suggested_responses,
-            allow_free_text=allow_free_text,
-        )
 
     @staticmethod
     async def do_chat_with_attachment(
@@ -704,12 +679,6 @@ class InternalActionInterface:
 
         if errors:
             return {"success": False, "files_sent": 0, "errors": errors}
-
-        InternalActionInterface._note_background_result(
-            "\n".join([message, *(f"Attachment: {fp}" for fp in file_paths)]),
-            session_id,
-            continue_work,
-        )
 
         ui_adapter = InternalActionInterface.ui_adapter
 

@@ -31,7 +31,7 @@ class Resource(str, Enum):
     SKILLS = "skills"  # skill list, skill meta and slash commands
     MCP_SERVERS = "mcp_servers"
     INTEGRATIONS = "integrations"
-    PROACTIVE = "proactive"  # recurring tasks and proactive mode
+    PROACTIVE = "proactive"  # cron jobs, heartbeat checklist, proactive mode
     SCHEDULER = "scheduler"  # scheduler config, memory + proactive schedules
     MEMORY = "memory"  # items, graph, indexed files and memory mode
     AGENT_FILES = "agent_files"  # ids = USER.md / AGENT.md / SOUL.md
@@ -133,10 +133,11 @@ _RESOURCE_BY_MESSAGE_TYPE: Dict[str, Resource] = {
     "session_updated": Resource.SESSIONS,
     **dict.fromkeys(
         (
-            "proactive_task_add",
-            "proactive_task_update",
-            "proactive_task_remove",
-            "proactive_tasks_reset",
+            "cron_job_add",
+            "cron_job_update",
+            "cron_job_remove",
+            "cron_jobs_reset",
+            "heartbeat_checklist_set",
             "proactive_mode_set",
         ),
         Resource.PROACTIVE,
@@ -202,7 +203,7 @@ _RESOURCE_BY_MESSAGE_TYPE: Dict[str, Resource] = {
 
 # Messages that change more than their primary resource. A reset restores
 # every agent markdown file from templates (the full reset and the "memory"
-# component both do), so memory and proactive tasks change with it.
+# component both do), so memory and cron jobs change with it.
 _ALSO_CHANGED_BY_MESSAGE_TYPE: Dict[str, Tuple[Resource, ...]] = {
     "reset": (Resource.MEMORY, Resource.PROACTIVE),
 }
@@ -212,7 +213,7 @@ _ALSO_CHANGED_BY_MESSAGE_TYPE: Dict[str, Tuple[Resource, ...]] = {
 _ID_FIELDS: Dict[Resource, Tuple[str, ...]] = {
     Resource.AGENT_APPS: ("projectId", "project.id"),
     Resource.SESSIONS: ("sessionId", "session.id"),
-    Resource.PROACTIVE: ("taskId",),
+    Resource.PROACTIVE: ("jobId",),
     Resource.MEMORY: ("itemId", "item.id"),
     Resource.SKILLS: ("name",),
     Resource.MCP_SERVERS: ("name",),

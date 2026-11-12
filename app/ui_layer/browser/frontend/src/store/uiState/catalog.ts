@@ -189,7 +189,7 @@ export const UI_STATE = {
     skillsSearch: defineUiState('settings.skills.search', '', 'session'),
     mcpSearch: defineUiState('settings.mcp.search', '', 'session'),
     integrationsSearch: defineUiState('settings.integrations.search', '', 'session'),
-    proactiveTaskSearch: defineUiState('settings.proactive.taskSearch', '', 'session'),
+    cronJobSearch: defineUiState('settings.proactive.cronJobSearch', '', 'session'),
     /** Project ids whose cards are expanded. */
     agentAppExpandedProjects: defineUiState<string[]>('settings.agentApp.expandedProjects', [], 'preference'),
     /** By orphaned project id. */

@@ -137,8 +137,8 @@ def test_mutation_replies_map_to_their_resource_with_ids():
         ),
         (
             {
-                "type": "proactive_task_remove",
-                "data": {"taskId": "t1", "success": True},
+                "type": "cron_job_remove",
+                "data": {"jobId": "t1", "success": True},
             },
             Resource.PROACTIVE,
             ["t1"],

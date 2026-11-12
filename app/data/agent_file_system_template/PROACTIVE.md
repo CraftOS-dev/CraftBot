@@ -3,34 +3,35 @@ version: "1.0"
 last_updated: null  # Auto-updated by system (format: YYYY-MM-DDTHH:MM:SSZ)
 ---
 
-# Proactive Tasks
+# Proactive
 
 <!--
 ================================================================================
 PROACTIVE MODULE OVERVIEW
 ================================================================================
-This file defines scheduled autonomous tasks that the agent executes without
-direct user prompts. The agent reads this file during scheduled heartbeats
-and planners to determine what actions to take.
+This file drives what the agent does without a user prompt. It has three parts:
+- Cron Jobs: jobs that run at their own set time.
+- Heartbeat: a checklist the agent goes through on every heartbeat tick.
+- Goals, Plan, and Status: kept up to date by the day/week/month planners.
 
-IMPORTANT: Do NOT remove the HTML comment markers (PROACTIVE_TASKS_START, etc.)
-as they are used by the parser to locate sections.
+IMPORTANT: Do NOT remove the HTML comment markers (CRON_JOBS_START,
+HEARTBEAT_START, etc.) as they are used by the parser to locate sections.
 ================================================================================
 -->
 
 ---
 
-## How Proactive Tasks Work
+## How It Works
 
-You can operate proactively based on scheduled activations. Schedules can be hourly (every X hours), daily (at a specific time), weekly (on a specific day), or monthly (on a specific date).
-
-Each task runs at its own slot. When one or more tasks are due, CraftBot starts a background run whose instruction lists exactly those tasks, and posts that run's final message to the user's main chat. A slot missed while CraftBot was off runs once, late, when it is back.
+- **Cron Jobs** run at their own slot: hourly at :MM, daily at HH:MM, weekly on a day at HH:MM, or monthly on a date at HH:MM. When one or more jobs are due, CraftBot starts a run in the main chat whose instruction lists exactly those jobs. A slot missed while CraftBot was off runs once, late, when it is back.
+- **Heartbeat**: on every heartbeat tick (every 30 minutes by default, set in Settings > Proactive), if the Heartbeat checklist below is not empty, the agent reads it, checks each item and reports only what needs attention. An empty checklist means no heartbeat runs.
+- **Goals, Plan, and Status** is maintained by the planners, which also send the user a short brief.
 
 ---
 
 ## Decision Rubric
 
-Evaluate each potential proactive task using a five-dimension rubric. Score each dimension from 1 to 5:
+Evaluate each cron job before running it using a five-dimension rubric. Score each dimension from 1 to 5:
 
 | Dimension   | 1 (Low)        | 5 (High)      | Description                        |
 |-------------|----------------|---------------|------------------------------------|
@@ -49,46 +50,42 @@ Evaluate each potential proactive task using a five-dimension rubric. Score each
 
 ## Permission Tiers
 
-Each task has a permission tier that controls how it interacts with the user:
+Each cron job has a permission tier that controls how it interacts with the user:
 
 | Tier | Level | Description | User Interaction |
 |------|-------|-------------|------------------|
-| 0 | Silent | Searching, analyzing, drafting, internal operations | Proceed without notifying the user |
-| 1 | Notify | Inform user of task execution and findings | Inform and proceed without waiting |
-| 2 | Approval | Actions that modify state or create artifacts | Ask for approval before proceeding |
-| 3 | High-risk | Email external parties, change configs, sensitive ops | Explicit detailed approval required |
-
-**Note:** Tier 0 and 1 are typically used for user-created proactive tasks. Tiers 2-3 are reserved for system-level or high-impact tasks that require user oversight.
+| 0 | Silent | Searching, analyzing, drafting, internal operations | Report only when something needs attention |
+| 1 | Notify | Inform user of the job's results | Report the result |
 
 ---
 
-## Task Definitions
+## Cron Jobs
 
 <!--
 ================================================================================
-TASK FORMAT REFERENCE
+CRON JOB FORMAT REFERENCE
 ================================================================================
-Each task follows this structure:
+Each cron job follows this structure:
 
-### [FREQUENCY] Task Name
+### [FREQUENCY] Job Name
 ```yaml
-id: unique_task_id              # REQUIRED: Unique identifier (snake_case)
+id: unique_job_id               # REQUIRED: Unique identifier (snake_case)
 frequency: daily                # REQUIRED: hourly | daily | weekly | monthly
 time: "09:00"                   # OPTIONAL: Slot time HH:MM (24hr, default 00:00)
-                                #           Hourly tasks use only the minute
-day: monday                     # OPTIONAL: For weekly tasks (monday-sunday)
-                                #           For monthly tasks (1-31)
+                                #           Hourly jobs use only the minute
+day: monday                     # OPTIONAL: For weekly jobs (monday-sunday)
+                                #           For monthly jobs (1-31)
 enabled: true                   # REQUIRED: true | false
 priority: 50                    # REQUIRED: 1-100 (lower = higher priority)
-permission_tier: 1              # REQUIRED: 0-4 (see Permission Tiers above)
-run_count: 0                    # AUTO: Number of times executed
+permission_tier: 1              # REQUIRED: 0 (silent) or 1 (notify)
+run_count: 0                    # AUTO: Number of times run
 active_since: ...               # AUTO: When the current schedule took effect
-last_run: ...                   # AUTO: When the task last ran
-conditions: []                  # OPTIONAL: List of execution conditions
-instruction: |                  # REQUIRED: Detailed task instruction (see below)
+last_run: ...                   # AUTO: When the job last ran
+conditions: []                  # OPTIONAL: List of conditions to check first
+instruction: |                  # REQUIRED: Detailed job instruction (see below)
   Multi-line instruction
-  describing the task.
-outcome_history: []             # AUTO: Recent execution results (max 5)
+  describing the job.
+outcome_history: []             # AUTO: Recent results (max 5)
 ```
 
 FREQUENCY OPTIONS:
@@ -107,7 +104,7 @@ CONDITIONS (optional):
 ================================================================================
 WRITING EFFECTIVE INSTRUCTIONS
 ================================================================================
-The instruction field is the most critical part of a proactive task. Write
+The instruction field is the most critical part of a cron job. Write
 detailed, specific instructions that leave no ambiguity about what the agent
 should do. Poor instructions lead to poor execution.
 
@@ -115,7 +112,7 @@ INSTRUCTION GUIDELINES:
 1. Be specific about WHAT to do - list exact steps, not vague goals
 2. Specify WHERE to find information - which files, APIs, or sources to use
 3. Define the OUTPUT format - how results should be presented or stored
-4. Include SUCCESS CRITERIA - how to know the task is complete
+4. Include SUCCESS CRITERIA - how to know the job is complete
 5. Handle EDGE CASES - what to do if data is missing or errors occur
 6. Specify USER INTERACTION - when to notify, ask, or wait for response
 
@@ -138,22 +135,45 @@ GOOD INSTRUCTION (detailed):
 
 <!--
 ================================================================================
-HOW TO ADD A NEW RECURRING PROACTIVE TASK
+HOW TO ADD A NEW CRON JOB
 ================================================================================
-1. Add a new section between PROACTIVE_TASKS_START and PROACTIVE_TASKS_END
-2. Use the format: ### [FREQUENCY] Task Name
+1. Add a new section between CRON_JOBS_START and CRON_JOBS_END
+2. Use the format: ### [FREQUENCY] Job Name
 3. Include a YAML code block with all required fields
 4. Write detailed, step-by-step instructions (see WRITING EFFECTIVE INSTRUCTIONS)
 5. Set enabled: true when ready to activate
-6. The task first runs at its next slot after CraftBot loads it
+6. The job first runs at its next slot after the file was saved
 ================================================================================
 -->
 
-<!-- PROACTIVE_TASKS_START -->
+<!-- CRON_JOBS_START -->
 
-<!-- Add your proactive tasks here following the format above -->
+<!-- Add your cron jobs here following the format above -->
 
-<!-- PROACTIVE_TASKS_END -->
+<!-- CRON_JOBS_END -->
+
+---
+
+## Heartbeat
+
+<!--
+================================================================================
+HEARTBEAT CHECKLIST
+================================================================================
+On every heartbeat tick (every 30 minutes by default, set in Settings >
+Proactive), if this checklist is not empty, the agent reads it, checks each
+item and reports only what needs attention. Write one item per line. Use it
+for things to keep an eye on; work that must happen at a set time belongs in
+Cron Jobs. Leave it empty and the heartbeat does not run.
+================================================================================
+-->
+
+<!-- HEARTBEAT_START -->
+
+<!-- Add what the heartbeat should check, one item per line, e.g.
+- Check my inbox for urgent email from clients -->
+
+<!-- HEARTBEAT_END -->
 
 ---
 

@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-Proactive task manager.
+Proactive manager.
 
-This module provides the ProactiveManager class for managing proactive tasks
-stored in PROACTIVE.md.
+ProactiveManager owns the parts of PROACTIVE.md that code acts on: the cron
+jobs and the heartbeat checklist.
 """
 
 import logging
@@ -13,14 +13,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, Dict, List, Any, Optional
 
-from .types import RecurringTask, RecurringData, validate_schedule_fields
+from .types import CronJob, ProactiveData, validate_schedule_fields
 from .parser import ProactiveParser
 
 logger = logging.getLogger(__name__)
 
 
 class ProactiveManager:
-    """Manager for recurring tasks stored in PROACTIVE.md.
+    """Manager for the cron jobs and heartbeat checklist in PROACTIVE.md.
 
     PROACTIVE.md is shared with the planners (they edit its Goals section
     with file operations) and with anyone editing it by hand, so the file on
@@ -36,14 +36,14 @@ class ProactiveManager:
             proactive_file_path: Path to PROACTIVE.md file
         """
         self.file_path = proactive_file_path
-        self._data: Optional[RecurringData] = None
+        self._data: Optional[ProactiveData] = None
         self._loaded_mtime: Optional[tuple[int, int]] = None
-        # Called after every save; the scheduler re-arms the heartbeat so a
-        # new or rescheduled task fires at its exact slot.
+        # Called after every save; the scheduler re-arms its cron-job runner
+        # so a new or rescheduled job fires at its exact slot.
         self._on_change: Optional[Callable[[], None]] = None
 
     def set_change_listener(self, callback: Optional[Callable[[], None]]) -> None:
-        """Register a callback invoked after the task list is saved."""
+        """Register a callback invoked after PROACTIVE.md is saved."""
         self._on_change = callback
 
     def _file_mtime(self) -> Optional[tuple[int, int]]:
@@ -54,19 +54,21 @@ class ProactiveManager:
             return None
         return stat.st_mtime_ns, stat.st_size
 
-    def load(self) -> RecurringData:
-        """Load recurring task data from file.
+    def load(self) -> ProactiveData:
+        """Load PROACTIVE.md.
 
-        Tasks without ``active_since`` (written by hand) take effect from the
-        moment they are first loaded, and that moment is saved so restarts
-        don't move it.
+        Cron jobs without ``active_since`` (written by hand) take effect from
+        when the file was last modified, the closest known moment to when
+        they were written, and that moment is saved so restarts don't move
+        it. A job added by hand at 08:50 for 09:00 therefore still runs at
+        09:00 even if CraftBot only reads the file later.
 
         Returns:
-            RecurringData object
+            ProactiveData object
         """
         if not self.file_path.exists():
             logger.warning(f"[PROACTIVE] File not found: {self.file_path}")
-            self._data = RecurringData()
+            self._data = ProactiveData()
             self._loaded_mtime = None
             return self._data
 
@@ -74,34 +76,34 @@ class ProactiveManager:
         self._loaded_mtime = self._file_mtime()
         self._data = ProactiveParser.parse(content)
 
-        unanchored = [t for t in self._data.tasks if t.active_since is None]
+        unanchored = [j for j in self._data.jobs if j.active_since is None]
         if unanchored:
-            now = datetime.now()
-            for task in unanchored:
-                task.active_since = now
+            written = datetime.fromtimestamp(self.file_path.stat().st_mtime)
+            for job in unanchored:
+                job.active_since = written
             self._write(self._data)
             logger.info(
-                f"[PROACTIVE] Anchored {len(unanchored)} new task(s) at "
-                f"{now.isoformat(timespec='seconds')}"
+                f"[PROACTIVE] Anchored {len(unanchored)} new cron job(s) at "
+                f"{written.isoformat(timespec='seconds')}"
             )
 
         logger.info(
-            f"[PROACTIVE] Loaded {len(self._data.tasks)} tasks from {self.file_path}"
+            f"[PROACTIVE] Loaded {len(self._data.jobs)} cron jobs from {self.file_path}"
         )
         return self._data
 
-    def _refresh(self) -> RecurringData:
+    def _refresh(self) -> ProactiveData:
         """Reload when the file changed (or appeared/vanished) since last load."""
         if self._data is None or self._file_mtime() != self._loaded_mtime:
             return self.load()
         return self._data
 
-    def _write(self, data: RecurringData) -> None:
+    def _write(self, data: ProactiveData) -> None:
         """Serialize ``data`` over the file's CURRENT content, atomically.
 
-        Only the frontmatter and the tasks section are regenerated; every
-        other section (Goals, Plan, and Status included) is kept exactly as
-        it is on disk at the moment of writing.
+        Only the frontmatter, the Cron Jobs section and the Heartbeat section
+        are regenerated; every other section (Goals, Plan, and Status
+        included) is kept exactly as it is on disk at the moment of writing.
         """
         data.last_updated = datetime.now()
         template = (
@@ -132,12 +134,12 @@ class ProactiveManager:
             raise
 
     def save(self) -> None:
-        """Save the loaded task list to file and notify the change listener."""
+        """Save the loaded data to file and notify the change listener."""
         if self._data is None:
             raise RuntimeError("No data loaded. Call load() first.")
         self._write(self._data)
         logger.info(
-            f"[PROACTIVE] Saved {len(self._data.tasks)} tasks to {self.file_path}"
+            f"[PROACTIVE] Saved {len(self._data.jobs)} cron jobs to {self.file_path}"
         )
         if self._on_change is not None:
             try:
@@ -146,97 +148,69 @@ class ProactiveManager:
                 logger.warning(f"[PROACTIVE] Change listener failed: {e}")
 
     @property
-    def data(self) -> RecurringData:
-        """Current task data, reloaded from disk if the file changed."""
+    def data(self) -> ProactiveData:
+        """Current data, reloaded from disk if the file changed."""
         return self._refresh()
 
-    def get_tasks(
+    # ─────────────── Cron jobs ───────────────
+
+    def get_jobs(
         self, frequency: Optional[str] = None, enabled_only: bool = True
-    ) -> List[RecurringTask]:
-        """Get tasks, optionally filtered.
-
-        Args:
-            frequency: Filter by frequency (hourly, daily, weekly, monthly)
-            enabled_only: Only return enabled tasks
-
-        Returns:
-            List of matching tasks
-        """
-        tasks = self.data.tasks
-
+    ) -> List[CronJob]:
+        """Cron jobs, optionally filtered by frequency and enabled state."""
+        jobs = self.data.jobs
         if enabled_only:
-            tasks = [t for t in tasks if t.enabled]
-
+            jobs = [j for j in jobs if j.enabled]
         if frequency:
-            tasks = [t for t in tasks if t.frequency == frequency]
+            jobs = [j for j in jobs if j.frequency == frequency]
+        return jobs
 
-        return tasks
+    def get_job(self, job_id: str) -> Optional[CronJob]:
+        """A cron job by ID, or None."""
+        return self.data.get_job_by_id(job_id)
 
-    def get_task(self, task_id: str) -> Optional[RecurringTask]:
-        """Get a task by ID.
-
-        Args:
-            task_id: The task ID
-
-        Returns:
-            The task if found, None otherwise
-        """
-        return self.data.get_task_by_id(task_id)
-
-    def add_task(
+    def add_job(
         self,
         name: str,
         frequency: str,
         instruction: str,
-        task_id: Optional[str] = None,
+        job_id: Optional[str] = None,
         time: Optional[str] = None,
         day: Optional[str] = None,
         priority: int = 50,
         permission_tier: int = 0,
         enabled: bool = True,
         conditions: Optional[List[Dict[str, Any]]] = None,
-    ) -> RecurringTask:
-        """Add a new recurring task.
+    ) -> CronJob:
+        """Add a new cron job.
 
         Args:
-            name: Human-readable task name
-            frequency: Execution frequency (hourly, daily, weekly, monthly)
+            name: Human-readable job name
+            frequency: hourly, daily, weekly or monthly
             instruction: What the agent should do
-            task_id: Optional custom ID (auto-generated if not provided)
-            time: Slot time HH:MM (hourly tasks use only the minute)
-            day: Weekday name for weekly tasks, 1-31 for monthly tasks
-            priority: Task priority (lower = higher)
-            permission_tier: Permission level (0 = silent, 1 = notify)
-            enabled: Whether task is active
+            job_id: Optional custom ID (generated from frequency + name)
+            time: Slot time HH:MM (hourly jobs use only the minute)
+            day: Weekday name for weekly jobs, 1-31 for monthly jobs
+            priority: Job priority (lower = higher)
+            permission_tier: 0 = silent, 1 = notify
+            enabled: Whether the job is active
             conditions: List of condition dictionaries
 
-        Returns:
-            The created RecurringTask
-
         Raises:
-            ValueError: If task ID already exists or the schedule is invalid
+            ValueError: If the ID already exists or the schedule is invalid
         """
         validate_schedule_fields(frequency, time, day)
         data = self._refresh()
 
-        # Generate ID if not provided
-        if not task_id:
-            task_id = f"{frequency}_{name.lower().replace(' ', '_')}"
+        if not job_id:
+            job_id = f"{frequency}_{name.lower().replace(' ', '_')}"
+        if data.get_job_by_id(job_id):
+            raise ValueError(f"Cron job with ID '{job_id}' already exists")
 
-        # Check for duplicate
-        if data.get_task_by_id(task_id):
-            raise ValueError(f"Task with ID '{task_id}' already exists")
+        from .types import CronJobCondition
 
-        # Parse conditions
-        from .types import RecurringCondition
-
-        parsed_conditions = []
-        if conditions:
-            for c in conditions:
-                parsed_conditions.append(RecurringCondition.from_dict(c.copy()))
-
-        task = RecurringTask(
-            id=task_id,
+        job = CronJob(
+            id=job_id,
             name=name,
             frequency=frequency,
             instruction=instruction,
@@ -245,172 +219,147 @@ class ProactiveManager:
             priority=priority,
             permission_tier=permission_tier,
             enabled=enabled,
-            conditions=parsed_conditions,
+            conditions=[CronJobCondition.from_dict(c.copy()) for c in conditions or []],
             active_since=datetime.now(),
         )
 
-        data.tasks.append(task)
+        data.jobs.append(job)
         self.save()
+        logger.info(f"[PROACTIVE] Added cron job: {job_id}")
+        return job
 
-        logger.info(f"[PROACTIVE] Added task: {task_id}")
-        return task
-
-    def update_task(
+    def update_job(
         self,
-        task_id: str,
+        job_id: str,
         updates: Optional[Dict[str, Any]] = None,
         add_outcome: Optional[Dict[str, Any]] = None,
-    ) -> Optional[RecurringTask]:
-        """Update an existing task.
+    ) -> Optional[CronJob]:
+        """Update an existing cron job.
 
-        Re-enabling a task or changing its frequency/time/day restarts its
+        Re-enabling a job or changing its frequency/time/day restarts its
         schedule from now (``active_since``), so slots missed while it was
         off or under the old schedule are not run late.
 
-        Args:
-            task_id: ID of task to update
-            updates: Dictionary of fields to update
-            add_outcome: Optional outcome to add to history
-
         Returns:
-            The updated task if found, None otherwise
+            The updated job if found, None otherwise
         """
-        task = self._refresh().get_task_by_id(task_id)
-        if not task:
-            logger.warning(f"[PROACTIVE] Task not found: {task_id}")
+        job = self._refresh().get_job_by_id(job_id)
+        if not job:
+            logger.warning(f"[PROACTIVE] Cron job not found: {job_id}")
             return None
 
         if updates:
             validate_schedule_fields(
-                updates.get("frequency", task.frequency),
-                updates.get("time", task.time),
-                updates.get("day", task.day),
+                updates.get("frequency", job.frequency),
+                updates.get("time", job.time),
+                updates.get("day", job.day),
             )
             reschedules = any(
-                key in updates and updates[key] != getattr(task, key)
+                key in updates and updates[key] != getattr(job, key)
                 for key in ("frequency", "time", "day")
-            ) or (updates.get("enabled") is True and not task.enabled)
+            ) or (updates.get("enabled") is True and not job.enabled)
             for key, value in updates.items():
-                if hasattr(task, key) and key not in [
+                if hasattr(job, key) and key not in [
                     "id",
                     "outcome_history",
                     "active_since",
                     "last_run",
                     "run_count",
                 ]:
-                    setattr(task, key, value)
+                    setattr(job, key, value)
             if reschedules:
-                task.active_since = datetime.now()
+                job.active_since = datetime.now()
 
         if add_outcome:
-            task.add_outcome(
+            job.add_outcome(
                 result=add_outcome.get("result", ""),
                 success=add_outcome.get("success", True),
             )
 
         self.save()
-        logger.info(f"[PROACTIVE] Updated task: {task_id}")
-        return task
+        logger.info(f"[PROACTIVE] Updated cron job: {job_id}")
+        return job
 
-    def remove_task(self, task_id: str) -> bool:
-        """Remove a task by ID.
-
-        Args:
-            task_id: ID of task to remove
-
-        Returns:
-            True if removed, False if not found
-        """
-        removed = self._refresh().remove_task(task_id)
+    def remove_job(self, job_id: str) -> bool:
+        """Remove a cron job by ID. True if removed."""
+        removed = self._refresh().remove_job(job_id)
         if removed:
             self.save()
-            logger.info(f"[PROACTIVE] Removed task: {task_id}")
+            logger.info(f"[PROACTIVE] Removed cron job: {job_id}")
         else:
-            logger.warning(f"[PROACTIVE] Task not found for removal: {task_id}")
+            logger.warning(f"[PROACTIVE] Cron job not found for removal: {job_id}")
         return removed
 
-    def toggle_task(self, task_id: str, enabled: bool) -> Optional[RecurringTask]:
-        """Enable or disable a task.
-
-        Args:
-            task_id: ID of task to toggle
-            enabled: New enabled state
-
-        Returns:
-            The updated task if found, None otherwise
-        """
-        return self.update_task(task_id, updates={"enabled": enabled})
-
-    def record_outcome(
-        self, task_id: str, result: str, success: bool = True
-    ) -> Optional[RecurringTask]:
-        """Record an execution outcome for a task.
-
-        Args:
-            task_id: ID of task that was executed
-            result: Description of the outcome
-            success: Whether execution was successful
-
-        Returns:
-            The updated task if found, None otherwise
-        """
-        return self.update_task(
-            task_id, add_outcome={"result": result, "success": success}
-        )
+    def toggle_job(self, job_id: str, enabled: bool) -> Optional[CronJob]:
+        """Enable or disable a cron job."""
+        return self.update_job(job_id, updates={"enabled": enabled})
 
     # ─────────────── Due computation (code-owned) ───────────────
 
-    def _valid_tasks(self) -> List[RecurringTask]:
-        """Enabled tasks whose schedule fields are usable.
+    def _valid_jobs(self) -> List[CronJob]:
+        """Enabled cron jobs whose schedule fields are usable.
 
-        A malformed hand-edited task is skipped with a warning instead of
-        breaking every other task's schedule.
+        A malformed hand-edited job is skipped with a warning instead of
+        breaking every other job's schedule.
         """
         valid = []
-        for task in self.get_tasks(enabled_only=True):
+        for job in self.get_jobs(enabled_only=True):
             try:
-                validate_schedule_fields(task.frequency, task.time, task.day)
+                validate_schedule_fields(job.frequency, job.time, job.day)
             except ValueError as e:
-                logger.warning(f"[PROACTIVE] Skipping task {task.id}: {e}")
+                logger.warning(f"[PROACTIVE] Skipping cron job {job.id}: {e}")
                 continue
-            valid.append(task)
+            valid.append(job)
         return valid
 
-    def get_due_tasks(self, now: Optional[datetime] = None) -> List[RecurringTask]:
-        """Tasks whose most recent slot is owed a run, by priority."""
+    def get_due_jobs(self, now: Optional[datetime] = None) -> List[CronJob]:
+        """Cron jobs whose most recent slot is owed a run, by priority."""
         now = now or datetime.now()
-        due = [t for t in self._valid_tasks() if t.is_due(now)]
-        due.sort(key=lambda t: t.priority)
+        due = [j for j in self._valid_jobs() if j.is_due(now)]
+        due.sort(key=lambda j: j.priority)
         return due
 
     def next_due_at(self, now: Optional[datetime] = None) -> Optional[datetime]:
-        """Earliest moment any enabled task becomes due (None if none)."""
+        """Earliest moment any enabled cron job becomes due (None if none)."""
         now = now or datetime.now()
-        times = [t.next_due_at(now) for t in self._valid_tasks()]
+        times = [j.next_due_at(now) for j in self._valid_jobs()]
         times = [t for t in times if t is not None]
         return min(times) if times else None
 
-    def mark_dispatched(self, task_ids: List[str], when: datetime) -> None:
-        """Stamp last_run/run_count for tasks handed to a run, then save.
+    def mark_dispatched(self, job_ids: List[str], when: datetime) -> None:
+        """Stamp last_run/run_count for jobs handed to a run, then save.
 
         Stamping at dispatch is what keeps a slot from running twice (a later
         check sees last_run >= slot), whatever the run itself does.
         """
         data = self._refresh()
         stamped = []
-        for task_id in task_ids:
-            task = data.get_task_by_id(task_id)
-            if task is not None:
-                task.mark_dispatched(when)
-                stamped.append(task_id)
+        for job_id in job_ids:
+            job = data.get_job_by_id(job_id)
+            if job is not None:
+                job.mark_dispatched(when)
+                stamped.append(job_id)
         if stamped:
             self.save()
             logger.info(
-                f"[PROACTIVE] Dispatched {len(stamped)} task(s): {', '.join(stamped)}"
+                f"[PROACTIVE] Dispatched {len(stamped)} cron job(s): {', '.join(stamped)}"
             )
 
+    # ─────────────── Heartbeat checklist ───────────────
 
-# Singleton instance (initialized by InternalActionInterface)
+    def get_heartbeat_checklist(self) -> str:
+        """The Heartbeat section's checklist ("" when empty)."""
+        return self.data.heartbeat_checklist
+
+    def set_heartbeat_checklist(self, checklist: str) -> None:
+        """Replace the Heartbeat section's checklist and save."""
+        data = self._refresh()
+        data.heartbeat_checklist = (checklist or "").strip()
+        self.save()
+        logger.info("[PROACTIVE] Updated the heartbeat checklist")
+
+
+# Singleton instance (initialized by AgentBase)
 _manager: Optional[ProactiveManager] = None
 
 
@@ -420,14 +369,7 @@ def get_proactive_manager() -> Optional[ProactiveManager]:
 
 
 def initialize_proactive_manager(file_path: Path) -> ProactiveManager:
-    """Initialize the singleton proactive manager.
-
-    Args:
-        file_path: Path to PROACTIVE.md file
-
-    Returns:
-        The initialized ProactiveManager
-    """
+    """Initialize the singleton proactive manager."""
     global _manager
     _manager = ProactiveManager(file_path)
     _manager.load()

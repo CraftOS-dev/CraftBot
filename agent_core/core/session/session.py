@@ -27,12 +27,8 @@ class SessionType:
     MAIN = "main"
     CHAT = "chat"
     AGENT_APP = "agent_app"
-    # The singleton lane where scheduled and proactive runs execute. Not a
-    # chat: it is not listed in the sidebar; each run posts its one result
-    # into the main session.
-    BACKGROUND = "background"
 
-    ALL = (MAIN, CHAT, AGENT_APP, BACKGROUND)
+    ALL = (MAIN, CHAT, AGENT_APP)
 
     # Action sets whose schemas every session of a type prints in <actions>,
     # on top of the always-present "core". This is the whole list: nothing a
@@ -43,17 +39,12 @@ class SessionType:
         MAIN: (),
         CHAT: (),
         AGENT_APP: ("file_operations", "code_execution", "agent_app"),
-        BACKGROUND: (),
     }
 
 
-# The singleton main session id. Ambient input (integrations, memory and
-# other special workflows, restart notices, dead letters) lands here.
+# The singleton main session id. All ambient input (integrations, scheduler,
+# special workflows, restart notices, dead letters) lands here.
 MAIN_SESSION_ID = "main"
-
-# The singleton background session id. Scheduler fires (proactive heartbeat,
-# planners, schedule_task jobs) run here, off the user's main chat.
-BACKGROUND_SESSION_ID = "background"
 
 
 def _stored_reasoning_effort(value: Any) -> Optional[str]:

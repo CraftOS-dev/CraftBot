@@ -457,9 +457,13 @@ def test_playwright_mcp_skill_uses_real_mcp_tool_names(discovered_skills):
     assert "mcp_playwright-mcp_browser_navigate" in skill.instructions
 
 
-def test_heartbeat_skill_explains_browser_work(discovered_skills):
+def test_proactive_skills_explain_browser_work(discovered_skills):
+    # Website work in a cron job runs inline: general_agent has no browser.
+    body = discovered_skills["cron-job-runner"].instructions
+    assert 'add_action_sets(["mini_browser"])' in body
+    assert "code_analysis" not in body
+    # A heartbeat check on a website loads the Mini Browser inline.
     body = discovered_skills["heartbeat-processor"].instructions
-    assert 'action_sets=["mini_browser"]' in body
     assert 'add_action_sets(["mini_browser"])' in body
     assert "code_analysis" not in body
 

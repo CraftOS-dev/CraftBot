@@ -246,11 +246,54 @@
   },
   "proactive": {
     "title": "主动行为",
-    "subtitle": "配置智能体何时自主行动以及管理计划任务",
+    "subtitle": "让智能体自主工作：按时运行任务、替你留意重要的事、提前做好规划",
     "enableLabel": "启用主动模式",
-    "enableDesc": "在后台运行你的主动任务和规划器，结果发布到主聊天。",
+    "enableDesc": "智能体在后台工作，事情完成或需要你处理时，会在主聊天中告诉你。",
+    "cronJobs": {
+      "title": "Cron 任务",
+      "desc": "智能体在固定时间做的事，例如每天早上 9 点或每周五。结果会发到你的主聊天。",
+      "add": "添加 Cron 任务",
+      "search": "搜索 Cron 任务...",
+      "loading": "正在加载 Cron 任务...",
+      "empty": "还没有 Cron 任务。",
+      "createFirst": "创建第一个 Cron 任务",
+      "count_one": "{{count}} 个任务",
+      "count_other": "{{count}} 个任务",
+      "deleteTitle": "删除 Cron 任务",
+      "deleteMessage": "确定要删除此 Cron 任务吗？",
+      "searchCount": "{{total}} 中的 {{shown}}",
+      "tip": {
+        "aria": "关于 Cron 任务",
+        "title": "Cron 任务如何运作",
+        "line1": "“Cron 任务”是按计划运行的任务的通称。每个任务由一条指令和一个时间组成：每小时、每天、每周或每月。",
+        "line2": "到点后，智能体会在后台完成任务，并在主聊天中发布一条结果。如果当时智能体没有运行，它会在恢复后补做，除非这件事已经没有意义。",
+        "line3": "你也可以直接在聊天中提出，例如“每周五下午 5 点总结我的一周”。任务保存在智能体文件中的 PROACTIVE.md 里。"
+      }
+    },
+    "heartbeat": {
+      "title": "心跳",
+      "desc": "智能体会定期查看下方的检查清单，只在有事需要你注意时才介入。",
+      "label": "心跳",
+      "rowDesc": "仅在检查清单有内容时运行",
+      "interval": "间隔",
+      "everyMinutes_one": "每 {{count}} 分钟",
+      "everyMinutes_other": "每 {{count}} 分钟",
+      "everyHours_one": "每小时",
+      "everyHours_other": "每 {{count}} 小时",
+      "checklistLabel": "检查清单",
+      "checklistPlaceholder": "- 检查收件箱中是否有客户的紧急邮件\n- 夜间构建失败时通知我",
+      "checklistHint": "每行一项。智能体每次心跳都会读取它；留空则心跳不会运行。",
+      "idle": "未运行：检查清单为空",
+      "tip": {
+        "aria": "关于心跳",
+        "title": "心跳如何运作",
+        "line1": "每到一个间隔，智能体就会醒来逐项查看检查清单，需要时会使用你已连接的应用。",
+        "line2": "如果没有需要你处理的事，它会直接继续休眠，不发消息。如果有，它会在后台处理，并把结果发布到你的主聊天。",
+        "line3": "检查清单是智能体文件中 PROACTIVE.md 的 Heartbeat 部分。你在聊天中提出时，智能体也可以修改它。"
+      }
+    },
     "plannersTitle": "规划器",
-    "plannersDesc": "每个规划器都会在主聊天中发布一份简短摘要",
+    "plannersDesc": "定期回顾：智能体查看你的目标和接下来的安排，提前规划，并在主聊天中给你发一份简短摘要。",
     "planners": {
       "dayLabel": "每日规划器",
       "dayDesc": "规划你的一天并发送晨间简报",
@@ -262,18 +305,15 @@
       "time": "时间",
       "everyDay": "每天",
       "monthDay": "{{day}} 日",
-      "monthDayHint": "在较短的月份中，29 至 31 日会在当月最后一天运行"
+      "monthDayHint": "在较短的月份中，29 至 31 日会在当月最后一天运行",
+      "tip": {
+        "aria": "关于规划器",
+        "title": "规划器做什么",
+        "line1": "每日规划器确定今天的重点。每周规划器回顾上一周并规划下一周。每月规划器检查长期目标的进展。",
+        "line2": "每个规划器都会查看你最近的聊天和已连接的应用（例如日历），然后更新它保存在 PROACTIVE.md（Goals, Plan, and Status 部分）中的计划。",
+        "line3": "这些计划层层衔接：月度目标指导每周计划，每周计划指导每一天。"
+      }
     },
-    "tasksTitle": "主动任务",
-    "tasksDesc": "在 PROACTIVE.md 中定义的任务。每个任务在设定时间运行，并将结果发布到主聊天",
-    "addTask": "添加任务",
-    "searchTasks": "搜索任务…",
-    "searchCount": "{{total}} 中的 {{shown}}",
-    "loadingTasks": "正在加载任务…",
-    "noTasks": "尚未定义任何主动任务。",
-    "createFirst": "创建你的第一个任务",
-    "taskCount_one": "{{count}} 个任务",
-    "taskCount_other": "{{count}} 个任务",
     "active": "活动中",
     "disabled": "已禁用",
     "meta": {
@@ -282,10 +322,6 @@
       "runs": "运行次数：{{value}}",
       "last": "上次：{{date}}"
     },
-    "resetTitle": "重置主动任务",
-    "resetDesc": "这将移除所有主动任务，并从默认模板恢复 PROACTIVE.md。此操作无法撤销。",
-    "resetButton": "重置所有任务",
-    "resetting": "重置中…",
     "priority": {
       "high": "高",
       "medium": "中",
@@ -301,29 +337,6 @@
       "weekly": "每周",
       "monthly": "每月"
     },
-    "deleteConfirmTitle": "删除任务",
-    "deleteConfirmMessage": "确定要删除此任务吗？",
-    "resetConfirmTitle": "重置任务",
-    "resetConfirmMessage": "确定要重置所有主动任务吗？这将从模板恢复默认的 PROACTIVE.md。",
-    "taskForm": {
-      "editTitle": "编辑任务",
-      "addTitle": "添加主动任务",
-      "name": "任务名称",
-      "namePlaceholder": "例如：查收邮件",
-      "frequency": "频率",
-      "priority": "优先级",
-      "priorityHint": "（数值越高越先运行）",
-      "time": "时间（HH:MM）",
-      "dayOfWeek": "星期几",
-      "selectDay": "选择日期",
-      "notifyLabel": "运行前通知我",
-      "notifyDesc": "启用后，智能体会在执行此任务前告知你。禁用时，任务将静默运行。",
-      "instruction": "指令",
-      "instructionPlaceholder": "描述智能体应做什么…",
-      "instructionHint": "请具体且可执行。智能体在执行期间将遵循这些指令。",
-      "enabledLabel": "已启用",
-      "enabledDesc": "任务将在心跳期间执行"
-    },
     "weekdays": {
       "monday": "星期一",
       "tuesday": "星期二",
@@ -334,15 +347,41 @@
       "sunday": "星期日"
     },
     "toast": {
-      "scheduleFailed": "更新计划失败"
+      "scheduleFailed": "更新计划失败",
+      "checklistFailed": "保存检查清单失败"
     },
-    "catchUp": {
-      "label": "补跑遗漏的任务",
-      "desc": "CraftBot 检查关闭或休眠期间遗漏任务的频率",
-      "everyMinutes_one": "每 {{count}} 分钟",
-      "everyMinutes_other": "每 {{count}} 分钟",
-      "everyHours_one": "每小时",
-      "everyHours_other": "每 {{count}} 小时"
+    "cronJobForm": {
+      "editTitle": "编辑 Cron 任务",
+      "addTitle": "添加 Cron 任务",
+      "name": "任务名称",
+      "namePlaceholder": "例如：查收邮件",
+      "frequency": "频率",
+      "priority": "优先级",
+      "priorityHint": "（数值越高越先运行）",
+      "time": "时间（HH:MM）",
+      "dayOfWeek": "星期几",
+      "selectDay": "选择日期",
+      "notifyLabel": "运行前通知我",
+      "notifyDesc": "开启后，智能体会向你报告此任务的结果。关闭后，任务将静默运行，只报告需要注意的事项。",
+      "instruction": "指令",
+      "instructionPlaceholder": "描述智能体应做什么…",
+      "instructionHint": "请具体且可执行。智能体在执行期间将遵循这些指令。",
+      "enabledLabel": "已启用",
+      "enabledDesc": "任务将在设定时间运行"
+    },
+    "reset": {
+      "title": "恢复默认",
+      "desc": "删除所有 Cron 任务，清空心跳检查清单，并抹去规划器的计划。此操作无法撤销。",
+      "button": "恢复默认",
+      "confirmTitle": "恢复默认？",
+      "confirmMessage": "所有 Cron 任务都将被删除，心跳检查清单将被清空，规划器的计划也将被抹去。此操作无法撤销。",
+      "resetting": "重置中…",
+      "tip": {
+        "aria": "关于恢复默认",
+        "title": "恢复默认会做什么",
+        "line1": "Cron 任务、心跳检查清单和规划器的计划都保存在智能体文件中的同一个文件 PROACTIVE.md 里。",
+        "line2": "恢复默认会把这个文件还原为初始版本。规划器时间、心跳间隔、你的记忆和聊天都保持不变。"
+      }
     }
   },
   "memory": {

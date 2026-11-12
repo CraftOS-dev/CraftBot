@@ -1283,7 +1283,7 @@
 }
 
 .disabledContent .scheduleCard,
-.disabledContent .taskCard,
+.disabledContent .jobCard,
 .disabledContent .memoryCard {
   background: var(--bg-tertiary);
 }
@@ -1304,6 +1304,18 @@
   font-size: var(--text-sm);
   color: var(--text-secondary);
   margin-bottom: var(--space-3);
+}
+
+/* A subsection title with its ⓘ tooltip beside it. */
+.titleRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-bottom: var(--space-1);
+}
+
+.titleRow .subsectionTitle {
+  margin-bottom: 0;
 }
 
 .subsectionHeader {
@@ -1465,16 +1477,55 @@ input[type="time"].plannerInput {
   opacity: 0.6;
 }
 
-/* The missed-task check, under the task list: text left, picker right. */
-.catchUpRow {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 176px;
-  align-items: center;
-  column-gap: var(--space-3);
-  margin-top: var(--space-3);
+/* The heartbeat interval spans the "Runs on" and "Time" columns. */
+.plannerSpan {
+  grid-column: span 2;
+}
+
+/* The Heartbeat checklist: what the agent reads on every tick. */
+.checklistCard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
   padding: var(--space-3);
   background: var(--bg-tertiary);
   border-radius: var(--radius-md);
+}
+
+.checklistHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.checklistInput {
+  width: 100%;
+  min-height: 96px;
+  resize: vertical;
+  padding: var(--space-2) var(--space-3);
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  font-family: var(--font-mono);
+  line-height: 1.5;
+  color: var(--text-primary);
+  transition: border-color var(--transition-fast);
+}
+
+.checklistInput:hover:not(:disabled) {
+  border-color: var(--border-hover);
+}
+
+.checklistInput:focus {
+  outline: none;
+  border-color: var(--border-hover);
+}
+
+.checklistInput:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 
 /* Descriptions on this page sit on the card colour: keep them readable. */
@@ -1497,43 +1548,39 @@ input[type="time"].plannerInput {
     grid-column: 1 / -1;
   }
 
-  .catchUpRow {
-    grid-template-columns: minmax(0, 1fr);
-    row-gap: var(--space-2);
-  }
 }
 
 /* Task Groups */
-.taskGroups {
+.jobGroups {
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
 }
 
-.taskGroup {
+.jobGroup {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
 }
 
-.taskGroupHeader {
+.jobGroupHeader {
   display: flex;
   align-items: center;
   gap: var(--space-2);
 }
 
-.taskCount {
+.jobCount {
   font-size: var(--text-xs);
   color: var(--text-muted);
 }
 
-.taskList {
+.jobList {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
 }
 
-.taskCard {
+.jobCard {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -1543,16 +1590,16 @@ input[type="time"].plannerInput {
   border: 1px solid var(--border-primary);
 }
 
-.taskCard.taskDisabled {
+.jobCard.jobDisabled {
   opacity: 0.6;
 }
 
-.taskMain {
+.jobMain {
   flex: 1;
   min-width: 0;
 }
 
-.taskHeader {
+.jobHeader {
   display: flex;
   align-items: center;
   gap: var(--space-2);
@@ -1560,18 +1607,18 @@ input[type="time"].plannerInput {
   flex-wrap: wrap;
 }
 
-.taskName {
+.jobName {
   font-size: var(--text-sm);
   font-weight: var(--font-medium);
   color: var(--text-primary);
 }
 
-.taskBadges {
+.jobBadges {
   display: flex;
   gap: var(--space-1);
 }
 
-.taskInstruction {
+.jobInstruction {
   font-size: var(--text-xs);
   color: var(--text-secondary);
   margin-bottom: var(--space-2);
@@ -1582,7 +1629,7 @@ input[type="time"].plannerInput {
   overflow: hidden;
 }
 
-.taskMeta {
+.jobMeta {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-1) var(--space-3);
@@ -1590,11 +1637,11 @@ input[type="time"].plannerInput {
   color: var(--text-secondary);
 }
 
-.taskMeta > span {
+.jobMeta > span {
   white-space: nowrap;
 }
 
-.taskActions {
+.jobActions {
   display: flex;
   align-items: center;
   gap: var(--space-1);

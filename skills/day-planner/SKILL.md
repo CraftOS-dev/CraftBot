@@ -23,19 +23,19 @@ You receive a planner trigger with:
 
 ---
 
-## CRITICAL: Background Execution (Override Standard Task Rules)
+## CRITICAL: Automatic Run (Override Standard Task Rules)
 
-This skill runs in the background session, not in the user's chat. **This skill overrides standard task completion rules:**
+This skill runs on its own in the user's main chat, not in reply to a user message. **This skill overrides standard task completion rules:**
 
 - **NO acknowledgement**: Do NOT acknowledge task receipt to user
-- **ONE result message**: End the run with ONE `send_message` (no `continue_work`): the morning brief. CraftBot posts it to the user's main chat, headed with this planner's name. Messages sent with `continue_work=true` are never shown to the user.
+- **ONE result message**: End the run with ONE `send_message` (no `continue_work`): the morning brief. Do not post progress updates.
 - **Message last**: That message ends the run, so finish every file update (PROACTIVE.md, MEMORY.md) before sending it.
 - **NEVER wait for the user**: The run ends on that message.
 
 **Suggesting New Tasks:**
-When you want to suggest a new recurring or scheduled task:
+When you want to suggest a new cron job or scheduled task:
 1. Put the suggestion at the end of the morning brief as ONE question, with `suggested_responses`
-2. The user answers in their main chat, where the main agent adds the task if they approve
+2. The user's reply arrives as a new run: add the task if they approve
 3. Do not add the task yourself in this run; if no answer ever comes, nothing is added
 
 **Why?** Planner runs happen automatically while the user may be away. One short message they can read later beats a stream of notifications.
@@ -55,27 +55,27 @@ Focus only on what can realistically be accomplished in a single day. Do not ove
 ### Before Planning - ALWAYS Do These Checks
 
 1. **Check existing scheduled tasks**: Use `scheduled_task_list` to see what's already scheduled
-2. **Read PROACTIVE.md**: Check existing recurring tasks and the Goals, Plan, and Status section
+2. **Read PROACTIVE.md**: Check existing cron jobs and the Goals, Plan, and Status section
 3. **Check past work**: `memory_search` and grep `agent_file_system/workspace/sessions/main/EVENT.md` (large: grep it, never read it whole) to see what has already been done
 4. **Read MEMORY.md**: Understand user context, preferences, and past interactions
 
 ### Duplicate Prevention (EXTREMELY IMPORTANT)
 
 - **NEVER suggest a task the user has already performed** (check the event log / memory_search)
-- **NEVER suggest a task that already exists** as a recurring or scheduled task
-- **NEVER add a recurring task that duplicates an existing one**
+- **NEVER suggest a task that already exists** as a cron job or scheduled task
+- **NEVER add a cron job that duplicates an existing one**
 - If user performed a one-time task before and you suggest it again = **VERY BAD**
 
 ### Permission Requirements
 
-- **Recurring tasks**: MUST get explicit user permission before adding ANY new recurring task
+- **Cron jobs**: MUST get explicit user permission before adding ANY new cron job
 - **Immediate tasks**: MUST get user permission, unless it's a tier 0 task
 - **Scheduled tasks**: MUST get user permission before scheduling regardless of tier
 
 ### Conservatism Principle
 
 It MUST be **EXTREMELY HARD** for you to suggest ANYTHING:
-- Add new recurring tasks → **ONLY if user explicitly said "I want this automated"**
+- Add new cron jobs → **ONLY if user explicitly said "I want this automated"**
 - Suggest new tasks to the user → **ONLY if user did this 3+ times AND it's genuinely valuable**
 - Schedule tasks → **ONLY if user explicitly requested scheduling**
 
@@ -192,7 +192,7 @@ Before suggesting ANY task, it must pass ALL checks:
 
 - **Frequency**: Suggest EXTREMELY sparingly - most weeks should have no new suggestions
 - **Spacing**: Give user breathing room between any suggestions
-- **Recurring tasks**: ALMOST NEVER suggest new recurring tasks
+- **Cron jobs**: ALMOST NEVER suggest new cron jobs
 - **Rejection**: If user rejected something, do not suggest it again
 - **Single occurrence**: NEVER suggest based on something user did only once
 
@@ -250,7 +250,7 @@ Read the following files:
 1. **USER.md** - User profile, preferences, location, work hours
 2. **MEMORY.md** - Recent memories, learnings, user preferences
 3. **Event log** (`agent_file_system/workspace/sessions/main/EVENT.md`, grep recent entries) - Recently completed work (to avoid duplicates!)
-4. **PROACTIVE.md** - Current recurring tasks and Goals/Plan/Status via `recurring_read`
+4. **PROACTIVE.md** - Current cron jobs and Goals/Plan/Status via `cron_job_list`
 
 Also check:
 - `scheduled_task_list` - What's already scheduled (to avoid duplicates!)
@@ -312,7 +312,7 @@ Consider from internal files:
 - What day of the week is it?
 - What are the user's long-term goals? (from Goals, Plan, and Status)
 - What did the user work on yesterday? (from the event log)
-- Are there any recurring tasks enabled for today?
+- Are there any cron jobs enabled for today?
 - What is the user's current focus area?
 
 Consider from external scan:
@@ -325,7 +325,7 @@ Consider from external scan:
 
 Create a concise day plan focusing on:
 - **Daily priorities**: 1-3 key items aligned with weekly objectives
-- **Recurring tasks due today**: What will run automatically
+- **Cron jobs due today**: What will run automatically
 - **Context notes**: Brief notes relevant to today
 
 ---
@@ -440,7 +440,7 @@ Rules:
 - Keep under 120 words; 1-3 priorities from Upcoming Priorities
 - Facts from today's checks only, no invented details
 - If nothing is scheduled and nothing is pending, say so in one line
-- At most 1 question, and only for a new-task suggestion (see Background Execution)
+- At most 1 question, and only for a new-task suggestion (see Automatic Run)
 
 ### Output 2: Update PROACTIVE.md
 
@@ -450,7 +450,7 @@ Update "Upcoming Priorities" and optionally "Current Focus" and "Recent Accompli
 
 Only if you discovered important context during analysis.
 
-### Output 4: Manage Recurring Tasks (WITH PERMISSION - RARE)
+### Output 4: Manage Cron Jobs (WITH PERMISSION - RARE)
 
 Only if ALL of these are true:
 1. User explicitly requested this automation
@@ -459,7 +459,7 @@ Only if ALL of these are true:
 4. Appropriate frequency
 
 ```
-recurring_add(
+cron_job_add(
   name="Task Name",
   frequency="daily",
   instruction="...",
@@ -491,7 +491,7 @@ schedule_task(
 
 ## Allowed Actions
 
-**Core:** `recurring_read`, `recurring_add`, `recurring_update_task`, `scheduled_task_list`,
+**Core:** `cron_job_list`, `cron_job_add`, `cron_job_update`, `scheduled_task_list`,
 `schedule_task`, `read_file`, `stream_edit`, `memory_search`,
 `send_message`, `update_todos`, `end_turn`
 
@@ -504,5 +504,5 @@ schedule_task(
 
 1. Update "Goals, Plan, and Status" section in PROACTIVE.md
 2. Update MEMORY.md if relevant context discovered
-3. (Rarely, as a question in the brief) Suggest a recurring or scheduled task
+3. (Rarely, as a question in the brief) Suggest a cron job or scheduled task
 4. Morning brief to the user: the run-ending `send_message` (required, last)

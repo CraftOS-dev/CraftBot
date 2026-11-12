@@ -23,19 +23,19 @@ You receive a planner trigger with:
 
 ---
 
-## CRITICAL: Background Execution (Override Standard Task Rules)
+## CRITICAL: Automatic Run (Override Standard Task Rules)
 
-This skill runs in the background session, not in the user's chat. **This skill overrides standard task completion rules:**
+This skill runs on its own in the user's main chat, not in reply to a user message. **This skill overrides standard task completion rules:**
 
 - **NO acknowledgement**: Do NOT acknowledge task receipt to user
-- **ONE result message**: End the run with ONE `send_message` (no `continue_work`): the monthly review. CraftBot posts it to the user's main chat, headed with this planner's name. Messages sent with `continue_work=true` are never shown to the user.
+- **ONE result message**: End the run with ONE `send_message` (no `continue_work`): the monthly review. Do not post progress updates.
 - **Message last**: That message ends the run, so finish every file update (PROACTIVE.md, MEMORY.md) before sending it.
 - **NEVER wait for the user**: The run ends on that message.
 
 **Suggesting New Tasks:**
-When you want to suggest a new recurring or scheduled task:
+When you want to suggest a new cron job or scheduled task:
 1. Put the suggestion at the end of the monthly review as ONE question, with `suggested_responses`
-2. The user answers in their main chat, where the main agent adds the task if they approve
+2. The user's reply arrives as a new run: add the task if they approve
 3. Do not add the task yourself in this run; if no answer ever comes, nothing is added
 
 **Why?** Planner runs happen automatically while the user may be away. One short message they can read later beats a stream of notifications.
@@ -55,7 +55,7 @@ Focus on strategic direction and long-term thinking. Your output provides contex
 ### Before Planning - ALWAYS Do These Checks
 
 1. **Check existing scheduled tasks**: Use `scheduled_task_list` to see what's already scheduled
-2. **Read PROACTIVE.md**: Check existing recurring tasks and the Goals, Plan, and Status section
+2. **Read PROACTIVE.md**: Check existing cron jobs and the Goals, Plan, and Status section
 3. **Check past work**: `memory_search` and grep `agent_file_system/workspace/sessions/main/EVENT.md` (large: grep it, never read it whole) for what has been done this month
 4. **Read MEMORY.md**: Understand long-term patterns and user context
 5. **Read USER.md**: Understand user's profile, preferences, and stated goals
@@ -63,20 +63,20 @@ Focus on strategic direction and long-term thinking. Your output provides contex
 ### Duplicate Prevention (EXTREMELY IMPORTANT)
 
 - **NEVER suggest a task the user has already performed** (check the event log / memory_search)
-- **NEVER suggest a task that already exists** as a recurring or scheduled task
-- **NEVER add a recurring task that duplicates an existing one**
+- **NEVER suggest a task that already exists** as a cron job or scheduled task
+- **NEVER add a cron job that duplicates an existing one**
 - If user performed a one-time task before and you suggest it again = **VERY BAD**
 
 ### Permission Requirements
 
-- **Recurring tasks**: MUST get explicit user permission before adding ANY new recurring task
+- **Cron jobs**: MUST get explicit user permission before adding ANY new cron job
 - **Goal changes**: Should reflect what user has expressed, not your ideas
 - **Strategic recommendations**: Must be based on evidence, not assumptions
 
 ### Conservatism Principle
 
 It MUST be **EXTREMELY HARD** for you to suggest ANYTHING:
-- Add new recurring tasks → **ONLY if user explicitly said "I want this automated"**
+- Add new cron jobs → **ONLY if user explicitly said "I want this automated"**
 - Suggest new goals → **ONLY if user explicitly expressed them multiple times**
 - Change existing goals → **ONLY with explicit user request**
 
@@ -194,7 +194,7 @@ Before suggesting ANY task, it must pass ALL checks:
 
 - **Frequency**: Suggest EXTREMELY sparingly - most months should have no new suggestions
 - **Spacing**: Give user breathing room between any suggestions
-- **Recurring tasks**: ALMOST NEVER suggest new recurring tasks
+- **Cron jobs**: ALMOST NEVER suggest new cron jobs
 - **Rejection**: If user rejected something, do not suggest it again
 - **Single occurrence**: NEVER suggest based on something user did only once
 
@@ -274,7 +274,7 @@ Comprehensive review of the past month:
 
 1. **Event log** (`agent_file_system/workspace/sessions/main/EVENT.md`, grep this month's entries) - All work completed this month
 2. **MEMORY.md** - All learnings, patterns, and user statements
-3. **PROACTIVE.md** - Recurring task performance
+3. **PROACTIVE.md** - Cron job performance
 4. **USER.md** - User profile and stated goals
 5. **scheduled_task_list** - Current scheduled tasks
 
@@ -354,13 +354,13 @@ If you can't fill these in → do not include.
 Analyze long-term patterns from internal + external sources:
 - **Goal progress**: What goals has user been working toward? (evidence from both internal files AND external tools)
 - **Productivity trends**: Is work being completed? (compare across the event log and connected tools)
-- **Recurring task effectiveness**: Which deliver value?
+- **Cron job effectiveness**: Which deliver value?
 - **Integration effectiveness**: Which external tools provided valuable context?
 - **User feedback**: What has user said about agent's help?
 
-### Step 5: Recurring Task Audit
+### Step 5: Cron Job Audit
 
-For each recurring task, evaluate:
+For each cron job, evaluate:
 - Is it running as expected?
 - Is user engaging with results?
 - Has user given positive or negative feedback?
@@ -480,7 +480,7 @@ Record monthly strategic observations.
 
 ### Output 3: Monthly Review Message (REQUIRED, LAST)
 
-End the run with the monthly review as your ONE `send_message` (see Background Execution). Do it last: it ends the run.
+End the run with the monthly review as your ONE `send_message` (see Automatic Run). Do it last: it ends the run.
 
 ```
 Monthly Review - [Month Year]
@@ -501,12 +501,12 @@ Rules:
 - Maximum 1 question
 - No unsolicited suggestions
 
-### Output 4: Audit Recurring Tasks
+### Output 4: Audit Cron Jobs
 
 If a task is consistently ignored or user rejected it:
 
 ```
-recurring_update_task(
+cron_job_update(
   task_id="ineffective_task",
   updates={"enabled": false}
 )
@@ -514,7 +514,7 @@ recurring_update_task(
 
 **Note:** You MUST inform user when disabling a task.
 
-### Output 5: Manage Recurring Tasks (WITH PERMISSION - RARE)
+### Output 5: Manage Cron Jobs (WITH PERMISSION - RARE)
 
 Only if ALL of these are true:
 1. User explicitly requested this automation
@@ -523,7 +523,7 @@ Only if ALL of these are true:
 4. Appropriate frequency
 
 ```
-recurring_add(
+cron_job_add(
   name="Task Name",
   frequency="monthly",
   instruction="...",
@@ -555,7 +555,7 @@ Your updates to "Long-Term Goals" directly influence what the weekly and daily p
 
 ## Allowed Actions
 
-**Core:** `recurring_read`, `recurring_add`, `recurring_update_task`, `recurring_remove`,
+**Core:** `cron_job_list`, `cron_job_add`, `cron_job_update`, `cron_job_remove`,
 `scheduled_task_list`, `schedule_task`, `read_file`, `stream_edit`,
 `memory_search`, `send_message`, `update_todos`, `end_turn`
 
@@ -568,6 +568,6 @@ Your updates to "Long-Term Goals" directly influence what the weekly and daily p
 
 1. Update "Long-Term Goals" section in PROACTIVE.md (evidence-based only)
 2. Update MEMORY.md with monthly strategic review
-3. (Rarely) Audit and disable underperforming recurring tasks, and say so in the review
-4. (Very rarely, as a question in the review) Suggest monthly recurring tasks
+3. (Rarely) Audit and disable underperforming cron jobs, and say so in the review
+4. (Very rarely, as a question in the review) Suggest monthly cron jobs
 5. Monthly review message to the user: the run-ending `send_message` (required, last)
