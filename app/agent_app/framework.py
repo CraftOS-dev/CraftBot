@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 from itertools import count
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -67,6 +68,8 @@ async def _list_apps(cli: AgentAppCLI) -> dict:
         message = "Agent-App returned an invalid registry response."
     else:
         await asyncio.to_thread(_add_marketplace_sources, data["apps"])
+        from app.agent_app.framework_connections import connection_rows
+        data["apps"].extend(connection_rows(data["connected"]))
         return {"status": "success", "data": data, **response}
     return {
         "status": "error",
@@ -83,6 +86,11 @@ def _add_marketplace_sources(apps: list[dict]) -> None:
             continue
         try:
             manifest = json.loads((Path(app["path"]) / "manifest.json").read_text(encoding="utf-8"))
+            if manifest.get("id") != app.get("id"):
+                continue
+            support = _legacy_theme_support(Path(app["path"]))
+            if support:
+                app["themeSupport"] = support
             source = manifest.get("source")
             if manifest.get("id") != app.get("id") or not isinstance(source, dict) or source.get("kind") != "marketplace":
                 continue
@@ -93,6 +101,50 @@ def _add_marketplace_sources(apps: list[dict]) -> None:
                 app["marketplace"]["ref"] = source["ref"]
         except (OSError, ValueError, KeyError, TypeError, AttributeError):
             continue  # A missing/unreadable manifest must not hide the registry row.
+
+
+def _legacy_theme_support(root: Path) -> dict | None:
+    """Adapt the old app-owned palette handler without rewriting installed apps.
+
+    Some migrated apps still index VARIANT[themeId] in addition to the kit's
+    bridge. They support Custom, but throw on newer preset names. Read their
+    declared IDs and the kit's literal colour tokens; the kit owns the palette.
+    """
+    for folder in ("frontend", "ui"):
+        src = root / folder / "src"
+        try:
+            engine = (src / "app/theme/themes.ts").read_text(encoding="utf-8")
+            css = (src / "kit/theme/tokens.css").read_text(encoding="utf-8")
+        except OSError:
+            continue
+        declaration = re.search(r"export type ThemeId\s*=\s*([^;\n]+)", engine)
+        if not declaration or "VARIANT[id][mode]" not in engine:
+            continue
+        presets = re.findall(r"['\"]([a-z-]+)['\"]", declaration[1])
+        if "custom" not in presets:
+            continue
+        css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+        blocks = re.findall(r"([^{}]+)\{([^{}]*)\}", css)
+        styles = set(re.findall(r"data-style=['\"]([a-z-]+)['\"]", css))
+        palettes = {}
+        for style in styles - set(presets):
+            modes = {}
+            for mode in ("light", "dark"):
+                colors = {}
+                for selectors, body in blocks:
+                    for selector in selectors.split(","):
+                        selector = selector.strip()
+                        if not re.fullmatch(r":root(?:\[data-(?:theme|style)=['\"][a-z-]+['\"]\])*", selector):
+                            continue
+                        attrs = re.findall(r"data-(theme|style)=['\"]([a-z-]+)['\"]", selector)
+                        if all(value == (mode if name == "theme" else style) for name, value in attrs):
+                            colors.update(re.findall(r"--(?:agent-app|lui)-(bg|surface|text|accent)\s*:\s*(#[0-9a-fA-F]{6})\s*;", body))
+                if len(colors) == 4:
+                    modes[mode] = colors
+            if len(modes) == 2:
+                palettes[style] = modes
+        return {"presets": presets, "palettes": palettes}
+    return None
 
 
 async def open_app_view(path: str, app_id: str) -> dict:
@@ -136,6 +188,13 @@ async def open_app_view(path: str, app_id: str) -> dict:
             else "unreachable",
             "The selected app is not currently available.",
         )
+    if app.get("connection"):
+        from app.agent_app.framework_connections import connection_info
+        try:
+            await connection_info(cli, path, app_id)
+        except PermissionError as error:
+            return failure("unreachable", str(error))
+        return {"status": "success", "data": {"id": app_id, "path": path, "name": app["name"], "url": path}}
     # The pinned sidecar blueprint serves protocol/account pages at this URL,
     # not the adopted UI. Its CLI has no separate view-address result yet.
     if await asyncio.to_thread((Path(path) / "sidecar.json").is_file):
@@ -230,6 +289,8 @@ async def change_app_state_locked(
         return failure(
             "identity_changed", "This registry entry no longer matches the selected app."
         )
+    if app.get("connection"):
+        return failure("remote_app", "This app runs elsewhere. Manage its process on its host.")
     if app.get("status") not in ("running", "stopped"):
         return failure("unavailable", "This app is missing or its port is unavailable.")
 

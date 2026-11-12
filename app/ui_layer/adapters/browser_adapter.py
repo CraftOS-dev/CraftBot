@@ -3118,11 +3118,15 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             self._framework_app_list_task = asyncio.create_task(
                 self._refresh_framework_app_list()
             )
+        else:
+            # A mutation may have landed after the running read started.
+            self._framework_app_list_dirty = True
 
     async def _refresh_framework_app_list(self) -> None:
         from app.agent_app.framework import list_apps, registry_observation
 
         while True:
+            self._framework_app_list_dirty = False
             version = registry_observation()
             await self._broadcast(
                 {"type": "agent_app_framework_list", "data": {"status": "loading"}}
@@ -3137,6 +3141,8 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 continue
             # Publish registry identity and status as one coherent snapshot.
             await self._publish_framework_app_list(result, version)
+            if self._framework_app_list_dirty:
+                continue
             return
 
     async def _publish_framework_app_list(self, result: dict, version: int) -> None:
@@ -3234,16 +3240,15 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
     async def _agent_app_import_handler(self, request: "web.Request") -> "web.Response":
         """HTTP handler: stage a ZIP file upload and return the temp path.
 
-        The frontend then sends a framework install request with
-        the path so the agent handles extraction via the importer skill.
+        The frontend then inspects and installs it through the existing CLI.
         """
         from aiohttp import web
 
+        zip_path = None
         try:
             import tempfile
 
             reader = await request.multipart()
-            zip_path = None
             name = ""
 
             async for part in reader:
@@ -3255,19 +3260,22 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         Path(AGENT_WORKSPACE_ROOT) / "agent_app" / "_staging"
                     )
                     staging_dir.mkdir(parents=True, exist_ok=True)
-                    tmp = tempfile.NamedTemporaryFile(
+                    with tempfile.NamedTemporaryFile(
                         suffix=".zip",
                         prefix="import_",
                         dir=str(staging_dir),
                         delete=False,
-                    )
-                    while True:
-                        chunk = await part.read_chunk()
-                        if not chunk:
-                            break
-                        tmp.write(chunk)
-                    tmp.close()
-                    zip_path = tmp.name
+                    ) as tmp:
+                        zip_path = tmp.name
+                        size = 0
+                        while True:
+                            chunk = await part.read_chunk()
+                            if not chunk:
+                                break
+                            size += len(chunk)
+                            if size > 512 * 1024 * 1024:
+                                raise ValueError('Agent-App packages must be 512 MiB or smaller. Export without dependencies, build output or local data.')
+                            tmp.write(chunk)
 
             if not zip_path:
                 return web.json_response({"error": tui("agentapp_no_zip")}, status=400)
@@ -3279,7 +3287,13 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     "name": name,
                 }
             )
+        except ValueError as e:
+            if zip_path:
+                Path(zip_path).unlink(missing_ok=True)
+            return web.json_response({"error": str(e)}, status=413)
         except Exception as e:
+            if zip_path:
+                Path(zip_path).unlink(missing_ok=True)
             logger.error(f"[AGENT_APP] Upload staging error: {e}")
             return web.json_response({"error": str(e)}, status=500)
 

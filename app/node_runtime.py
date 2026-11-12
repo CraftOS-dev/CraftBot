@@ -129,7 +129,7 @@ def discover_node() -> Optional[str]:
             if ver[0] < MIN_NODE_MAJOR:
                 continue
             binary = entry.joinpath(*rel)
-            if not binary.is_file():
+            if not binary.is_file() or not _sibling_npm(str(binary)):
                 continue
             if best is None or ver > best:
                 best, best_path = ver, binary
@@ -176,10 +176,16 @@ def resolve(refresh: bool = False) -> Optional[NodeRuntime]:
     path_node = shutil.which("node")
     path_version = probe_version(path_node) if path_node else None
     path_major = major_of(path_version)
-    if path_node and path_major is not None and path_major >= MIN_NODE_MAJOR:
+    path_npm = (_sibling_npm(path_node) or shutil.which("npm")) if path_node else None
+    if (
+        path_node
+        and path_npm
+        and path_major is not None
+        and path_major >= MIN_NODE_MAJOR
+    ):
         _cached = NodeRuntime(
             node=path_node,
-            npm=_sibling_npm(path_node) or shutil.which("npm"),
+            npm=path_npm,
             bin_dir=os.path.dirname(path_node),
             version=path_version,
             source="path",
@@ -432,11 +438,15 @@ def download_sidecar(log=None) -> Optional[str]:
 
 
 def ensure_sidecar(log=None) -> Optional[NodeRuntime]:
-    """Return a usable Node >= MIN_NODE_MAJOR, downloading one if needed.
+    """Return Node >= MIN_NODE_MAJOR with npm, downloading both if needed.
     Idempotent: a no-op when a suitable Node already resolves."""
     rt = resolve()
-    if rt is not None:
+    if rt is not None and (major_of(rt.version) or 0) >= MIN_NODE_MAJOR and rt.npm:
         return rt
+    if rt is not None and rt.source == "override":
+        if log:
+            log("CRAFTBOT_NODE must point to a supported Node installation with npm.")
+        return None
     if download_sidecar(log=log):
         return resolve(refresh=True)
     return None

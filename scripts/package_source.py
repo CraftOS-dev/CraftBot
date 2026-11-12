@@ -151,6 +151,8 @@ def build(output: Path) -> int:
             "app/agent_app_package.py",
             "app/agent_app/framework.py",
             "app/agent_app/framework_cli.py",
+            "app/agent_app/framework_connections.py",
+            "app/agent_app/framework_connections.mjs",
             "app/agent_app/framework_maintenance.py",
             "app/agent_app/framework_maintenance.mjs",
             "app/agent_app/framework_sharing.py",

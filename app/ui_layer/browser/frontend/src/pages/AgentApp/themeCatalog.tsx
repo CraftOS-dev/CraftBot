@@ -32,6 +32,11 @@ export interface AgentAppTheme {
   customColors?: AgentAppCustomColors
 }
 
+export interface LegacyThemeSupport {
+  presets: string[]
+  palettes: Record<string, Record<'light' | 'dark', AgentAppCustomColors>>
+}
+
 export const DEFAULT_CUSTOM_COLORS: AgentAppCustomColors = {
   bg: '#191919',
   surface: '#202020',
@@ -82,7 +87,14 @@ export function buildThemeMessage(
   themeId: AgentAppThemeId,
   mode: 'dark' | 'light',
   customColors: AgentAppCustomColors,
+  legacy?: LegacyThemeSupport,
 ): { type: 'livingui-theme'; themeId: string; mode: 'dark' | 'light'; customColors?: AgentAppCustomColors } {
+  // Older app-owned handlers only know a few preset names. Use their Custom
+  // path with the installed kit's palette; retain the user's selected preset.
+  if (legacy && (themeId === 'custom' || !legacy.presets.includes(themeId))) {
+    const colors = themeId === 'custom' ? customColors : legacy.palettes[themeId]?.[mode]
+    if (colors) return { type: 'livingui-theme', themeId: 'custom', mode, customColors: colors }
+  }
   if (themeId === 'custom') {
     return { type: 'livingui-theme', themeId: 'craftbot', mode, customColors }
   }

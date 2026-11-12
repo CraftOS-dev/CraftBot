@@ -20,7 +20,7 @@ function RegistrySettingsCard({ app, expanded, onToggle, onDelete, cardRef, stal
   app: FrameworkRegistryApp; expanded: boolean; onToggle: () => void; onDelete: () => void; cardRef?: Ref<HTMLElement>; stale: boolean; busy: boolean
 }) {
   const { t } = useTranslation(['settings', 'agentapp'])
-  const settings = useFrameworkAppSettings(app.path, app.id, expanded && app.status !== 'missing', app.status)
+  const settings = useFrameworkAppSettings(app.path, app.id, expanded && app.status !== 'missing', app.status, !!app.connection)
   const status = app.status === 'stopped' ? t('settings:agentApp.status.notRunning') : t(`agentapp:registry.status.${app.status}`)
   const statusColor = app.status === 'running' ? 'var(--color-success)' : app.status === 'unreachable' ? 'var(--color-error)' : 'var(--text-muted)'
   const exportApp = () => {
@@ -31,12 +31,12 @@ function RegistrySettingsCard({ app, expanded, onToggle, onDelete, cardRef, stal
     statusColor={statusColor} active={app.status === 'running'} expanded={expanded} onToggle={onToggle} cardRef={cardRef}
     actions={<>
       <FrameworkAppControls app={app} compact />
-      <Button size="sm" variant="ghost" icon={settings.busy ? <Loader2 size={14} className={settingsStyles.spinning} /> : <Download size={14} />}
-        title={t('settings:agentApp.exportProject')} disabled={stale || busy || settings.busy || app.status === 'missing'} onClick={exportApp} />
-      <Button size="sm" variant="ghost" icon={<Trash2 size={14} />} title={t('settings:agentApp.deleteProject')}
-        aria-label={`Delete ${app.name}`} disabled={stale || busy || settings.busy} onClick={onDelete} />
+      {!app.connection && <Button size="sm" variant="ghost" icon={settings.busy ? <Loader2 size={14} className={settingsStyles.spinning} /> : <Download size={14} />}
+        title={t('settings:agentApp.exportProject')} disabled={stale || busy || settings.busy || app.status === 'missing'} onClick={exportApp} />}
+      <Button size="sm" variant="ghost" icon={<Trash2 size={14} />} title={app.connection ? 'Disconnect app' : t('settings:agentApp.deleteProject')}
+        aria-label={`${app.connection ? 'Disconnect' : 'Delete'} ${app.name}`} disabled={stale || busy || settings.busy} onClick={onDelete} />
     </>}>
-    <AppSettingsInfo path={app.path} rows={[
+    <AppSettingsInfo path={app.path} rows={app.connection ? [{ label: 'Account', value: app.connection.principalName || app.connection.principal }] : [
       { label: t('settings:agentApp.frontendPort'), value: settings.maintenance?.port ?? '—' },
       { label: t('settings:agentApp.backendPort'), value: settings.maintenance?.port ?? '—' },
       { label: t('settings:agentApp.projectId'), value: app.id },
@@ -75,13 +75,6 @@ export function FrameworkSettingsCards() {
       const busy = jobs[frameworkAppKey(app.path, app.id)]?.status === 'running'
       return <RegistrySettingsCard key={key} app={app} expanded={open} onToggle={() => toggle(key)} onDelete={() => setDeleting(app)}
         stale={stale} busy={busy} cardRef={key === selectedKey ? selectedCard : undefined} />
-    })}
-    {snapshot.connected.map(app => {
-      const key = `connected:${JSON.stringify([app.origin, app.credentialId])}`
-      return <AppSettingsCard key={key} name={app.name} status={`${t('registry.remote')} · ${t(`registry.status.${app.status}`)}`}
-        statusColor="var(--text-muted)" expanded={expanded.has(key)} onToggle={() => toggle(key)}>
-        <AppSettingsInfo path={app.origin} rows={[{ label: 'Account', value: app.principalName || '—' }]} />
-      </AppSettingsCard>
     })}
     {deleting && <FrameworkAppDelete app={deleting} onClose={() => setDeleting(null)} onDeleted={() => { setDeleting(null); requestAgentAppList() }} />}
   </>

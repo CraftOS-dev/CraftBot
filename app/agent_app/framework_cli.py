@@ -17,6 +17,8 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Literal, Mapping, Sequence
+from urllib.parse import quote, unquote, urlsplit
+from urllib.request import Request, urlopen
 
 from app import node_runtime
 from app.process_ledger import kill_tree
@@ -27,6 +29,37 @@ MAX_OUTPUT_BYTES = 8 * 1024 * 1024  # Per stream; excessive output fails explici
 
 class FrameworkCLIUnavailable(RuntimeError):
     """The selected package or CraftBot's Node runtime is unavailable."""
+
+
+def _import_default_ref(source: str) -> str:
+    """Resolve bare GitHub URLs without changing explicit refs or other sources."""
+    parsed = urlsplit(source)
+    parts = parsed.path.strip("/").split("/")
+    if (
+        parsed.scheme != "https"
+        or parsed.netloc.lower() not in {"github.com", "www.github.com"}
+        or len(parts) != 2
+        or not all(parts)
+    ):
+        return ""
+    owner, repo = (unquote(part) for part in parts)
+    repo = repo.removesuffix(".git")
+    request = Request(
+        f"https://api.github.com/repos/{quote(owner, safe='')}/{quote(repo, safe='')}",
+        headers={"Accept": "application/vnd.github+json", "User-Agent": "CraftBot"},
+    )
+    try:
+        with urlopen(request, timeout=20) as response:
+            metadata = json.loads(response.read(1024 * 1024))
+        branch = metadata.get("default_branch") if isinstance(metadata, dict) else None
+        if not isinstance(branch, str) or not branch.strip():
+            raise ValueError("GitHub did not return a default branch")
+        return branch
+    except (OSError, ValueError) as exc:
+        raise ValueError(
+            f"Could not read the default branch for {owner}/{repo}: {exc}. "
+            "Retry, or paste a GitHub URL containing /tree/<branch>."
+        ) from exc
 
 
 @dataclass(frozen=True)
@@ -81,7 +114,9 @@ class AgentAppCLI:
 
         env["A2APP_MARKETPLACE_REF"] = ref()
         toolkits = get_framework_toolkits_dir()
-        if not (env_extra.get("A2APP_TOOLKITS_DIR") or env.get("A2APP_TOOLKITS_DIR", "")).strip():
+        if not (
+            env_extra.get("A2APP_TOOLKITS_DIR") or env.get("A2APP_TOOLKITS_DIR", "")
+        ).strip():
             if not toolkits:
                 from app import paths
                 from app.provision.default_agent_app import bundled_toolkits
@@ -120,10 +155,23 @@ class AgentAppCLI:
             raise TypeError("args must contain only strings")
         if not math.isfinite(timeout) or timeout <= 0:
             raise ValueError("timeout must be finite and greater than zero")
+        extra = dict(env_extra or {})
+        if (
+            surface == "agent-app"
+            and argv
+            and argv[0] in {"inspect", "install"}
+            and "--from" in argv
+        ):
+            # Upstream uses this per-command default for bare GitHub URLs too.
+            # Keep the URL intact and isolate imports from the catalogue branch.
+            extra["A2APP_MARKETPLACE_REF"] = ""
+            source_index = argv.index("--from") + 1
+            if source_index < len(argv):
+                extra["A2APP_MARKETPLACE_REF"] = await asyncio.to_thread(
+                    _import_default_ref, argv[source_index]
+                )
         # Resolution can probe Node synchronously; keep it off the UI event loop.
-        command, env = await asyncio.to_thread(
-            self._prepare, surface, dict(env_extra or {})
-        )
+        command, env = await asyncio.to_thread(self._prepare, surface, extra)
         flags = (
             {"creationflags": subprocess.CREATE_NO_WINDOW}
             if sys.platform == "win32"

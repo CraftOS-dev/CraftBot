@@ -437,13 +437,9 @@ def _free_ports(*ports: int) -> List[str]:
 
 
 def _launch_static_frontend(silent: bool = False) -> Optional[subprocess.Popen]:
-    """Serve pre-built frontend static files with proxy support.
-
-    Used when running as a PyInstaller binary where npm/node aren't available
-    but the built dist/ folder is bundled. Proxies /ws and /api requests to
-    the backend server, mirroring the Vite dev server proxy config.
-    """
+    """Serve the compiled UI with its runtime port and proxy /api requests."""
     import http.server
+    import io
     import threading
     import urllib.request
 
@@ -452,10 +448,37 @@ def _launch_static_frontend(silent: bool = False) -> Optional[subprocess.Popen]:
     backend_url = f"http://localhost:{backend_port}"
 
     class FrontendHandler(http.server.SimpleHTTPRequestHandler):
-        """Serves static files and proxies /api and /ws to the backend."""
+        """Serve static files and proxy /api; WebSockets connect directly."""
 
         def __init__(self, *args, **kwargs):
             super().__init__(*args, directory=dist_dir, **kwargs)
+
+        def send_head(self):
+            path = self.translate_path(self.path)
+            if os.path.isdir(path):
+                path = os.path.join(path, "index.html")
+            if os.path.abspath(path) != os.path.abspath(
+                os.path.join(dist_dir, "index.html")
+            ):
+                return super().send_head()
+            try:
+                with open(path, "rb") as page:
+                    content = page.read()
+            except OSError:
+                self.send_error(404, "File not found")
+                return None
+            # Supply configuration before the UI's module scripts run. The
+            # installed bundle stays identical across ports and read-only installs.
+            content = content.replace(
+                b"<head>",
+                f'<head><meta name="craftbot-backend-port" content="{backend_port}">'.encode(),
+                1,
+            )
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(content)))
+            self.end_headers()
+            return io.BytesIO(content)
 
         def do_GET(self):
             if self.path.startswith("/api/") or self.path.startswith("/api?"):
@@ -672,7 +695,6 @@ _FRONTEND_BUILD_INPUTS = (
     "vite.config.ts",
     "tsconfig.json",
 )
-_FRONTEND_BUILD_STAMP = ".craftbot-build.json"
 
 
 def _newest_mtime(paths: List[str]) -> float:
@@ -691,25 +713,17 @@ def _newest_mtime(paths: List[str]) -> float:
 def _ensure_frontend_build(silent: bool = False) -> bool:
     """Build the production frontend unless dist/ is current.
 
-    dist/ is current when it is newer than every frontend source and was built
-    for the same backend port (the port is baked into the bundle).
+    dist/ is current when it is newer than every frontend source. The server
+    supplies the backend port when serving the page, independently of the build.
     """
     dist_dir = os.path.join(FRONTEND_DIR, "dist")
     dist_index = os.path.join(dist_dir, "index.html")
-    stamp_path = os.path.join(dist_dir, _FRONTEND_BUILD_STAMP)
-    backend_port = os.environ.get("VITE_BACKEND_PORT", str(BACKEND_PORT))
 
     inputs = [os.path.join(FRONTEND_DIR, name) for name in _FRONTEND_BUILD_INPUTS]
     # Shared mascot components are compiled in through the @mascot alias.
     inputs.append(os.path.join(BASE_DIR, "app", "ui_layer", "components", "Mascot"))
-    try:
-        with open(stamp_path, encoding="utf-8") as f:
-            built_port = str(json.load(f).get("backendPort"))
-    except (OSError, ValueError):
-        built_port = None
     if (
         os.path.isfile(dist_index)
-        and built_port == backend_port
         and os.path.getmtime(dist_index) >= _newest_mtime(inputs)
     ):
         return True
@@ -745,11 +759,6 @@ def _ensure_frontend_build(silent: bool = False) -> bool:
                 + result.stderr.decode("utf-8", errors="replace")[-2000:]
             )
         return False
-    try:
-        with open(stamp_path, "w", encoding="utf-8") as f:
-            json.dump({"backendPort": backend_port}, f)
-    except OSError:
-        pass
     return True
 
 

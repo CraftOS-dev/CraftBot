@@ -18,6 +18,131 @@ from app.provision.types import Context, Status
 CODE_ROOT = Path(__file__).resolve().parents[1]
 
 
+def test_framework_install_is_required_offline_and_checked_without_registry_changes(
+    tmp_path, monkeypatch
+):
+    from app import node_runtime, provision
+    from app.provision.agent_app_framework import AgentAppFrameworkStage
+
+    if node_runtime.resolve() is None:
+        pytest.skip("Node runtime unavailable")
+    home = tmp_path / "a2app"
+    monkeypatch.setenv("A2APP_HOME", str(home))
+    ctx = context(tmp_path / "state", offline=True)
+    stage = AgentAppFrameworkStage()
+    assert stage.check(ctx).status is Status.MISSING
+    assert not Path(ctx.state_root).exists()
+    stages = provision.default_stages()
+    names = [s.name for s in stages]
+    assert (
+        names.index("node") < names.index(stage.name) < names.index("default-agent-app")
+    )
+    assert not next(s for s in stages if s.name == "node").optional
+    assert not stage.optional
+    report = provision.install(ctx=ctx, stages=[stage])
+    assert report.ok, report.to_dict()
+    assert stage.check(ctx).status is Status.SATISFIED
+    assert not home.exists()
+    assert not (Path(ctx.state_root) / "agent-apps").exists()
+    assert not (Path(ctx.state_root) / default.RECEIPT).exists()
+    package = Path(report.results[0][1].data["package"])
+    toolkit = Path(report.results[0][1].data["toolkits"])
+    assert (package / "bin/a2app.js").is_file()
+    assert (toolkit / "blueprint-pocketbase-kit/a2app.toolkit.json").is_file()
+    (package / "bin/a2app.js").write_text("broken")
+    assert stage.check(ctx).status is Status.DEGRADED
+    assert stage.apply(ctx, lambda _m: None).status is Status.FAILED
+
+
+@pytest.mark.parametrize("failed_cli", ["agent-app", "a2app"])
+def test_framework_cli_failure_stops_install_and_is_reported_as_required(
+    tmp_path, monkeypatch, failed_cli
+):
+    from types import SimpleNamespace
+    from app import provision
+    from app.provision import agent_app_framework as stage_module
+    from app.provision.types import StageResult
+
+    monkeypatch.setattr(
+        stage_module.agent_app_package, "cached_package", lambda *a: tmp_path
+    )
+    monkeypatch.setattr(
+        stage_module.agent_app_package, "ensure_package", lambda *a: tmp_path
+    )
+    monkeypatch.setattr(
+        stage_module, "bundled_toolkits", lambda *a, **kw: tmp_path / "toolkits"
+    )
+    monkeypatch.setattr(
+        stage_module.node_runtime, "resolve", lambda: SimpleNamespace(node="node")
+    )
+    monkeypatch.setattr(stage_module.node_runtime, "child_env", lambda: {})
+
+    def probe(command, **kwargs):
+        failed = Path(command[1]).stem == failed_cli
+        return subprocess.CompletedProcess(
+            command, 1 if failed else 0, "help", "missing SDK" if failed else ""
+        )
+
+    monkeypatch.setattr(stage_module.proc, "run", probe)
+    later = SimpleNamespace(
+        name="later",
+        optional=False,
+        check=lambda ctx: pytest.fail("continued past failed framework"),
+    )
+    report = provision.install(
+        ctx=context(tmp_path), stages=[stage_module.AgentAppFrameworkStage(), later]
+    )
+    assert [name for name, _ in report.required_failures] == ["agent-app-framework"]
+    assert "missing SDK" in report.required_failures[0][1].detail
+    optional = SimpleNamespace(
+        name="optional",
+        description="Optional integration",
+        optional=True,
+        check=lambda ctx: StageResult(Status.MISSING),
+        apply=lambda ctx, log: StageResult(Status.FAILED),
+    )
+    report = provision.install(ctx=context(tmp_path), stages=[optional])
+    assert report.failures and not report.required_failures
+
+
+def test_node_provisioning_requires_npm_and_a_supported_runtime(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from app import node_runtime, provision
+    from app.provision.runtimes import NodeStage
+
+    runtime = SimpleNamespace(node="node", npm=None, version="v24.0.0", source="path")
+    monkeypatch.setattr(node_runtime, "resolve", lambda **kw: runtime)
+    stage = NodeStage()
+    assert stage.check(context(tmp_path)).status is Status.MISSING
+    runtime.version = "v18.0.0"
+    assert stage.check(context(tmp_path)).status is Status.DEGRADED
+    report = provision.install(ctx=context(tmp_path, offline=True), stages=[stage])
+    assert [name for name, _ in report.required_failures] == ["node"]
+
+
+def test_node_without_npm_does_not_shadow_complete_sidecar(tmp_path, monkeypatch):
+    from app import node_runtime
+
+    incomplete, complete = str(tmp_path / "bare-node"), str(tmp_path / "sidecar-node")
+    monkeypatch.delenv("CRAFTBOT_NODE", raising=False)
+    monkeypatch.setattr(node_runtime, "_cached", None)
+    monkeypatch.setattr(node_runtime, "_resolved", False)
+    monkeypatch.setattr(
+        node_runtime.shutil,
+        "which",
+        lambda name: incomplete if name == "node" else None,
+    )
+    monkeypatch.setattr(
+        node_runtime,
+        "_sibling_npm",
+        lambda node: "sidecar-npm" if node == complete else None,
+    )
+    monkeypatch.setattr(node_runtime, "probe_version", lambda node: "v24.0.0")
+    monkeypatch.setattr(node_runtime, "discover_node", lambda: complete)
+    runtime = node_runtime.resolve(refresh=True)
+    assert (runtime.node, runtime.npm) == (complete, "sidecar-npm")
+
+
 def context(tmp_path, **kwargs):
     return Context(code_root=str(CODE_ROOT), state_root=str(tmp_path), **kwargs)
 
@@ -166,7 +291,9 @@ def test_bundle_contains_app_and_license_without_runtime_state():
         assert metadata["ref"] == "main"
 
 
-def test_native_install_and_interrupted_retry_reuse_registered_app(tmp_path, monkeypatch):
+def test_native_install_and_interrupted_retry_reuse_registered_app(
+    tmp_path, monkeypatch
+):
     from types import SimpleNamespace
     from app.agent_app import framework
     from app.agent_app.framework_cli import CLIResult
@@ -174,6 +301,7 @@ def test_native_install_and_interrupted_retry_reuse_registered_app(tmp_path, mon
 
     destination = (tmp_path / "agent-apps/kanban-board").resolve()
     rows = []
+
     async def run(surface, args, **kwargs):
         assert surface == "agent-app"
         toolkits = Path(kwargs["env_extra"]["A2APP_TOOLKITS_DIR"])
@@ -182,29 +310,56 @@ def test_native_install_and_interrupted_retry_reuse_registered_app(tmp_path, mon
             assert args[:2] == ["install", "kanban-board"]
             assert not destination.exists()
             destination.mkdir(parents=True)
-            (destination / "manifest.json").write_text(json.dumps({"source": {"catalogueId": "kanban-board", "location": args[args.index("--source") + 1]}}), encoding="utf-8")
-            rows.append({"id": "fresh-native-id", "name": "Kanban Board", "path": str(destination), "status": "running"})
+            (destination / "manifest.json").write_text(
+                json.dumps(
+                    {
+                        "source": {
+                            "catalogueId": "kanban-board",
+                            "location": args[args.index("--source") + 1],
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            rows.append(
+                {
+                    "id": "fresh-native-id",
+                    "name": "Kanban Board",
+                    "path": str(destination),
+                    "status": "running",
+                }
+            )
         else:
             assert args == [str(destination), "serve", "--install"]
             rows[0]["status"] = "running"
-        return CLIResult(0, '{"ok":true}', '')
-    cli = SimpleNamespace(home=tmp_path / 'home', package_dir=tmp_path, run=AsyncMock(side_effect=run))
-    monkeypatch.setattr(framework, 'configured_cli', lambda: cli)
-    monkeypatch.setattr(framework, '_list_apps', AsyncMock(side_effect=lambda _: {"status": "success", "data": {"apps": rows}}))
+        return CLIResult(0, '{"ok":true}', "")
+
+    cli = SimpleNamespace(
+        home=tmp_path / "home", package_dir=tmp_path, run=AsyncMock(side_effect=run)
+    )
+    monkeypatch.setattr(framework, "configured_cli", lambda: cli)
+    monkeypatch.setattr(
+        framework,
+        "_list_apps",
+        AsyncMock(side_effect=lambda _: {"status": "success", "data": {"apps": rows}}),
+    )
     default.prepare_install(context(tmp_path, new_install=True))
     asyncio.run(default.install_bundled_app(CODE_ROOT, tmp_path))
-    assert not (tmp_path / 'agent_file_system').exists()
-    assert HostStore(tmp_path / 'agent-app-host.sqlite3').all('attachment')[0]['autoStart'] is True
+    assert not (tmp_path / "agent_file_system").exists()
+    assert (
+        HostStore(tmp_path / "agent-app-host.sqlite3").all("attachment")[0]["autoStart"]
+        is True
+    )
     assert len(rows) == 1
-    rows[0]['status'] = 'stopped'
+    rows[0]["status"] = "stopped"
     default._write_receipt(tmp_path, {"status": "pending"})
     asyncio.run(default.install_bundled_app(CODE_ROOT, tmp_path))
     assert len(rows) == 1 and cli.run.call_count == 2
-    assert default._read_receipt(tmp_path)['frameworkAppId'] == 'fresh-native-id'
+    assert default._read_receipt(tmp_path)["frameworkAppId"] == "fresh-native-id"
     # A reused location must not silently adopt someone else's app.
     default._write_receipt(tmp_path, {"status": "pending"})
-    (destination / 'manifest.json').write_text('{"source":{}}', encoding='utf-8')
-    with pytest.raises(ValueError, match='another source'):
+    (destination / "manifest.json").write_text('{"source":{}}', encoding="utf-8")
+    with pytest.raises(ValueError, match="another source"):
         asyncio.run(default.install_bundled_app(CODE_ROOT, tmp_path))
 
 
@@ -221,24 +376,33 @@ def test_corrupt_bundle_does_not_register_an_app(tmp_path):
     assert not (state / "agent_file_system").exists()
 
 
-def test_occupied_unregistered_destination_and_missing_registration_fail(tmp_path, monkeypatch):
+def test_occupied_unregistered_destination_and_missing_registration_fail(
+    tmp_path, monkeypatch
+):
     from types import SimpleNamespace
     from app.agent_app import framework
     from app.agent_app.framework_cli import CLIResult
-    cli = SimpleNamespace(home=tmp_path / 'home', package_dir=tmp_path, run=AsyncMock(return_value=CLIResult(0, '{"ok":true}', '')))
-    monkeypatch.setattr(framework, 'configured_cli', lambda: cli)
-    monkeypatch.setattr(framework, '_list_apps', AsyncMock(return_value={"status": "success", "data": {"apps": []}}))
+
+    cli = SimpleNamespace(
+        home=tmp_path / "home",
+        package_dir=tmp_path,
+        run=AsyncMock(return_value=CLIResult(0, '{"ok":true}', "")),
+    )
+    monkeypatch.setattr(framework, "configured_cli", lambda: cli)
+    monkeypatch.setattr(
+        framework,
+        "_list_apps",
+        AsyncMock(return_value={"status": "success", "data": {"apps": []}}),
+    )
     default.prepare_install(context(tmp_path, new_install=True))
-    with pytest.raises(RuntimeError, match='running registered'):
+    with pytest.raises(RuntimeError, match="running registered"):
         asyncio.run(default.install_bundled_app(CODE_ROOT, tmp_path))
-    assert default._read_receipt(tmp_path)['status'] == 'pending'
-    (tmp_path / 'agent-apps/kanban-board').mkdir(parents=True)
+    assert default._read_receipt(tmp_path)["status"] == "pending"
+    (tmp_path / "agent-apps/kanban-board").mkdir(parents=True)
     cli.run.reset_mock()
-    with pytest.raises(ValueError, match='already exists'):
+    with pytest.raises(ValueError, match="already exists"):
         asyncio.run(default.install_bundled_app(CODE_ROOT, tmp_path))
     cli.run.assert_not_called()
-
-
 
 
 def test_bundle_builder_is_repeatable_and_rejects_user_data():
@@ -249,24 +413,55 @@ def test_bundle_builder_is_repeatable_and_rejects_user_data():
         data = io.BytesIO()
         with zipfile.ZipFile(data, "w") as archive:
             archive.writestr("upstream/LICENSE", "MIT")
-            archive.writestr("upstream/catalogue.json", json.dumps({"apps": [{"id": "kanban-board", "folder": "kanban-board", "toolkit": "blueprint-pocketbase-kit"}]}))
-            archive.writestr("upstream/kanban-board/manifest.json", json.dumps({"agentAppVersion": version}))
-            archive.writestr("upstream/kanban-board/.a2app/toolkit.json", '{"id":"blueprint-pocketbase-kit"}')
-            archive.writestr("upstream/toolkits/blueprint-pocketbase-kit/a2app.toolkit.json", '{"id":"blueprint-pocketbase-kit"}')
+            archive.writestr(
+                "upstream/catalogue.json",
+                json.dumps(
+                    {
+                        "apps": [
+                            {
+                                "id": "kanban-board",
+                                "folder": "kanban-board",
+                                "toolkit": "blueprint-pocketbase-kit",
+                            }
+                        ]
+                    }
+                ),
+            )
+            archive.writestr(
+                "upstream/kanban-board/manifest.json",
+                json.dumps({"agentAppVersion": version}),
+            )
+            archive.writestr(
+                "upstream/kanban-board/.a2app/toolkit.json",
+                '{"id":"blueprint-pocketbase-kit"}',
+            )
+            archive.writestr(
+                "upstream/toolkits/blueprint-pocketbase-kit/a2app.toolkit.json",
+                '{"id":"blueprint-pocketbase-kit"}',
+            )
             if extra:
                 archive.writestr(extra, "private")
         return data.getvalue()
 
     assert build_bundle(source()) == build_bundle(source())
     with zipfile.ZipFile(io.BytesIO(build_bundle(source()))) as archive:
-        assert archive.read("kanban-board/manifest.json") == b'{"agentAppVersion": "0.1.0"}'
-        assert "toolkits/blueprint-pocketbase-kit/a2app.toolkit.json" in archive.namelist()
+        assert (
+            archive.read("kanban-board/manifest.json")
+            == b'{"agentAppVersion": "0.1.0"}'
+        )
+        assert (
+            "toolkits/blueprint-pocketbase-kit/a2app.toolkit.json" in archive.namelist()
+        )
     with pytest.raises(ValueError, match="legacy format"):
         build_bundle(source(version=2))
     with pytest.raises(ValueError, match="runtime state"):
         build_bundle(source("upstream/kanban-board/pb/pb_data/data.db"))
     with pytest.raises(ValueError, match="runtime state"):
-        build_bundle(source("upstream/toolkits/blueprint-pocketbase-kit/template/credentials.json"))
+        build_bundle(
+            source(
+                "upstream/toolkits/blueprint-pocketbase-kit/template/credentials.json"
+            )
+        )
 
 
 def test_one_off_bundle_ref_does_not_change_future_main_updates(tmp_path, monkeypatch):
@@ -282,7 +477,11 @@ def test_one_off_bundle_ref_does_not_change_future_main_updates(tmp_path, monkey
 
     def download(request, **kwargs):
         urls.append(request.full_url)
-        return io.BytesIO(b'{"sha":"pinned-commit"}' if "/commits/" in request.full_url else b"archive")
+        return io.BytesIO(
+            b'{"sha":"pinned-commit"}'
+            if "/commits/" in request.full_url
+            else b"archive"
+        )
 
     monkeypatch.setattr(builder, "urlopen", download)
     monkeypatch.setattr(sys, "argv", ["bundle", "--ref", "staging"])
@@ -304,7 +503,10 @@ def test_packaging_requires_the_default_bundle():
     assert wanted("app/data/default_agent_app/source.json")
 
 
-@pytest.mark.parametrize("missing", [None, "default", "framework", "pin", "maintenance", "housekeeping", "sharing"])
+@pytest.mark.parametrize(
+    "missing",
+    [None, "default", "framework", "pin", "maintenance", "housekeeping", "sharing"],
+)
 def test_release_payload_includes_and_requires_app_bundles(
     tmp_path, monkeypatch, missing
 ):
@@ -377,23 +579,45 @@ def test_release_payload_includes_and_requires_app_bundles(
 
 def test_framework_board_package_and_cache_are_sanitized(tmp_path):
     bundle = CODE_ROOT / default.BUNDLE_DIR
-    source = json.loads((bundle / 'source.json').read_text(encoding='utf-8'))
-    archive = bundle / 'kanban-board.zip'
-    assert hashlib.sha256(archive.read_bytes()).hexdigest() == source['sha256']
+    source = json.loads((bundle / "source.json").read_text(encoding="utf-8"))
+    archive = bundle / "kanban-board.zip"
+    assert hashlib.sha256(archive.read_bytes()).hexdigest() == source["sha256"]
     with zipfile.ZipFile(archive) as z:
         names = z.namelist()
-        assert {'catalogue.json', 'kanban-board/LICENSE', 'kanban-board/manifest.json', 'kanban-board/frontend/package-lock.json', 'kanban-board/.a2app/toolkit.json'} <= set(names)
-        assert not any(set(Path(n).parts) & {'pb_data', 'pb_public', 'node_modules', '.superuser', 'dev', 'live', 'credentials.json'} for n in names)
-        assert json.loads(z.read('kanban-board/.a2app/toolkit.json')) == {'id': 'blueprint-pocketbase-kit'}
-        assert 'toolkits/blueprint-pocketbase-kit/a2app.toolkit.json' in names
-    cache = default._local_catalogue(archive, tmp_path, source['sha256'])
-    assert default._local_catalogue(archive, tmp_path, source['sha256']) == cache
-    (cache / 'kanban-board/injected.js').write_text('unexpected', encoding='utf-8')
-    with pytest.raises(ValueError, match='cache changed'):
-        default._local_catalogue(archive, tmp_path, source['sha256'])
+        assert {
+            "catalogue.json",
+            "kanban-board/LICENSE",
+            "kanban-board/manifest.json",
+            "kanban-board/frontend/package-lock.json",
+            "kanban-board/.a2app/toolkit.json",
+        } <= set(names)
+        assert not any(
+            set(Path(n).parts)
+            & {
+                "pb_data",
+                "pb_public",
+                "node_modules",
+                ".superuser",
+                "dev",
+                "live",
+                "credentials.json",
+            }
+            for n in names
+        )
+        assert json.loads(z.read("kanban-board/.a2app/toolkit.json")) == {
+            "id": "blueprint-pocketbase-kit"
+        }
+        assert "toolkits/blueprint-pocketbase-kit/a2app.toolkit.json" in names
+    cache = default._local_catalogue(archive, tmp_path, source["sha256"])
+    assert default._local_catalogue(archive, tmp_path, source["sha256"]) == cache
+    (cache / "kanban-board/injected.js").write_text("unexpected", encoding="utf-8")
+    with pytest.raises(ValueError, match="cache changed"):
+        default._local_catalogue(archive, tmp_path, source["sha256"])
 
 
-def test_default_catalogue_retries_a_transient_windows_extraction_lock(tmp_path, monkeypatch):
+def test_default_catalogue_retries_a_transient_windows_extraction_lock(
+    tmp_path, monkeypatch
+):
     archive = tmp_path / "fixture.zip"
     with zipfile.ZipFile(archive, "w") as package:
         package.writestr("catalogue.json", '{"apps":[]}')
@@ -425,12 +649,18 @@ def test_cli_discovers_bundled_toolkit_without_installing_an_app(tmp_path, monke
     (tmp_path / "bin").mkdir()
     (tmp_path / "bin/agent-app.js").touch()
     monkeypatch.setattr(paths, "STATE_ROOT", tmp_path / "state")
-    monkeypatch.setattr(node_runtime, "resolve", lambda: SimpleNamespace(node=sys.executable, version="v24.0.0"))
+    monkeypatch.setattr(
+        node_runtime,
+        "resolve",
+        lambda: SimpleNamespace(node=sys.executable, version="v24.0.0"),
+    )
     monkeypatch.setattr(node_runtime, "child_env", lambda: {})
     monkeypatch.setattr("app.config.get_framework_toolkits_dir", lambda: None)
     cli = AgentAppCLI(tmp_path, home=tmp_path / "registry")
     _, env = cli._prepare("agent-app", {})
-    toolkit = Path(env["A2APP_TOOLKITS_DIR"]) / "blueprint-pocketbase-kit/a2app.toolkit.json"
+    toolkit = (
+        Path(env["A2APP_TOOLKITS_DIR"]) / "blueprint-pocketbase-kit/a2app.toolkit.json"
+    )
     assert toolkit.is_file()
     assert not (tmp_path / "registry").exists()
     assert not (paths.STATE_ROOT / default.RECEIPT).exists()
@@ -442,6 +672,13 @@ def test_cli_discovers_bundled_toolkit_without_installing_an_app(tmp_path, monke
     monkeypatch.setattr(default, "bundled_toolkits", unexpected)
     monkeypatch.setattr("app.config.get_framework_toolkits_dir", lambda: "configured")
     assert cli._prepare("agent-app", {})[1]["A2APP_TOOLKITS_DIR"] == "configured"
-    monkeypatch.setattr(node_runtime, "child_env", lambda: {"A2APP_TOOLKITS_DIR": "environment"})
+    monkeypatch.setattr(
+        node_runtime, "child_env", lambda: {"A2APP_TOOLKITS_DIR": "environment"}
+    )
     assert cli._prepare("agent-app", {})[1]["A2APP_TOOLKITS_DIR"] == "environment"
-    assert cli._prepare("agent-app", {"A2APP_TOOLKITS_DIR": "invocation"})[1]["A2APP_TOOLKITS_DIR"] == "invocation"
+    assert (
+        cli._prepare("agent-app", {"A2APP_TOOLKITS_DIR": "invocation"})[1][
+            "A2APP_TOOLKITS_DIR"
+        ]
+        == "invocation"
+    )

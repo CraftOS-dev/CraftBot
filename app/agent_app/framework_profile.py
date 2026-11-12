@@ -26,7 +26,7 @@ async def export_packages(staging: Path) -> list[dict]:
         return []
     store = host.store if host else HostStore(store_path)
     cli = await asyncio.to_thread(framework.configured_cli)
-    attachments = [a for a in store.all("attachment") if a.get("home") == str(cli.home)]
+    attachments = [a for a in store.all("attachment") if a.get("home") == str(cli.home) and not a.get("connection")]
     if not attachments:
         return []
     snapshot = await framework._list_apps(cli)

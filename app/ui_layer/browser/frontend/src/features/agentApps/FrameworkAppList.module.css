@@ -3,7 +3,6 @@
 .flyoutList { gap: 2px; }
 .flyoutButton { flex: 1 1 auto; min-width: 0; }
 .list > li:hover .flyoutButton { padding-right: 30px; }
-.remote { cursor: default; }
 .rowFeedback { margin: 0 var(--space-3); }
 .notice { display: flex; align-items: center; gap: 6px; margin: 6px 12px; font-size: var(--text-xs); color: var(--text-secondary); overflow-wrap: anywhere; }
 details.notice { display: block; }
