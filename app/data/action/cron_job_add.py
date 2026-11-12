@@ -2,14 +2,14 @@ from agent_core import action
 
 
 @action(
-    name="recurring_add",
-    description="Add a new recurring task to PROACTIVE.md. It runs at its own slot (hourly at :MM, daily at HH:MM, weekly on a day at HH:MM, monthly on a date at HH:MM) in the background, and its result is posted to the user's main chat. A slot missed while CraftBot was off runs once, late, when it is back. IMPORTANT: Only add recurring tasks with user consent - ask the user first before adding recurring tasks.",
+    name="cron_job_add",
+    description="Add a cron job to PROACTIVE.md. It runs at its own slot (hourly at :MM, daily at HH:MM, weekly on a day at HH:MM, monthly on a date at HH:MM) as a run in the main chat. A slot missed while CraftBot was off runs once, late, when it is back. IMPORTANT: Only add cron jobs with user consent - ask the user first.",
     action_sets=["proactive"],
     input_schema={
         "name": {
             "type": "string",
             "required": True,
-            "description": "Human-readable task name (e.g., 'Morning Briefing', 'Weekly Review')",
+            "description": "Human-readable job name (e.g., 'Morning Briefing', 'Weekly Review')",
             "example": "Morning Briefing",
         },
         "frequency": {
@@ -21,25 +21,25 @@ from agent_core import action
         "instruction": {
             "type": "string",
             "required": True,
-            "description": "What the agent should do when this task fires. Be specific and actionable.",
+            "description": "What the agent should do when this job runs. Be specific and actionable.",
             "example": "Check the weather and prepare a morning briefing with today's calendar and priority tasks.",
         },
         "time": {
             "type": "string",
             "required": False,
-            "description": "Slot time in HH:MM format (24-hour); defaults to 00:00. Hourly tasks use only the minute (e.g. '00:15' runs at :15 every hour).",
+            "description": "Slot time in HH:MM format (24-hour); defaults to 00:00. Hourly jobs use only the minute (e.g. '00:15' runs at :15 every hour).",
             "example": "07:00",
         },
         "day": {
             "type": "string",
             "required": False,
-            "description": "Weekday for weekly tasks (e.g., 'sunday'; default monday), or day of month 1-31 for monthly tasks (default 1; clamped to the month's last day).",
+            "description": "Weekday for weekly jobs (e.g., 'sunday'; default monday), or day of month 1-31 for monthly jobs (default 1; clamped to the month's last day).",
             "example": "sunday",
         },
         "priority": {
             "type": "integer",
             "required": False,
-            "description": "Task priority (lower = higher priority). Default is 50.",
+            "description": "Job priority (lower = higher priority). Default is 50.",
             "example": 50,
         },
         "permission_tier": {
@@ -51,13 +51,13 @@ from agent_core import action
         "enabled": {
             "type": "boolean",
             "required": False,
-            "description": "Whether to enable the task immediately. Default is true.",
+            "description": "Whether to enable the job immediately. Default is true.",
             "example": True,
         },
         "conditions": {
             "type": "array",
             "required": False,
-            "description": "Optional list of conditions for task execution. Each condition has a 'type' field.",
+            "description": "Optional list of conditions for running the job. Each condition has a 'type' field.",
             "example": [{"type": "market_hours_only"}],
         },
     },
@@ -66,12 +66,12 @@ from agent_core import action
             "type": "string",
             "description": "ok if successful, error otherwise",
         },
-        "task_id": {"type": "string", "description": "The ID of the created task"},
+        "job_id": {"type": "string", "description": "The ID of the created job"},
         "message": {"type": "string", "description": "Confirmation message"},
     },
 )
-def recurring_add(input_data: dict) -> dict:
-    """Add a new recurring task."""
+def cron_job_add(input_data: dict) -> dict:
+    """Add a cron job."""
     from app.proactive import get_proactive_manager
 
     manager = get_proactive_manager()
@@ -79,7 +79,6 @@ def recurring_add(input_data: dict) -> dict:
         return {"status": "error", "error": "Proactive manager not initialized"}
 
     try:
-        # Validate required fields
         name = input_data.get("name")
         frequency = input_data.get("frequency")
         instruction = input_data.get("instruction")
@@ -91,7 +90,6 @@ def recurring_add(input_data: dict) -> dict:
         if not instruction:
             return {"status": "error", "error": "instruction is required"}
 
-        # Validate frequency
         valid_frequencies = ["hourly", "daily", "weekly", "monthly"]
         if frequency not in valid_frequencies:
             return {
@@ -99,20 +97,18 @@ def recurring_add(input_data: dict) -> dict:
                 "error": f"Invalid frequency. Must be one of: {', '.join(valid_frequencies)}",
             }
 
-        # Validate permission_tier
         permission_tier = input_data.get("permission_tier", 1)
         if (
             not isinstance(permission_tier, int)
             or permission_tier < 0
-            or permission_tier > 3
+            or permission_tier > 1
         ):
             return {
                 "status": "error",
-                "error": "permission_tier must be an integer from 0 to 3",
+                "error": "permission_tier must be 0 (silent) or 1 (notify)",
             }
 
-        # Create the task
-        task = manager.add_task(
+        job = manager.add_job(
             name=name,
             frequency=frequency,
             instruction=instruction,
@@ -126,8 +122,8 @@ def recurring_add(input_data: dict) -> dict:
 
         return {
             "status": "ok",
-            "task_id": task.id,
-            "message": f"Recurring task '{name}' created with ID: {task.id}. "
+            "job_id": job.id,
+            "message": f"Cron job '{name}' created with ID: {job.id}. "
             f"It will run {frequency} with permission tier {permission_tier}.",
         }
 

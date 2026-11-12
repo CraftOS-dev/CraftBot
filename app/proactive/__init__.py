@@ -1,16 +1,16 @@
 # -*- coding: utf-8 -*-
 """
-Proactive task management module.
+Proactive module.
 
-This module provides functionality for managing recurring tasks that the agent
-can execute autonomously based on scheduled heartbeats.
+Manages PROACTIVE.md: the cron jobs the scheduler runs at their set times,
+and the checklist the heartbeat reads on every tick.
 """
 
 from .types import (
-    RecurringTask,
-    RecurringData,
-    RecurringCondition,
-    RecurringOutcome,
+    CronJob,
+    ProactiveData,
+    CronJobCondition,
+    CronJobOutcome,
 )
 from .parser import (
     ProactiveParser,
@@ -23,15 +23,15 @@ from .manager import (
 )
 
 __all__ = [
-    # Types (Recurring Task classes)
-    "RecurringTask",
-    "RecurringData",
-    "RecurringCondition",
-    "RecurringOutcome",
-    # Parser (Proactive framework)
+    # Types
+    "CronJob",
+    "ProactiveData",
+    "CronJobCondition",
+    "CronJobOutcome",
+    # Parser
     "ProactiveParser",
     "validate_yaml_block",
-    # Manager (Proactive framework)
+    # Manager
     "ProactiveManager",
     "get_proactive_manager",
     "initialize_proactive_manager",

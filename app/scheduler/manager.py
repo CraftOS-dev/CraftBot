@@ -2,10 +2,9 @@
 """
 Scheduler Manager
 
-Manages scheduled tasks with background asyncio loops.
-Fires durable triggers when schedules are due: memory processing into the
-MAIN session, everything else (proactive heartbeat and planners,
-schedule_task jobs) into the BACKGROUND session.
+Manages scheduled tasks with background asyncio loops, plus the runner for
+the cron jobs in PROACTIVE.md. Fires durable triggers into the MAIN session
+when work is due.
 """
 
 import asyncio
@@ -16,25 +15,24 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from agent_core import MAIN_SESSION_ID, BACKGROUND_SESSION_ID
+from agent_core import MAIN_SESSION_ID
 from agent_core.utils.logger import logger
 
 from .parser import ScheduleParser, ScheduleParseError
 from .types import ScheduledTask, SchedulerConfig
 
 
-# Appended to every background-session instruction: where the run's output
-# goes. The run's final send_message is copied into the user's main chat.
-BACKGROUND_RESULT_NOTE = (
-    "This runs in the background session, not in the user's chat. Your "
-    "run-ending send_message is posted to the user's main chat as this run's "
-    "result; progress updates (continue_work=true) are not shown to them. "
-    "If there is nothing to tell the user, end with end_turn instead."
-)
-
-# A proactive task dispatched more than this long after its slot carries a
+# A cron job dispatched more than this long after its slot carries a
 # lateness note (CraftBot was closed or the machine was asleep at the slot).
-PROACTIVE_LATE_SECONDS = 120
+CRON_JOB_LATE_SECONDS = 120
+
+# The cron-job runner re-reads PROACTIVE.md at least this often even when no
+# job is due sooner, so hand edits to the file and clock jumps after sleep
+# are picked up. Changes made through the actions or Settings re-arm it at once.
+CRON_RECHECK_SECONDS = 300
+
+# What the cron-job and heartbeat runs load for their whole run.
+PROACTIVE_ACTION_SETS = ["file_operations", "proactive", "web_research"]
 
 
 class SchedulerManager:
@@ -44,9 +42,13 @@ class SchedulerManager:
     Creates background asyncio tasks for each enabled schedule.
     Fires durable triggers when schedules are due (see module docstring).
 
-    The proactive heartbeat is the one schedule that also wakes on its own:
-    besides its configured interval it fires exactly when a PROACTIVE.md task
-    becomes due, and re-arms whenever the task list changes.
+    Two proactive mechanisms, separate on purpose:
+    - Cron jobs (PROACTIVE.md "Cron Jobs"): an internal runner wakes exactly
+      at the next job's slot, hands the due jobs to one run and stamps them.
+      It re-arms whenever the jobs change.
+    - Heartbeat (scheduler_config.json "heartbeat"): every interval tick, if
+      the PROACTIVE.md "Heartbeat" checklist is not empty, one run reads it
+      and acts only on what needs attention.
     """
 
     # A one-time task firing more than this many seconds after its scheduled
@@ -68,9 +70,12 @@ class SchedulerManager:
         self._wake_events: Dict[str, asyncio.Event] = {}
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._proactive_manager = None  # ProactiveManager, see set_proactive_manager
-        # "task_id@slot_minute" keys this process already dispatched: a slot
+        # "job_id@slot_minute" keys this process already dispatched: a slot
         # never fires twice even if stamping PROACTIVE.md failed (file locked).
         self._dispatched_slots: set[str] = set()
+        # The cron-job runner and its wake-up event (see _cron_jobs_loop).
+        self._cron_task: Optional[asyncio.Task] = None
+        self._cron_wake: Optional[asyncio.Event] = None
 
     async def initialize(
         self,
@@ -119,13 +124,25 @@ class SchedulerManager:
                 if schedule.enabled:
                     await self._start_schedule_loop(schedule_id)
 
+        self._cron_wake = asyncio.Event()
+        self._cron_task = asyncio.create_task(self._cron_jobs_loop())
+
         logger.info(
-            f"[SCHEDULER] Started {len(self._scheduler_tasks)} schedule loop(s)"
+            f"[SCHEDULER] Started {len(self._scheduler_tasks)} schedule loop(s) "
+            f"and the cron-job runner"
         )
 
     async def shutdown(self) -> None:
         """Stop all scheduler loops gracefully."""
         self._is_running = False
+
+        if self._cron_task is not None and not self._cron_task.done():
+            self._cron_task.cancel()
+            try:
+                await self._cron_task
+            except asyncio.CancelledError:
+                pass
+        self._cron_task = None
 
         async with self._lock:
             for task_id, task in list(self._scheduler_tasks.items()):
@@ -314,30 +331,27 @@ class SchedulerManager:
         """Get a schedule by ID."""
         return self._schedules.get(schedule_id)
 
-    # ─────────────── Proactive heartbeat ───────────────
+    # ─────────────── Proactive: cron jobs and the heartbeat ───────────────
 
     def set_proactive_manager(self, proactive_manager) -> None:
-        """Give the heartbeat its task source; task-list saves re-arm it."""
+        """Give the cron-job runner and the heartbeat PROACTIVE.md; every save
+        to it re-arms the cron-job runner."""
         self._proactive_manager = proactive_manager
         proactive_manager.set_change_listener(self.rearm_proactive)
 
-    @staticmethod
-    def _is_heartbeat(schedule: ScheduledTask) -> bool:
-        return schedule.payload.get("type") == "proactive_heartbeat"
-
     def rearm_proactive(self) -> None:
-        """Make heartbeat loops recompute their next fire (thread-safe).
+        """Make the cron-job runner recompute its next wake now (thread-safe).
 
-        Called after the PROACTIVE.md task list changes and when proactive
-        mode is switched, so a new, edited or re-enabled task fires at its
-        exact slot instead of waiting for the next interval tick.
+        Called after the cron jobs change and when proactive mode is switched,
+        so a new, edited or re-enabled job fires at its exact slot.
         """
-        for schedule_id, schedule in list(self._schedules.items()):
-            if self._is_heartbeat(schedule):
-                self._wake(schedule_id)
+        self._set_event(self._cron_wake)
 
     def _wake(self, schedule_id: str) -> None:
-        event = self._wake_events.get(schedule_id)
+        self._set_event(self._wake_events.get(schedule_id))
+
+    def _set_event(self, event: Optional[asyncio.Event]) -> None:
+        """Set an event owned by the scheduler's loop, from any thread."""
         loop = self._loop
         if event is None or loop is None or loop.is_closed():
             return
@@ -350,32 +364,16 @@ class SchedulerManager:
         else:
             loop.call_soon_threadsafe(event.set)
 
-    def _next_fire(self, schedule: ScheduledTask, now: float) -> float:
-        """Next fire time; for the heartbeat, also the next task slot."""
-        next_fire = ScheduleParser.calculate_next_fire_time(
-            schedule.schedule, from_time=now
-        )
-        if (
-            self._is_heartbeat(schedule)
-            and self._proactive_manager is not None
-            and self._proactive_enabled()
-        ):
-            try:
-                due_at = self._proactive_manager.next_due_at(
-                    datetime.fromtimestamp(now)
-                )
-            except Exception as e:
-                logger.warning(f"[SCHEDULER] Proactive next-due lookup failed: {e}")
-                due_at = None
-            if due_at is not None:
-                next_fire = min(next_fire, max(now, due_at.timestamp()))
-        return next_fire
-
     @staticmethod
     def _proactive_enabled() -> bool:
         from app.ui_layer.settings.proactive_settings import is_proactive_enabled
 
         return is_proactive_enabled()
+
+    def _heartbeat_checklist(self) -> str:
+        if self._proactive_manager is None:
+            return ""
+        return self._proactive_manager.get_heartbeat_checklist()
 
     async def queue_immediate_trigger(
         self,
@@ -387,7 +385,7 @@ class SchedulerManager:
         payload: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
-        Queue a trigger for immediate execution in the BACKGROUND session.
+        Queue a trigger for immediate execution in the MAIN session.
 
         Args:
             name: Human-readable name for the work
@@ -421,12 +419,10 @@ class SchedulerManager:
         await self._trigger_service.emit(
             TriggerSpec(
                 source=TriggerSource.SCHEDULED_IMMEDIATE,
-                description=(
-                    f"[Immediate] {name}: {instruction}\n\n{BACKGROUND_RESULT_NOTE}"
-                ),
+                description=f"[Immediate] {name}: {instruction}",
                 fire_at=time.time(),  # Fire immediately
                 priority=priority,
-                session_id=BACKGROUND_SESSION_ID,
+                session_id=MAIN_SESSION_ID,
                 payload=trigger_payload,
             )
         )
@@ -566,7 +562,9 @@ class SchedulerManager:
 
                 # Calculate next fire time
                 now = time.time()
-                next_fire = self._next_fire(schedule, now)
+                next_fire = ScheduleParser.calculate_next_fire_time(
+                    schedule.schedule, from_time=now
+                )
                 schedule.next_run = next_fire
 
                 # Calculate sleep duration
@@ -639,8 +637,9 @@ class SchedulerManager:
         Gates the built-in memory-processing schedule by the event threshold:
         the daily run fires only when enough unprocessed events have piled up
         (or pruning is due), so quiet days skip instead of processing nothing
-        at the set time. The proactive heartbeat and planners fire only while
-        proactive mode is on. Every other schedule always fires.
+        at the set time. Planners fire only while proactive mode is on, and
+        the heartbeat also needs a non-empty checklist (an empty one costs
+        nothing). Every other schedule always fires.
         """
         if schedule.payload.get("type") == "memory_processing":
             from app.ui_layer.settings.memory_settings import (
@@ -648,17 +647,17 @@ class SchedulerManager:
             )
 
             return memory_scheduled_run_due()
-        if schedule.payload.get("type") in ("proactive_heartbeat", "proactive_planner"):
+        kind = schedule.payload.get("type")
+        if kind == "proactive_heartbeat":
+            return self._proactive_enabled() and bool(self._heartbeat_checklist())
+        if kind == "proactive_planner":
             return self._proactive_enabled()
         return True
 
     async def _fire_schedule(self, schedule: ScheduledTask) -> None:
         """
-        Fire a scheduled task trigger (memory into MAIN, the rest into
-        BACKGROUND).
-
-        The heartbeat fires only when PROACTIVE.md tasks are due: it hands
-        exactly those tasks to the run and stamps them as dispatched.
+        Fire a scheduled task trigger into the MAIN session. The heartbeat's
+        instruction carries its checklist.
         """
         if not self._trigger_service:
             logger.warning(
@@ -677,20 +676,6 @@ class SchedulerManager:
 
         now = time.time()
 
-        due_tasks = []
-        if self._is_heartbeat(schedule):
-            if self._proactive_manager is None:
-                return
-            now_dt = datetime.fromtimestamp(now)
-            due_tasks = [
-                t
-                for t in self._proactive_manager.get_due_tasks(now_dt)
-                if self._slot_key(t, now_dt) not in self._dispatched_slots
-            ]
-            if not due_tasks:
-                logger.debug(f"[SCHEDULER] {schedule.id}: no proactive task due")
-                return
-
         # Update runtime state
         schedule.last_run = now
         schedule.run_count += 1
@@ -706,14 +691,10 @@ class SchedulerManager:
             **schedule.payload,  # Merge custom payload
         }
 
-        is_memory = payload.get("type") == "memory_processing"
-        if due_tasks:
-            description = self._heartbeat_description(due_tasks, now_dt)
-            payload["proactive_task_ids"] = [t.id for t in due_tasks]
+        if payload.get("type") == "proactive_heartbeat":
+            description = self._heartbeat_instruction(self._heartbeat_checklist())
         else:
             description = f"[Scheduled] {schedule.name}: {schedule.instruction}"
-            if not is_memory:
-                description = f"{description}\n\n{BACKGROUND_RESULT_NOTE}"
 
         # Catch-up handling: a one-time task can become overdue while CraftBot is
         # offline. Rather than apply a hard drop/fire cutoff, fire it but hand
@@ -783,12 +764,6 @@ class SchedulerManager:
         promoted = payload_type_to_source.get(payload.get("type"))
         if promoted is not None:
             source = promoted
-        if due_tasks:
-            # One fire per (task, slot): a crash-retry of the same dispatch
-            # dedups, the next slot of any task does not.
-            dedup_key = "proactive:" + ",".join(
-                self._slot_key(t, now_dt) for t in due_tasks
-            )
 
         result = await self._trigger_service.emit(
             TriggerSpec(
@@ -796,7 +771,7 @@ class SchedulerManager:
                 description=description,
                 fire_at=now,
                 priority=schedule.priority,
-                session_id=MAIN_SESSION_ID if is_memory else BACKGROUND_SESSION_ID,
+                session_id=MAIN_SESSION_ID,
                 payload=payload,
                 dedup_key=dedup_key,
             )
@@ -806,11 +781,6 @@ class SchedulerManager:
                 f"[SCHEDULER] Fire deduped (already queued/in-flight): "
                 f"{schedule.id} - {schedule.name}"
             )
-        if due_tasks:
-            # Stamp after the durable emit: a crash in between re-fires the
-            # same (task, slot) set, which the dedup key collapses.
-            self._dispatched_slots.update(self._slot_key(t, now_dt) for t in due_tasks)
-            self._proactive_manager.mark_dispatched([t.id for t in due_tasks], now_dt)
 
         if not schedule.recurring:
             self._schedules.pop(schedule.id, None)
@@ -824,42 +794,126 @@ class SchedulerManager:
             f"(run #{schedule.run_count})"
         )
 
-    @staticmethod
-    def _slot_key(task, now: datetime) -> str:
-        """Identity of one task slot: "task_id@slot_minute"."""
-        return f"{task.id}@{int(task.latest_slot(now).timestamp() // 60)}"
+    # ─────────────── Cron-job runner ───────────────
 
-    def _heartbeat_description(self, tasks, now: datetime) -> str:
-        """The heartbeat run's instruction: the due tasks, spelled out."""
+    async def _cron_jobs_loop(self) -> None:
+        """Fire PROACTIVE.md cron jobs at their slots.
+
+        Wakes at the next job's slot, at least every CRON_RECHECK_SECONDS
+        (hand edits to the file, clock jumps after sleep), and immediately
+        on rearm_proactive(). A slot missed while CraftBot was off is due on
+        the first pass and runs once, late.
+        """
+        logger.info("[SCHEDULER] Cron-job runner started")
+        while self._is_running:
+            try:
+                self._cron_wake.clear()
+                await self._fire_cron_jobs()
+
+                now = time.time()
+                delay = float(CRON_RECHECK_SECONDS)
+                if self._proactive_manager is not None and self._proactive_enabled():
+                    due_at = self._proactive_manager.next_due_at(
+                        datetime.fromtimestamp(now)
+                    )
+                    # A job already due here was just dispatched by this
+                    # process (stamping failed): wait for the recheck instead
+                    # of spinning on it.
+                    if due_at is not None and due_at.timestamp() > now:
+                        delay = min(delay, due_at.timestamp() - now)
+                try:
+                    await asyncio.wait_for(self._cron_wake.wait(), timeout=delay)
+                except asyncio.TimeoutError:
+                    pass
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"[SCHEDULER] Cron-job runner error: {e}")
+                await asyncio.sleep(60)
+        logger.info("[SCHEDULER] Cron-job runner stopped")
+
+    async def _fire_cron_jobs(self) -> None:
+        """Hand every due cron job to one run, then stamp them."""
+        if (
+            self._proactive_manager is None
+            or not self._trigger_service
+            or not self._proactive_enabled()
+        ):
+            return
+        now = time.time()
+        now_dt = datetime.fromtimestamp(now)
+        due = [
+            job
+            for job in self._proactive_manager.get_due_jobs(now_dt)
+            if self._slot_key(job, now_dt) not in self._dispatched_slots
+        ]
+        if not due:
+            return
+
+        from app.triggers import TriggerSource, TriggerSpec
+
+        job_ids = [job.id for job in due]
+        slot_keys = [self._slot_key(job, now_dt) for job in due]
+        # Durable emit first; one fire per (job, slot), so a crash-retry of
+        # the same dispatch dedups and the next slot of any job does not.
+        await self._trigger_service.emit(
+            TriggerSpec(
+                source=TriggerSource.CRON_JOB,
+                description=self._cron_jobs_description(due, now_dt),
+                fire_at=now,
+                priority=min(job.priority for job in due),
+                session_id=MAIN_SESSION_ID,
+                payload={
+                    "cron_job_ids": job_ids,
+                    "workflow_skills": ["cron-job-runner"],
+                    "workflow_action_sets": list(PROACTIVE_ACTION_SETS),
+                },
+                dedup_key="cron:" + ",".join(slot_keys),
+            )
+        )
+        # Stamp after the durable emit: a crash in between re-fires the same
+        # (job, slot) set, which the dedup key collapses.
+        self._dispatched_slots.update(slot_keys)
+        self._proactive_manager.mark_dispatched(job_ids, now_dt)
+        logger.info(f"[SCHEDULER] Fired {len(due)} cron job(s): {', '.join(job_ids)}")
+
+    @staticmethod
+    def _slot_key(job, now: datetime) -> str:
+        """Identity of one job slot: "job_id@slot_minute"."""
+        return f"{job.id}@{int(job.latest_slot(now).timestamp() // 60)}"
+
+    def _cron_jobs_description(self, jobs, now: datetime) -> str:
+        """The cron-job run's instruction: the due jobs, spelled out."""
         lines = [
-            "Run these due proactive tasks from PROACTIVE.md. The scheduler "
-            "already selected them and recorded them as run: do not re-check "
-            "their schedules, and do not call recurring_update_task to log them.",
+            "Run these due cron jobs from PROACTIVE.md. The scheduler already "
+            "selected them and recorded them as run: do not re-check their "
+            "schedules. After each job, record its outcome with "
+            "cron_job_update(job_id, add_outcome={result, success}).",
             "",
         ]
-        for i, task in enumerate(tasks, start=1):
-            slot = task.latest_slot(now)
+        for i, job in enumerate(jobs, start=1):
+            slot = job.latest_slot(now)
             when = {
                 "hourly": f"hourly at :{slot:%M}",
                 "daily": f"daily at {slot:%H:%M}",
                 "weekly": f"weekly on {slot:%A} at {slot:%H:%M}",
                 "monthly": f"monthly on day {slot.day} at {slot:%H:%M}",
-            }.get(task.frequency, task.frequency)
+            }.get(job.frequency, job.frequency)
             tier = (
                 "notify the user"
-                if task.permission_tier >= 1
+                if job.permission_tier >= 1
                 else "silent unless the instruction asks to report"
             )
-            lines.append(f"{i}. {task.name} (id: {task.id}; {when}; {tier})")
-            lines.append(f"   Instruction: {task.instruction.strip()}")
-            if task.conditions:
-                conditions = ", ".join(c.type for c in task.conditions)
+            lines.append(f"{i}. {job.name} (id: {job.id}; {when}; {tier})")
+            lines.append(f"   Instruction: {job.instruction.strip()}")
+            if job.conditions:
+                conditions = ", ".join(c.type for c in job.conditions)
                 lines.append(
                     f"   Conditions: {conditions}. If one does not hold now, "
-                    f"skip this task."
+                    f"skip this job."
                 )
             late = (now - slot).total_seconds()
-            if late > PROACTIVE_LATE_SECONDS:
+            if late > CRON_JOB_LATE_SECONDS:
                 lines.append(
                     f"   Late: due {slot:%Y-%m-%d %H:%M}, running about "
                     f"{self._format_duration(late)} late because CraftBot was not "
@@ -868,11 +922,23 @@ class SchedulerManager:
                 )
         lines += [
             "",
-            "Finish with ONE send_message covering every task that has "
-            "something for the user; it is posted to the user's main chat. If "
-            "nothing needs their attention, end with end_turn instead.",
+            "Finish with ONE send_message covering every job that has "
+            "something for the user. If nothing needs their attention, end "
+            "with end_turn instead.",
         ]
         return "\n".join(lines)
+
+    @staticmethod
+    def _heartbeat_instruction(checklist: str) -> str:
+        """The heartbeat run's instruction: the checklist it must go through."""
+        return (
+            "Heartbeat check. Go through the checklist below (the Heartbeat "
+            "section of PROACTIVE.md, written by the user) and check each item "
+            "now. Act only where something needs attention.\n\n"
+            f"{checklist}\n\n"
+            "If something needs the user, finish with ONE send_message covering "
+            "it. If nothing needs attention, end with end_turn."
+        )
 
     @staticmethod
     def _format_duration(seconds: float) -> str:

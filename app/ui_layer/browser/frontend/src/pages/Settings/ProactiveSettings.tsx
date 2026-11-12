@@ -9,7 +9,7 @@ import {
   X,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { Button, Badge, ConfirmModal } from '../../components/ui'
+import { Button, Badge, ConfirmModal, InfoTip } from '../../components/ui'
 import { useConfirmModal, usePersistedState, useServerDraft } from '../../hooks'
 import i18n from '../../i18n/config'
 import { formatNumber, formatDate } from '../../i18n/format'
@@ -20,19 +20,20 @@ import { useToast } from '../../contexts/ToastContext'
 import { RESOURCES, useResource } from '../../store/resources'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import {
-  setTaskEnabled,
-  type ProactiveTask,
+  setCronJobEnabled,
+  type CronJob,
   type ProactiveSchedule,
 } from '../../store/slices/proactiveSettingsSlice'
 import {
   selectSchedulerEnabled,
   selectSchedules,
-  selectProactiveTasks,
+  selectCronJobs,
   selectProactiveHasLoadedMode,
   selectProactiveHasLoadedConfig,
-  selectProactiveHasLoadedTasks,
+  selectCronJobsLoaded,
   selectProactiveSchedule,
   selectHeartbeatOptions,
+  selectHeartbeatChecklist,
 } from '../../store/selectors/proactiveSettings'
 import { UI_STATE } from '../../store/uiState'
 
@@ -61,17 +62,18 @@ interface SentTiming {
 const sameValue = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 
 type PlannerId = 'day-planner' | 'week-planner' | 'month-planner'
+type ScheduleId = 'heartbeat' | PlannerId
 
 const clockParts = (time: string) => time.split(':').map(n => parseInt(n, 10) || 0)
 
-// Catch-up interval option label ("Every 30 minutes", "Every 2 hours").
+// Heartbeat interval option label ("Every 30 minutes", "Every 2 hours").
 function formatInterval(minutes: number): string {
   return minutes < 60
-    ? i18n.t('settings:proactive.catchUp.everyMinutes', { count: minutes })
-    : i18n.t('settings:proactive.catchUp.everyHours', { count: minutes / 60 })
+    ? i18n.t('settings:proactive.heartbeat.everyMinutes', { count: minutes })
+    : i18n.t('settings:proactive.heartbeat.everyHours', { count: minutes / 60 })
 }
 
-// Helper functions for task display
+// Helper functions for cron job display
 function getPriorityLabel(value: number): string {
   if (value <= 35) return i18n.t('settings:proactive.priority.high')
   if (value <= 55) return i18n.t('settings:proactive.priority.medium')
@@ -96,14 +98,14 @@ function getPriorityLevel(value: number): PriorityLevel {
   return 'low'
 }
 
-// Task Form Modal Component
-interface TaskFormModalProps {
-  task: ProactiveTask | null
+// Cron Job Form Modal Component
+interface CronJobFormModalProps {
+  job: CronJob | null
   onClose: () => void
-  onSave: (taskData: Partial<ProactiveTask>) => void
+  onSave: (jobData: Partial<CronJob>) => void
 }
 
-interface TaskForm {
+interface CronJobForm {
   name: string
   frequency: string
   instruction: string
@@ -114,26 +116,26 @@ interface TaskForm {
   day: string
 }
 
-function taskToForm(task: ProactiveTask | null): TaskForm {
+function jobToForm(job: CronJob | null): CronJobForm {
   return {
-    name: task?.name || '',
-    frequency: task?.frequency || 'daily',
-    instruction: task?.instruction || '',
-    enabled: task?.enabled ?? true,
-    priorityLevel: task ? getPriorityLevel(task.priority) : 'medium',
-    notifyBeforeRunning: task ? task.permissionTier >= 1 : true,
-    time: task?.time || '',
-    day: task?.day || '',
+    name: job?.name || '',
+    frequency: job?.frequency || 'daily',
+    instruction: job?.instruction || '',
+    enabled: job?.enabled ?? true,
+    priorityLevel: job ? getPriorityLevel(job.priority) : 'medium',
+    notifyBeforeRunning: job ? job.permissionTier >= 1 : true,
+    time: job?.time || '',
+    day: job?.day || '',
   }
 }
 
-function TaskFormModal({ task, onClose, onSave }: TaskFormModalProps) {
+function CronJobFormModal({ job, onClose, onSave }: CronJobFormModalProps) {
   const { t } = useTranslation(['settings', 'common'])
-  // Drafted over the live task, so an edit made elsewhere (another tab, the
+  // Drafted over the live job, so an edit made elsewhere (another tab, the
   // agent) is flagged instead of silently lost on save.
-  const form = useServerDraft(taskToForm(task))
+  const form = useServerDraft(jobToForm(job))
   const { name, frequency, instruction, enabled, priorityLevel, notifyBeforeRunning, time, day } = form.value
-  const setField = <K extends keyof TaskForm>(key: K) => (value: TaskForm[K]) =>
+  const setField = <K extends keyof CronJobForm>(key: K) => (value: CronJobForm[K]) =>
     form.set(prev => ({ ...prev, [key]: value }))
   const setName = setField('name')
   const setFrequency = setField('frequency')
@@ -162,7 +164,7 @@ function TaskFormModal({ task, onClose, onSave }: TaskFormModalProps) {
     <div className={styles.modalOverlay} onClick={onClose}>
       <div className={styles.modalContent} onClick={e => e.stopPropagation()}>
         <div className={styles.modalHeader}>
-          <h3>{task ? t('settings:proactive.taskForm.editTitle') : t('settings:proactive.taskForm.addTitle')}</h3>
+          <h3>{job ? t('settings:proactive.cronJobForm.editTitle') : t('settings:proactive.cronJobForm.addTitle')}</h3>
           <button className={styles.modalClose} onClick={onClose}>
             <X size={18} />
           </button>
@@ -170,19 +172,19 @@ function TaskFormModal({ task, onClose, onSave }: TaskFormModalProps) {
         <form onSubmit={handleSubmit}>
           <div className={styles.modalBody}>
             <div className={styles.formGroup}>
-              <label>{t('settings:proactive.taskForm.name')}</label>
+              <label>{t('settings:proactive.cronJobForm.name')}</label>
               <input
                 type="text"
                 value={name}
                 onChange={e => setName(e.target.value)}
-                placeholder={t('settings:proactive.taskForm.namePlaceholder')}
+                placeholder={t('settings:proactive.cronJobForm.namePlaceholder')}
                 required
               />
             </div>
 
             <div className={styles.formRow}>
               <div className={styles.formGroup}>
-                <label>{t('settings:proactive.taskForm.frequency')}</label>
+                <label>{t('settings:proactive.cronJobForm.frequency')}</label>
                 <select value={frequency} onChange={e => setFrequency(e.target.value)}>
                   <option value="hourly">{t('settings:proactive.frequency.hourly')}</option>
                   <option value="daily">{t('settings:proactive.frequency.daily')}</option>
@@ -192,7 +194,7 @@ function TaskFormModal({ task, onClose, onSave }: TaskFormModalProps) {
               </div>
 
               <div className={styles.formGroup}>
-                <label>{t('settings:proactive.taskForm.priority')} <span className={styles.labelHint}>{t('settings:proactive.taskForm.priorityHint')}</span></label>
+                <label>{t('settings:proactive.cronJobForm.priority')} <span className={styles.labelHint}>{t('settings:proactive.cronJobForm.priorityHint')}</span></label>
                 <select value={priorityLevel} onChange={e => setPriorityLevel(e.target.value as PriorityLevel)}>
                   <option value="high">{t('settings:proactive.priority.high')}</option>
                   <option value="medium">{t('settings:proactive.priority.medium')}</option>
@@ -204,7 +206,7 @@ function TaskFormModal({ task, onClose, onSave }: TaskFormModalProps) {
             <div className={styles.formRow}>
               {frequency !== 'hourly' && (
                 <div className={styles.formGroup}>
-                  <label>{t('settings:proactive.taskForm.time')}</label>
+                  <label>{t('settings:proactive.cronJobForm.time')}</label>
                   <input
                     type="time"
                     value={time}
@@ -215,9 +217,9 @@ function TaskFormModal({ task, onClose, onSave }: TaskFormModalProps) {
 
               {frequency === 'weekly' && (
                 <div className={styles.formGroup}>
-                  <label>{t('settings:proactive.taskForm.dayOfWeek')}</label>
+                  <label>{t('settings:proactive.cronJobForm.dayOfWeek')}</label>
                   <select value={day} onChange={e => setDay(e.target.value)}>
-                    <option value="">{t('settings:proactive.taskForm.selectDay')}</option>
+                    <option value="">{t('settings:proactive.cronJobForm.selectDay')}</option>
                     <option value="monday">{t('settings:proactive.weekdays.monday')}</option>
                     <option value="tuesday">{t('settings:proactive.weekdays.tuesday')}</option>
                     <option value="wednesday">{t('settings:proactive.weekdays.wednesday')}</option>
@@ -232,9 +234,9 @@ function TaskFormModal({ task, onClose, onSave }: TaskFormModalProps) {
 
             <div className={styles.toggleGroup}>
               <div className={styles.toggleInfo}>
-                <span className={styles.toggleLabel}>{t('settings:proactive.taskForm.notifyLabel')}</span>
+                <span className={styles.toggleLabel}>{t('settings:proactive.cronJobForm.notifyLabel')}</span>
                 <span className={styles.toggleDesc}>
-                  {t('settings:proactive.taskForm.notifyDesc')}
+                  {t('settings:proactive.cronJobForm.notifyDesc')}
                 </span>
               </div>
               <input
@@ -246,23 +248,23 @@ function TaskFormModal({ task, onClose, onSave }: TaskFormModalProps) {
             </div>
 
             <div className={styles.formGroup}>
-              <label>{t('settings:proactive.taskForm.instruction')}</label>
+              <label>{t('settings:proactive.cronJobForm.instruction')}</label>
               <textarea
                 value={instruction}
                 onChange={e => setInstruction(e.target.value)}
-                placeholder={t('settings:proactive.taskForm.instructionPlaceholder')}
+                placeholder={t('settings:proactive.cronJobForm.instructionPlaceholder')}
                 rows={4}
                 required
               />
               <span className={styles.hint}>
-                {t('settings:proactive.taskForm.instructionHint')}
+                {t('settings:proactive.cronJobForm.instructionHint')}
               </span>
             </div>
 
             <div className={styles.toggleGroup}>
               <div className={styles.toggleInfo}>
-                <span className={styles.toggleLabel}>{t('settings:proactive.taskForm.enabledLabel')}</span>
-                <span className={styles.toggleDesc}>{t('settings:proactive.taskForm.enabledDesc')}</span>
+                <span className={styles.toggleLabel}>{t('settings:proactive.cronJobForm.enabledLabel')}</span>
+                <span className={styles.toggleDesc}>{t('settings:proactive.cronJobForm.enabledDesc')}</span>
               </div>
               <input
                 type="checkbox"
@@ -279,7 +281,7 @@ function TaskFormModal({ task, onClose, onSave }: TaskFormModalProps) {
               {t('common:actions.cancel')}
             </Button>
             <Button variant="primary" type="submit">
-              {task ? t('common:actions.saveChanges') : t('settings:proactive.addTask')}
+              {job ? t('common:actions.saveChanges') : t('settings:proactive.cronJobs.add')}
             </Button>
           </div>
         </form>
@@ -297,19 +299,35 @@ export function ProactiveSettings() {
   // Slice-backed
   const schedulerEnabled = useAppSelector(selectSchedulerEnabled)
   const schedules = useAppSelector(selectSchedules)
-  const tasks = useAppSelector(selectProactiveTasks)
+  const cronJobs = useAppSelector(selectCronJobs)
   const hasLoadedMode = useAppSelector(selectProactiveHasLoadedMode)
   const hasLoadedConfig = useAppSelector(selectProactiveHasLoadedConfig)
-  const hasLoadedTasks = useAppSelector(selectProactiveHasLoadedTasks)
+  const hasLoadedJobs = useAppSelector(selectCronJobsLoaded)
   const isLoadingScheduler = !hasLoadedMode || !hasLoadedConfig
-  const isLoadingTasks = !hasLoadedTasks
+  const isLoadingJobs = !hasLoadedJobs
 
-  // The slice caches mode, schedules and tasks; ResourceSync fetches them when
+  // The slice caches mode, schedules and cronJobs; ResourceSync fetches them when
   // unloaded or stale and refetches them whenever they change (any tab, a reset).
   useResource(RESOURCES.proactiveMode)
   useResource(RESOURCES.schedulerConfig)
-  useResource(RESOURCES.proactiveTasks)
+  useResource(RESOURCES.cronJobs)
   useResource(RESOURCES.proactiveSchedule)
+  useResource(RESOURCES.heartbeatChecklist)
+
+  // The Heartbeat checklist: a draft over PROACTIVE.md's "Heartbeat" section,
+  // saved when the box loses focus (typing never round-trips mid-line).
+  const savedChecklist = useAppSelector(selectHeartbeatChecklist)
+  const hasLoadedChecklist = savedChecklist !== null
+  const checklistDraft = useServerDraft(savedChecklist ?? '')
+  const resetChecklist = checklistDraft.reset
+  const sentChecklistRef = React.useRef<string | null>(null)
+  const checklistValueRef = React.useRef(checklistDraft.value)
+  checklistValueRef.current = checklistDraft.value
+  const saveChecklist = () => {
+    if (!checklistDraft.isDirty) return
+    sentChecklistRef.current = checklistDraft.value
+    send('heartbeat_checklist_set', { checklist: checklistDraft.value })
+  }
 
   // Heartbeat interval + planner schedules: one draft per control over the
   // saved values, so a change made elsewhere shows up here unless that
@@ -340,14 +358,14 @@ export function ProactiveSettings() {
   const timingTimerRef = React.useRef<number | undefined>(undefined)
 
   // UI state (transient)
-  const [showTaskForm, setShowTaskForm] = useState(false)
-  const [editingTask, setEditingTask] = useState<ProactiveTask | null>(null)
-  // The form drafts over the live task; the snapshot stands in if it's removed.
-  const liveEditingTask = editingTask ? tasks.find(x => x.id === editingTask.id) ?? editingTask : null
-  const [isResettingTasks, setIsResettingTasks] = useState(false)
+  const [showJobForm, setShowJobForm] = useState(false)
+  const [editingJob, setEditingJob] = useState<CronJob | null>(null)
+  // The form drafts over the live job; the snapshot stands in if it's removed.
+  const liveEditingJob = editingJob ? cronJobs.find(x => x.id === editingJob.id) ?? editingJob : null
+  const [isResettingJobs, setIsResettingJobs] = useState(false)
   // Set while this tab's add/update is in flight, so another tab's save
   // doesn't close this tab's form.
-  const savingTaskRef = React.useRef(false)
+  const savingJobRef = React.useRef(false)
 
   // Confirm modal
   const { modalProps: confirmModalProps, confirm } = useConfirmModal()
@@ -356,17 +374,28 @@ export function ProactiveSettings() {
   // spinner). List state is owned by proactiveSettingsSlice via the registry.
   useEffect(() => {
     const closeFormOnSaved = (data: unknown) => {
-      if (!savingTaskRef.current) return
-      savingTaskRef.current = false
+      if (!savingJobRef.current) return
+      savingJobRef.current = false
       if ((data as { success: boolean }).success) {
-        setShowTaskForm(false)
-        setEditingTask(null)
+        setShowJobForm(false)
+        setEditingJob(null)
       }
     }
     const cleanups = [
-      onMessage('proactive_task_add', closeFormOnSaved),
-      onMessage('proactive_task_update', closeFormOnSaved),
-      onMessage('proactive_tasks_reset', () => setIsResettingTasks(false)),
+      onMessage('cron_job_add', closeFormOnSaved),
+      onMessage('cron_job_update', closeFormOnSaved),
+      onMessage('cron_jobs_reset', () => setIsResettingJobs(false)),
+      onMessage('heartbeat_checklist_set', (data: unknown) => {
+        const sent = sentChecklistRef.current
+        if (sent === null) return
+        sentChecklistRef.current = null
+        const d = data as { success: boolean; error?: string }
+        if (!d.success) {
+          showToast('error', d.error || t('settings:proactive.toast.checklistFailed'))
+          return
+        }
+        if (checklistValueRef.current === sent) resetChecklist()
+      }),
       onMessage('proactive_schedule_set', (data: unknown) => {
         const sent = sentTimingRef.current
         if (!sent) return
@@ -384,7 +413,7 @@ export function ProactiveSettings() {
       }),
     ]
     return () => cleanups.forEach(c => c())
-  }, [onMessage, showToast, t, resetHeartbeat, resetDay, resetWeek, resetMonth])
+  }, [onMessage, showToast, t, resetHeartbeat, resetDay, resetWeek, resetMonth, resetChecklist])
 
   // Auto-save the heartbeat interval / planner schedules while edited
   // (debounced). Clean drafts are the saved values, so loads and remote
@@ -440,65 +469,65 @@ export function ProactiveSettings() {
     send('proactive_mode_set', { enabled })
   }
 
-  const handleToggleSchedule = (scheduleId: PlannerId, enabled: boolean) => {
+  const handleToggleSchedule = (scheduleId: ScheduleId, enabled: boolean) => {
     send('scheduler_config_update', {
       updates: { schedules: [{ id: scheduleId, enabled }] }
     })
   }
 
-  const handleAddTask = () => {
-    setEditingTask(null)
-    setShowTaskForm(true)
+  const handleAddJob = () => {
+    setEditingJob(null)
+    setShowJobForm(true)
   }
 
-  const handleEditTask = (task: ProactiveTask) => {
-    setEditingTask(task)
-    setShowTaskForm(true)
+  const handleEditJob = (job: CronJob) => {
+    setEditingJob(job)
+    setShowJobForm(true)
   }
 
-  const handleToggleTask = (taskId: string, enabled: boolean) => {
-    send('proactive_task_update', { taskId, updates: { enabled } })
-    dispatch(setTaskEnabled({ taskId, enabled }))
+  const handleToggleJob = (jobId: string, enabled: boolean) => {
+    send('cron_job_update', { jobId, updates: { enabled } })
+    dispatch(setCronJobEnabled({ jobId, enabled }))
   }
 
-  const handleDeleteTask = (taskId: string) => {
+  const handleDeleteJob = (jobId: string) => {
     confirm({
-      title: t('settings:proactive.deleteConfirmTitle'),
-      message: t('settings:proactive.deleteConfirmMessage'),
+      title: t('settings:proactive.cronJobs.deleteTitle'),
+      message: t('settings:proactive.cronJobs.deleteMessage'),
       confirmText: t('common:actions.delete'),
       variant: 'danger',
     }, () => {
-      send('proactive_task_remove', { taskId })
+      send('cron_job_remove', { jobId })
     })
   }
 
-  const handleResetTasks = () => {
+  const handleResetJobs = () => {
     confirm({
-      title: t('settings:proactive.resetConfirmTitle'),
-      message: t('settings:proactive.resetConfirmMessage'),
+      title: t('settings:proactive.reset.confirmTitle'),
+      message: t('settings:proactive.reset.confirmMessage'),
       confirmText: t('common:actions.reset'),
       variant: 'danger',
     }, () => {
-      setIsResettingTasks(true)
-      send('proactive_tasks_reset')
+      setIsResettingJobs(true)
+      send('cron_jobs_reset')
     })
   }
 
-  // Search state for proactive tasks
-  const [taskSearchQuery, setTaskSearchQuery] = usePersistedState(UI_STATE.settings.proactiveTaskSearch)
+  // Search state for proactive cronJobs
+  const [jobSearchQuery, setJobSearchQuery] = usePersistedState(UI_STATE.settings.cronJobSearch)
 
-  const filteredTasks = taskSearchQuery
-    ? tasks.filter(t =>
-        t.name.toLowerCase().includes(taskSearchQuery.toLowerCase()) ||
-        t.instruction.toLowerCase().includes(taskSearchQuery.toLowerCase())
+  const filteredJobs = jobSearchQuery
+    ? cronJobs.filter(t =>
+        t.name.toLowerCase().includes(jobSearchQuery.toLowerCase()) ||
+        t.instruction.toLowerCase().includes(jobSearchQuery.toLowerCase())
       )
-    : tasks
+    : cronJobs
 
-  const tasksByFrequency = {
-    hourly: filteredTasks.filter(t => t.frequency === 'hourly'),
-    daily: filteredTasks.filter(t => t.frequency === 'daily'),
-    weekly: filteredTasks.filter(t => t.frequency === 'weekly'),
-    monthly: filteredTasks.filter(t => t.frequency === 'monthly'),
+  const jobsByFrequency = {
+    hourly: filteredJobs.filter(t => t.frequency === 'hourly'),
+    daily: filteredJobs.filter(t => t.frequency === 'daily'),
+    weekly: filteredJobs.filter(t => t.frequency === 'weekly'),
+    monthly: filteredJobs.filter(t => t.frequency === 'monthly'),
   }
 
   const plannerRows: { id: PlannerId; label: string; desc: string }[] = [
@@ -506,6 +535,23 @@ export function ProactiveSettings() {
     { id: 'week-planner', label: t('settings:proactive.planners.weekLabel'), desc: t('settings:proactive.planners.weekDesc') },
     { id: 'month-planner', label: t('settings:proactive.planners.monthLabel'), desc: t('settings:proactive.planners.monthDesc') },
   ]
+
+  // A section title with its ⓘ: the page keeps the plain description, the
+  // tooltip says how it works and where it's stored.
+  const sectionTitle = (section: 'cronJobs' | 'heartbeat' | 'planners', title: string) => (
+    <div className={styles.titleRow}>
+      <h4 className={styles.subsectionTitle}>{title}</h4>
+      <InfoTip
+        label={t(`settings:proactive.${section}.tip.aria`)}
+        title={t(`settings:proactive.${section}.tip.title`)}
+        lines={[
+          t(`settings:proactive.${section}.tip.line1`),
+          t(`settings:proactive.${section}.tip.line2`),
+          t(`settings:proactive.${section}.tip.line3`),
+        ]}
+      />
+    </div>
+  )
 
   // A planner row's "Runs on" and "Time" cells, plus its out-of-date hint.
   const plannerCells = (id: PlannerId, label: string, disabled: boolean) => {
@@ -547,7 +593,7 @@ export function ProactiveSettings() {
         <p>{t('settings:proactive.subtitle')}</p>
       </div>
 
-      {/* Master Toggle: the one switch for tasks and planners */}
+      {/* Master Toggle: the one switch for cron jobs, heartbeat and planners */}
       <div className={styles.settingsForm}>
         <div className={styles.toggleGroup}>
           <div className={styles.toggleInfo}>
@@ -569,104 +615,104 @@ export function ProactiveSettings() {
 
       {/* Toggleable Content */}
       <div className={`${styles.toggleableContent} ${!schedulerEnabled ? styles.disabledContent : ''}`}>
-        {/* Proactive Tasks */}
+        {/* Cron Jobs */}
         <div className={styles.subsection}>
           <div className={styles.subsectionHeader}>
             <div>
-              <h4 className={styles.subsectionTitle}>{t('settings:proactive.tasksTitle')}</h4>
+              {sectionTitle('cronJobs', t('settings:proactive.cronJobs.title'))}
               <p className={styles.subsectionDesc}>
-                {t('settings:proactive.tasksDesc')}
+                {t('settings:proactive.cronJobs.desc')}
               </p>
             </div>
-            <Button variant="primary" size="sm" onClick={handleAddTask} icon={<Plus size={14} />} disabled={!schedulerEnabled}>
-              {t('settings:proactive.addTask')}
+            <Button variant="primary" size="sm" onClick={handleAddJob} icon={<Plus size={14} />} disabled={!schedulerEnabled}>
+              {t('settings:proactive.cronJobs.add')}
             </Button>
           </div>
 
-          {tasks.length > 0 && (
+          {cronJobs.length > 0 && (
             <div className={styles.searchContainer}>
               <input
                 type="text"
-                placeholder={t('settings:proactive.searchTasks')}
-                value={taskSearchQuery}
-                onChange={(e) => setTaskSearchQuery(e.target.value)}
+                placeholder={t('settings:proactive.cronJobs.search')}
+                value={jobSearchQuery}
+                onChange={(e) => setJobSearchQuery(e.target.value)}
                 className={styles.searchInput}
               />
-              {taskSearchQuery && (
+              {jobSearchQuery && (
                 <span className={styles.searchCount}>
-                  {t('settings:proactive.searchCount', { shown: filteredTasks.length, total: tasks.length })}
+                  {t('settings:proactive.cronJobs.searchCount', { shown: filteredJobs.length, total: cronJobs.length })}
                 </span>
               )}
             </div>
           )}
 
-          {isLoadingTasks ? (
+          {isLoadingJobs ? (
             <div className={styles.loadingState}>
               <Loader2 size={20} className={styles.spinning} />
-              <span>{t('settings:proactive.loadingTasks')}</span>
+              <span>{t('settings:proactive.cronJobs.loading')}</span>
             </div>
-          ) : tasks.length === 0 ? (
+          ) : cronJobs.length === 0 ? (
             <div className={styles.emptyState}>
-              <p>{t('settings:proactive.noTasks')}</p>
-              <Button variant="secondary" size="sm" onClick={handleAddTask} disabled={!schedulerEnabled}>
-                {t('settings:proactive.createFirst')}
+              <p>{t('settings:proactive.cronJobs.empty')}</p>
+              <Button variant="secondary" size="sm" onClick={handleAddJob} disabled={!schedulerEnabled}>
+                {t('settings:proactive.cronJobs.createFirst')}
               </Button>
             </div>
           ) : (
-            <div className={styles.taskGroups}>
+            <div className={styles.jobGroups}>
               {(['hourly', 'daily', 'weekly', 'monthly'] as const).map(frequency => {
-                const freqTasks = tasksByFrequency[frequency]
-                if (freqTasks.length === 0) return null
+                const freqJobs = jobsByFrequency[frequency]
+                if (freqJobs.length === 0) return null
 
                 return (
-                  <div key={frequency} className={styles.taskGroup}>
-                    <div className={styles.taskGroupHeader}>
+                  <div key={frequency} className={styles.jobGroup}>
+                    <div className={styles.jobGroupHeader}>
                       <Badge variant="default">{t(`settings:proactive.frequency.${frequency}`)}</Badge>
-                      <span className={styles.taskCount}>{t('settings:proactive.taskCount', { count: freqTasks.length })}</span>
+                      <span className={styles.jobCount}>{t('settings:proactive.cronJobs.count', { count: freqJobs.length })}</span>
                     </div>
-                    <div className={styles.taskList}>
-                      {freqTasks.map(task => (
-                        <div key={task.id} className={`${styles.taskCard} ${!task.enabled ? styles.taskDisabled : ''}`}>
-                          <div className={styles.taskMain}>
-                            <div className={styles.taskHeader}>
-                              <span className={styles.taskName}>{task.name}</span>
-                              <div className={styles.taskBadges}>
-                                <Badge variant={task.enabled ? 'success' : 'default'}>
-                                  {task.enabled ? t('settings:proactive.active') : t('settings:proactive.disabled')}
+                    <div className={styles.jobList}>
+                      {freqJobs.map(job => (
+                        <div key={job.id} className={`${styles.jobCard} ${!job.enabled ? styles.jobDisabled : ''}`}>
+                          <div className={styles.jobMain}>
+                            <div className={styles.jobHeader}>
+                              <span className={styles.jobName}>{job.name}</span>
+                              <div className={styles.jobBadges}>
+                                <Badge variant={job.enabled ? 'success' : 'default'}>
+                                  {job.enabled ? t('settings:proactive.active') : t('settings:proactive.disabled')}
                                 </Badge>
-                                <Badge variant="info">{getPriorityLabel(task.priority)}</Badge>
-                                <Badge variant={task.permissionTier >= 1 ? 'warning' : 'default'}>
-                                  {getNotificationLabel(task.permissionTier)}
+                                <Badge variant="info">{getPriorityLabel(job.priority)}</Badge>
+                                <Badge variant={job.permissionTier >= 1 ? 'warning' : 'default'}>
+                                  {getNotificationLabel(job.permissionTier)}
                                 </Badge>
                               </div>
                             </div>
-                            <p className={styles.taskInstruction}>{task.instruction}</p>
-                            <div className={styles.taskMeta}>
-                              {task.time && <span>{t('settings:proactive.meta.time', { time: task.time })}</span>}
-                              {task.day && <span>{t('settings:proactive.meta.day', { day: task.day })}</span>}
-                              <span>{t('settings:proactive.meta.runs', { value: formatNumber(task.runCount) })}</span>
-                              {task.lastRun && (
-                                <span>{t('settings:proactive.meta.last', { date: formatDate(new Date(task.lastRun)) })}</span>
+                            <p className={styles.jobInstruction}>{job.instruction}</p>
+                            <div className={styles.jobMeta}>
+                              {job.time && <span>{t('settings:proactive.meta.time', { time: job.time })}</span>}
+                              {job.day && <span>{t('settings:proactive.meta.day', { day: job.day })}</span>}
+                              <span>{t('settings:proactive.meta.runs', { value: formatNumber(job.runCount) })}</span>
+                              {job.lastRun && (
+                                <span>{t('settings:proactive.meta.last', { date: formatDate(new Date(job.lastRun)) })}</span>
                               )}
                             </div>
                           </div>
-                          <div className={styles.taskActions}>
+                          <div className={styles.jobActions}>
                             <input
                               type="checkbox"
                               className={styles.toggle}
-                              checked={task.enabled}
-                              onChange={(e) => handleToggleTask(task.id, e.target.checked)}
+                              checked={job.enabled}
+                              onChange={(e) => handleToggleJob(job.id, e.target.checked)}
                             />
                             <Button
                               variant="ghost"
                               size="sm"
-                              onClick={() => handleEditTask(task)}
+                              onClick={() => handleEditJob(job)}
                               icon={<Edit2 size={14} />}
                             />
                             <Button
                               variant="ghost"
                               size="sm"
-                              onClick={() => handleDeleteTask(task.id)}
+                              onClick={() => handleDeleteJob(job.id)}
                               icon={<Trash2 size={14} />}
                             />
                           </div>
@@ -679,32 +725,74 @@ export function ProactiveSettings() {
             </div>
           )}
 
-          {/* How often missed tasks are picked up (the heartbeat interval) */}
-          {hasLoadedTiming && (
-            <div className={styles.catchUpRow}>
-              <div className={styles.plannerText}>
-                <label htmlFor="proactive-catch-up" className={styles.plannerName}>{t('settings:proactive.catchUp.label')}</label>
-                <span className={styles.plannerDesc}>{t('settings:proactive.catchUp.desc')}</span>
-                {heartbeatDraft.remoteChanged && <RemoteChangeHint onLoadLatest={heartbeatDraft.acceptRemote} />}
+        </div>
+
+        {/* Heartbeat: on every tick the agent reads the checklist below */}
+        <div className={styles.subsection}>
+          {sectionTitle('heartbeat', t('settings:proactive.heartbeat.title'))}
+          <p className={styles.subsectionDesc}>
+            {t('settings:proactive.heartbeat.desc')}
+          </p>
+          {hasLoadedTiming && hasLoadedChecklist && (() => {
+            const heartbeatEnabled = getSchedule('heartbeat')?.enabled ?? false
+            const checklistEmpty = !checklistDraft.value.trim()
+            return (
+              <div className={styles.plannerTable}>
+                <div className={`${styles.plannerRow} ${!heartbeatEnabled ? styles.plannerOff : ''}`}>
+                  <div className={styles.plannerText}>
+                    <span className={styles.plannerName}>{t('settings:proactive.heartbeat.label')}</span>
+                    <span className={styles.plannerDesc}>
+                      {checklistEmpty ? t('settings:proactive.heartbeat.idle') : t('settings:proactive.heartbeat.rowDesc')}
+                    </span>
+                    {heartbeatDraft.remoteChanged && <RemoteChangeHint onLoadLatest={heartbeatDraft.acceptRemote} />}
+                  </div>
+                  <select
+                    className={`${styles.plannerInput} ${styles.plannerSpan}`}
+                    aria-label={t('settings:proactive.heartbeat.interval')}
+                    value={heartbeatDraft.value}
+                    onChange={e => heartbeatDraft.set(Number(e.target.value))}
+                    disabled={!schedulerEnabled || !heartbeatEnabled}
+                  >
+                    {heartbeatOptions.map(minutes => (
+                      <option key={minutes} value={minutes}>{formatInterval(minutes)}</option>
+                    ))}
+                  </select>
+                  <input
+                    type="checkbox"
+                    className={styles.toggle}
+                    aria-label={t('settings:proactive.heartbeat.label')}
+                    checked={heartbeatEnabled}
+                    onChange={(e) => handleToggleSchedule('heartbeat', e.target.checked)}
+                    disabled={isLoadingScheduler || !schedulerEnabled}
+                  />
+                </div>
+                <div className={styles.checklistCard}>
+                  <div className={styles.checklistHead}>
+                    <label htmlFor="heartbeat-checklist" className={styles.plannerName}>
+                      {t('settings:proactive.heartbeat.checklistLabel')}
+                    </label>
+                  </div>
+                  <textarea
+                    id="heartbeat-checklist"
+                    className={styles.checklistInput}
+                    rows={5}
+                    placeholder={t('settings:proactive.heartbeat.checklistPlaceholder')}
+                    value={checklistDraft.value}
+                    onChange={e => checklistDraft.set(e.target.value)}
+                    onBlur={saveChecklist}
+                    disabled={!schedulerEnabled}
+                  />
+                  <span className={styles.plannerDesc}>{t('settings:proactive.heartbeat.checklistHint')}</span>
+                  {checklistDraft.remoteChanged && <RemoteChangeHint onLoadLatest={checklistDraft.acceptRemote} />}
+                </div>
               </div>
-              <select
-                id="proactive-catch-up"
-                className={styles.plannerInput}
-                value={heartbeatDraft.value}
-                onChange={e => heartbeatDraft.set(Number(e.target.value))}
-                disabled={!schedulerEnabled}
-              >
-                {heartbeatOptions.map(minutes => (
-                  <option key={minutes} value={minutes}>{formatInterval(minutes)}</option>
-                ))}
-              </select>
-            </div>
-          )}
+            )
+          })()}
         </div>
 
         {/* Planners: one aligned row each (name, runs on, time, on/off) */}
         <div className={styles.subsection}>
-          <h4 className={styles.subsectionTitle}>{t('settings:proactive.plannersTitle')}</h4>
+          {sectionTitle('planners', t('settings:proactive.plannersTitle'))}
           <p className={styles.subsectionDesc}>
             {t('settings:proactive.plannersDesc')}
           </p>
@@ -745,39 +833,44 @@ export function ProactiveSettings() {
         </div>
       </div>
 
-      {/* Reset Tasks */}
+      {/* Reset to default: restores PROACTIVE.md from the template */}
       <div className={styles.dangerZone}>
         <div className={styles.dangerHeader}>
           <AlertTriangle size={18} className={styles.dangerIcon} />
-          <h4>{t('settings:proactive.resetTitle')}</h4>
+          <h4>{t('settings:proactive.reset.title')}</h4>
+          <InfoTip
+            label={t('settings:proactive.reset.tip.aria')}
+            title={t('settings:proactive.reset.tip.title')}
+            lines={[t('settings:proactive.reset.tip.line1'), t('settings:proactive.reset.tip.line2')]}
+          />
         </div>
         <p className={styles.dangerDescription}>
-          {t('settings:proactive.resetDesc')}
+          {t('settings:proactive.reset.desc')}
         </p>
         <Button
           variant="danger"
-          onClick={handleResetTasks}
-          disabled={isResettingTasks}
-          icon={isResettingTasks ? <Loader2 size={14} className={styles.spinning} /> : <RotateCcw size={14} />}
+          onClick={handleResetJobs}
+          disabled={isResettingJobs}
+          icon={isResettingJobs ? <Loader2 size={14} className={styles.spinning} /> : <RotateCcw size={14} />}
         >
-          {isResettingTasks ? t('settings:proactive.resetting') : t('settings:proactive.resetButton')}
+          {isResettingJobs ? t('settings:proactive.reset.resetting') : t('settings:proactive.reset.button')}
         </Button>
       </div>
 
-      {/* Task Form Modal */}
-      {showTaskForm && (
-        <TaskFormModal
-          task={liveEditingTask}
+      {/* Cron Job Form Modal */}
+      {showJobForm && (
+        <CronJobFormModal
+          job={liveEditingJob}
           onClose={() => {
-            setShowTaskForm(false)
-            setEditingTask(null)
+            setShowJobForm(false)
+            setEditingJob(null)
           }}
-          onSave={(taskData) => {
-            savingTaskRef.current = true
-            if (editingTask) {
-              send('proactive_task_update', { taskId: editingTask.id, updates: taskData })
+          onSave={(jobData) => {
+            savingJobRef.current = true
+            if (editingJob) {
+              send('cron_job_update', { jobId: editingJob.id, updates: jobData })
             } else {
-              send('proactive_task_add', { task: taskData })
+              send('cron_job_add', { job: jobData })
             }
           }}
         />

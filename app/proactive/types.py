@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-Data types for recurring task management.
-
-This module defines dataclasses for recurring tasks, conditions, and outcomes.
+Data types for PROACTIVE.md: cron jobs, their conditions and outcomes, and
+the container for the whole file.
 """
 
 from dataclasses import dataclass, field
@@ -28,8 +27,8 @@ def validate_schedule_fields(
 ) -> None:
     """Raise ValueError unless frequency/time/day describe a valid schedule.
 
-    time: "HH:MM" 24-hour (hourly tasks use only the minute).
-    day: weekday name for weekly tasks, 1-31 for monthly tasks.
+    time: "HH:MM" 24-hour (hourly jobs use only the minute).
+    day: weekday name for weekly jobs, 1-31 for monthly jobs.
     """
     if frequency not in FREQUENCIES:
         raise ValueError(f"Invalid frequency. Must be one of: {', '.join(FREQUENCIES)}")
@@ -42,16 +41,14 @@ def validate_schedule_fields(
             raise ValueError(f"time must be HH:MM (24-hour), got {time!r}")
     if day:
         if frequency == "weekly" and str(day).lower() not in WEEKDAYS:
-            raise ValueError(
-                f"day must be a weekday name for weekly tasks, got {day!r}"
-            )
+            raise ValueError(f"day must be a weekday name for weekly jobs, got {day!r}")
         if frequency == "monthly":
             if not str(day).isdigit() or not (1 <= int(day) <= 31):
-                raise ValueError(f"day must be 1-31 for monthly tasks, got {day!r}")
+                raise ValueError(f"day must be 1-31 for monthly jobs, got {day!r}")
 
 
 def _month_slot(year: int, month: int, day: int, hour: int, minute: int) -> datetime:
-    """The task's slot in a given month, clamping day 29-31 to the month's end."""
+    """The job's slot in a given month, clamping day 29-31 to the month's end."""
     clamped = min(day, calendar.monthrange(year, month)[1])
     return datetime(year, month, clamped, hour, minute)
 
@@ -62,8 +59,8 @@ def _shift_month(year: int, month: int, delta: int) -> tuple[int, int]:
 
 
 @dataclass
-class RecurringCondition:
-    """Condition for recurring task execution.
+class CronJobCondition:
+    """Condition for a cron job run.
 
     Attributes:
         type: Condition type (e.g., "market_hours_only", "user_available")
@@ -78,18 +75,18 @@ class RecurringCondition:
         return {"type": self.type, **self.params}
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "RecurringCondition":
+    def from_dict(cls, data: Dict[str, Any]) -> "CronJobCondition":
         """Create from dictionary."""
         condition_type = data.pop("type", "unknown")
         return cls(type=condition_type, params=data)
 
 
 @dataclass
-class RecurringOutcome:
-    """Record of a recurring task execution.
+class CronJobOutcome:
+    """Record of a cron job run.
 
     Attributes:
-        timestamp: When the task was executed
+        timestamp: When the job was executed
         result: Description of the outcome
         success: Whether the execution was successful
     """
@@ -107,7 +104,7 @@ class RecurringOutcome:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "RecurringOutcome":
+    def from_dict(cls, data: Dict[str, Any]) -> "CronJobOutcome":
         """Create from dictionary."""
         timestamp = data.get("timestamp")
         if isinstance(timestamp, str):
@@ -123,32 +120,32 @@ class RecurringOutcome:
 
 
 @dataclass
-class RecurringTask:
-    """Definition of a recurring task.
+class CronJob:
+    """Definition of a cron job.
 
     Scheduling is slot-based and owned by code, never by the model. Every
-    task has a fixed slot per period (hourly at :MM, daily at HH:MM, weekly
+    job has a fixed slot per period (hourly at :MM, daily at HH:MM, weekly
     on a weekday at HH:MM, monthly on a date at HH:MM; HH:MM defaults to
-    00:00, weekly to Monday, monthly to the 1st). A task is due when its most
+    00:00, weekly to Monday, monthly to the 1st). A job is due when its most
     recent slot is at or after ``active_since`` and it has not been
     dispatched since that slot. Missed slots are not replayed one by one:
     only the most recent one runs, late, the next time CraftBot checks.
 
     Attributes:
-        id: Unique identifier for the task
-        name: Human-readable task name
+        id: Unique identifier for the job
+        name: Human-readable job name
         frequency: Execution frequency (hourly, daily, weekly, monthly)
         instruction: What the agent should do
-        enabled: Whether the task is active
-        priority: Task priority (lower = higher priority)
+        enabled: Whether the job is active
+        priority: Job priority (lower = higher priority)
         permission_tier: Permission level (0 = silent, 1 = notify)
-        time: HH:MM slot time (hourly tasks use only the minute)
-        day: Weekday name for weekly tasks, 1-31 for monthly tasks
+        time: HH:MM slot time (hourly jobs use only the minute)
+        day: Weekday name for weekly jobs, 1-31 for monthly jobs
         conditions: List of conditions that must be met
         active_since: When the current schedule took effect (created,
             re-enabled or rescheduled); slots before it never run
-        last_run: When the task was last dispatched (stamped by code)
-        run_count: Number of times the task has been dispatched
+        last_run: When the job was last dispatched (stamped by code)
+        run_count: Number of times the job has been dispatched
         outcome_history: Recent execution outcomes (limited to last 5)
     """
 
@@ -161,11 +158,11 @@ class RecurringTask:
     permission_tier: int = 0
     time: Optional[str] = None  # HH:MM
     day: Optional[str] = None  # weekday name (weekly) or 1-31 (monthly)
-    conditions: List[RecurringCondition] = field(default_factory=list)
+    conditions: List[CronJobCondition] = field(default_factory=list)
     active_since: Optional[datetime] = None
     last_run: Optional[datetime] = None
     run_count: int = 0
-    outcome_history: List[RecurringOutcome] = field(default_factory=list)
+    outcome_history: List[CronJobOutcome] = field(default_factory=list)
 
     MAX_OUTCOME_HISTORY = 5
 
@@ -248,7 +245,7 @@ class RecurringTask:
         return True
 
     def next_due_at(self, now: Optional[datetime] = None) -> Optional[datetime]:
-        """When the task next becomes due: ``now`` if it is due already,
+        """When the job next becomes due: ``now`` if it is due already,
         None while disabled."""
         if not self.enabled:
             return None
@@ -261,7 +258,7 @@ class RecurringTask:
         return self.next_slot(start)
 
     def calculate_next_run(self) -> Optional[datetime]:
-        """Next execution time for display (None for disabled tasks)."""
+        """Next execution time for display (None for disabled jobs)."""
         return self.next_due_at()
 
     def mark_dispatched(self, when: datetime) -> None:
@@ -274,9 +271,9 @@ class RecurringTask:
 
         Outcomes are a log only. Dispatch (last_run / run_count) is stamped
         by code in mark_dispatched, so recording an outcome never changes
-        when the task runs next.
+        when the job runs next.
         """
-        outcome = RecurringOutcome(
+        outcome = CronJobOutcome(
             timestamp=datetime.now(), result=result, success=success
         )
         self.outcome_history.append(outcome)
@@ -317,15 +314,15 @@ class RecurringTask:
         return data
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any], name: str = "") -> "RecurringTask":
+    def from_dict(cls, data: Dict[str, Any], name: str = "") -> "CronJob":
         """Create from dictionary (parsed from YAML).
 
         Args:
-            data: Dictionary with task data
-            name: Task name (from section header)
+            data: Dictionary with job data
+            name: Job name (from section header)
 
         Returns:
-            RecurringTask instance
+            CronJob instance
         """
 
         def _when(value: Any) -> Optional[datetime]:
@@ -341,13 +338,13 @@ class RecurringTask:
         conditions = []
         for c in data.get("conditions", []):
             if isinstance(c, dict):
-                conditions.append(RecurringCondition.from_dict(c.copy()))
+                conditions.append(CronJobCondition.from_dict(c.copy()))
 
         # Parse outcome history
         outcomes = []
         for o in data.get("outcome_history", []):
             if isinstance(o, dict):
-                outcomes.append(RecurringOutcome.from_dict(o))
+                outcomes.append(CronJobOutcome.from_dict(o))
 
         time_value = data.get("time")
         if isinstance(time_value, int) and not isinstance(time_value, bool):
@@ -373,110 +370,34 @@ class RecurringTask:
 
 
 @dataclass
-class RecurringData:
-    """Container for all recurring task data from PROACTIVE.md.
+class ProactiveData:
+    """Everything code reads from PROACTIVE.md.
 
     Attributes:
         version: Format version
         last_updated: When the file was last updated
-        tasks: List of recurring tasks
-        planner_outputs: DEPRECATED - planners now update "Goals, Plan, and Status" section
-                        via file operations. This field is kept for backward compatibility.
+        jobs: The cron jobs (the "Cron Jobs" section)
+        heartbeat_checklist: The checklist the heartbeat reads (the
+            "Heartbeat" section), as written, without its marker comments
     """
 
     version: str = "1.0"
     last_updated: Optional[datetime] = None
-    tasks: List[RecurringTask] = field(default_factory=list)
-    planner_outputs: Dict[str, str] = field(default_factory=dict)  # Deprecated
+    jobs: List[CronJob] = field(default_factory=list)
+    heartbeat_checklist: str = ""
 
-    def get_tasks_by_frequency(self, frequency: str) -> List[RecurringTask]:
-        """Get all tasks for a specific frequency.
-
-        Args:
-            frequency: The frequency to filter by (hourly, daily, weekly, monthly)
-
-        Returns:
-            List of tasks matching the frequency
-        """
-        return [t for t in self.tasks if t.frequency == frequency]
-
-    def get_enabled_tasks(self, frequency: Optional[str] = None) -> List[RecurringTask]:
-        """Get all enabled tasks, optionally filtered by frequency.
-
-        Args:
-            frequency: Optional frequency filter
-
-        Returns:
-            List of enabled tasks
-        """
-        tasks = [t for t in self.tasks if t.enabled]
-        if frequency:
-            tasks = [t for t in tasks if t.frequency == frequency]
-        return tasks
-
-    def get_task_by_id(self, task_id: str) -> Optional[RecurringTask]:
-        """Find a task by its ID.
-
-        Args:
-            task_id: The task ID to find
-
-        Returns:
-            The task if found, None otherwise
-        """
-        for task in self.tasks:
-            if task.id == task_id:
-                return task
+    def get_job_by_id(self, job_id: str) -> Optional[CronJob]:
+        """Find a cron job by its ID."""
+        for job in self.jobs:
+            if job.id == job_id:
+                return job
         return None
 
-    def add_task(self, task: RecurringTask) -> None:
-        """Add a new task.
-
-        Args:
-            task: The task to add
-
-        Raises:
-            ValueError: If a task with the same ID already exists
-        """
-        if self.get_task_by_id(task.id):
-            raise ValueError(f"Task with ID '{task.id}' already exists")
-        self.tasks.append(task)
-        self.last_updated = datetime.now()
-
-    def remove_task(self, task_id: str) -> bool:
-        """Remove a task by ID.
-
-        Args:
-            task_id: The ID of the task to remove
-
-        Returns:
-            True if the task was removed, False if not found
-        """
-        for i, task in enumerate(self.tasks):
-            if task.id == task_id:
-                self.tasks.pop(i)
+    def remove_job(self, job_id: str) -> bool:
+        """Remove a cron job by ID. True if it was removed."""
+        for i, job in enumerate(self.jobs):
+            if job.id == job_id:
+                self.jobs.pop(i)
                 self.last_updated = datetime.now()
                 return True
         return False
-
-    def update_task(
-        self, task_id: str, updates: Dict[str, Any]
-    ) -> Optional[RecurringTask]:
-        """Update a task with new values.
-
-        Args:
-            task_id: The ID of the task to update
-            updates: Dictionary of fields to update
-
-        Returns:
-            The updated task if found, None otherwise
-        """
-        task = self.get_task_by_id(task_id)
-        if not task:
-            return None
-
-        for key, value in updates.items():
-            if hasattr(task, key):
-                setattr(task, key, value)
-
-        self.last_updated = datetime.now()
-        return task

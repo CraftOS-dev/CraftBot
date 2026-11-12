@@ -69,10 +69,11 @@ session_id:               str|None owning session
 USER_MESSAGE                  user input (UI or external platform)
 RUN_CONTINUATION              framework-queued "next turn" of an ongoing run
 SCHEDULED / SCHEDULED_ONCE /
-SCHEDULED_IMMEDIATE           scheduler fires (schedule_task)
-MEMORY                        memory-processing workflow
+SCHEDULED_IMMEDIATE           scheduler fires (schedule_task; main session)
+MEMORY                        memory-processing workflow (main session)
+CRON_JOB /
 PROACTIVE_HEARTBEAT /
-PROACTIVE_PLANNER             proactive workflows
+PROACTIVE_PLANNER             proactive workflows (main session)
 ONBOARDING / SKILL_WORKFLOW /
 AGENT_APP_*                   other workflow sources
 RESTART_NOTICE                app restarted; react() returns early
@@ -89,8 +90,9 @@ When a session's loop claims work, ALL triggers currently due for that session f
 ```
 1. RESTART_NOTICE → early return
 2. Resolve the session
-3. MEMORY / PROACTIVE_* pre-check: skip the turn if no work is due; else load
-   the workflow's skills + action sets onto the session for this run
+3. MEMORY / CRON_JOB / PROACTIVE_* pre-check: skip the turn if no work is due
+   (or proactive mode is off); else load the workflow's skills + action sets
+   onto the session for this run
 4. Announce the trigger, log deferred user messages, _extract_trigger_data
 5. If trigger.source is a run-start source → reset run bookkeeping (budgets, run state)
 6. start_turn → _select_action → _retrieve_and_prepare_actions
@@ -101,7 +103,7 @@ When a session's loop claims work, ALL triggers currently due for that session f
 
 ### Workflow runs (memory / proactive)
 
-Memory and proactive work run IN the main session — no separate task objects. The workflow's skills and action sets are loaded onto the session at run start and unloaded at run end.
+Everything the scheduler fires runs IN the main session as a normal run: memory processing, cron jobs, the heartbeat, the planners, and every `schedule_task` fire, `"immediate"` included. There are no separate task objects. The main session runs one turn at a time: a fire that arrives while a turn is running waits in its queue, and when that turn ends everything due (queued user messages and scheduler fires) is merged into ONE turn as a numbered checklist (see Trigger aggregation). The workflow's skills and action sets are loaded onto the session at run start and unloaded at run end. The run is an ordinary main-chat run: a system line announces why it started (e.g. "Cron job", "Heartbeat", "Proactive planning", "Scheduled task: <name>"), its steps stream in the main chat, it sees the main conversation, and its run-ending `send_message` appears directly in the main chat; `end_turn` says nothing. Action and token limits show the normal Continue/Stop prompt.
 
 **memory**
 - Trigger: the scheduler `memory-processing` job (runs once a day at a user-configurable time, 3am by default), or the user's "Process Memory Now" button in Settings > Memory (ignores the threshold).
@@ -110,14 +112,19 @@ Memory and proactive work run IN the main session — no separate task objects. 
 - During the run, `event_stream_manager.set_skip_unprocessed_logging(True)` keeps the run's own events out of the buffers; it is reset at run end.
 - Skipped entirely if `is_memory_enabled()` is False. See `## Memory`.
 
+**cron jobs**
+- Source: the scheduler's internal cron-job runner (CRON_JOB). It wakes exactly at the next slot of any cron job in PROACTIVE.md; code (not the model) selects the due jobs, stamps `last_run` / `run_count`, and fires ONE trigger for all of them into the main session.
+- The run loads `cron-job-runner` + action sets [file_operations, proactive, web_research]; its instruction lists each due job. The run records each job's result with `cron_job_update(job_id, add_outcome={result, success})`.
+
 **proactive heartbeat**
-- Source: scheduler `heartbeat` (cron `0,30 * * * *`).
-- `proactive_manager.get_all_due_tasks()` collects due recurring tasks. If none, the turn is skipped. Otherwise the run loads `heartbeat-processor` + action sets [file_operations, proactive, web_research].
-- Skipped entirely if `is_proactive_enabled()` is False. See `## Proactive`.
+- Source: scheduler `heartbeat` (default `*/30 * * * *`, set in Settings > Proactive).
+- Fires only when the Heartbeat checklist in PROACTIVE.md is not empty. The run loads `heartbeat-processor` + action sets [file_operations, proactive, web_research]; its instruction contains the checklist.
 
 **proactive planner**
-- Source: scheduler `day-planner` (daily 7am), `week-planner` (Sun 5pm), `month-planner` (1st 8am).
-- The run loads `<scope>-planner` + [file_operations, proactive]; reviews recent interactions and updates the Goals/Plan/Status section of PROACTIVE.md.
+- Source: scheduler `day-planner` (every day at 7am), `week-planner` (every sunday at 5pm), `month-planner` (every month on day 1 at 8am); times are set in Settings > Proactive.
+- The run loads `<scope>-planner` + [file_operations, proactive]; reviews recent interactions, updates the Goals, Plan, and Status section of PROACTIVE.md, and ends with one `send_message` (morning brief / weekly review / monthly review).
+
+All three are skipped entirely if `is_proactive_enabled()` is False. See `## Proactive`.
 
 If a workflow pre-check skips the turn but the aggregated batch also carried user messages, the user messages are still processed.
 
@@ -147,8 +154,8 @@ MemoryManager          hybrid vector+BM25 retrieval over agent_file_system
 EventStreamManager     appends to each session's EVENT.md / EVENT_UNPROCESSED.md (per-session workspace dir)
 MCPClient              external MCP tool servers
 SkillManager           SKILL.md discovery + selection + reload
-Scheduler              cron-driven trigger fires from scheduler_config.json
-ProactiveManager       PROACTIVE.md registry + get_all_due_tasks()
+Scheduler              trigger fires from scheduler_config.json + the cron-job runner
+ProactiveManager       PROACTIVE.md cron jobs + heartbeat checklist (get_due_jobs, ...)
 IntegrationSystem      integration accounts + clients
 ListenerManager        platform listeners, one per (integration, account)
 ```
@@ -231,7 +238,7 @@ use_skill(name) / unload_skill(name)    load / unload skills mid-run
 
 ### Spinning off and deferring work: `schedule_task`
 
-`schedule_task(name, instruction, schedule, priority?, enabled?, action_sets?, skills?, payload?)` creates deferred work from anywhere. Every fire, `"immediate"` included, is queued into the MAIN session (not the chat that scheduled it) and runs as that session's next turn, not in parallel, so write the instruction self-contained; other expressions are validated by [app/scheduler/parser.py](app/scheduler/parser.py):
+`schedule_task(name, instruction, schedule, priority?, enabled?, action_sets?, skills?, payload?)` creates deferred work from anywhere. Every fire, `"immediate"` included, is queued into the MAIN session (not the chat that scheduled it) and runs as that session's next turn, not in parallel, so write the instruction self-contained; its run-ending `send_message` appears in the main chat. Expressions other than `"immediate"` are validated by [app/scheduler/parser.py](app/scheduler/parser.py):
 
 ```
 "immediate"               run right now (queues an immediate trigger)
@@ -240,8 +247,9 @@ use_skill(name) / unload_skill(name)    load / unload skills mid-run
 "in 2 hours" / "in 30 minutes"    one-time relative
 "every day at 7am"        recurring daily
 "every monday at 9am"     recurring weekly
+"every month on day 1 at 8am"  recurring monthly
 "every 3 hours"           recurring interval
-"0 7 * * *"               cron (5-field)
+"0 7 * * *"               cron (5-field, local time)
 ```
 Times must include `am`/`pm`. Freeform like "daily at", "weekly", "every morning", "every weekday" are NOT accepted.
 
@@ -426,7 +434,7 @@ Most actions — built-in, MCP-routed, or skill-spawned — return a dict with a
 
 Before you treat an action's output as a result you can act on, **check `status`**. If `status == "error"`, the `message` field tells you what went wrong. Failing to check `status` and proceeding as if everything worked is the most common avoidable failure mode in this harness.
 
-Exceptions: `send_message`, `schedule_task`, `memory_*` and `recurring_*` return `status: "ok"` on success (error detail often in `error`); `add_action_sets` returns `success: true|false` with no `status`; `spawn_subagent` returns `completed` / `failed` / `timeout`; `run_shell` with a non-zero exit returns `status: "error"` with an EMPTY `message`, so read `stderr` and `return_code`.
+Exceptions: `send_message`, `schedule_task`, `memory_*` and `cron_job_*` return `status: "ok"` on success (error detail often in `error`); `add_action_sets` returns `success: true|false` with no `status`; `spawn_subagent` returns `completed` / `failed` / `timeout`; `run_shell` with a non-zero exit returns `status: "error"` with an EMPTY `message`, so read `stderr` and `return_code`.
 
 ### Error event kinds in the event stream
 
@@ -553,7 +561,7 @@ There are four failure types. Identify which one you are in, then follow the mat
 
 **Schedule / proactive action returns error**
 - Schedule expression rejected by parser → see `## Runs` for the validated format list. Re-issue with a supported expression.
-- Recurring task creation fails → check PROACTIVE.md for syntax errors near your edit; the file's HTML markers (`PROACTIVE_TASKS_START`/`END`) must remain intact.
+- Cron job creation fails → read the action's `error` (bad frequency / time / day, or a duplicate id), then check PROACTIVE.md for syntax errors near any hand edit; the file's HTML markers (`CRON_JOBS_START`/`END`, `HEARTBEAT_START`/`END`) must remain intact.
 
 **MCP tool returns error**
 - Server-side error in the MCP tool → check EVENT.md for stderr from the MCP server process. Often missing API key in the server's `env` block.
@@ -869,7 +877,7 @@ agent_file_system/
 ├── FORMAT.md                 Document / design standards
 ├── MEMORY.md                 Distilled facts                     DO NOT EDIT
 ├── ENTITIES.md               Entity-graph registry               DO NOT EDIT
-├── PROACTIVE.md              Recurring tasks + Goals/Plan/Status
+├── PROACTIVE.md              Cron jobs + Heartbeat checklist + Goals/Plan/Status
 ├── GLOBAL_AGENT_APP.md       Global Agent App design rules
 └── workspace/                Sandbox for task outputs (see ## Workspace)
 ```
@@ -954,11 +962,11 @@ to you each turn in the `<session>` state block — do not guess it).
 To review past dialogue or past run outcomes, grep THIS session's EVENT.md or use `memory_search`.
 
 ### PROACTIVE.md
-- Purpose: recurring proactive task definitions plus the planner-maintained Goals / Plan / Status section.
-- Write access: `recurring_add` / `recurring_update_task` / `recurring_remove` actions; planners (day, week, month).
-- Read pattern: every heartbeat (every 30 min); planners on their schedules; you when the user asks about scheduled work. See `## Proactive`.
-- Format: YAML blocks between `<!-- PROACTIVE_TASKS_START -->` and `<!-- PROACTIVE_TASKS_END -->` markers, followed by a Goals / Plan / Status section.
-- Authority: PROACTIVE.md is the source of truth for the Decision Rubric, Permission Tiers, and recurring-task YAML schema. Do NOT duplicate that content elsewhere.
+- Purpose: cron job definitions, the heartbeat checklist, and the planner-maintained Goals, Plan, and Status section.
+- Write access: `cron_job_add` / `cron_job_update` / `cron_job_remove` and `heartbeat_checklist_update` actions (and the user's Settings > Proactive page); planners (day, week, month) edit the Goals section with file operations. The file is re-read whenever it changes on disk, so hand edits are picked up.
+- Read pattern: the cron-job runner at each job's slot (and at least every 5 minutes); every heartbeat tick for the checklist; planners on their schedules; you when the user asks about scheduled work. See `## Proactive`.
+- Format: three parts. `## Cron Jobs`: YAML job blocks between `<!-- CRON_JOBS_START -->` and `<!-- CRON_JOBS_END -->`. `## Heartbeat`: a free-form markdown checklist between `<!-- HEARTBEAT_START -->` and `<!-- HEARTBEAT_END -->`, empty by default. `## Goals, Plan, and Status`: maintained by the planners.
+- Authority: PROACTIVE.md is the source of truth for the Decision Rubric, Permission Tiers, and cron job YAML schema. Do NOT duplicate that content elsewhere.
 
 ### GLOBAL_AGENT_APP.md
 - Purpose: global design rules applied to every Agent App project.
@@ -1441,8 +1449,9 @@ mini_browser             mini_browser_navigate, mini_browser_read, mini_browser_
                          mini_browser_tabs
 
 proactive / scheduler    schedule_task, scheduled_task_list, schedule_task_toggle,
-                         remove_scheduled_task, recurring_add, recurring_read,
-                         recurring_update_task, recurring_remove
+                         remove_scheduled_task, cron_job_add, cron_job_list,
+                         cron_job_update, cron_job_remove,
+                         heartbeat_checklist_read, heartbeat_checklist_update
 
 agent_app                agent_app_scaffold, agent_app_list_projects, agent_app_notify_ready,
                          agent_app_walk_verify, agent_app_restart, agent_app_report_progress,
@@ -1524,7 +1533,7 @@ Any set name not in `DEFAULT_SET_DESCRIPTIONS` is presented to the LLM as `Custo
 ### Other sets actually used by built-in actions
 
 ```
-proactive             schedule_task, scheduled_task_list, recurring_*, schedule_task_toggle, ...
+proactive             schedule_task, scheduled_task_list, cron_job_*, heartbeat_checklist_*, schedule_task_toggle, ...
 scheduler             schedule_task, schedule_task_toggle (alongside proactive)
 content_creation      generate_image, generate_video
 agent_app             the full Agent App surface (see ## Agent App)
@@ -1569,7 +1578,7 @@ Operate a website (sign in,       mini_browser  (the user can watch live; saved 
 forms, shopping, account pages)                 via mini_browser_login; skill: mini-browser)
 Image / video generation          content_creation (or image / video)
 Agent App work                    agent_app
-Recurring / proactive setup       proactive
+Cron jobs / heartbeat checklist   proactive
 Per-platform integration          <integration_name>  (e.g. slack), or a
                                   fine-grained <name>_<resource> set for narrow work
 ```
@@ -1903,8 +1912,8 @@ general:
   ui_language: string            (browser UI language; empty = os_language)
 
 proactive:
-  enabled: bool                  (master switch for proactive workflow; if false,
-                                  proactive_heartbeat and planners are skipped)
+  enabled: bool                  (master switch for proactive work; if false,
+                                  cron jobs, the heartbeat and planners are skipped)
 
 memory:
   enabled: bool                  (master switch for memory_search and memory pipeline)
@@ -2075,6 +2084,7 @@ schedules: [
 Schedule formats (parser at app/scheduler/parser.py):
   Natural:  "every day at 3am"
             "every sunday at 5pm"
+            "every month on day 1 at 8am"
             "every 30 minutes"
             "every 3 hours"
             "tomorrow at 9am"
@@ -2082,17 +2092,21 @@ Schedule formats (parser at app/scheduler/parser.py):
             "in 30 minutes"
             "at 3pm"
             "immediate"
-  Cron:     "0,30 * * * *"
+  Cron:     "*/30 * * * *"              (5-field, evaluated in local time)
             "0 7 * * *"
             "0 8 1 * *"
 
-Built-in schedules (do NOT remove):
-  memory-processing  every day at 3am   payload.type="memory_processing"
-  heartbeat          0,30 * * *         payload.type="proactive_heartbeat"
-                                         skill: heartbeat-processor
-  day-planner        every day at 7am   payload.type="proactive_planner" scope=day
-  week-planner       every sunday at 5pm payload.type="proactive_planner" scope=week
-  month-planner      0 8 1 * *          payload.type="proactive_planner" scope=month
+Built-in schedules (do NOT remove; the times are defaults that Settings > Proactive
+and Settings > Memory rewrite):
+  memory-processing  every day at 3am             payload.type="memory_processing"
+  heartbeat          */30 * * * *                 payload.type="proactive_heartbeat"
+                                                  skill: heartbeat-processor
+  day-planner        every day at 7am             payload.type="proactive_planner" scope=day
+  week-planner       every sunday at 5pm          payload.type="proactive_planner" scope=week
+  month-planner      every month on day 1 at 8am  payload.type="proactive_planner" scope=month
+
+Cron jobs from PROACTIVE.md are NOT entries here: the scheduler's internal
+cron-job runner fires them (see ## Proactive).
 ```
 <!-- /schema:scheduler_config.json -->
 
@@ -2147,7 +2161,7 @@ stream_edit app/config/skills_config.json
    move <name> between enabled_skills and disabled_skills
 ```
 
-Add a recurring schedule: prefer the `schedule_task` or `recurring_add` actions
+Add a recurring schedule: prefer the `schedule_task` or `cron_job_add` actions
 over editing scheduler_config.json directly. They validate the schedule expression.
 See `## Proactive`.
 
@@ -3571,25 +3585,25 @@ Toggling `memory.enabled` to false does NOT delete `MEMORY.md` or `chroma_db_mem
 
 ## Proactive
 
-The proactive system lets you fire tasks on a schedule without a user prompt. Two parallel mechanisms exist: **recurring tasks** (in PROACTIVE.md, fired by the heartbeat) and **scheduled tasks** (in scheduler_config.json, fired by cron). Most user-facing automations belong in PROACTIVE.md.
+The proactive system lets you do work on a schedule without a user prompt. Three mechanisms exist: **cron jobs** (PROACTIVE.md `## Cron Jobs`, each run at its own slot by the scheduler's cron-job runner), the **heartbeat** (a checklist in PROACTIVE.md `## Heartbeat`, checked every few minutes) and **scheduled tasks** (scheduler_config.json, created with `schedule_task`). Most user-facing automations are cron jobs. Every run they start executes in the MAIN session as a normal run; its run-ending `send_message` appears directly in the main chat. Cron jobs, the heartbeat and the planners run only while proactive mode is on (`proactive.enabled` in settings.json).
 
 Code: [app/proactive/manager.py](app/proactive/manager.py) (`ProactiveManager`), [app/proactive/parser.py](app/proactive/parser.py), [app/proactive/types.py](app/proactive/types.py). Authority on rubric and tiers: [agent_file_system/PROACTIVE.md](agent_file_system/PROACTIVE.md).
 
-### Two mechanisms — when to use each
+### Three mechanisms: when to use each
 
 ```
-PROACTIVE.md (preferred for user automations)        scheduler_config.json (system + one-offs)
+PROACTIVE.md cron jobs (user automations)            scheduler_config.json (system + one-offs)
 ───────────────────────────────────────────────      ────────────────────────────────────────────
-recurring_add / recurring_read /                     schedule_task / scheduled_task_list /
-recurring_update_task / recurring_remove             schedule_task_toggle / remove_scheduled_task
+cron_job_add / cron_job_list /                       schedule_task / scheduled_task_list /
+cron_job_update / cron_job_remove                    schedule_task_toggle / remove_scheduled_task
 
-Frequencies: hourly | daily | weekly | monthly       Schedule expressions: "every day at 3am",
-                                                     cron "0,30 * * * *", "in 2 hours",
-                                                     "tomorrow at 9am", "immediate", etc.
+Frequencies: hourly | daily | weekly | monthly,      Schedule expressions: "every day at 3am",
+one slot per period (time "HH:MM", day for           cron "*/30 * * * *", "in 2 hours",
+weekly / monthly), local time.                       "tomorrow at 9am", "immediate", etc.
 
-Heartbeat (every 30 min) checks for due tasks        Each entry has its own cron, fires
-across ALL frequencies, runs each that's due,        independently. One-time entries auto-remove.
-respecting time / day filters.
+The cron-job runner wakes at each slot and hands     Each entry has its own cron, fires
+every due job to ONE main-session run. A slot        independently. One-time entries auto-remove.
+missed while CraftBot was off runs once, late.
 
 Decision Rubric and Permission Tiers apply.          No rubric or tier system at this level.
                                                      Scheduled tasks just fire as configured.
@@ -3599,11 +3613,13 @@ recurring user-facing automations, anything          heartbeat, planners), one-t
 with a permission_tier and conditions.               ("remind me at 3pm tomorrow"), system jobs.
 ```
 
-The user wants a daily morning briefing? Use `recurring_add`. The user wants a one-time "remind me at 5pm"? Use `schedule_task`.
+The **heartbeat checklist** (PROACTIVE.md `## Heartbeat`) is the third mechanism: standing things to keep an eye on with no fixed time ("- Check my inbox for urgent client email"). Read and replace it with `heartbeat_checklist_read` / `heartbeat_checklist_update`. Each heartbeat tick (default every 30 min) runs it once; an empty checklist means no run and no LLM cost.
 
-### When to set up a proactive task
+The user wants a daily morning briefing? Use `cron_job_add`. The user wants a one-time "remind me at 5pm"? Use `schedule_task`. The user wants something watched ("tell me if an urgent client email arrives")? Add an item to the heartbeat checklist.
 
-A proactive task is justified ONLY when ALL of these are true:
+### When to set up a cron job
+
+A cron job (or a heartbeat checklist item) is justified ONLY when ALL of these are true:
 
 ```
 1. The user explicitly asked for it, OR you are extending a clear recurring
@@ -3612,14 +3628,14 @@ A proactive task is justified ONLY when ALL of these are true:
    cost of running it on schedule.
 3. The output is actionable — has a clear destination (chat, file, integration).
 4. The user has consented to the cadence and the permission tier.
-5. There is no existing recurring task that does the same thing.
+5. There is no existing cron job or checklist item that does the same thing.
 ```
 
-Reject the impulse to add proactive tasks aggressively. Each one consumes LLM turns on a schedule and clutters the user's mental model.
+Reject the impulse to add cron jobs aggressively. Each one consumes LLM turns on a schedule and clutters the user's mental model; a non-empty heartbeat checklist costs one run every tick.
 
-DO NOT auto-create a proactive task because it "sounds useful". Always offer first, get explicit consent, then create.
+DO NOT auto-create a cron job or checklist item because it "sounds useful". Always offer first, get explicit consent, then create.
 
-### When NOT to set up a proactive task
+### When NOT to set up a cron job
 
 ```
 - One-off requests ("check the weather right now") → just do it inline.
@@ -3628,8 +3644,8 @@ DO NOT auto-create a proactive task because it "sounds useful". Always offer fir
   reminder via schedule_task with a fixed end date.
 - Tasks that need real-time event triggers, not time-based ones (e.g. "tell
   me when X arrives in my inbox" is better solved with an integration
-  listener, not a poll-every-hour proactive task).
-- Tasks that overlap with an existing one. Run recurring_read first.
+  listener, or a heartbeat checklist item, not an hourly cron job).
+- Tasks that overlap with an existing job. Run cron_job_list first.
 ```
 
 ### Built-in scheduler entries (do NOT remove)
@@ -3637,81 +3653,93 @@ DO NOT auto-create a proactive task because it "sounds useful". Always offer fir
 These ship pre-configured in [app/config/scheduler_config.json](app/config/scheduler_config.json) and run the system itself:
 
 ```
-id                  schedule              purpose
-─────────────────   ──────────────────    ─────────────────────────────────────────────────
-heartbeat           0,30 * * * *          every 30 min: scan PROACTIVE.md, fire due tasks
-memory-processing   every day at 3am      distill EVENT_UNPROCESSED.md into MEMORY.md (## Memory)
-day-planner         every day at 7am      review yesterday + plan today's proactive priorities
-week-planner        every sunday at 5pm   weekly review, update Goals/Plan/Status in PROACTIVE.md
-month-planner       0 8 1 * *             1st of month 8am, monthly review
+id                  schedule                       purpose
+─────────────────   ───────────────────────────    ─────────────────────────────────────────────────
+heartbeat           */30 * * * *                   check the Heartbeat checklist (skipped when empty)
+memory-processing   every day at 3am               distill EVENT_UNPROCESSED.md into MEMORY.md (## Memory)
+day-planner         every day at 7am               review yesterday + plan today, post the morning brief
+week-planner        every sunday at 5pm            weekly review, update Goals/Plan/Status in PROACTIVE.md
+month-planner       every month on day 1 at 8am    monthly review
 ```
 
-Removing or disabling these breaks the system. If the user wants to STOP them firing (e.g., disable proactive entirely), set `proactive.enabled: false` in `settings.json` instead.
+Cron jobs have no entry here: the scheduler's internal cron-job runner fires them straight from PROACTIVE.md.
+
+Removing these breaks the system. The user tunes them in Settings > Proactive: heartbeat interval (every 5, 10, 15, 30, 60 or 120 minutes) and its own on/off, day-planner time, week-planner weekday + time, month-planner day + time. To stop all proactive work (cron jobs, heartbeat, planners), set `proactive.enabled: false` in `settings.json`.
 
 ### Planners deep-dive
 
 Three time-horizon planners ship as separate skills, each owning one cadence:
 
 ```
-day-planner       (skills/day-planner/SKILL.md)        daily 7am
-week-planner      (skills/week-planner/SKILL.md)       Sunday 5pm
-month-planner     (skills/month-planner/SKILL.md)      1st of month 8am
+day-planner       (skills/day-planner/SKILL.md)        every day at 7am               morning brief
+week-planner      (skills/week-planner/SKILL.md)       every sunday at 5pm            weekly review
+month-planner     (skills/month-planner/SKILL.md)      every month on day 1 at 8am    monthly review
 ```
 
-The fourth executor in this family is `heartbeat-processor` — not strictly a planner, but the same family pattern. It fires every 30 min and runs whatever PROACTIVE.md says is due.
+Those times are defaults; the user sets each one in Settings > Proactive (time; weekday + time; day + time). Each planner runs in the main session, updates the Goals, Plan, and Status section of PROACTIVE.md, and ends with ONE `send_message` (its brief or review), shown in the main chat.
 
-All four share an important property: **silent execution**. They override standard task completion rules ([skills/day-planner/SKILL.md](skills/day-planner/SKILL.md), [skills/heartbeat-processor/SKILL.md](skills/heartbeat-processor/SKILL.md)):
+Two more executors follow the same pattern without being planners: `cron-job-runner` runs the cron jobs that code hands it at their slots, and `heartbeat-processor` works through the Heartbeat checklist on each heartbeat tick.
+
+All five share an important property: **silent execution**. They override standard task completion rules ([skills/day-planner/SKILL.md](skills/day-planner/SKILL.md), [skills/cron-job-runner/SKILL.md](skills/cron-job-runner/SKILL.md), [skills/heartbeat-processor/SKILL.md](skills/heartbeat-processor/SKILL.md)):
 
 ```
 NO acknowledgement to user on run start.
 NO waiting for user confirmation before ending the run.
-MUST end the run (end_turn, or a tier-1 notify send_message) immediately after
-the planning/execution work is done.
-NEVER block on a user reply (except when proposing a new task).
+MUST end the run immediately after the planning/execution work is done, with ONE
+send_message (shown in the main chat) or end_turn (nothing posted).
+NEVER block on a user reply. A proposal goes in the final message; the user
+answers in the main chat.
 ```
 
-Why: planners and heartbeat run automatically. If they wait for user confirmation each cycle, tasks pile up indefinitely.
+Why: these runs fire automatically. If they waited for user confirmation each cycle, runs would pile up indefinitely.
 
 **day-planner** ([skills/day-planner/SKILL.md](skills/day-planner/SKILL.md))
-- Fires daily at 7am via scheduler.
+- Fires every day at 7am (default) via the scheduler, in the main session.
 - Pre-flight reads: `scheduled_task_list`, PROACTIVE.md, MEMORY.md, USER.md, recent EVENT.md.
 - Goal: "How can I help the user get SLIGHTLY closer to their goals TODAY?"
-- Output: updates the Goals / Plan / Status section in PROACTIVE.md with the day's priorities. Optionally proposes ONE new recurring or scheduled task as a question in its final message (does NOT add the task unless the user says yes).
+- Output: updates the Goals / Plan / Status section in PROACTIVE.md with the day's priorities, then ends with ONE `send_message`, the morning brief, shown in the main chat. Optionally proposes ONE new cron job or scheduled task as a question in that message (does NOT add it unless the user says yes).
 - Action sets loaded by default: `file_operations`, `proactive`, `scheduler`, `google_calendar`, `notion`, `web`.
 
 **week-planner** ([skills/week-planner/SKILL.md](skills/week-planner/SKILL.md))
-- Fires Sunday 5pm.
-- Reviews the past week's outcomes, updates the weekly section of Goals / Plan / Status, and may propose changes to recurring tasks (frequency tweaks, retiring stale tasks).
+- Fires every sunday at 5pm (default).
+- Reviews the past week's outcomes, updates the weekly section of Goals / Plan / Status, and may propose changes to cron jobs (frequency tweaks, retiring stale jobs). Ends with ONE `send_message`, the weekly review.
 
 **month-planner** ([skills/month-planner/SKILL.md](skills/month-planner/SKILL.md))
-- Fires 1st of month at 8am.
-- Long-horizon: monthly themes, big-picture goal review, retiring or renaming PROACTIVE.md tasks that no longer serve.
+- Fires every month on day 1 at 8am (default).
+- Long-horizon: monthly themes, big-picture goal review, retiring or renaming cron jobs that no longer serve. Ends with ONE `send_message`, the monthly review.
+
+**cron-job-runner** ([skills/cron-job-runner/SKILL.md](skills/cron-job-runner/SKILL.md))
+- Fires when one or more cron jobs reach their slot (see "Cron job behavior" below).
+- Its instruction lists exactly the due jobs; code already selected them and stamped `last_run` / `run_count`. Do not call `cron_job_list` to work out what is due.
+- For each job, picks one of these execution types:
+  - **DELEGATED** (default when `general_agent`'s tools cover the work: files, shell/PowerShell, `web_search` / `web_fetch`, `http_request`): `spawn_subagent(agent_type="general_agent", query=<fully self-contained instruction>)`. Independent jobs are spawned in parallel in the same decision. The sub-agent never messages the user; this run sends the ONE result message, so the heavy tool work stays out of the main context while the run stays visible in the main chat.
+  - **INLINE** (work that needs connected-app integrations such as email, calendar or messaging platforms, memory, the Mini Browser, or the proactive actions; `general_agent` has none of those tools): runs the job in this run, moves on.
+- Records each job's result with `cron_job_update(job_id, add_outcome={result, success})`.
+- Ends with ONE `send_message` covering every job with something for the user (shown directly in the main chat), or `end_turn` when nothing needs attention.
 
 **heartbeat-processor** ([skills/heartbeat-processor/SKILL.md](skills/heartbeat-processor/SKILL.md))
-- Fires every 30 min via the `heartbeat` schedule.
-- For each due task in PROACTIVE.md, picks one of two execution types:
-  - **INLINE** (default for tier 0-1, simple actions): runs the task in this heartbeat session, sends optional tier-1 notification, records outcome via `recurring_update_task add_outcome`, moves on.
-  - **SCHEDULED**: queues the task via `schedule_task(schedule="immediate", ...)` when it needs different action sets or complex multi-step work. It runs in the MAIN session after the heartbeat's current work, not in a separate session or in parallel.
-- After processing all due tasks, ends the run immediately (end_turn or a tier-1 notify as the final message).
+- Fires on each `heartbeat` tick (default every 30 min) while the Heartbeat checklist is not empty.
+- Checks each checklist item and acts only if something needs attention. An item whose check `general_agent`'s tools cover (files, shell/PowerShell, `web_search` / `web_fetch`, `http_request`) is delegated with `spawn_subagent(agent_type="general_agent", query=<fully self-contained instruction>)`, independent items in parallel in the same decision; items that need connected-app integrations (email, calendar, messaging platforms), memory, the Mini Browser, or the proactive actions are checked by the main agent itself, because `general_agent` has none of those tools. The sub-agent never messages the user.
+- Ends with ONE `send_message` (shown in the main chat) or `end_turn` (nothing posted).
 
 **Custom planners exist.** The repo also ships skills like `compliance-cert-planner` and `task-planner` for narrower cadences. They follow the same silent-execution pattern but are wired in via separate scheduler entries when needed. Read their SKILL.md to learn what they do; don't assume they're active without confirming.
 
 **Reading the planners' output.** The Goals / Plan / Status section of PROACTIVE.md is where planners speak to you. When you start a task, scan that section for current focus and recent accomplishments — that's the cheapest way to align with the user's stated direction.
 
-### One-time / immediate proactive tasks (fire-and-check-back)
+### One-time / immediate scheduled tasks (fire-and-check-back)
 
 The most underused pattern in this section. Use it when:
 
 - The user wants something done at a SPECIFIC future moment (not on a recurring cadence).
 - A planner has identified a concrete one-shot action ("research X tomorrow morning at 9am").
 
-These tasks fire ONCE, return a result via `send_message` and/or by writing to the workspace, and auto-remove themselves from `scheduler_config.json` after firing.
+These tasks fire ONCE in the main session, return a result via their run-ending `send_message` (shown in the main chat) and/or by writing to the workspace, and auto-remove themselves from `scheduler_config.json` after firing.
 
 Use `schedule_task` with one of these expressions:
 
 ```
-"immediate"              fire NOW (queues an immediate trigger; runs as soon as
-                         the trigger queue picks it up, typically within seconds).
+"immediate"              fire NOW (queues an immediate trigger in the main
+                         session; runs as soon as that session is free).
 "in 30 minutes"          fire 30 minutes from now.
 "in 2 hours"             fire 2 hours from now.
 "at 3pm"                 fire at 3pm today (or tomorrow if 3pm has passed).
@@ -3775,9 +3803,9 @@ schedule_task(
 )
 ```
 
-`schedule="immediate"` queues a trigger in the MAIN session (every schedule_task fire runs there, not in the calling chat). From a main-session run it lands in your own next turn; it is not parallel work (use `spawn_subagent` for that). Write the instruction self-contained.
+`schedule="immediate"` queues a trigger in the MAIN session (every schedule_task fire runs there, not in the calling chat). From a main-session run it waits in the queue and is merged into the next turn; it is not parallel work (use `spawn_subagent` for that). Write the instruction self-contained.
 
-**Why this pattern matters.** It is the right pattern when a planner identifies a discrete future action — the planner schedules the task, then ends silently, and the future-agent runs the actual work later.
+**Why this pattern matters.** It is the right pattern when a planner identifies a discrete future action — the planner schedules the task, then ends its own run, and the future-agent runs the actual work later.
 
 **One-shot lifecycle.**
 
@@ -3788,7 +3816,7 @@ schedule_task(
 4. The main session runs it as a normal run (merged with anything else due).
 5. The agent runs the instruction.
 6. After firing, the scheduler removes the entry (one-shots are auto-removed).
-7. Final result is in EVENT.md, send_message output, or workspace files (depending on instruction).
+7. The run-ending send_message appears in the main chat; other output lands in workspace files (depending on instruction).
 ```
 
 **Verifying a one-shot is queued:**
@@ -3805,20 +3833,20 @@ If a one-shot was supposed to fire but didn't, check:
 
 ### After a proactive task fires — thinking about what's next
 
-A proactive task that runs and disappears without follow-up wastes the work. After ANY proactive task (recurring or one-time) finishes, the executing agent should consider:
+A proactive task that runs and disappears without follow-up wastes the work. After ANY proactive run (cron job, heartbeat or one-time task) finishes, the executing agent should consider:
 
 **1. Did the task fully achieve its goal?**
 
 ```
-Yes  →  record the outcome with recurring_update_task add_outcome (for recurring)
-        or just note it in the final message (for one-shots).
+Yes  →  say so in the final message (for a cron job, also record it with
+        cron_job_update add_outcome).
         Move on.
 
-Partially  →  record what was achieved AND what's outstanding.
+Partially  →  state what was achieved AND what's outstanding in the final message.
               Decide: spawn a follow-up via schedule_task for the remainder?
               Or surface the gap to the user?
 
-No (failed)  →  record the failure with success=false.
+No (failed)  →  state the failure and its cause in the final message.
                 Decide: was it transient (retry next cycle), approach-wrong
                 (change instruction or scope), or impossible (disable task,
                 surface to user)?
@@ -3831,26 +3859,26 @@ No (failed)  →  record the failure with success=false.
 The task surfaced new information that needs action  →  schedule_task immediate
                                                          for the action; or send_message
                                                          to the user with the finding.
-The task identified an emerging pattern              →  consider proposing a NEW recurring
-                                                         task (with user consent) to track it.
+The task identified an emerging pattern              →  consider proposing a NEW cron job
+                                                         (with user consent) to track it.
 The task confirmed nothing changed                   →  silent end_turn; no follow-up needed.
 The task hit a blocker that requires user input      →  send_message with a specific question;
                                                          do NOT schedule another attempt
                                                          until the user replies.
 ```
 
-**3. Should the recurring task itself be adjusted?**
+**3. Should the cron job itself be adjusted?**
 
-If the same recurring task has hit the SAME outcome multiple times in a row (visible in `outcome_history`), consider:
+If the same cron job has hit the SAME outcome multiple times in a row (visible in `outcome_history`), consider:
 
 ```
 - Increase or decrease frequency (e.g., daily → weekly).
 - Tighten or relax conditions (e.g., add weekdays_only).
 - Update the instruction to reflect what actually works.
-- Disable the task if it's no longer useful.
+- Disable the job if it's no longer useful.
 ```
 
-Use `recurring_update_task` with the appropriate `updates` dict for instruction / enabled / time / day / priority / tier / name. Frequency and conditions cannot be updated: `recurring_remove`, then `recurring_add`. Don't make these changes silently for tasks the user set up — confirm first.
+Use `cron_job_update` with the appropriate `updates` dict for instruction / enabled / frequency / time / day / priority / tier / name. Conditions cannot be updated: `cron_job_remove`, then `cron_job_add`. Don't make these changes silently for jobs the user set up; confirm first.
 
 **4. Is the Goals / Plan / Status section in PROACTIVE.md still accurate?**
 
@@ -3873,73 +3901,111 @@ If the task revealed an operational lesson useful to future-you, consider whethe
 **6. Default behavior at the end of a proactive task:**
 
 ```
-1. recurring_update_task add_outcome    (recurring tasks only)
-2. send_message at the right tier        (if there's anything user-facing)
-3. end the run                           (end_turn, or the send_message above as final)
+1. ONE final send_message at the right tier   (if there's anything user-facing;
+                                               shown in the main chat)
+2. otherwise end_turn                          (nothing is posted)
 ```
 
-That's the minimum. Step 1 is non-optional for recurring tasks.
+That's the minimum. For a cron job, first record each job's result with `cron_job_update(job_id, add_outcome={result, success})`; CraftBot already stamped `last_run` / `run_count` at dispatch.
 
 **Anti-patterns when ending a proactive run:**
 
-- Ending the run without recording an outcome on a recurring task.
+- Ending a cron job run without recording each job's outcome via `cron_job_update` `add_outcome`.
+- Sending notifications with `continue_work=true`. Everything the user should see goes in the ONE final message.
 - Sending a message at higher tier than configured (tier 1 task → don't bombard with tier 2 approval requests).
 - Leaving a follow-up implicit ("the user will probably ask"). If you decided a follow-up is needed, schedule it explicitly via `schedule_task`.
 - Re-running the same logic that just failed without changing approach.
-- Loop guard: if `outcome_history` shows N consecutive failures, do NOT keep retrying. Disable the task or surface to the user.
+- Loop guard: if `outcome_history` shows N consecutive failures, do NOT keep retrying. Disable the job or surface to the user.
+
+### Cron job behavior
+
+Each cron job has one slot per period, in local time: hourly at :MM, daily at HH:MM, weekly on a weekday at HH:MM, monthly on a day at HH:MM.
+
+```
+1. The scheduler's internal cron-job runner sleeps until the next slot of any
+   enabled job. It also re-reads PROACTIVE.md at least every 5 minutes, and
+   wakes at once when jobs change through the cron_job_* actions or Settings.
+2. At the slot, code (not the model) selects the due jobs
+   (proactive_manager.get_due_jobs()) and stamps last_run / run_count on them
+   (mark_dispatched).
+3. It fires ONE trigger (source CRON_JOB, value "cron_job") into the MAIN
+   session. The run loads the cron-job-runner skill +
+   action_sets=[file_operations, proactive, web_research].
+4. The instruction lists each due job: name, id, schedule, tier, instruction,
+   conditions, and a "Late" note when it runs more than 2 minutes after its slot.
+5. The run records each job's result with cron_job_update(job_id,
+   add_outcome={result, success}) and ends with ONE send_message, shown
+   directly in the main chat; end_turn posts nothing.
+```
+
+A slot missed while CraftBot was closed or asleep runs once, late, when it is back (only the most recent missed slot). A new, re-enabled or rescheduled job never fires for a slot before it took effect (`active_since`).
+
+If `proactive.enabled` is false in settings.json, no cron job runs.
 
 ### Heartbeat behavior
 
-Every 30 min (`0,30 * * * *`):
+The `heartbeat` entry in scheduler_config.json (default `*/30 * * * *`; the user picks every 5, 10, 15, 30, 60 or 120 minutes, and turns it on or off, in Settings > Proactive):
 
 ```
-1. fires a PROACTIVE_HEARTBEAT trigger for the main session
-2. the pre-check in app/agent_base.py:
-     proactive_manager.get_all_due_tasks()  → filter by frequency + time + day
-     if no due tasks: the turn is skipped
-     if due tasks: the run loads the heartbeat-processor skill +
-                   action_sets=[file_operations, proactive, web_research]
-3. The heartbeat run executes each due task in turn, respecting permission tiers.
-4. After each task, recurring_update_task records the outcome.
+1. On each tick, if proactive mode is on and the Heartbeat checklist in
+   PROACTIVE.md is not empty, it fires ONE PROACTIVE_HEARTBEAT trigger into
+   the MAIN session. Empty checklist = no run, no LLM cost.
+2. The run loads the heartbeat-processor skill +
+   action_sets=[file_operations, proactive, web_research]; its instruction
+   contains the checklist.
+3. The agent checks each item and acts only if something needs attention,
+   delegating an item to a general_agent sub-agent when its tools cover it.
+4. It ends with ONE send_message (shown in the main chat) or end_turn
+   (nothing posted).
 ```
 
-If `proactive.enabled` is false in settings.json, step 1 fires but step 2 returns early. No run starts.
+### Cron job and heartbeat actions (PROACTIVE.md)
 
-### Recurring task actions (PROACTIVE.md)
+All six are in the `proactive` set: `add_action_sets(["proactive"])`.
 
 ```
-recurring_add(name, frequency, instruction, time?, day?, priority?, permission_tier?, enabled?, conditions?)
-  Adds a new recurring task to PROACTIVE.md.
+cron_job_add(name, frequency, instruction, time?, day?, priority?, permission_tier?, enabled?, conditions?)
+  Adds a new cron job to PROACTIVE.md. It first runs at its next slot.
   frequency: "hourly" | "daily" | "weekly" | "monthly"   (REQUIRED)
-  time:      "HH:MM" 24-hour                              (recommended for daily/weekly/monthly)
-  day:       "monday".."sunday" for weekly                (for weekly)
-             "1".."31" for monthly                        (for monthly)
+  time:      "HH:MM" 24-hour, default "00:00"             (hourly uses only the minute)
+  day:       "monday".."sunday" for weekly                (default monday)
+             "1".."31" for monthly                        (default 1; clamped to the month's last day)
   priority:  1-100, lower = higher priority. Default 50.
-  permission_tier: 0-3. Default 1. See PROACTIVE.md for semantics.
+  permission_tier: 0 silent, 1 notify. Default 1. See PROACTIVE.md for semantics.
   enabled:   bool. Default true.
   conditions: optional list of {type: "..."} filters
               (e.g. [{type: "market_hours_only"}, {type: "weekdays_only"}])
-  Returns:   { status, task_id, message }
+  Returns:   { status, job_id, message }
 
-recurring_read(frequency?, enabled_only?)
-  Lists existing recurring tasks. Use to check for duplicates BEFORE adding.
+cron_job_list(frequency?, enabled_only?)
+  Lists existing cron jobs (schedule, state, next run, recent outcomes).
+  Use to check for duplicates BEFORE adding.
   frequency:    "all" | "hourly" | "daily" | "weekly" | "monthly"
   enabled_only: bool, default true
 
-recurring_update_task(task_id, updates?, add_outcome?)
-  Modifies a task or records an execution outcome.
+cron_job_update(job_id, updates?, add_outcome?)
+  Modifies a job or records a run's outcome.
   updates:     dict with any of: enabled, priority, permission_tier,
-               instruction, time, day, name
-  add_outcome: dict with result (string) and optionally success (bool)
-               USE THIS after every proactive task execution to record
-               result, even if success. The task's outcome_history (capped
-               at the most recent entries) feeds future decisions. add_outcome
-               is also what records last_run: without it the task stays due and
-               fires again on the next heartbeat.
+               instruction, frequency, time, day, name
+               Re-enabling a job or changing its schedule restarts it from now.
+  add_outcome: dict with result (string) and optionally success (bool,
+               default true). The cron-job run calls it for each job it ran.
+               It does not change when the job runs next: CraftBot stamps
+               last_run / run_count at dispatch. The job's outcome_history
+               (the most recent 5 entries) feeds future decisions.
 
-recurring_remove(task_id)
-  Deletes a task entirely. Confirm with user first if removing a task they
+cron_job_remove(job_id)
+  Deletes a job entirely. Confirm with user first if removing a job they
   set up.
+
+heartbeat_checklist_read()
+  Returns the Heartbeat checklist as markdown ("" when empty).
+
+heartbeat_checklist_update(checklist)
+  Replaces the whole checklist. checklist = the full markdown list, one item
+  per line (e.g. "- Check my inbox for urgent client email"). Read it first
+  and pass the FULL new list. An empty string clears it: the heartbeat stops
+  running.
 ```
 
 ### Scheduled task actions (scheduler_config.json)
@@ -3947,7 +4013,8 @@ recurring_remove(task_id)
 ```
 schedule_task(name, instruction, schedule, priority?, enabled?,
               action_sets?, skills?, payload?)
-  Adds a one-time, recurring, or immediate scheduled task.
+  Adds a one-time, recurring, or immediate scheduled task. Every fire runs in
+  the MAIN session as a normal main-chat run.
   schedule expression formats (validated by app/scheduler/parser.py):
     "immediate"
     "at 3pm" / "at 3:30pm" / "at 3:30pm today"
@@ -3955,8 +4022,9 @@ schedule_task(name, instruction, schedule, priority?, enabled?,
     "in 2 hours" / "in 30 minutes"
     "every day at 7am" / "every day at 3:30pm"
     "every monday at 9am"
+    "every month on day 1 at 8am"
     "every 3 hours" / "every 30 minutes"
-    cron: "0 7 * * *"
+    cron: "0 7 * * *" (local time)
   NOT accepted: "daily at", "every weekday", "every morning", freeform text.
   payload.type drives workflow routing if set (rare; usually omit).
 
@@ -3970,18 +4038,20 @@ remove_scheduled_task(schedule_id)
   Deletes a schedule. Built-in schedules can be removed but should NOT be.
 ```
 
-### Setting up a proactive task — chat-driven flow
+### Setting up a cron job: chat-driven flow
 
 User says: "remind me to drink water every 2 hours" or "set up a daily 7am morning briefing".
 
 ```
 Step 1: Acknowledge and decide which mechanism
-        - Time-based + recurring + frequency matches PROACTIVE.md → recurring_add
+        - Time-based + recurring + frequency matches PROACTIVE.md → cron_job_add
         - One-off, fixed time, or interval that doesn't fit hourly/daily/weekly/monthly → schedule_task
-        - Hourly with no specific time → recurring_add(frequency="hourly")
+        - Hourly with no specific time → cron_job_add(frequency="hourly")
+        - Something to keep an eye on, no fixed time → heartbeat checklist item
+          (heartbeat_checklist_read, then heartbeat_checklist_update)
 
 Step 2: Check for duplicates
-        recurring_read(frequency="<freq>")           ← for PROACTIVE.md
+        cron_job_list(frequency="<freq>")            ← for PROACTIVE.md
         OR scheduled_task_list()                      ← for scheduler_config.json
         If a similar task exists, confirm with user before adding another.
 
@@ -3989,21 +4059,24 @@ Step 3: Confirm the details with the user
         - Exact instruction the agent will follow when fired
         - Frequency / time / day
         - Permission tier (see PROACTIVE.md). Default to tier 1 unless user
-          explicitly wants tier 0 (silent). Recurring tasks use tier 0 or 1 only:
-          the heartbeat never waits for user approval.
+          explicitly wants tier 0 (silent). Cron jobs use tier 0 or 1 only:
+          a cron-job run never waits for user approval.
         - Conditions if any (weekdays only, market hours only, etc.)
 
 Step 4: Create the task
-        recurring_add(...) OR schedule_task(...)
+        cron_job_add(...) OR schedule_task(...)
 
 Step 5: Confirm to user
         State the task ID, frequency, next fire time, and tier.
         Tell them how to disable: "Ask me to disable or remove it."
 
-Step 6: When the task fires later (heartbeat-processor skill runs it):
-        - Execute the instruction
-        - Send any user-facing output via send_message (respecting tier)
-        - Call recurring_update_task with add_outcome to record the result
+Step 6: When the job fires later (cron-job-runner skill runs it in the
+        main session):
+        - Execute the instruction (delegated to a general_agent sub-agent
+          when its tools cover the work)
+        - End with ONE send_message (respecting tier), shown in the main chat,
+          or end_turn when there is nothing to report
+        - Before that, record the result with cron_job_update add_outcome
 ```
 
 Example exchange:
@@ -4012,7 +4085,7 @@ Example exchange:
 User: "remind me to take a walk every weekday at 3pm"
 
 Agent:
-  recurring_read(frequency="daily", enabled_only=true)
+  cron_job_list(frequency="daily", enabled_only=true)
   → no duplicate
 
   send_message:
@@ -4026,7 +4099,7 @@ Agent:
 User: "yes"
 
 Agent:
-  recurring_add(
+  cron_job_add(
     name="Take a walk",
     frequency="daily",
     instruction="Send the user a brief, friendly reminder to take a walk.",
@@ -4035,7 +4108,7 @@ Agent:
     conditions=[{"type": "weekdays_only"}],
     enabled=true,
   )
-  → returns { status: "ok", task_id: "take_a_walk_001" }
+  → returns { status: "ok", job_id: "daily_take_a_walk" }
 
 Agent:
   send_message:
@@ -4057,31 +4130,31 @@ tier 3    high-risk - the task pauses, asks, AND defers to the user for
           execution. Reserved for irreversible / external-facing actions.
 ```
 
-Recurring tasks use tier 0 or 1 only (the heartbeat never waits for the user); tiers 2-3 apply to one-off work. When unsure, default to tier 1. Never set tier 0 without confirming the user actually wants silent execution.
+Cron jobs use tier 0 or 1 only (a cron-job run never waits for the user); tiers 2-3 apply to one-off work. When unsure, default to tier 1. Never set tier 0 without confirming the user actually wants silent execution.
 
 For the FULL Decision Rubric (Impact / Risk / Cost / Urgency / Confidence, threshold >= 18) and the per-tier behavior contract, read [PROACTIVE.md](agent_file_system/PROACTIVE.md). PROACTIVE.md owns those definitions; do NOT duplicate them.
 
 ### Conditions (filtering when a task fires)
 
-The `conditions` array on a recurring task lets you filter executions. The code does NOT evaluate them: the heartbeat run starts anyway and you (heartbeat-processor) judge each condition:
+The `conditions` array on a cron job lets you filter executions. The code does NOT evaluate them: the cron-job run starts anyway, its instruction lists them, and you (cron-job-runner) skip the job if one does not hold:
 
 ```
 {"type": "weekdays_only"}        skip Saturday/Sunday
 {"type": "market_hours_only"}    only during market hours (9:30-16:00 ET)
 {"type": "user_available"}       only when the user has been active recently
-{"type": "<custom>"}             custom predicate evaluated by heartbeat-processor
+{"type": "<custom>"}             custom predicate evaluated by cron-job-runner
 ```
 
 Read [PROACTIVE.md](agent_file_system/PROACTIVE.md) for the full list of supported conditions.
 
 ### Recording outcomes — feedback loop
 
-Every recurring task should record its outcome via `recurring_update_task add_outcome` so future executions can learn from history. The `outcome_history` field on a task keeps the most recent entries (typically last 5-10).
+Dispatch stamps `last_run` / `run_count` automatically. The cron-job run records each job's outcome itself via `cron_job_update add_outcome`, so future runs can learn from history. The job's `outcome_history` keeps the most recent entries (max 5).
 
 ```
-After executing a proactive task, call:
-  recurring_update_task(
-    task_id="<id>",
+After running a cron job, call:
+  cron_job_update(
+    job_id="<id>",
     add_outcome={
       "result": "Sent the morning briefing. Calendar had 3 meetings, top priority was X.",
       "success": True,
@@ -4089,44 +4162,49 @@ After executing a proactive task, call:
   )
 ```
 
-This is non-optional. Without outcome history, the task has no memory of what it did before, and decisions about whether to re-fire degrade over time.
+Without outcome history, the job has no memory of what it did before, and decisions about whether to re-fire degrade over time.
 
 ### Pitfalls
 
-- Adding a proactive task without user consent. Don't. Always offer first, get explicit yes, then create.
-- Skipping the duplicate check. Always run `recurring_read` before `recurring_add`.
+- Adding a cron job or heartbeat checklist item without user consent. Don't. Always offer first, get explicit yes, then create.
+- Skipping the duplicate check. Always run `cron_job_list` before `cron_job_add`.
 - Setting `permission_tier=0` (silent) by default. Default to 1 unless the user clearly wants silent.
 - Putting a one-off reminder in PROACTIVE.md (it'll fire forever). Use `schedule_task` for one-offs — they auto-remove.
 - Using freeform schedule expressions in `schedule_task` ("daily at 9am" is rejected; use "every day at 9am").
-- Forgetting to call `recurring_update_task add_outcome` after the task runs. Outcome history powers future decisions.
+- Forgetting to call `cron_job_update` `add_outcome` after a cron job runs. Outcome history powers future decisions.
 - Removing built-in schedules (`heartbeat`, `memory-processing`, `*-planner`). The system depends on them.
 - Editing PROACTIVE.md or scheduler_config.json directly when an action exists. The actions validate inputs; manual edits can break the parser.
 
 ### Verifying the schedule is set up
 
 ```
-1. recurring_read(frequency="all", enabled_only=false)   ← see all entries
+1. cron_job_list(frequency="all", enabled_only=false)    ← see all jobs + next_run
 2. read_file agent_file_system/PROACTIVE.md              ← inspect raw
 3. grep_files "[PROACTIVE]" logs/<run>/all.log -A 1       ← startup confirmation
-4. After the next scheduled fire time, check logs and EVENT.md for execution.
+4. After the next slot, check logs and the main session's EVENT.md
+   (agent_file_system/workspace/sessions/main/EVENT.md) for execution.
 ```
 
-If the task should have fired but didn't, check:
+If a cron job should have fired but didn't, check:
 - `proactive.enabled` in settings.json (master switch)
-- `enabled` on the task itself in PROACTIVE.md
-- `time` and `day` match the current moment
+- `enabled` on the job itself in PROACTIVE.md
+- `time` and `day` give the slot you expect (local time)
+- `active_since`: a job added, re-enabled or rescheduled after that slot does not run for it
 - `conditions` are met
-- The heartbeat itself fired (`grep_files "Heartbeat" logs/<run>/all.log`)
+- The runner dispatched it (`grep_files "cron job" logs/<run>/all.log`)
+
+If the heartbeat never runs: the checklist is empty (`heartbeat_checklist_read`) or the `heartbeat` entry is off in Settings > Proactive.
 
 ### Where authority lives
 
 ```
 Decision Rubric (Impact / Risk / Cost / Urgency / Confidence, threshold)   →  PROACTIVE.md
 Permission Tiers (0-3 detailed contract)                                    →  PROACTIVE.md
-Recurring task YAML schema                                                  →  PROACTIVE.md
+Cron job YAML schema                                                        →  PROACTIVE.md
 Goals / Plan / Status section (planner-maintained)                          →  PROACTIVE.md
 Schedule expression grammar                                                 →  app/scheduler/parser.py
-Heartbeat dispatch logic                                                    →  app/agent_base.py _handle_proactive_heartbeat
+Cron job runner + heartbeat / planner fires                                 →  app/scheduler/manager.py
+Proactive run start (workflow skills + action sets)                         →  app/agent_base.py _prepare_proactive_run
 PROACTIVE.md parsing / serialization                                        →  app/proactive/parser.py
 ProactiveManager API                                                        →  app/proactive/manager.py
 ```
@@ -4192,7 +4270,8 @@ Action surface (agent-side code)       New action .py in app/data/action/       
 External service connections           credentials via connect_integration            ## Integrations
 LLM brain                              model.* in settings.json + /provider          ## Models
 API keys                               api_keys.* in settings.json                   ## Models / ## Configs
-Recurring automations                  PROACTIVE.md via recurring_add                ## Proactive
+Recurring automations                  PROACTIVE.md via cron_job_add                 ## Proactive
+Standing checks (no fixed time)        PROACTIVE.md heartbeat checklist              ## Proactive
 One-off scheduled work                 schedule_task action                          ## Proactive
 Memory recall behavior                 memory.* in settings.json + USER.md           ## Memory / ## Self-Edit
 Operational manual (this file)         AGENT.md                                      ## Self-Edit
@@ -4216,11 +4295,11 @@ You hit the same workaround 3+ times across tasks                  over time: AG
 Repeated user complaint of the same kind                           on-demand: USER.md or AGENT.md update
 A new environment fact (file gained a new section, integration    on-demand: AGENT.md
   added a new endpoint, settings.json got a new key)
-Day/week/month planner identifies a candidate proactive task       on-demand: recurring_add (with consent)
+Day/week/month planner identifies a candidate cron job             on-demand: cron_job_add (with consent)
 Memory distillation surfaces a stable preference                   over time: USER.md (planners can do this)
 LLMConsecutiveFailureError                                          on-demand: model/key fix (## Models)
 Action returns "Not connected" repeatedly                          on-demand: walk user through integration
-PROACTIVE.md task hits same outcome N times in a row               on-demand: recurring_update_task (tweak)
+PROACTIVE.md cron job hits same outcome N times in a row           on-demand: cron_job_update (tweak)
 ```
 
 If none of these triggers fired, do NOT self-improve. Random tweaks bloat configs and confuse the user.
@@ -4256,7 +4335,7 @@ Replace the simple IDENTIFY/SEARCH/INSTALL/WAIT/CONTINUE/REMEMBER with this full
      - Installs new code (git clone, pip install)
      - Asks for credentials
      - Modifies AGENT.md or SOUL.md
-   - For trivial in-task tweaks (e.g., adding a single recurring task
+   - For trivial in-task tweaks (e.g., adding a single cron job
      after the user asked for it) the propose step IS the request
      itself. Do not over-confirm.
 
@@ -4271,7 +4350,7 @@ Replace the simple IDENTIFY/SEARCH/INSTALL/WAIT/CONTINUE/REMEMBER with this full
      - Skill: /skill list and (if simple) invoke the skill.
      - Integration: check_integration_status.
      - Model: send_message and watch for LLMConsecutiveFailureError.
-     - PROACTIVE.md: recurring_read.
+     - PROACTIVE.md: cron_job_list.
      - AGENT.md self-edit: re-read the changed section in next turn.
    - If smoke test fails, ROLLBACK before continuing.
 
@@ -4281,7 +4360,7 @@ Replace the simple IDENTIFY/SEARCH/INSTALL/WAIT/CONTINUE/REMEMBER with this full
      breaker fired and cancelled it).
 
 8. RECORD
-   - For recurring task outcomes: recurring_update_task add_outcome.
+   - Cron job outcomes: cron_job_update add_outcome.
    - For AGENT.md self-edits: bump version: in front matter and sync
      to template (see ## Self-Edit).
    - For everything else: the memory pipeline distills relevant events
@@ -4299,8 +4378,8 @@ Author a new action                      →  ## Actions "Authoring a new action
                                             Note: requires RESTART (no hot-reload for code).
 Connect an integration                   →  ## Integrations "End-to-end chat-driven connection"
 Switch model / set API key               →  ## Models "Switching provider or model"
-Add a recurring task                     →  ## Proactive "Setting up a proactive task — chat-driven flow"
-Schedule a one-shot                       →  ## Proactive "One-time / immediate proactive tasks"
+Add a cron job                           →  ## Proactive "Setting up a cron job: chat-driven flow"
+Schedule a one-shot                       →  ## Proactive "One-time / immediate scheduled tasks"
 Edit FORMAT.md                            →  ## Documents
 Edit GLOBAL_AGENT_APP.md                  →  ## Agent App
 Edit AGENT.md / USER.md / SOUL.md         →  ## Self-Edit
@@ -4391,17 +4470,20 @@ Daily 3am          memory pipeline distills important events into MEMORY.md.
                    Stable preferences, capabilities, system limits, user
                    complaints — all surface here for future memory_search.
 
-Daily 7am          day-planner reviews context, may propose a recurring task.
-                   Updates Goals/Plan/Status section in PROACTIVE.md.
+Daily 7am          day-planner reviews context, may propose a cron job.
+                   Updates Goals/Plan/Status section in PROACTIVE.md and
+                   posts the morning brief to the main chat.
 
 Sunday 5pm         week-planner reviews the week's outcomes; may retire stale
-                   recurring tasks or adjust their frequency.
+                   cron jobs or adjust their frequency.
 
 1st of month 8am   month-planner reviews long-horizon goals; broader pruning.
 
-Heartbeat (30 min) executes due recurring tasks; records outcome via
-                   recurring_update_task add_outcome. Repeated failures in
-                   outcome_history feed future planner decisions.
+Each job's slot    the cron-job runner runs due cron jobs in the main
+                   session and records each outcome. Repeated failures
+                   in outcome_history feed future planner decisions.
+
+Heartbeat (30 min) checks the Heartbeat checklist; skipped when it is empty.
 ```
 
 You do NOT need to mimic this work in the foreground. When you complete a task, do step 8 RECORD properly and the over-time machinery picks it up.
@@ -4417,7 +4499,7 @@ Need a workflow              →  read_file app/config/skills_config.json (skill
                                  list_skills (live state)
 Need an integration          →  list_available_integrations (registry + connected state)
                                  /cred status (user-side overview)
-Need a recurring task        →  recurring_read (avoid duplicate setups)
+Need a cron job              →  cron_job_list (avoid duplicate setups)
 Need a model                 →  read_file settings.json (user may have it set already)
                                  list of supported providers in ## Models
 ```
@@ -4430,14 +4512,14 @@ ASK the user before:
 - Editing AGENT.md or SOUL.md (they affect every future interaction).
 - Installing anything that runs new code (git clone, pip install, npx fetch).
 - Adding or modifying anything that needs credentials.
-- Adding a recurring task (## Proactive — explicit consent rule).
+- Adding a cron job or heartbeat checklist item (## Proactive, explicit consent rule).
 - Switching the LLM provider (it affects cost and behavior).
 - Connecting an integration.
 
 DO NOT need to ask for:
 - Updating USER.md after the user shared a clear durable preference (one-line
   confirmation is enough: "I'll add that to USER.md").
-- Recording the outcome of a proactive task you just executed.
+- Reporting the result of a proactive run you just executed.
 - Re-reading a config file or running discovery actions.
 - Editing FORMAT.md after the user gave a one-shot formatting rule (still
   confirm scope: "global vs file-type-specific").
@@ -4464,8 +4546,8 @@ for the workflow.
 - Two consecutive failed installs of the SAME capability   →  STOP. Ask the user.
 - Three consecutive failed smoke tests after edits         →  STOP. Roll back to last known good.
                                                               Ask the user.
-- A recurring task with N consecutive failure outcomes      →  do NOT keep re-firing.
-  in outcome_history                                          recurring_update_task
+- A cron job with N consecutive failure outcomes            →  do NOT keep re-firing.
+  in outcome_history                                          cron_job_update
                                                               with enabled=false, then ask.
 - Any AGENT.md edit that broke a previously-working flow    →  revert immediately.
                                                               version: bump exists for a reason
@@ -4481,12 +4563,12 @@ for the workflow.
 - Treating memory pipeline as a substitute for explicit self-edits. Memory captures EVENTS, not lessons. If you learned a lesson, encode it in AGENT.md so future-you sees it deterministically.
 - Skipping discovery and adding a duplicate (e.g., a second MCP server doing what an existing-but-disabled one already does).
 - Using the wrong surface (e.g., putting a one-time reminder in PROACTIVE.md, putting a system-wide formatting rule in USER.md, putting agent-personality changes in AGENT.md instead of SOUL.md).
-- Setting `permission_tier=0` (silent) on proactive tasks the user didn't explicitly ask to be silent.
+- Setting `permission_tier=0` (silent) on cron jobs the user didn't explicitly ask to be silent.
 - Improving prematurely. The first time something feels rough, just push through. By the third time, propose an improvement.
 
 ### A note on the goal
 
-Self-improvement is not "add capabilities". It's "be measurably more useful to THIS user, on THEIR tasks, with the smallest necessary change". The best self-improvement is often a single line added to USER.md or a stale recurring task disabled — not a new MCP server.
+Self-improvement is not "add capabilities". It's "be measurably more useful to THIS user, on THEIR tasks, with the smallest necessary change". The best self-improvement is often a single line added to USER.md or a stale cron job disabled — not a new MCP server.
 
 When in doubt, do less.
 
@@ -4522,9 +4604,9 @@ Agent App design rules                                  GLOBAL_AGENT_APP  ask if
 
 Work that spans multiple sessions                       workspace/        no consent needed
 
-Recurring or scheduled task definitions                 PROACTIVE.md      via recurring_* / schedule_*
-                                                        (or scheduler_    actions, NOT manual edit
-                                                        config.json)
+Cron jobs, heartbeat checklist, scheduled tasks         PROACTIVE.md      via cron_job_* / heartbeat_
+                                                        (or scheduler_    checklist_* / schedule_*
+                                                        config.json)      actions, NOT manual edit
 
 A one-off fact you want recalled later                  (do nothing)      memory pipeline picks it up
                                                                           from EVENT_UNPROCESSED.md
@@ -4759,7 +4841,7 @@ Quick lookup of the terms used throughout this manual. Each entry points to the 
 action                    atomic unit the LLM picks each turn                              ## Actions
 action set                named bundle of actions loaded together                          ## Action Sets
 add_action_sets           action that puts a set's schemas into the event stream           ## Action Sets
-add_outcome               recurring_update_task field for recording execution result       ## Proactive
+add_outcome               cron_job_update field recording a run's outcome                  ## Proactive
 agent file system         the persistent agent_file_system/ directory                      ## File System
 AGENT.md                  this file - operational manual                                    ## Self-Edit
 api_keys                  settings.json block holding provider API keys                    ## Configs / ## Models
@@ -4770,6 +4852,10 @@ connect_integration       action that connects an external service via credentia
 continue_work             send_message flag: true = run continues, absent = run ends       ## Runs
 core (action set)         always-loaded set; cannot be opted out                            ## Action Sets
 craftos_integrations      standalone package owning the integration subsystem              ## Integrations
+cron job                  PROACTIVE.md job, one run per hourly/daily/weekly/monthly slot   ## Proactive
+cron-job-runner           skill that runs the due cron jobs (in the main session)          ## Proactive
+cron_job_add              action to register a new cron job in PROACTIVE.md                ## Proactive
+cron_job_update           action to modify a cron job or record a run's outcome            ## Proactive
 Decision Rubric           proactive task scoring (Impact/Risk/Cost/Urgency/Confidence)     PROACTIVE.md, ## Proactive
 end_turn                  action ending a run silently (no message)                        ## Runs
 ENTITIES.md               entity-graph registry: entities + memory connections (do not edit) ## Memory / ## File System
@@ -4779,8 +4865,8 @@ EVENT_UNPROCESSED.md      memory pipeline staging buffer (do not edit)          
 event pipeline            flow from event -> EVENT_UNPROCESSED -> MEMORY.md                ## Memory
 FORMAT.md                 document/design standards file                                   ## Documents
 GLOBAL_AGENT_APP.md       global Agent App design rules                                    ## Agent App
-heartbeat                 scheduler entry firing every 30 min to run due proactive tasks   ## Proactive
-heartbeat-processor       skill that executes due tasks during a heartbeat                 ## Proactive
+heartbeat                 scheduler entry running the Heartbeat checklist (default 30 min) ## Proactive
+heartbeat-processor       skill that works through the Heartbeat checklist each tick       ## Proactive
 hot-reload                config-watcher debounced 0.5s reload of /app/config/             ## Configs
 INDEX_TARGET_FILES        the five files indexed by memory_search (+ user extras)          ## Memory
 integration               external-service connection (Slack, GitHub, Jira, ...)           ## Integrations
@@ -4798,15 +4884,13 @@ MemoryManager             singleton for memory indexing + retrieval             
 MEMORY.md                 distilled long-term memory; read via memory_search only          ## Memory / ## File System
 MODEL_REGISTRY            agent_core registry mapping providers to default models          ## Models
 onboarding                first-run setup flow (hard wizard + soft interview)              ## Onboarding Context
-outcome_history           per-task list of recent execution outcomes in PROACTIVE.md       ## Proactive
+outcome_history           per-job list of recent run outcomes in PROACTIVE.md              ## Proactive
 parallelizable            decorator flag controlling whether action can run in parallel    ## Actions
-permission_tier           0-3 user-interaction level for proactive tasks                   PROACTIVE.md, ## Proactive
-PROACTIVE.md              recurring task definitions + Goals/Plan/Status                   ## Proactive / ## File System
+permission_tier           0-3 user-interaction level (cron jobs use 0 or 1)                PROACTIVE.md, ## Proactive
+PROACTIVE.md              cron jobs + Heartbeat checklist + Goals/Plan/Status              ## Proactive / ## File System
 proactive task            work fired by a schedule, not a user prompt                      ## Proactive
 provider                  LLM provider name (openai, anthropic, gemini, ...)                ## Models
 react()                   the agent's main loop entry point                                 ## Runtime
-recurring_add             action to register a new recurring task in PROACTIVE.md          ## Proactive
-recurring_update_task     action to modify a task or record an outcome                     ## Proactive
 reinitialize_llm          internal call that rebuilds LLMInterface after a model change    ## Models
 run                       one wake of a session; ends on final send_message or end_turn    ## Runtime / ## Runs
 schedule_task             action to add immediate / one-shot / recurring scheduled task    ## Proactive

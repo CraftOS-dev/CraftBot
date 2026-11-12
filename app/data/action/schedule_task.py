@@ -16,9 +16,7 @@ from agent_core import action
     name="schedule_task",
     description=(
         "Schedule a task for execution. Supports immediate, one-time, and recurring schedules. "
-        "One-time tasks are auto-removed after firing. Every fire runs in the background "
-        "session (one after another, not in this chat); the run's final message is posted "
-        "to the user's main chat.\n"
+        "One-time tasks are auto-removed after firing.\n"
         "IMPORTANT: The 'schedule' field must use one of the EXACT patterns listed "
         "in its description; no other freeform text is supported."
     ),

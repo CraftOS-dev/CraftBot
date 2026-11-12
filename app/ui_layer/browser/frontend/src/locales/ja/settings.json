@@ -246,11 +246,54 @@
   },
   "proactive": {
     "title": "プロアクティブな動作",
-    "subtitle": "エージェントが自律的に動作するタイミングを設定し、スケジュールされたタスクを管理します",
+    "subtitle": "エージェントに自律的に動いてもらいます: 決まった時刻のジョブ実行、気になることの見守り、先回りの計画",
     "enableLabel": "プロアクティブモードを有効化",
-    "enableDesc": "プロアクティブなタスクとプランナーをバックグラウンドで実行し、結果をメインチャットに投稿します。",
+    "enableDesc": "エージェントがバックグラウンドで動き、完了したことや対応が必要なことをメインチャットで知らせます。",
+    "cronJobs": {
+      "title": "cron ジョブ",
+      "desc": "毎朝 9 時や毎週金曜など、決まった時刻にエージェントが行うこと。結果はメインチャットに届きます。",
+      "add": "cron ジョブを追加",
+      "search": "cron ジョブを検索...",
+      "loading": "cron ジョブを読み込み中...",
+      "empty": "cron ジョブはまだありません。",
+      "createFirst": "最初の cron ジョブを作成",
+      "count_one": "ジョブ {{count}} 件",
+      "count_other": "ジョブ {{count}} 件",
+      "deleteTitle": "cron ジョブを削除",
+      "deleteMessage": "この cron ジョブを削除してもよろしいですか？",
+      "searchCount": "{{total}} 件中 {{shown}} 件",
+      "tip": {
+        "aria": "cron ジョブについて",
+        "title": "cron ジョブのしくみ",
+        "line1": "「cron ジョブ」はスケジュールどおりに実行されるジョブの一般的な呼び名です。各ジョブは指示と時刻 (毎時・毎日・毎週・毎月) の組み合わせです。",
+        "line2": "その時刻になると、エージェントはバックグラウンドでジョブを実行し、結果を 1 件だけメインチャットに投稿します。その時刻にエージェントが動いていなかった場合は、再開後に実行します。ただし、もう意味がない場合はスキップします。",
+        "line3": "チャットで頼むこともできます (例: 「毎週金曜 17 時に 1 週間をまとめて」)。ジョブはエージェントのファイル内の PROACTIVE.md に保存されます。"
+      }
+    },
+    "heartbeat": {
+      "title": "ハートビート",
+      "desc": "エージェントが定期的に下のチェックリストを確認し、対応が必要なときだけ動きます。",
+      "label": "ハートビート",
+      "rowDesc": "チェックリストに項目があるときだけ実行されます",
+      "interval": "間隔",
+      "everyMinutes_one": "{{count}} 分ごと",
+      "everyMinutes_other": "{{count}} 分ごと",
+      "everyHours_one": "{{count}} 時間ごと",
+      "everyHours_other": "{{count}} 時間ごと",
+      "checklistLabel": "チェックリスト",
+      "checklistPlaceholder": "- クライアントからの緊急メールがないか受信トレイを確認する\n- 夜間ビルドが失敗したら知らせる",
+      "checklistHint": "1 行に 1 項目。エージェントはハートビートのたびにこれを読みます。空のままだとハートビートは実行されません。",
+      "idle": "停止中: チェックリストが空です",
+      "tip": {
+        "aria": "ハートビートについて",
+        "title": "ハートビートのしくみ",
+        "line1": "間隔ごとにエージェントが起動してチェックリストを確認します。項目に必要なら連携アプリも使います。",
+        "line2": "対応が必要なことがなければ、メッセージを送らずに休止に戻ります。あれば、バックグラウンドで対応し、結果をメインチャットに投稿します。",
+        "line3": "チェックリストは、エージェントのファイル内の PROACTIVE.md の Heartbeat セクションです。チャットで頼めばエージェントが更新することもできます。"
+      }
+    },
     "plannersTitle": "プランナー",
-    "plannersDesc": "各プランナーはメインチャットに短いまとめを投稿します",
+    "plannersDesc": "エージェントが定期的に目標と今後の予定を見直して先回りで計画し、短いまとめをメインチャットに送ります。",
     "planners": {
       "dayLabel": "デイリープランナー",
       "dayDesc": "1 日の計画を立て、朝のブリーフィングを送ります",
@@ -262,18 +305,15 @@
       "time": "時刻",
       "everyDay": "毎日",
       "monthDay": "{{day}} 日",
-      "monthDayHint": "29〜31 日は、短い月ではその月の最終日に実行されます"
+      "monthDayHint": "29〜31 日は、短い月ではその月の最終日に実行されます",
+      "tip": {
+        "aria": "プランナーについて",
+        "title": "プランナーがすること",
+        "line1": "デイリープランナーは今日注力することを決めます。ウィークリープランナーは前の週を振り返って翌週を計画します。マンスリープランナーは長期目標の進み具合を確認します。",
+        "line2": "それぞれ最近のチャットやカレンダーなどの連携アプリを確認し、PROACTIVE.md (Goals, Plan, and Status セクション) にある計画を更新します。",
+        "line3": "計画はつながっています: 月の目標が週の計画を導き、週の計画が毎日を導きます。"
+      }
     },
-    "tasksTitle": "プロアクティブなタスク",
-    "tasksDesc": "PROACTIVE.md で定義されたタスク。各タスクは設定時刻に実行され、結果がメインチャットに投稿されます",
-    "addTask": "タスクを追加",
-    "searchTasks": "タスクを検索...",
-    "searchCount": "{{total}} 件中 {{shown}} 件",
-    "loadingTasks": "タスクを読み込み中...",
-    "noTasks": "プロアクティブなタスクはまだ定義されていません。",
-    "createFirst": "最初のタスクを作成",
-    "taskCount_one": "タスク {{count}} 件",
-    "taskCount_other": "タスク {{count}} 件",
     "active": "有効",
     "disabled": "無効",
     "meta": {
@@ -282,10 +322,6 @@
       "runs": "実行回数: {{value}}",
       "last": "最終: {{date}}"
     },
-    "resetTitle": "プロアクティブなタスクをリセット",
-    "resetDesc": "すべてのプロアクティブなタスクを削除し、PROACTIVE.md をデフォルトのテンプレートから復元します。この操作は元に戻せません。",
-    "resetButton": "すべてのタスクをリセット",
-    "resetting": "リセット中...",
     "priority": {
       "high": "高",
       "medium": "中",
@@ -301,29 +337,6 @@
       "weekly": "毎週",
       "monthly": "毎月"
     },
-    "deleteConfirmTitle": "タスクを削除",
-    "deleteConfirmMessage": "このタスクを削除してもよろしいですか？",
-    "resetConfirmTitle": "タスクをリセット",
-    "resetConfirmMessage": "すべてのプロアクティブなタスクをリセットしてもよろしいですか？テンプレートからデフォルトの PROACTIVE.md を復元します。",
-    "taskForm": {
-      "editTitle": "タスクを編集",
-      "addTitle": "プロアクティブなタスクを追加",
-      "name": "タスク名",
-      "namePlaceholder": "例: メールを確認",
-      "frequency": "頻度",
-      "priority": "優先度",
-      "priorityHint": "(高いものが先に実行されます)",
-      "time": "時刻 (HH:MM)",
-      "dayOfWeek": "曜日",
-      "selectDay": "曜日を選択",
-      "notifyLabel": "実行前に通知する",
-      "notifyDesc": "有効にすると、エージェントはこのタスクを実行する前に通知します。無効にすると、タスクはサイレントで実行されます。",
-      "instruction": "指示",
-      "instructionPlaceholder": "エージェントに何をさせたいか記述...",
-      "instructionHint": "具体的で実行可能な内容にしてください。エージェントは実行時にこれらの指示に従います。",
-      "enabledLabel": "有効",
-      "enabledDesc": "タスクはハートビート中に実行されます"
-    },
     "weekdays": {
       "monday": "月曜日",
       "tuesday": "火曜日",
@@ -334,15 +347,41 @@
       "sunday": "日曜日"
     },
     "toast": {
-      "scheduleFailed": "スケジュールの更新に失敗しました"
+      "scheduleFailed": "スケジュールの更新に失敗しました",
+      "checklistFailed": "チェックリストの保存に失敗しました"
     },
-    "catchUp": {
-      "label": "実行漏れのタスクを補完",
-      "desc": "CraftBot が終了中やスリープ中に実行できなかったタスクを確認する間隔",
-      "everyMinutes_one": "{{count}} 分ごと",
-      "everyMinutes_other": "{{count}} 分ごと",
-      "everyHours_one": "{{count}} 時間ごと",
-      "everyHours_other": "{{count}} 時間ごと"
+    "cronJobForm": {
+      "editTitle": "cron ジョブを編集",
+      "addTitle": "cron ジョブを追加",
+      "name": "ジョブ名",
+      "namePlaceholder": "例: メールを確認",
+      "frequency": "頻度",
+      "priority": "優先度",
+      "priorityHint": "(高いものが先に実行されます)",
+      "time": "時刻 (HH:MM)",
+      "dayOfWeek": "曜日",
+      "selectDay": "曜日を選択",
+      "notifyLabel": "実行前に通知する",
+      "notifyDesc": "オンにすると、エージェントがこのジョブの結果を報告します。オフにすると、ジョブは静かに実行され、対応が必要なことだけを報告します。",
+      "instruction": "指示",
+      "instructionPlaceholder": "エージェントに何をさせたいか記述...",
+      "instructionHint": "具体的で実行可能な内容にしてください。エージェントは実行時にこれらの指示に従います。",
+      "enabledLabel": "有効",
+      "enabledDesc": "ジョブは設定時刻に実行されます"
+    },
+    "reset": {
+      "title": "初期状態に戻す",
+      "desc": "すべての cron ジョブを削除し、ハートビートのチェックリストを空にし、プランナーの計画を消去します。元に戻せません。",
+      "button": "初期状態に戻す",
+      "confirmTitle": "初期状態に戻しますか？",
+      "confirmMessage": "すべての cron ジョブが削除され、ハートビートのチェックリストが空になり、プランナーの計画が消去されます。元に戻せません。",
+      "resetting": "リセット中...",
+      "tip": {
+        "aria": "リセットについて",
+        "title": "リセットで行われること",
+        "line1": "cron ジョブ、ハートビートのチェックリスト、プランナーの計画は、エージェントのファイル内の PROACTIVE.md という 1 つのファイルに保存されています。",
+        "line2": "リセットするとこのファイルが元の状態に戻ります。プランナーの時刻、ハートビートの間隔、メモリー、チャットはそのままです。"
+      }
     }
   },
   "memory": {

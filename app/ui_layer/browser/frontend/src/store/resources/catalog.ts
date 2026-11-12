@@ -47,12 +47,18 @@ export const RESOURCES = {
     resource: 'scheduler',
     request: (send) => send({ type: 'proactive_schedule_get' }),
   },
-  proactiveTasks: {
-    key: 'proactiveTasks',
+  cronJobs: {
+    key: 'cronJobs',
     resource: 'proactive',
-    // Run counts and last/next run change when tasks fire, unannounced.
+    // Run counts and last/next run change when jobs fire, unannounced.
     pollWhileVisible: 30_000,
-    request: (send) => send({ type: 'proactive_tasks_get' }),
+    request: (send) => send({ type: 'cron_jobs_get' }),
+  },
+  /** PROACTIVE.md's "Heartbeat" checklist (Settings → Proactive). */
+  heartbeatChecklist: {
+    key: 'heartbeatChecklist',
+    resource: 'proactive',
+    request: (send) => send({ type: 'heartbeat_checklist_get' }),
   },
   schedulerConfig: {
     key: 'schedulerConfig',

@@ -12,7 +12,6 @@ from agent_core import (
     TodoItem,
     TodoStatus,
     MAIN_SESSION_ID,
-    BACKGROUND_SESSION_ID,
 )
 
 __all__ = [
@@ -21,5 +20,4 @@ __all__ = [
     "TodoItem",
     "TodoStatus",
     "MAIN_SESSION_ID",
-    "BACKGROUND_SESSION_ID",
 ]

@@ -30,7 +30,6 @@ from agent_core.core.session import (
     SessionType,
     TodoItem,
     MAIN_SESSION_ID,
-    BACKGROUND_SESSION_ID,
 )
 from agent_core.core.state import StateSession
 from agent_core.core.event_stream.event import EventType
@@ -111,12 +110,7 @@ class SessionManager:
             s for s in self.sessions.values() if include_archived or not s.archived
         ]
 
-        type_rank = {
-            SessionType.MAIN: 0,
-            SessionType.AGENT_APP: 1,
-            SessionType.CHAT: 2,
-            SessionType.BACKGROUND: 3,
-        }
+        type_rank = {SessionType.MAIN: 0, SessionType.AGENT_APP: 1, SessionType.CHAT: 2}
 
         # Newest-first within each type bucket (two-pass stable sort)
         sessions.sort(key=lambda s: s.last_active_at, reverse=True)
@@ -134,17 +128,6 @@ class SessionManager:
             session_type=SessionType.MAIN,
             title="Main",
             session_id=MAIN_SESSION_ID,
-        )
-
-    def ensure_background(self) -> Session:
-        """Create the background session if it does not exist yet."""
-        existing = self.sessions.get(BACKGROUND_SESSION_ID)
-        if existing:
-            return existing
-        return self.create_session(
-            session_type=SessionType.BACKGROUND,
-            title="Background",
-            session_id=BACKGROUND_SESSION_ID,
         )
 
     def create_session(
@@ -221,15 +204,12 @@ class SessionManager:
     # ─────────────────────── Deletion / clearing ─────────────────────────────
 
     def delete_session(self, session_id: str) -> bool:
-        """Delete a session permanently. The main and background sessions
-        cannot be deleted."""
+        """Delete a session permanently. The main session cannot be deleted."""
         session = self.sessions.get(session_id)
         if not session:
             return False
-        if session.type in (SessionType.MAIN, SessionType.BACKGROUND):
-            logger.warning(
-                f"[SessionManager] Refusing to delete the {session.type} session"
-            )
+        if session.type == SessionType.MAIN:
+            logger.warning("[SessionManager] Refusing to delete the main session")
             return False
 
         self.sessions.pop(session_id, None)

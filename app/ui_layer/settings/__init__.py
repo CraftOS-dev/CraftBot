@@ -78,13 +78,15 @@ from app.ui_layer.settings.proactive_settings import (
     week_planner_schedule_expression,
     month_planner_schedule_expression,
     get_proactive_schedule,
-    # Recurring tasks
-    get_recurring_tasks,
-    add_recurring_task,
-    update_recurring_task,
-    remove_recurring_task,
-    toggle_recurring_task,
-    reset_recurring_tasks,
+    # Cron jobs and the heartbeat checklist
+    get_cron_jobs,
+    add_cron_job,
+    update_cron_job,
+    remove_cron_job,
+    toggle_cron_job,
+    reset_cron_jobs,
+    get_heartbeat_checklist,
+    set_heartbeat_checklist,
     reload_proactive_manager,
 )
 
@@ -199,13 +201,15 @@ __all__ = [
     "week_planner_schedule_expression",
     "month_planner_schedule_expression",
     "get_proactive_schedule",
-    # Recurring tasks
-    "get_recurring_tasks",
-    "add_recurring_task",
-    "update_recurring_task",
-    "remove_recurring_task",
-    "toggle_recurring_task",
-    "reset_recurring_tasks",
+    # Cron jobs and the heartbeat checklist
+    "get_cron_jobs",
+    "add_cron_job",
+    "update_cron_job",
+    "remove_cron_job",
+    "toggle_cron_job",
+    "reset_cron_jobs",
+    "get_heartbeat_checklist",
+    "set_heartbeat_checklist",
     "reload_proactive_manager",
     # Memory mode control
     "is_memory_enabled",

@@ -343,81 +343,67 @@ async def toggle_schedule_runtime(
 
 
 # ─────────────────────────────────────────────────────────────────────
-# Recurring Tasks
+# Cron Jobs and the Heartbeat checklist (PROACTIVE.md)
 # ─────────────────────────────────────────────────────────────────────
 
 
-def get_recurring_tasks(
+def get_cron_jobs(
     proactive_manager,
     frequency: Optional[str] = None,
     enabled_only: bool = False,
 ) -> Dict[str, Any]:
-    """Get recurring tasks from PROACTIVE.md.
-
-    Args:
-        proactive_manager: The ProactiveManager instance
-        frequency: Optional filter by frequency
-        enabled_only: Whether to filter to enabled tasks only
+    """Get the cron jobs from PROACTIVE.md.
 
     Returns:
-        Dict with 'success', 'tasks' or 'error' fields
+        Dict with 'success', 'jobs' or 'error' fields
     """
     if not proactive_manager:
         return {"success": False, "error": "Proactive manager not initialized"}
 
     try:
-        tasks = proactive_manager.get_tasks(
+        jobs_data = []
+        for job in proactive_manager.get_jobs(
             frequency=frequency, enabled_only=enabled_only
-        )
-
-        # Convert to serializable format
-        tasks_data = []
-        for task in tasks:
-            # Calculate next execution time (clock-aligned to heartbeat slots)
-            next_run = task.calculate_next_run()
-
-            task_dict = {
-                "id": task.id,
-                "name": task.name,
-                "frequency": task.frequency,
-                "instruction": task.instruction,
-                "time": task.time,
-                "day": task.day,
-                "priority": task.priority,
-                "permission_tier": task.permission_tier,
-                "enabled": task.enabled,
-                "run_count": task.run_count,
-                "next_run": next_run.isoformat() if next_run else None,
-                "conditions": [
-                    {
-                        "type": c.type,
-                        **c.params,  # Include all params from the condition
-                    }
-                    for c in (task.conditions or [])
-                ],
-                "last_executed": task.last_run.isoformat() if task.last_run else None,
-                "outcome_history": [
-                    {
-                        "timestamp": o.timestamp.isoformat(),
-                        "result": o.result,
-                        "success": o.success,
-                    }
-                    for o in (task.outcome_history or [])[-5:]  # Last 5 outcomes
-                ],
-            }
-            tasks_data.append(task_dict)
-
-        return {"success": True, "tasks": tasks_data}
+        ):
+            next_run = job.calculate_next_run()
+            jobs_data.append(
+                {
+                    "id": job.id,
+                    "name": job.name,
+                    "frequency": job.frequency,
+                    "instruction": job.instruction,
+                    "time": job.time,
+                    "day": job.day,
+                    "priority": job.priority,
+                    "permission_tier": job.permission_tier,
+                    "enabled": job.enabled,
+                    "run_count": job.run_count,
+                    "next_run": next_run.isoformat() if next_run else None,
+                    "conditions": [
+                        {"type": c.type, **c.params} for c in (job.conditions or [])
+                    ],
+                    "last_executed": job.last_run.isoformat() if job.last_run else None,
+                    "outcome_history": [
+                        {
+                            "timestamp": o.timestamp.isoformat(),
+                            "result": o.result,
+                            "success": o.success,
+                        }
+                        for o in (job.outcome_history or [])[-5:]
+                    ],
+                }
+            )
+        return {"success": True, "jobs": jobs_data}
     except Exception as e:
-        return {"success": False, "error": f"Failed to get recurring tasks: {str(e)}"}
+        return {"success": False, "error": f"Failed to get cron jobs: {str(e)}"}
 
 
-def add_recurring_task(
+def add_cron_job(
     proactive_manager,
     name: str,
     frequency: str,
     instruction: str,
-    task_id: Optional[str] = None,
+    job_id: Optional[str] = None,
     time: Optional[str] = None,
     day: Optional[str] = None,
     priority: int = 50,
@@ -425,33 +411,16 @@ def add_recurring_task(
     enabled: bool = True,
     conditions: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
-    """Add a new recurring task.
-
-    Args:
-        proactive_manager: The ProactiveManager instance
-        name: Human-readable task name
-        frequency: Execution frequency (hourly, daily, weekly, monthly)
-        instruction: What the agent should do
-        task_id: Optional custom ID
-        time: Time of day for daily+ tasks (HH:MM)
-        day: Day of week for weekly tasks
-        priority: Task priority
-        permission_tier: Permission level
-        enabled: Whether task is active
-        conditions: Optional conditions
-
-    Returns:
-        Dict with 'success', 'task' or 'error' fields
-    """
+    """Add a cron job. Returns 'success' and 'job' or 'error'."""
     if not proactive_manager:
         return {"success": False, "error": "Proactive manager not initialized"}
 
     try:
-        task = proactive_manager.add_task(
+        job = proactive_manager.add_job(
             name=name,
             frequency=frequency,
             instruction=instruction,
-            task_id=task_id,
+            job_id=job_id,
             time=time,
             day=day,
             priority=priority,
@@ -459,101 +428,91 @@ def add_recurring_task(
             enabled=enabled,
             conditions=conditions,
         )
-
         return {
             "success": True,
-            "task": {
-                "id": task.id,
-                "name": task.name,
-                "frequency": task.frequency,
-                "instruction": task.instruction,
-                "enabled": task.enabled,
+            "job": {
+                "id": job.id,
+                "name": job.name,
+                "frequency": job.frequency,
+                "instruction": job.instruction,
+                "enabled": job.enabled,
             },
         }
     except ValueError as e:
         return {"success": False, "error": str(e)}
     except Exception as e:
-        return {"success": False, "error": f"Failed to add recurring task: {str(e)}"}
+        return {"success": False, "error": f"Failed to add cron job: {str(e)}"}
 
 
-def update_recurring_task(
-    proactive_manager, task_id: str, updates: Dict[str, Any]
+def update_cron_job(
+    proactive_manager, job_id: str, updates: Dict[str, Any]
 ) -> Dict[str, Any]:
-    """Update an existing recurring task.
-
-    Args:
-        proactive_manager: The ProactiveManager instance
-        task_id: ID of task to update
-        updates: Dict of fields to update
-
-    Returns:
-        Dict with 'success' or 'error' fields
-    """
+    """Update a cron job. Returns 'success' and 'job' or 'error'."""
     if not proactive_manager:
         return {"success": False, "error": "Proactive manager not initialized"}
 
     try:
-        task = proactive_manager.update_task(task_id, updates=updates)
-
-        if task:
-            return {
-                "success": True,
-                "task": {
-                    "id": task.id,
-                    "name": task.name,
-                    "frequency": task.frequency,
-                    "instruction": task.instruction,
-                    "enabled": task.enabled,
-                },
-            }
-        else:
-            return {"success": False, "error": f"Task not found: {task_id}"}
+        job = proactive_manager.update_job(job_id, updates=updates)
+        if not job:
+            return {"success": False, "error": f"Cron job not found: {job_id}"}
+        return {
+            "success": True,
+            "job": {
+                "id": job.id,
+                "name": job.name,
+                "frequency": job.frequency,
+                "instruction": job.instruction,
+                "enabled": job.enabled,
+            },
+        }
     except Exception as e:
-        return {"success": False, "error": f"Failed to update recurring task: {str(e)}"}
+        return {"success": False, "error": f"Failed to update cron job: {str(e)}"}
 
 
-def remove_recurring_task(proactive_manager, task_id: str) -> Dict[str, Any]:
-    """Remove a recurring task.
-
-    Args:
-        proactive_manager: The ProactiveManager instance
-        task_id: ID of task to remove
-
-    Returns:
-        Dict with 'success' or 'error' fields
-    """
+def remove_cron_job(proactive_manager, job_id: str) -> Dict[str, Any]:
+    """Remove a cron job. Returns 'success' or 'error'."""
     if not proactive_manager:
         return {"success": False, "error": "Proactive manager not initialized"}
 
     try:
-        removed = proactive_manager.remove_task(task_id)
-
-        if removed:
+        if proactive_manager.remove_job(job_id):
             return {"success": True}
-        else:
-            return {"success": False, "error": f"Task not found: {task_id}"}
+        return {"success": False, "error": f"Cron job not found: {job_id}"}
     except Exception as e:
-        return {"success": False, "error": f"Failed to remove recurring task: {str(e)}"}
+        return {"success": False, "error": f"Failed to remove cron job: {str(e)}"}
 
 
-def toggle_recurring_task(
-    proactive_manager, task_id: str, enabled: bool
-) -> Dict[str, Any]:
-    """Toggle a recurring task on/off.
-
-    Args:
-        proactive_manager: The ProactiveManager instance
-        task_id: The task ID
-        enabled: Whether to enable or disable
-
-    Returns:
-        Dict with 'success' or 'error' fields
-    """
-    return update_recurring_task(proactive_manager, task_id, {"enabled": enabled})
+def toggle_cron_job(proactive_manager, job_id: str, enabled: bool) -> Dict[str, Any]:
+    """Turn a cron job on or off."""
+    return update_cron_job(proactive_manager, job_id, {"enabled": enabled})
 
 
-def reset_recurring_tasks() -> Dict[str, Any]:
-    """Reset recurring tasks by restoring PROACTIVE.md from template.
+def get_heartbeat_checklist(proactive_manager) -> Dict[str, Any]:
+    """The Heartbeat checklist the heartbeat reads on every tick."""
+    if not proactive_manager:
+        return {"success": False, "error": "Proactive manager not initialized"}
+    try:
+        return {
+            "success": True,
+            "checklist": proactive_manager.get_heartbeat_checklist(),
+        }
+    except Exception as e:
+        return {"success": False, "error": f"Failed to read the checklist: {str(e)}"}
+
+
+def set_heartbeat_checklist(proactive_manager, checklist: str) -> Dict[str, Any]:
+    """Replace the Heartbeat checklist."""
+    if not proactive_manager:
+        return {"success": False, "error": "Proactive manager not initialized"}
+    try:
+        proactive_manager.set_heartbeat_checklist(checklist)
+        return {"success": True}
+    except Exception as e:
+        return {"success": False, "error": f"Failed to save the checklist: {str(e)}"}
+
+
+def reset_cron_jobs() -> Dict[str, Any]:
+    """Reset cron jobs by restoring PROACTIVE.md from the template.
 
     Returns:
         Dict with 'success', 'content' or 'error' fields
@@ -573,13 +532,13 @@ def reset_recurring_tasks() -> Dict[str, Any]:
 
         return {"success": True, "content": content}
     except Exception as e:
-        return {"success": False, "error": f"Failed to reset recurring tasks: {str(e)}"}
+        return {"success": False, "error": f"Failed to reset cron jobs: {str(e)}"}
 
 
 def reload_proactive_manager(proactive_manager) -> Dict[str, Any]:
     """Reload the proactive manager from file.
 
-    Call this after resetting proactive tasks to reload the manager.
+    Call this after resetting PROACTIVE.md to reload the manager.
 
     Args:
         proactive_manager: The ProactiveManager instance
