@@ -26,7 +26,7 @@ The scheduler has ALREADY selected these jobs and recorded them as run. Do not c
 
 ## CRITICAL: Automatic Run (Override Standard Task Rules)
 
-This run starts on its own in the user's main chat, not from a user message:
+This run starts on its own in the chat that created these jobs (the main chat for jobs added in Settings), not from a user message:
 
 - **NO acknowledgement**: do not acknowledge the trigger or post progress updates.
 - **Your run-ending `send_message` is the result.** Put everything the user should see in that ONE message.

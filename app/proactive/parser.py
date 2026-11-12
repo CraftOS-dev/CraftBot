@@ -259,7 +259,7 @@ class ProactiveParser:
         """The standard overview text for a freshly written PROACTIVE.md."""
         return """This file drives what you do without a user prompt.
 
-- Cron Jobs: each job runs at its own set time (hourly at :MM, daily at HH:MM, weekly on a day, monthly on a date). When jobs are due, CraftBot starts a run in the main chat whose instruction lists exactly those jobs. A time missed while CraftBot was off runs once, late, when it is back.
+- Cron Jobs: each job runs at its own set time (hourly at :MM, daily at HH:MM, weekly on a day, monthly on a date). When jobs are due, CraftBot starts a run whose instruction lists exactly those jobs, in the chat that created them (the main chat for jobs added in Settings). If that chat is deleted, its jobs are kept but do not run. A time missed while CraftBot was off runs once, late, when it is back.
 - Heartbeat: every few minutes (Settings > Proactive), if the checklist below is not empty, you read it, check each item, act only if something needs attention, and report or end silently.
 - Goals, Plan, and Status: kept up to date by the day, week and month planners.
 

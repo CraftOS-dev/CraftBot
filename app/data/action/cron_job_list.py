@@ -63,6 +63,7 @@ def cron_job_list(input_data: dict) -> dict:
                 "enabled": job.enabled,
                 "priority": job.priority,
                 "permission_tier": job.permission_tier,
+                "session_id": job.session_id,
                 "run_count": job.run_count,
             }
             if job.time:

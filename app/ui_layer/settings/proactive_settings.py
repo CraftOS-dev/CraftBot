@@ -376,6 +376,7 @@ def get_cron_jobs(
                     "day": job.day,
                     "priority": job.priority,
                     "permission_tier": job.permission_tier,
+                    "session_id": job.session_id,
                     "enabled": job.enabled,
                     "run_count": job.run_count,
                     "next_run": next_run.isoformat() if next_run else None,
@@ -454,7 +455,7 @@ def update_cron_job(
     try:
         job = proactive_manager.update_job(job_id, updates=updates)
         if not job:
-            return {"success": False, "error": f"Cron job not found: {job_id}"}
+            return {"success": False, "error": f"Recurring task not found: {job_id}"}
         return {
             "success": True,
             "job": {
@@ -477,7 +478,7 @@ def remove_cron_job(proactive_manager, job_id: str) -> Dict[str, Any]:
     try:
         if proactive_manager.remove_job(job_id):
             return {"success": True}
-        return {"success": False, "error": f"Cron job not found: {job_id}"}
+        return {"success": False, "error": f"Recurring task not found: {job_id}"}
     except Exception as e:
         return {"success": False, "error": f"Failed to remove cron job: {str(e)}"}
 

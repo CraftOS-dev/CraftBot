@@ -23,7 +23,7 @@ HEARTBEAT_START, etc.) as they are used by the parser to locate sections.
 
 ## How It Works
 
-- **Cron Jobs** run at their own slot: hourly at :MM, daily at HH:MM, weekly on a day at HH:MM, or monthly on a date at HH:MM. When one or more jobs are due, CraftBot starts a run in the main chat whose instruction lists exactly those jobs. A slot missed while CraftBot was off runs once, late, when it is back.
+- **Cron Jobs** run at their own slot: hourly at :MM, daily at HH:MM, weekly on a day at HH:MM, or monthly on a date at HH:MM. When one or more jobs are due, CraftBot starts a run whose instruction lists exactly those jobs, in the chat that created them (the main chat for jobs added in Settings). If that chat is deleted, its jobs are kept but do not run. A slot missed while CraftBot was off runs once, late, when it is back.
 - **Heartbeat**: on every heartbeat tick (every 30 minutes by default, set in Settings > Proactive), if the Heartbeat checklist below is not empty, the agent reads it, checks each item and reports only what needs attention. An empty checklist means no heartbeat runs.
 - **Goals, Plan, and Status** is maintained by the planners, which also send the user a short brief.
 
@@ -78,6 +78,8 @@ day: monday                     # OPTIONAL: For weekly jobs (monday-sunday)
 enabled: true                   # REQUIRED: true | false
 priority: 50                    # REQUIRED: 1-100 (lower = higher priority)
 permission_tier: 1              # REQUIRED: 0 (silent) or 1 (notify)
+session_id: main                # AUTO: The chat the job runs in (the one that
+                                #       created it; main for Settings)
 run_count: 0                    # AUTO: Number of times run
 active_since: ...               # AUTO: When the current schedule took effect
 last_run: ...                   # AUTO: When the job last ran

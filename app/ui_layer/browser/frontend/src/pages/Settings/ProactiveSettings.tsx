@@ -1,18 +1,26 @@
 import React, { useState, useEffect } from 'react'
 import {
   AlertTriangle,
+  Bell,
+  BellOff,
+  Clock,
+  Flag,
+  History,
   Loader2,
+  MessageSquare,
+  MessageSquareOff,
   Plus,
   Edit2,
   Trash2,
   RotateCcw,
+  RotateCw,
   X,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { Button, Badge, ConfirmModal, InfoTip } from '../../components/ui'
+import { Button, ConfirmModal, InfoTip } from '../../components/ui'
 import { useConfirmModal, usePersistedState, useServerDraft } from '../../hooks'
 import i18n from '../../i18n/config'
-import { formatNumber, formatDate } from '../../i18n/format'
+import { formatNumber, formatDateTime } from '../../i18n/format'
 import styles from './SettingsPage.module.css'
 import { useSettingsWebSocket } from './useSettingsWebSocket'
 import { RemoteChangeHint } from './RemoteChangeHint'
@@ -73,15 +81,50 @@ function formatInterval(minutes: number): string {
     : i18n.t('settings:proactive.heartbeat.everyHours', { count: minutes / 60 })
 }
 
-// Helper functions for cron job display
-function getPriorityLabel(value: number): string {
-  if (value <= 35) return i18n.t('settings:proactive.priority.high')
-  if (value <= 55) return i18n.t('settings:proactive.priority.medium')
-  return i18n.t('settings:proactive.priority.low')
+// Recurring task (cron job) card helpers
+const FREQUENCY_ORDER = ['hourly', 'daily', 'weekly', 'monthly'] as const
+const pad2 = (n: number) => String(n).padStart(2, '0')
+
+// When a job runs within its frequency group (the group names the
+// frequency): ":15", "13:00", "Friday, 17:00", "Day 1, 09:00". Read as
+// the scheduler does: no time is 00:00, no weekday Monday, no day the 1st.
+function jobWhen(job: CronJob): string {
+  const [h, m] = clockParts(job.time || '00:00')
+  const time = `${pad2(h)}:${pad2(m)}`
+  if (job.frequency === 'hourly') return `:${pad2(m)}`
+  if (job.frequency === 'weekly') {
+    const day = WEEKDAYS.find(d => d === job.day?.toLowerCase()) ?? 'monday'
+    return i18n.t('settings:proactive.cronJobs.dayTime', { day: i18n.t(`settings:proactive.weekdays.${day}`), time })
+  }
+  if (job.frequency === 'monthly') {
+    const day = i18n.t('settings:proactive.planners.monthDay', { day: formatNumber(Number(job.day) || 1) })
+    return i18n.t('settings:proactive.cronJobs.dayTime', { day, time })
+  }
+  return time
 }
 
-function getNotificationLabel(tier: number): string {
-  return tier >= 1 ? i18n.t('settings:proactive.notify.notifies') : i18n.t('settings:proactive.notify.silent')
+// "Last run Nov 12, 13:00", or "Not run yet".
+function jobLastRun(job: CronJob): string {
+  if (!job.lastRun) return i18n.t('settings:proactive.cronJobs.neverRun')
+  const date = formatDateTime(new Date(job.lastRun), {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  })
+  return i18n.t('settings:proactive.cronJobs.lastRun', { date })
+}
+
+// The chat a job runs in: "Main chat", or that chat's title.
+function jobChat(job: CronJob): string {
+  if (job.sessionId === 'main') return i18n.t('settings:proactive.cronJobs.mainChat')
+  return job.sessionTitle || i18n.t('settings:proactive.cronJobs.untitledChat')
+}
+
+// Within a group: time of day, then name.
+function compareJobs(a: CronJob, b: CronJob): number {
+  return (a.time || '00:00').localeCompare(b.time || '00:00') || a.name.localeCompare(b.name)
 }
 
 // Priority level mappings
@@ -490,6 +533,11 @@ export function ProactiveSettings() {
     dispatch(setCronJobEnabled({ jobId, enabled }))
   }
 
+  // A job whose chat was deleted keeps everything but runs in main from now.
+  const handleMoveJobToMain = (jobId: string) => {
+    send('cron_job_update', { jobId, updates: { sessionId: 'main' } })
+  }
+
   const handleDeleteJob = (jobId: string) => {
     confirm({
       title: t('settings:proactive.cronJobs.deleteTitle'),
@@ -523,12 +571,9 @@ export function ProactiveSettings() {
       )
     : cronJobs
 
-  const jobsByFrequency = {
-    hourly: filteredJobs.filter(t => t.frequency === 'hourly'),
-    daily: filteredJobs.filter(t => t.frequency === 'daily'),
-    weekly: filteredJobs.filter(t => t.frequency === 'weekly'),
-    monthly: filteredJobs.filter(t => t.frequency === 'monthly'),
-  }
+  const jobGroups = FREQUENCY_ORDER
+    .map(frequency => ({ frequency, jobs: filteredJobs.filter(j => j.frequency === frequency).sort(compareJobs) }))
+    .filter(group => group.jobs.length > 0)
 
   const plannerRows: { id: PlannerId; label: string; desc: string }[] = [
     { id: 'day-planner', label: t('settings:proactive.planners.dayLabel'), desc: t('settings:proactive.planners.dayDesc') },
@@ -593,7 +638,7 @@ export function ProactiveSettings() {
         <p>{t('settings:proactive.subtitle')}</p>
       </div>
 
-      {/* Master Toggle: the one switch for cron jobs, heartbeat and planners */}
+      {/* Master Toggle: the one switch for recurring tasks, heartbeat and planners */}
       <div className={styles.settingsForm}>
         <div className={styles.toggleGroup}>
           <div className={styles.toggleInfo}>
@@ -615,7 +660,7 @@ export function ProactiveSettings() {
 
       {/* Toggleable Content */}
       <div className={`${styles.toggleableContent} ${!schedulerEnabled ? styles.disabledContent : ''}`}>
-        {/* Cron Jobs */}
+        {/* Recurring Tasks (cron jobs) */}
         <div className={styles.subsection}>
           <div className={styles.subsectionHeader}>
             <div>
@@ -659,69 +704,86 @@ export function ProactiveSettings() {
               </Button>
             </div>
           ) : (
+            // One group per frequency; one compact card per task: name and
+            // controls, the instruction, then the details with icons.
             <div className={styles.jobGroups}>
-              {(['hourly', 'daily', 'weekly', 'monthly'] as const).map(frequency => {
-                const freqJobs = jobsByFrequency[frequency]
-                if (freqJobs.length === 0) return null
-
-                return (
-                  <div key={frequency} className={styles.jobGroup}>
-                    <div className={styles.jobGroupHeader}>
-                      <Badge variant="default">{t(`settings:proactive.frequency.${frequency}`)}</Badge>
-                      <span className={styles.jobCount}>{t('settings:proactive.cronJobs.count', { count: freqJobs.length })}</span>
-                    </div>
-                    <div className={styles.jobList}>
-                      {freqJobs.map(job => (
-                        <div key={job.id} className={`${styles.jobCard} ${!job.enabled ? styles.jobDisabled : ''}`}>
-                          <div className={styles.jobMain}>
-                            <div className={styles.jobHeader}>
-                              <span className={styles.jobName}>{job.name}</span>
-                              <div className={styles.jobBadges}>
-                                <Badge variant={job.enabled ? 'success' : 'default'}>
-                                  {job.enabled ? t('settings:proactive.active') : t('settings:proactive.disabled')}
-                                </Badge>
-                                <Badge variant="info">{getPriorityLabel(job.priority)}</Badge>
-                                <Badge variant={job.permissionTier >= 1 ? 'warning' : 'default'}>
-                                  {getNotificationLabel(job.permissionTier)}
-                                </Badge>
-                              </div>
-                            </div>
-                            <p className={styles.jobInstruction}>{job.instruction}</p>
-                            <div className={styles.jobMeta}>
-                              {job.time && <span>{t('settings:proactive.meta.time', { time: job.time })}</span>}
-                              {job.day && <span>{t('settings:proactive.meta.day', { day: job.day })}</span>}
-                              <span>{t('settings:proactive.meta.runs', { value: formatNumber(job.runCount) })}</span>
-                              {job.lastRun && (
-                                <span>{t('settings:proactive.meta.last', { date: formatDate(new Date(job.lastRun)) })}</span>
-                              )}
-                            </div>
-                          </div>
-                          <div className={styles.jobActions}>
-                            <input
-                              type="checkbox"
-                              className={styles.toggle}
-                              checked={job.enabled}
-                              onChange={(e) => handleToggleJob(job.id, e.target.checked)}
-                            />
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleEditJob(job)}
-                              icon={<Edit2 size={14} />}
-                            />
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleDeleteJob(job.id)}
-                              icon={<Trash2 size={14} />}
-                            />
-                          </div>
-                        </div>
-                      ))}
-                    </div>
+              {jobGroups.map(group => (
+                <div key={group.frequency} className={styles.jobGroup}>
+                  <div className={styles.jobGroupHeader}>
+                    <span className={styles.jobGroupLabel}>{t(`settings:proactive.frequency.${group.frequency}`)}</span>
+                    <span className={styles.jobGroupCount}>{t('settings:proactive.cronJobs.count', { count: group.jobs.length })}</span>
                   </div>
-                )
-              })}
+                  {group.jobs.map(job => (
+                    <div key={job.id} className={`${styles.jobCard} ${!job.enabled || !job.available ? styles.jobOff : ''}`}>
+                      <div className={styles.jobHead}>
+                        <div className={styles.jobTitle}>
+                          <span className={styles.jobName}>{job.name}</span>
+                          {job.available && (
+                            <span className={styles.jobChat} title={t('settings:proactive.cronJobs.runsIn', { chat: jobChat(job) })}>
+                              <MessageSquare size={12} />
+                              <span className={styles.jobChatName}>{jobChat(job)}</span>
+                            </span>
+                          )}
+                        </div>
+                        <div className={styles.jobControls}>
+                          <input
+                            type="checkbox"
+                            className={styles.toggle}
+                            aria-label={job.name}
+                            checked={job.enabled}
+                            onChange={(e) => handleToggleJob(job.id, e.target.checked)}
+                          />
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            aria-label={`${t('common:actions.edit')}: ${job.name}`}
+                            title={t('common:actions.edit')}
+                            onClick={() => handleEditJob(job)}
+                            icon={<Edit2 size={14} />}
+                          />
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            aria-label={`${t('common:actions.delete')}: ${job.name}`}
+                            title={t('common:actions.delete')}
+                            onClick={() => handleDeleteJob(job.id)}
+                            icon={<Trash2 size={14} />}
+                          />
+                        </div>
+                      </div>
+                      <p className={styles.jobInstruction}>{job.instruction}</p>
+                      <div className={styles.jobMeta}>
+                        <span className={styles.jobMetaItem}><Clock size={13} />{jobWhen(job)}</span>
+                        <span className={styles.jobMetaItem}><History size={13} />{jobLastRun(job)}</span>
+                        {job.runCount > 0 && (
+                          <span className={styles.jobMetaItem}>
+                            <RotateCw size={13} />{t('settings:proactive.cronJobs.runs', { count: job.runCount })}
+                          </span>
+                        )}
+                        {/* Reporting and priority sit on the right. */}
+                        <span className={styles.jobMetaEnd}>
+                          <span className={styles.jobMetaItem}>
+                            {job.permissionTier >= 1 ? <Bell size={13} /> : <BellOff size={13} />}
+                            {job.permissionTier >= 1 ? t('settings:proactive.notify.notifies') : t('settings:proactive.notify.silent')}
+                          </span>
+                          <span className={styles.jobMetaItem}>
+                            <Flag size={13} />{t(`settings:proactive.cronJobs.priority.${getPriorityLevel(job.priority)}`)}
+                          </span>
+                        </span>
+                      </div>
+                      {!job.available && (
+                        <div className={styles.jobNotice} role="status">
+                          <MessageSquareOff size={14} className={styles.jobNoticeIcon} />
+                          <span>{t('settings:proactive.cronJobs.unavailable')}</span>
+                          <Button variant="secondary" size="sm" onClick={() => handleMoveJobToMain(job.id)}>
+                            {t('settings:proactive.cronJobs.moveToMain')}
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ))}
             </div>
           )}
 

@@ -5588,6 +5588,12 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         )
 
         if result.get("success"):
+            # The chat each job runs in; None once that chat is deleted.
+            sessions = getattr(agent, "session_manager", None)
+
+            def _chat(session_id):
+                return sessions.get(session_id) if sessions else None
+
             # Convert to frontend format (camelCase)
             jobs_data = [
                 {
@@ -5598,6 +5604,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     "enabled": job.get("enabled"),
                     "priority": job.get("priority"),
                     "permissionTier": job.get("permission_tier"),
+                    "sessionId": job.get("session_id"),
+                    "sessionTitle": getattr(_chat(job.get("session_id")), "title", None),
+                    "available": _chat(job.get("session_id")) is not None,
                     "time": job.get("time"),
                     "day": job.get("day"),
                     "runCount": job.get("run_count", 0),
@@ -5656,6 +5665,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             "time": "time",
             "day": "day",
             "frequency": "frequency",
+            "sessionId": "session_id",
         }
         update_dict = {
             field: updates[key] for key, field in field_names.items() if key in updates

@@ -3,8 +3,10 @@
 Scheduler Manager
 
 Manages scheduled tasks with background asyncio loops, plus the runner for
-the cron jobs in PROACTIVE.md. Fires durable triggers into the MAIN session
-when work is due.
+the cron jobs in PROACTIVE.md. Fires durable triggers when work is due:
+cron jobs and schedule_task jobs into the session that created them,
+memory, the heartbeat and the planners into the MAIN session. A task
+whose session was deleted is kept but skipped.
 """
 
 import asyncio
@@ -62,6 +64,7 @@ class SchedulerManager:
         self._scheduler_tasks: Dict[str, asyncio.Task] = {}
         self._config_path: Optional[Path] = None
         self._trigger_service = None  # TriggerService — durable emit path
+        self._session_manager = None  # resolves the session a task fires in
         self._is_running: bool = False
         self._master_enabled: bool = True  # Track master enabled state for config saves
         self._lock = asyncio.Lock()
@@ -81,6 +84,7 @@ class SchedulerManager:
         self,
         config_path: Path,
         trigger_service=None,
+        session_manager=None,
     ) -> None:
         """
         Initialize the scheduler with configuration.
@@ -88,10 +92,12 @@ class SchedulerManager:
         Args:
             config_path: Path to scheduler_config.json
             trigger_service: TriggerService — fires are emitted durably with
-                dedup keys into the main session's queue.
+                dedup keys into the target session's queue.
+            session_manager: tells whether a task's session still exists.
         """
         self._config_path = Path(config_path)
         self._trigger_service = trigger_service
+        self._session_manager = session_manager
 
         # Load configuration
         config = self._load_config()
@@ -170,6 +176,7 @@ class SchedulerManager:
         skills: Optional[List[str]] = None,
         payload: Optional[Dict[str, Any]] = None,
         schedule_id: Optional[str] = None,
+        session_id: str = MAIN_SESSION_ID,
     ) -> str:
         """
         Add a new scheduled task.
@@ -185,6 +192,7 @@ class SchedulerManager:
             skills: Skills to preload for the run
             payload: Extra trigger payload
             schedule_id: Optional custom ID (auto-generated if not provided)
+            session_id: The session the task fires in (the one scheduling it)
 
         Returns:
             The schedule ID
@@ -208,6 +216,7 @@ class SchedulerManager:
             action_sets=action_sets or [],
             skills=skills or [],
             payload=payload or {},
+            session_id=session_id,
         )
 
         # Calculate next fire time
@@ -331,6 +340,15 @@ class SchedulerManager:
         """Get a schedule by ID."""
         return self._schedules.get(schedule_id)
 
+    def is_session_available(self, session_id: str) -> bool:
+        """Whether a task's session still exists (main always does)."""
+        if session_id == MAIN_SESSION_ID or self._session_manager is None:
+            return True
+        return self._session_manager.get(session_id) is not None
+
+    def _job_runnable(self, job) -> bool:
+        return self.is_session_available(job.session_id)
+
     # ─────────────── Proactive: cron jobs and the heartbeat ───────────────
 
     def set_proactive_manager(self, proactive_manager) -> None:
@@ -383,9 +401,10 @@ class SchedulerManager:
         action_sets: Optional[List[str]] = None,
         skills: Optional[List[str]] = None,
         payload: Optional[Dict[str, Any]] = None,
+        session_id: str = MAIN_SESSION_ID,
     ) -> Dict[str, Any]:
         """
-        Queue a trigger for immediate execution in the MAIN session.
+        Queue a trigger for immediate execution in the given session.
 
         Args:
             name: Human-readable name for the work
@@ -394,6 +413,7 @@ class SchedulerManager:
             action_sets: Action sets to preload for the run
             skills: Skills to preload for the run
             payload: Additional payload data to pass to the run
+            session_id: The session to run in (the one scheduling it)
 
         Returns:
             Dictionary with status and message
@@ -422,7 +442,7 @@ class SchedulerManager:
                 description=f"[Immediate] {name}: {instruction}",
                 fire_at=time.time(),  # Fire immediately
                 priority=priority,
-                session_id=MAIN_SESSION_ID,
+                session_id=session_id,
                 payload=trigger_payload,
             )
         )
@@ -554,6 +574,12 @@ class SchedulerManager:
                         f"[SCHEDULER] Schedule {schedule_id} disabled, exiting loop"
                     )
                     break
+                if not self.is_session_available(schedule.session_id):
+                    logger.info(
+                        f"[SCHEDULER] Schedule {schedule_id} is unavailable (its "
+                        f"session {schedule.session_id} was deleted), exiting loop"
+                    )
+                    break
 
                 # Clear the wake-up flag BEFORE computing the next fire: a
                 # re-arm that lands after this point cuts the sleep short.
@@ -606,6 +632,12 @@ class SchedulerManager:
                         f"[SCHEDULER] {schedule_id} scheduler stopped while sleeping"
                     )
                     break
+                if not self.is_session_available(schedule.session_id):
+                    logger.info(
+                        f"[SCHEDULER] {schedule_id} became unavailable while "
+                        f"sleeping (session {schedule.session_id} was deleted)"
+                    )
+                    break
 
                 # Fire the schedule
                 logger.info(f"[SCHEDULER] {schedule_id} about to fire!")
@@ -656,8 +688,8 @@ class SchedulerManager:
 
     async def _fire_schedule(self, schedule: ScheduledTask) -> None:
         """
-        Fire a scheduled task trigger into the MAIN session. The heartbeat's
-        instruction carries its checklist.
+        Fire a scheduled task trigger into its session (main for the
+        built-in schedules). The heartbeat's instruction carries its checklist.
         """
         if not self._trigger_service:
             logger.warning(
@@ -771,7 +803,7 @@ class SchedulerManager:
                 description=description,
                 fire_at=now,
                 priority=schedule.priority,
-                session_id=MAIN_SESSION_ID,
+                session_id=schedule.session_id,
                 payload=payload,
                 dedup_key=dedup_key,
             )
@@ -814,7 +846,7 @@ class SchedulerManager:
                 delay = float(CRON_RECHECK_SECONDS)
                 if self._proactive_manager is not None and self._proactive_enabled():
                     due_at = self._proactive_manager.next_due_at(
-                        datetime.fromtimestamp(now)
+                        datetime.fromtimestamp(now), runnable=self._job_runnable
                     )
                     # A job already due here was just dispatched by this
                     # process (stamping failed): wait for the recheck instead
@@ -833,7 +865,11 @@ class SchedulerManager:
         logger.info("[SCHEDULER] Cron-job runner stopped")
 
     async def _fire_cron_jobs(self) -> None:
-        """Hand every due cron job to one run, then stamp them."""
+        """Hand the due cron jobs to one run per session, then stamp them.
+
+        A job whose session was deleted is not due (it is skipped, never
+        stamped) until it is moved to another session.
+        """
         if (
             self._proactive_manager is None
             or not self._trigger_service
@@ -844,7 +880,9 @@ class SchedulerManager:
         now_dt = datetime.fromtimestamp(now)
         due = [
             job
-            for job in self._proactive_manager.get_due_jobs(now_dt)
+            for job in self._proactive_manager.get_due_jobs(
+                now_dt, runnable=self._job_runnable
+            )
             if self._slot_key(job, now_dt) not in self._dispatched_slots
         ]
         if not due:
@@ -852,30 +890,37 @@ class SchedulerManager:
 
         from app.triggers import TriggerSource, TriggerSpec
 
-        job_ids = [job.id for job in due]
-        slot_keys = [self._slot_key(job, now_dt) for job in due]
-        # Durable emit first; one fire per (job, slot), so a crash-retry of
-        # the same dispatch dedups and the next slot of any job does not.
-        await self._trigger_service.emit(
-            TriggerSpec(
-                source=TriggerSource.CRON_JOB,
-                description=self._cron_jobs_description(due, now_dt),
-                fire_at=now,
-                priority=min(job.priority for job in due),
-                session_id=MAIN_SESSION_ID,
-                payload={
-                    "cron_job_ids": job_ids,
-                    "workflow_skills": ["cron-job-runner"],
-                    "workflow_action_sets": list(PROACTIVE_ACTION_SETS),
-                },
-                dedup_key="cron:" + ",".join(slot_keys),
+        by_session: Dict[str, List] = {}
+        for job in due:
+            by_session.setdefault(job.session_id, []).append(job)
+        for session_id, jobs in by_session.items():
+            job_ids = [job.id for job in jobs]
+            slot_keys = [self._slot_key(job, now_dt) for job in jobs]
+            # Durable emit first; one fire per (job, slot), so a crash-retry of
+            # the same dispatch dedups and the next slot of any job does not.
+            await self._trigger_service.emit(
+                TriggerSpec(
+                    source=TriggerSource.CRON_JOB,
+                    description=self._cron_jobs_description(jobs, now_dt),
+                    fire_at=now,
+                    priority=min(job.priority for job in jobs),
+                    session_id=session_id,
+                    payload={
+                        "cron_job_ids": job_ids,
+                        "workflow_skills": ["cron-job-runner"],
+                        "workflow_action_sets": list(PROACTIVE_ACTION_SETS),
+                    },
+                    dedup_key="cron:" + ",".join(slot_keys),
+                )
             )
-        )
-        # Stamp after the durable emit: a crash in between re-fires the same
-        # (job, slot) set, which the dedup key collapses.
-        self._dispatched_slots.update(slot_keys)
-        self._proactive_manager.mark_dispatched(job_ids, now_dt)
-        logger.info(f"[SCHEDULER] Fired {len(due)} cron job(s): {', '.join(job_ids)}")
+            # Stamp after the durable emit: a crash in between re-fires the same
+            # (job, slot) set, which the dedup key collapses.
+            self._dispatched_slots.update(slot_keys)
+            self._proactive_manager.mark_dispatched(job_ids, now_dt)
+            logger.info(
+                f"[SCHEDULER] Fired {len(jobs)} cron job(s) into {session_id}: "
+                f"{', '.join(job_ids)}"
+            )
 
     @staticmethod
     def _slot_key(job, now: datetime) -> str:

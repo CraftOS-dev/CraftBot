@@ -201,7 +201,7 @@ TRIGGER_ANNOUNCEMENTS: Dict[str, tuple[str, str]] = {
     TriggerSource.SCHEDULED_ONCE.value: ("⏰", "Scheduled task"),
     TriggerSource.SCHEDULED_IMMEDIATE.value: ("⏰", "Scheduled task"),
     TriggerSource.MEMORY.value: ("⚙️", "Memory processing workflow"),
-    TriggerSource.CRON_JOB.value: ("⏰", "Cron job"),
+    TriggerSource.CRON_JOB.value: ("⏰", "Recurring task"),
     TriggerSource.PROACTIVE_HEARTBEAT.value: ("⚙️", "Heartbeat"),
     TriggerSource.PROACTIVE_PLANNER.value: ("⚙️", "Proactive planning"),
     TriggerSource.ONBOARDING.value: ("⚙️", "Onboarding workflow"),
@@ -4323,6 +4323,7 @@ class AgentBase:
         await self.scheduler.initialize(
             config_path=scheduler_config_path,
             trigger_service=self.trigger_service,
+            session_manager=self.session_manager,
         )
         await self.scheduler.start()
 

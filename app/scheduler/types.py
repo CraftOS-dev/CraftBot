@@ -8,6 +8,8 @@ Defines dataclasses for schedule expressions and scheduled tasks.
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
+from agent_core import MAIN_SESSION_ID
+
 
 @dataclass
 class ScheduleExpression:
@@ -142,6 +144,10 @@ class ScheduledTask:
     action_sets: List[str] = field(default_factory=list)
     skills: List[str] = field(default_factory=list)
     payload: Dict[str, Any] = field(default_factory=dict)  # Extra trigger payload
+    # The session the task fires in: the one that scheduled it. Built-in
+    # schedules (memory, heartbeat, planners) run in main. If the session
+    # is deleted the task is kept but never fires.
+    session_id: str = MAIN_SESSION_ID
 
     # Runtime state (not persisted to config)
     last_run: Optional[float] = None  # Unix timestamp of last run
@@ -174,6 +180,9 @@ class ScheduledTask:
             "skills": self.skills,
             "payload": self.payload,
         }
+        # Main is the default, so built-in entries stay as written.
+        if self.session_id != MAIN_SESSION_ID:
+            data["session_id"] = self.session_id
 
         if self.schedule.schedule_type == "once" and self.schedule.fire_at is not None:
             data["fire_at"] = self.schedule.fire_at
@@ -211,6 +220,7 @@ class ScheduledTask:
             action_sets=data.get("action_sets", []),
             skills=data.get("skills", []),
             payload=data.get("payload", {}),
+            session_id=str(data.get("session_id") or MAIN_SESSION_ID),
             last_run=data.get("last_run"),
             next_run=data.get("next_run"),
             run_count=data.get("run_count", 0),

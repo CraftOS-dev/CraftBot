@@ -16,7 +16,8 @@ from agent_core import action
     name="schedule_task",
     description=(
         "Schedule a task for execution. Supports immediate, one-time, and recurring schedules. "
-        "One-time tasks are auto-removed after firing.\n"
+        "One-time tasks are auto-removed after firing. Every fire runs in this chat, the one "
+        "scheduling it; if this chat is deleted, the task is kept but does not run.\n"
         "IMPORTANT: The 'schedule' field must use one of the EXACT patterns listed "
         "in its description; no other freeform text is supported."
     ),
@@ -130,6 +131,8 @@ async def schedule_task(input_data: dict) -> dict:
         action_sets = input_data.get("action_sets", [])
         skills = input_data.get("skills", [])
         payload = input_data.get("payload", {})
+        # Every fire runs in the chat that schedules it.
+        session_id = input_data.get("_session_id") or "main"
 
         if not name:
             return {"status": "error", "error": "name is required"}
@@ -165,6 +168,7 @@ async def schedule_task(input_data: dict) -> dict:
                 action_sets=action_sets,
                 skills=skills,
                 payload=payload,
+                session_id=session_id,
             )
 
         # Parse schedule to determine if it's recurring or one-time
@@ -184,6 +188,7 @@ async def schedule_task(input_data: dict) -> dict:
             action_sets=action_sets,
             skills=skills,
             payload=payload,
+            session_id=session_id,
         )
 
         # Get next fire time

@@ -29,10 +29,11 @@ for (const theme of ['dark', 'light'] as const) {
     await open(page)
     await page.evaluate(t => document.documentElement.setAttribute('data-theme', t), theme)
 
-    // Cron Jobs first, then Heartbeat, then Planners.
+    // Recurring Tasks first, then Heartbeat, then Planners.
     const headings = await page.getByRole('heading', { level: 4 }).allTextContents()
-    expect(headings.slice(0, 3)).toEqual(['Cron Jobs', 'Heartbeat', 'Planners'])
+    expect(headings.slice(0, 3)).toEqual(['Recurring Tasks', 'Heartbeat', 'Planners'])
     await expect(page.getByText('Proactive Tasks')).toHaveCount(0)
+    await expect(page.getByText('Cron Jobs')).toHaveCount(0)
 
     // The heartbeat shows what it reads; file names stay out of the page copy.
     await expect(page.getByLabel('Checklist')).toHaveValue('- Check my inbox for urgent email from clients')
@@ -60,7 +61,7 @@ for (const theme of ['dark', 'light'] as const) {
 
 test('each section has an ⓘ tooltip on hover and keyboard focus', async ({ page }) => {
   await open(page)
-  for (const name of ['About cron jobs', 'About the heartbeat', 'About planners', 'About reset']) {
+  for (const name of ['About recurring tasks', 'About the heartbeat', 'About planners', 'About reset']) {
     await expect(page.getByLabel(name)).toBeVisible()
   }
 
@@ -77,8 +78,56 @@ test('each section has an ⓘ tooltip on hover and keyboard focus', async ({ pag
   await expect(tip).toHaveCount(0)
 
   await page.getByLabel('About planners').focus()
-  await expect(page.getByRole('tooltip')).toContainText('The daily planner works out what to focus on today')
+  await expect(page.getByRole('tooltip')).toContainText("The daily planner sets the day's priorities")
   await page.screenshot({ path: 'test-results/proactive-settings-tooltip.png' })
+})
+
+test('recurring tasks are compact cards grouped by frequency, with icon details', async ({ page }) => {
+  await open(page)
+  const groups = page.locator('div[class*="jobGroupLabel"], span[class*="jobGroupLabel"]')
+  await expect(groups).toHaveText(['Hourly', 'Daily', 'Weekly', 'Monthly'])
+
+  const cards = page.locator('div[class*="jobCard"]')
+  await expect(cards).toHaveCount(4)
+  const details = await cards.evaluateAll(els => els.map(el => [...el.querySelectorAll('span[class*="jobMetaItem"]')].map(s => s.textContent)))
+  expect(details).toEqual([
+    [':15', 'Not run yet', '3 runs', 'Silent', 'Medium priority'],
+    ['08:30', 'Last run Nov 11, 08:30', '12 runs', 'Reports results', 'High priority'],
+    ['Friday, 17:00', 'Not run yet', 'Reports results', 'Medium priority'],
+    ['Day 1, 09:00', 'Last run Nov 1, 09:00', '2 runs', 'Silent', 'Low priority'],
+  ])
+  // Every detail carries an icon; the controls line up on the name row.
+  const icons = await cards.evaluateAll(els => els.every(el => [...el.querySelectorAll('span[class*="jobMetaItem"]')].every(s => s.querySelector('svg'))))
+  expect(icons).toBe(true)
+  const rights = await cards.evaluateAll(els => els.map(el => Math.round(el.querySelector('div[class*="jobControls"]')!.getBoundingClientRect().right)))
+  expect(new Set(rights).size).toBe(1)
+  // Reporting and priority end on the right edge, under the controls.
+  const ends = await cards.evaluateAll(els => els.map(el => Math.round(el.querySelector('span[class*="jobMetaEnd"]')!.getBoundingClientRect().right)))
+  for (const end of ends) expect(Math.abs(end - rights[0])).toBeLessThanOrEqual(1)
+  // Compact: a one-line instruction card stays under 96px tall.
+  const height = (await cards.nth(1).boundingBox())!.height
+  expect(height).toBeLessThan(96)
+
+  await page.locator('div[class*="jobGroups"]').screenshot({ path: 'test-results/proactive-recurring-tasks.png' })
+
+  // Each task names the chat it runs in; a task whose chat was deleted is
+  // kept, says so, and can be moved to the main chat.
+  await expect(cards.nth(1).locator('span[class*="jobChatName"]')).toHaveText('Main chat')
+  await expect(cards.nth(2).locator('span[class*="jobChatName"]')).toHaveText('Sales follow-ups')
+  const clipped = await cards.nth(2).locator('span[class*="jobChatName"]').evaluate(el => el.scrollWidth > el.clientWidth)
+  expect(clipped).toBe(false)
+  const orphan = cards.nth(3)
+  await expect(orphan.locator('span[class*="jobChatName"]')).toHaveCount(0)
+  await expect(orphan.getByRole('status')).toContainText('Unavailable: the chat this task runs in was deleted.')
+  await orphan.getByRole('button', { name: 'Move to main chat' }).click()
+  await expect.poll(() => sent(page, 'cron_job_update')).toEqual([
+    { type: 'cron_job_update', jobId: 'monthly_invoices', updates: { sessionId: 'main' } },
+  ])
+
+  // Switch and actions are named per task.
+  await expect(page.getByRole('checkbox', { name: 'Inbox watch' })).not.toBeChecked()
+  await page.getByRole('button', { name: 'Edit: Morning brief' }).click()
+  await expect(page.getByRole('heading', { name: 'Edit Recurring Task' })).toBeVisible()
 })
 
 test('editing a planner and the heartbeat interval saves only what changed', async ({ page }) => {
@@ -111,7 +160,7 @@ test('the heartbeat has its own switch, and an empty checklist reads as not runn
     { type: 'scheduler_config_update', updates: { schedules: [{ id: 'heartbeat', enabled: false }] } },
   ])
   await page.getByLabel('Checklist').fill('')
-  await expect(page.getByText('Not running: the checklist is empty')).toBeVisible()
+  await expect(page.getByText('Inactive: the checklist is empty')).toBeVisible()
 })
 
 test('a planner that is off keeps its schedule but cannot be edited', async ({ page }) => {

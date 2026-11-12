@@ -246,50 +246,65 @@
   },
   "proactive": {
     "title": "主动行为",
-    "subtitle": "让智能体自主工作：按时运行任务、替你留意重要的事、提前做好规划",
+    "subtitle": "配置智能体在无指令时执行的工作：定期任务、监控和规划",
     "enableLabel": "启用主动模式",
-    "enableDesc": "智能体在后台工作，事情完成或需要你处理时，会在主聊天中告诉你。",
+    "enableDesc": "允许智能体自动运行定期任务、心跳和规划器。结果以及需要你处理的事项会发布到聊天中。",
     "cronJobs": {
-      "title": "Cron 任务",
-      "desc": "智能体在固定时间做的事，例如每天早上 9 点或每周五。结果会发到你的主聊天。",
-      "add": "添加 Cron 任务",
-      "search": "搜索 Cron 任务...",
-      "loading": "正在加载 Cron 任务...",
-      "empty": "还没有 Cron 任务。",
-      "createFirst": "创建第一个 Cron 任务",
-      "count_one": "{{count}} 个任务",
-      "count_other": "{{count}} 个任务",
-      "deleteTitle": "删除 Cron 任务",
-      "deleteMessage": "确定要删除此 Cron 任务吗？",
+      "title": "定期任务",
+      "desc": "智能体按固定计划运行的任务，例如每天 09:00 或每周五。每个任务在创建它的聊天中运行；在此添加的任务在主聊天中运行。",
+      "add": "添加定期任务",
+      "search": "搜索定期任务...",
+      "loading": "正在加载定期任务...",
+      "empty": "暂无定期任务。",
+      "createFirst": "创建定期任务",
+      "deleteTitle": "删除定期任务",
+      "deleteMessage": "此定期任务将被永久删除。",
       "searchCount": "{{total}} 中的 {{shown}}",
       "tip": {
-        "aria": "关于 Cron 任务",
-        "title": "Cron 任务如何运作",
-        "line1": "“Cron 任务”是按计划运行的任务的通称。每个任务由一条指令和一个时间组成：每小时、每天、每周或每月。",
-        "line2": "到点后，智能体会在后台完成任务，并在主聊天中发布一条结果。如果当时智能体没有运行，它会在恢复后补做，除非这件事已经没有意义。",
-        "line3": "你也可以直接在聊天中提出，例如“每周五下午 5 点总结我的一周”。任务保存在智能体文件中的 PROACTIVE.md 里。"
-      }
+        "aria": "关于定期任务",
+        "title": "定期任务如何运作",
+        "line1": "每个定期任务（也称为 Cron 任务）由一条指令和一个计划组成：每小时、每天、每周或每月。如果计划时间时智能体未在运行，任务会在重新启动时运行一次，除非已不再适用。",
+        "line2": "到达计划时间时，智能体会在创建该任务的聊天中运行任务，并在其中报告结果。如果该聊天被删除，任务会保留，但在你将其移至主聊天之前不会运行。",
+        "line3": "你也可以在聊天中让智能体创建任务，例如：“每周五 17:00 总结我的一周。”任务保存在智能体文件中的 PROACTIVE.md 里。"
+      },
+      "count_one": "{{count}} 个任务",
+      "count_other": "{{count}} 个任务",
+      "dayTime": "{{day}} {{time}}",
+      "lastRun": "上次运行：{{date}}",
+      "neverRun": "尚未运行",
+      "runs_one": "已运行 {{count}} 次",
+      "runs_other": "已运行 {{count}} 次",
+      "priority": {
+        "high": "高优先级",
+        "medium": "中优先级",
+        "low": "低优先级"
+      },
+      "mainChat": "主聊天",
+      "untitledChat": "未命名聊天",
+      "runsIn": "在{{chat}}中运行",
+      "unavailable": "不可用：运行此任务的聊天已被删除。",
+      "moveToMain": "移至主聊天"
     },
     "heartbeat": {
       "title": "心跳",
-      "desc": "智能体会定期查看下方的检查清单，只在有事需要你注意时才介入。",
+      "desc": "智能体会按固定间隔检查下方的检查清单，仅在有事项需要你处理时才采取行动。",
       "label": "心跳",
-      "rowDesc": "仅在检查清单有内容时运行",
+      "rowDesc": "仅在检查清单包含事项时运行",
       "interval": "间隔",
       "everyMinutes_one": "每 {{count}} 分钟",
       "everyMinutes_other": "每 {{count}} 分钟",
       "everyHours_one": "每小时",
       "everyHours_other": "每 {{count}} 小时",
       "checklistLabel": "检查清单",
-      "checklistPlaceholder": "- 检查收件箱中是否有客户的紧急邮件\n- 夜间构建失败时通知我",
+      "checklistPlaceholder": "- 检查收件箱中是否有客户的紧急邮件\n- 夜间构建失败时报告",
       "checklistHint": "每行一项。智能体每次心跳都会读取它；留空则心跳不会运行。",
-      "idle": "未运行：检查清单为空",
+      "idle": "未启用：检查清单为空",
       "tip": {
         "aria": "关于心跳",
         "title": "心跳如何运作",
-        "line1": "每到一个间隔，智能体就会醒来逐项查看检查清单，需要时会使用你已连接的应用。",
-        "line2": "如果没有需要你处理的事，它会直接继续休眠，不发消息。如果有，它会在后台处理，并把结果发布到你的主聊天。",
-        "line3": "检查清单是智能体文件中 PROACTIVE.md 的 Heartbeat 部分。你在聊天中提出时，智能体也可以修改它。"
+        "line1": "每到一个间隔，智能体都会检查清单中的每一项，并在需要时使用你已连接的应用。",
+        "line2": "如果没有需要你处理的事项，本次运行将结束且不发送消息。否则，智能体会处理该事项并在主聊天中报告结果。",
+        "line3": "检查清单保存在智能体文件中 PROACTIVE.md 的 Heartbeat 部分。智能体也可以根据你的要求更新它。"
       }
     },
     "plannersTitle": "规划器",
@@ -308,28 +323,16 @@
       "monthDayHint": "在较短的月份中，29 至 31 日会在当月最后一天运行",
       "tip": {
         "aria": "关于规划器",
-        "title": "规划器做什么",
-        "line1": "每日规划器确定今天的重点。每周规划器回顾上一周并规划下一周。每月规划器检查长期目标的进展。",
-        "line2": "每个规划器都会查看你最近的聊天和已连接的应用（例如日历），然后更新它保存在 PROACTIVE.md（Goals, Plan, and Status 部分）中的计划。",
-        "line3": "这些计划层层衔接：月度目标指导每周计划，每周计划指导每一天。"
+        "title": "规划器的作用",
+        "line1": "每日规划器确定当天的优先事项。每周规划器回顾上一周并规划下一周。每月规划器跟踪长期目标的进展。",
+        "line2": "每个规划器都会查看你最近的聊天和已连接的应用（例如日历），并更新保存在 PROACTIVE.md（Goals, Plan, and Status 部分）中的计划。",
+        "line3": "这些计划层层衔接：月度目标指导每周计划，每周计划再指导每一天。"
       }
-    },
-    "active": "活动中",
-    "disabled": "已禁用",
-    "meta": {
-      "time": "时间：{{time}}",
-      "day": "日期：{{day}}",
-      "runs": "运行次数：{{value}}",
-      "last": "上次：{{date}}"
     },
     "priority": {
       "high": "高",
       "medium": "中",
       "low": "低"
-    },
-    "notify": {
-      "notifies": "会通知",
-      "silent": "静默"
     },
     "frequency": {
       "hourly": "每小时",
@@ -351,8 +354,8 @@
       "checklistFailed": "保存检查清单失败"
     },
     "cronJobForm": {
-      "editTitle": "编辑 Cron 任务",
-      "addTitle": "添加 Cron 任务",
+      "editTitle": "编辑定期任务",
+      "addTitle": "添加定期任务",
       "name": "任务名称",
       "namePlaceholder": "例如：查收邮件",
       "frequency": "频率",
@@ -361,27 +364,31 @@
       "time": "时间（HH:MM）",
       "dayOfWeek": "星期几",
       "selectDay": "选择日期",
-      "notifyLabel": "运行前通知我",
-      "notifyDesc": "开启后，智能体会向你报告此任务的结果。关闭后，任务将静默运行，只报告需要注意的事项。",
+      "notifyLabel": "每次报告结果",
+      "notifyDesc": "开启后，智能体会报告每次运行的结果。关闭后，任务将静默运行，仅报告需要你处理的事项。",
       "instruction": "指令",
       "instructionPlaceholder": "描述智能体应做什么…",
-      "instructionHint": "请具体且可执行。智能体在执行期间将遵循这些指令。",
+      "instructionHint": "请具体且可执行。智能体每次运行时都会遵循这些指令。",
       "enabledLabel": "已启用",
-      "enabledDesc": "任务将在设定时间运行"
+      "enabledDesc": "任务将在计划时间运行"
     },
     "reset": {
       "title": "恢复默认",
-      "desc": "删除所有 Cron 任务，清空心跳检查清单，并抹去规划器的计划。此操作无法撤销。",
+      "desc": "删除所有定期任务，清空心跳检查清单，并删除规划器的计划。此操作无法撤销。",
       "button": "恢复默认",
       "confirmTitle": "恢复默认？",
-      "confirmMessage": "所有 Cron 任务都将被删除，心跳检查清单将被清空，规划器的计划也将被抹去。此操作无法撤销。",
+      "confirmMessage": "所有定期任务都将被删除，心跳检查清单将被清空，规划器的计划也将被删除。此操作无法撤销。",
       "resetting": "重置中…",
       "tip": {
         "aria": "关于恢复默认",
-        "title": "恢复默认会做什么",
-        "line1": "Cron 任务、心跳检查清单和规划器的计划都保存在智能体文件中的同一个文件 PROACTIVE.md 里。",
-        "line2": "恢复默认会把这个文件还原为初始版本。规划器时间、心跳间隔、你的记忆和聊天都保持不变。"
+        "title": "恢复默认的作用",
+        "line1": "定期任务、心跳检查清单和规划器的计划都保存在智能体文件中的同一个文件 PROACTIVE.md 里。",
+        "line2": "恢复默认会将该文件还原为初始版本。规划器时间、心跳间隔、你的记忆和聊天均不受影响。"
       }
+    },
+    "notify": {
+      "notifies": "报告结果",
+      "silent": "静默"
     }
   },
   "memory": {
