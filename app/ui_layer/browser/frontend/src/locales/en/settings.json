@@ -250,50 +250,65 @@
   },
   "proactive": {
     "title": "Proactive Behavior",
-    "subtitle": "Let your agent work on its own: run jobs on a schedule, keep an eye on things for you, and plan ahead",
+    "subtitle": "Configure the work your agent performs without a prompt: recurring tasks, monitoring and planning",
     "enableLabel": "Enable Proactive Mode",
-    "enableDesc": "Your agent works in the background and tells you in your main chat when something is done or needs you.",
+    "enableDesc": "Allows your agent to run recurring tasks, the heartbeat and planners automatically. Results and items that require your attention are posted in chat.",
     "cronJobs": {
-      "title": "Cron Jobs",
-      "desc": "Things your agent does at set times, like every morning at 9 or every Friday. You get the result in your main chat.",
-      "add": "Add Cron Job",
-      "search": "Search cron jobs...",
-      "loading": "Loading cron jobs...",
-      "empty": "No cron jobs yet.",
-      "createFirst": "Create your first cron job",
-      "count_one": "{{count}} job",
-      "count_other": "{{count}} jobs",
-      "deleteTitle": "Delete Cron Job",
-      "deleteMessage": "Are you sure you want to delete this cron job?",
+      "title": "Recurring Tasks",
+      "desc": "Tasks your agent runs on a fixed schedule, such as daily at 09:00 or every Friday. Each task runs in the chat where it was created; tasks added here run in your main chat.",
+      "add": "Add Recurring Task",
+      "search": "Search recurring tasks...",
+      "loading": "Loading recurring tasks...",
+      "empty": "No recurring tasks.",
+      "createFirst": "Create a recurring task",
+      "deleteTitle": "Delete Recurring Task",
+      "deleteMessage": "This recurring task will be permanently deleted.",
       "searchCount": "{{shown}} of {{total}}",
       "tip": {
-        "aria": "About cron jobs",
-        "title": "How cron jobs work",
-        "line1": "“Cron job” is the usual name for a job that runs on a schedule. Each one is an instruction plus a time: hourly, daily, weekly or monthly.",
-        "line2": "At that time the agent does the job in the background and posts one result to your main chat. If the agent wasn't running then, the job runs once it's back, unless it no longer makes sense.",
-        "line3": "You can also just ask in chat, like “every Friday at 5pm, sum up my week”. Jobs are saved in PROACTIVE.md, in the agent's files."
-      }
+        "aria": "About recurring tasks",
+        "title": "How recurring tasks work",
+        "line1": "Each recurring task (also known as a cron job) is an instruction with a schedule: hourly, daily, weekly or monthly. If the agent was not running at the scheduled time, the task runs once on restart, unless it is no longer relevant.",
+        "line2": "At the scheduled time, the agent runs the task in the chat where it was created and reports the result there. If that chat is deleted, the task is kept but does not run until you move it to your main chat.",
+        "line3": "You can also create a task by asking the agent in chat, for example: “Every Friday at 17:00, summarize my week.” Tasks are stored in PROACTIVE.md in the agent's files."
+      },
+      "count_one": "{{count}} task",
+      "count_other": "{{count}} tasks",
+      "dayTime": "{{day}}, {{time}}",
+      "lastRun": "Last run {{date}}",
+      "neverRun": "Not run yet",
+      "runs_one": "{{count}} run",
+      "runs_other": "{{count}} runs",
+      "priority": {
+        "high": "High priority",
+        "medium": "Medium priority",
+        "low": "Low priority"
+      },
+      "mainChat": "Main chat",
+      "untitledChat": "Untitled chat",
+      "runsIn": "Runs in {{chat}}",
+      "unavailable": "Unavailable: the chat this task runs in was deleted.",
+      "moveToMain": "Move to main chat"
     },
     "heartbeat": {
       "title": "Heartbeat",
-      "desc": "Every so often, your agent goes through the checklist below and only steps in when something needs your attention.",
+      "desc": "At a regular interval, your agent reviews the checklist below and acts only when an item requires your attention.",
       "label": "Heartbeat",
-      "rowDesc": "Runs only while the checklist has items",
+      "rowDesc": "Runs only when the checklist has items",
       "interval": "Interval",
       "everyMinutes_one": "Every {{count}} minute",
       "everyMinutes_other": "Every {{count}} minutes",
       "everyHours_one": "Every hour",
       "everyHours_other": "Every {{count}} hours",
       "checklistLabel": "Checklist",
-      "checklistPlaceholder": "- Check my inbox for urgent email from clients\n- Tell me if the nightly build fails",
+      "checklistPlaceholder": "- Check my inbox for urgent email from clients\n- Report if the nightly build fails",
       "checklistHint": "One item per line. The agent reads this on every tick; leave it empty and the heartbeat does not run.",
-      "idle": "Not running: the checklist is empty",
+      "idle": "Inactive: the checklist is empty",
       "tip": {
         "aria": "About the heartbeat",
         "title": "How the heartbeat works",
-        "line1": "At each interval the agent wakes up and goes through the checklist, using your connected apps when an item needs them.",
-        "line2": "If nothing needs you, it goes back to sleep without a message. If something does, it handles it in the background and posts the result to your main chat.",
-        "line3": "The checklist is the Heartbeat section of PROACTIVE.md, in the agent's files. The agent can update it when you ask in chat."
+        "line1": "At each interval, the agent reviews every checklist item, using your connected apps where an item requires them.",
+        "line2": "If no item requires your attention, the run ends without a message. Otherwise, the agent handles the item and reports the result in your main chat.",
+        "line3": "The checklist is stored in the Heartbeat section of PROACTIVE.md in the agent's files. The agent can also update it on request."
       }
     },
     "plannersTitle": "Planners",
@@ -313,27 +328,15 @@
       "tip": {
         "aria": "About planners",
         "title": "What planners do",
-        "line1": "The daily planner works out what to focus on today. The weekly planner reviews the past week and plans the next. The monthly planner checks progress on your long-term goals.",
-        "line2": "Each one looks at your recent chats and connected apps such as your calendar, then updates the plan it keeps in PROACTIVE.md (the Goals, Plan, and Status section).",
-        "line3": "The plans build on each other: monthly goals guide the weekly plan, which guides each day."
+        "line1": "The daily planner sets the day's priorities. The weekly planner reviews the past week and plans the next. The monthly planner tracks progress on your long-term goals.",
+        "line2": "Each planner reviews your recent chats and connected apps, such as your calendar, and updates the plan stored in PROACTIVE.md (the Goals, Plan, and Status section).",
+        "line3": "The plans build on each other: monthly goals guide the weekly plan, which in turn guides each day."
       }
-    },
-    "active": "Active",
-    "disabled": "Disabled",
-    "meta": {
-      "time": "Time: {{time}}",
-      "day": "Day: {{day}}",
-      "runs": "Runs: {{value}}",
-      "last": "Last: {{date}}"
     },
     "priority": {
       "high": "High",
       "medium": "Medium",
       "low": "Low"
-    },
-    "notify": {
-      "notifies": "Notifies",
-      "silent": "Silent"
     },
     "frequency": {
       "hourly": "Hourly",
@@ -355,37 +358,41 @@
       "checklistFailed": "Failed to save the checklist"
     },
     "cronJobForm": {
-      "editTitle": "Edit Cron Job",
-      "addTitle": "Add Cron Job",
-      "name": "Job Name",
-      "namePlaceholder": "e.g., Check emails",
+      "editTitle": "Edit Recurring Task",
+      "addTitle": "Add Recurring Task",
+      "name": "Task Name",
+      "namePlaceholder": "e.g. Check email",
       "frequency": "Frequency",
       "priority": "Priority",
       "priorityHint": "(higher runs first)",
       "time": "Time (HH:MM)",
       "dayOfWeek": "Day of Week",
       "selectDay": "Select day",
-      "notifyLabel": "Notify me before running",
-      "notifyDesc": "When enabled, the agent reports this job's result to you. When disabled, the job runs silently and reports only what needs attention.",
+      "notifyLabel": "Report every result",
+      "notifyDesc": "When on, the agent reports the result of each run. When off, the task runs silently and reports only items that require your attention.",
       "instruction": "Instruction",
       "instructionPlaceholder": "Describe what the agent should do...",
-      "instructionHint": "Be specific and actionable. The agent will follow these instructions during execution.",
+      "instructionHint": "Be specific and actionable. The agent follows these instructions on every run.",
       "enabledLabel": "Enabled",
-      "enabledDesc": "The job runs at its set time"
+      "enabledDesc": "The task runs at its scheduled time"
     },
     "reset": {
       "title": "Reset to default",
-      "desc": "Deletes all cron jobs, clears the heartbeat checklist and erases the planners' plans. This can't be undone.",
+      "desc": "Deletes all recurring tasks, clears the heartbeat checklist and removes the planners' plans. This action cannot be undone.",
       "button": "Reset to default",
       "confirmTitle": "Reset to default?",
-      "confirmMessage": "This deletes every cron job, clears the heartbeat checklist and erases the planners' plans. This can't be undone.",
+      "confirmMessage": "All recurring tasks will be deleted, the heartbeat checklist will be cleared and the planners' plans will be removed. This action cannot be undone.",
       "resetting": "Resetting...",
       "tip": {
         "aria": "About reset",
         "title": "What reset does",
-        "line1": "Cron jobs, the heartbeat checklist and the planners' plans are all stored in one file, PROACTIVE.md, in the agent's files.",
-        "line2": "Reset puts back the original version of that file. Planner times, the heartbeat interval, your memory and your chats stay as they are."
+        "line1": "Recurring tasks, the heartbeat checklist and the planners' plans are stored in a single file, PROACTIVE.md, in the agent's files.",
+        "line2": "Resetting restores the original version of that file. Planner times, the heartbeat interval, your memory and your chats are not affected."
       }
+    },
+    "notify": {
+      "notifies": "Reports results",
+      "silent": "Silent"
     }
   },
   "memory": {

@@ -32,8 +32,10 @@ receive({ type: 'scheduler_config_get', data: { success: true, config: { enabled
   schedule('month-planner', 'Monthly Planning', 'every month on day 1 at 8am', false),
 ] } } })
 receive({ type: 'cron_jobs_get', data: { success: true, jobs: [
-  { id: 'daily_brief', name: 'Morning brief', frequency: 'daily', instruction: 'Summarise my calendar and unread email.', enabled: true, priority: 30, permissionTier: 1, time: '08:30', runCount: 12, lastRun: '2026-11-11T08:30:00', outcomeHistory: [] },
-  { id: 'hourly_inbox', name: 'Inbox watch', frequency: 'hourly', instruction: 'Flag urgent email from clients.', enabled: false, priority: 50, permissionTier: 0, time: '00:15', runCount: 3, outcomeHistory: [] },
+  { id: 'daily_brief', name: 'Morning brief', frequency: 'daily', instruction: 'Summarise my calendar and unread email.', enabled: true, priority: 30, permissionTier: 1, sessionId: 'main', sessionTitle: 'Main', available: true, time: '08:30', runCount: 12, lastRun: '2026-11-11T08:30:00', outcomeHistory: [] },
+  { id: 'hourly_inbox', name: 'Inbox watch', frequency: 'hourly', instruction: 'Flag urgent email from clients.', enabled: false, priority: 50, permissionTier: 0, sessionId: 'main', sessionTitle: 'Main', available: true, time: '00:15', runCount: 3, outcomeHistory: [] },
+  { id: 'weekly_review', name: 'Weekly review', frequency: 'weekly', instruction: 'Summarise the week from my calendar, Company OS tasks and sent email, and list open follow-ups for next week.', enabled: true, priority: 50, permissionTier: 1, sessionId: 'c1a2b3', sessionTitle: 'Sales follow-ups', available: true, time: '17:00', day: 'friday', runCount: 0, outcomeHistory: [] },
+  { id: 'monthly_invoices', name: 'Invoice check', frequency: 'monthly', instruction: 'Check that every client invoice for last month was sent.', enabled: true, priority: 70, permissionTier: 0, sessionId: 'd4e5f6', sessionTitle: null, available: false, time: '09:00', day: '1', runCount: 2, lastRun: '2026-11-01T09:00:00', outcomeHistory: [] },
 ] } })
 receive({ type: 'heartbeat_checklist_get', data: { success: true, checklist: '- Check my inbox for urgent email from clients' } })
 receive({ type: 'proactive_schedule_get', data: { success: true, heartbeatMinutes: 30, heartbeatOptions: [5, 10, 15, 30, 60, 120], dayPlannerTime: '07:00', weekPlannerDay: 'sunday', weekPlannerTime: '17:00', monthPlannerDay: 1, monthPlannerTime: '08:00' } })

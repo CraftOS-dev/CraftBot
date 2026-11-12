@@ -13,6 +13,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, Dict, List, Any, Optional
 
+from agent_core import MAIN_SESSION_ID
+
 from .types import CronJob, ProactiveData, validate_schedule_fields
 from .parser import ProactiveParser
 
@@ -181,6 +183,7 @@ class ProactiveManager:
         permission_tier: int = 0,
         enabled: bool = True,
         conditions: Optional[List[Dict[str, Any]]] = None,
+        session_id: str = MAIN_SESSION_ID,
     ) -> CronJob:
         """Add a new cron job.
 
@@ -195,6 +198,7 @@ class ProactiveManager:
             permission_tier: 0 = silent, 1 = notify
             enabled: Whether the job is active
             conditions: List of condition dictionaries
+            session_id: The session the job runs in (the one adding it)
 
         Raises:
             ValueError: If the ID already exists or the schedule is invalid
@@ -220,6 +224,7 @@ class ProactiveManager:
             permission_tier=permission_tier,
             enabled=enabled,
             conditions=[CronJobCondition.from_dict(c.copy()) for c in conditions or []],
+            session_id=session_id,
             active_since=datetime.now(),
         )
 
@@ -236,9 +241,10 @@ class ProactiveManager:
     ) -> Optional[CronJob]:
         """Update an existing cron job.
 
-        Re-enabling a job or changing its frequency/time/day restarts its
-        schedule from now (``active_since``), so slots missed while it was
-        off or under the old schedule are not run late.
+        Re-enabling a job, changing its frequency/time/day or moving it to
+        another session restarts its schedule from now (``active_since``),
+        so slots missed while it was off, unavailable or under the old
+        schedule are not run late.
 
         Returns:
             The updated job if found, None otherwise
@@ -256,7 +262,7 @@ class ProactiveManager:
             )
             reschedules = any(
                 key in updates and updates[key] != getattr(job, key)
-                for key in ("frequency", "time", "day")
+                for key in ("frequency", "time", "day", "session_id")
             ) or (updates.get("enabled") is True and not job.enabled)
             for key, value in updates.items():
                 if hasattr(job, key) and key not in [
@@ -296,14 +302,18 @@ class ProactiveManager:
 
     # ─────────────── Due computation (code-owned) ───────────────
 
-    def _valid_jobs(self) -> List[CronJob]:
-        """Enabled cron jobs whose schedule fields are usable.
+    def _valid_jobs(
+        self, runnable: Optional[Callable[[CronJob], bool]] = None
+    ) -> List[CronJob]:
+        """Enabled (and runnable) cron jobs whose schedule fields are usable.
 
         A malformed hand-edited job is skipped with a warning instead of
         breaking every other job's schedule.
         """
         valid = []
         for job in self.get_jobs(enabled_only=True):
+            if runnable is not None and not runnable(job):
+                continue
             try:
                 validate_schedule_fields(job.frequency, job.time, job.day)
             except ValueError as e:
@@ -312,17 +322,29 @@ class ProactiveManager:
             valid.append(job)
         return valid
 
-    def get_due_jobs(self, now: Optional[datetime] = None) -> List[CronJob]:
-        """Cron jobs whose most recent slot is owed a run, by priority."""
+    def get_due_jobs(
+        self,
+        now: Optional[datetime] = None,
+        runnable: Optional[Callable[[CronJob], bool]] = None,
+    ) -> List[CronJob]:
+        """Cron jobs whose most recent slot is owed a run, by priority.
+
+        ``runnable`` leaves out jobs that cannot run now (their session
+        was deleted); they are not due and never stamped.
+        """
         now = now or datetime.now()
-        due = [j for j in self._valid_jobs() if j.is_due(now)]
+        due = [j for j in self._valid_jobs(runnable) if j.is_due(now)]
         due.sort(key=lambda j: j.priority)
         return due
 
-    def next_due_at(self, now: Optional[datetime] = None) -> Optional[datetime]:
-        """Earliest moment any enabled cron job becomes due (None if none)."""
+    def next_due_at(
+        self,
+        now: Optional[datetime] = None,
+        runnable: Optional[Callable[[CronJob], bool]] = None,
+    ) -> Optional[datetime]:
+        """Earliest moment any enabled, runnable cron job becomes due."""
         now = now or datetime.now()
-        times = [j.next_due_at(now) for j in self._valid_jobs()]
+        times = [j.next_due_at(now) for j in self._valid_jobs(runnable)]
         times = [t for t in times if t is not None]
         return min(times) if times else None
 

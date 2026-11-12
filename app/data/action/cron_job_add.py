@@ -3,7 +3,7 @@ from agent_core import action
 
 @action(
     name="cron_job_add",
-    description="Add a cron job to PROACTIVE.md. It runs at its own slot (hourly at :MM, daily at HH:MM, weekly on a day at HH:MM, monthly on a date at HH:MM) as a run in the main chat. A slot missed while CraftBot was off runs once, late, when it is back. IMPORTANT: Only add cron jobs with user consent - ask the user first.",
+    description="Add a cron job to PROACTIVE.md. It runs at its own slot (hourly at :MM, daily at HH:MM, weekly on a day at HH:MM, monthly on a date at HH:MM) as a run in this chat, the one adding it. If this chat is deleted, the job is kept but does not run. A slot missed while CraftBot was off runs once, late, when it is back. IMPORTANT: Only add cron jobs with user consent - ask the user first.",
     action_sets=["proactive"],
     input_schema={
         "name": {
@@ -118,6 +118,8 @@ def cron_job_add(input_data: dict) -> dict:
             permission_tier=permission_tier,
             enabled=input_data.get("enabled", True),
             conditions=input_data.get("conditions"),
+            # The job runs in the chat that adds it.
+            session_id=input_data.get("_session_id") or "main",
         )
 
         return {

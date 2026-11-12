@@ -14,7 +14,9 @@ Proactive tasks and the scheduler (2026-11-11 study fixes).
   handed to one run; an empty one costs nothing.
 - PROACTIVE.md is re-read whenever it changed on disk, and saves write over
   the file as it is now (a planner's Goals edit, a hand-added job survive).
-- Every scheduler fire lands in the main session.
+- Cron jobs and schedule_task jobs fire in the session that created them;
+  memory, the heartbeat and the planners in main. A task whose session was
+  deleted is kept but skipped, never stamped.
 - The LLM failure latch expires after a cooldown instead of waiting for a
   user chat message.
 """
@@ -583,6 +585,143 @@ class TestRouting:
         asyncio.run(sm.queue_immediate_trigger(name="Now", instruction="Do it"))
         (spec,) = sm._trigger_service.specs
         assert spec.session_id == MAIN_SESSION_ID
+
+
+# ─────────────────────────── Task sessions ───────────────────────────
+
+
+def _sessions(*alive):
+    """A session manager that knows only the given (non-main) sessions."""
+    return types.SimpleNamespace(get=lambda sid: object() if sid in alive else None)
+
+
+def _overdue_in(mgr, name, session_id):
+    slot = datetime.now() - timedelta(hours=1)
+    job = mgr.add_job(
+        name=name,
+        frequency="daily",
+        instruction=f"Do {name}",
+        time=f"{slot:%H:%M}",
+        session_id=session_id,
+    )
+    stored = mgr.get_job(job.id)
+    stored.active_since = datetime.now() - timedelta(days=3)
+    mgr.save()
+    return job.id
+
+
+class TestTaskSessions:
+    def test_cron_jobs_fire_as_one_run_per_session(self, proactive_file, proactive_on):
+        sm, mgr, _ = _scheduler(proactive_file)
+        sm._session_manager = _sessions("chat1")
+        main_job = _overdue_in(mgr, "Main brief", MAIN_SESSION_ID)
+        chat_job = _overdue_in(mgr, "Chat brief", "chat1")
+
+        asyncio.run(sm._fire_cron_jobs())
+
+        by_session = {s.session_id: s for s in sm._trigger_service.specs}
+        assert set(by_session) == {MAIN_SESSION_ID, "chat1"}
+        assert by_session[MAIN_SESSION_ID].payload["cron_job_ids"] == [main_job]
+        assert by_session["chat1"].payload["cron_job_ids"] == [chat_job]
+        assert "Chat brief" in by_session["chat1"].description
+        assert "Chat brief" not in by_session[MAIN_SESSION_ID].description
+
+    def test_deleted_session_job_is_kept_skipped_and_not_stamped(
+        self, proactive_file, proactive_on
+    ):
+        sm, mgr, _ = _scheduler(proactive_file)
+        sm._session_manager = _sessions()
+        job_id = _overdue_in(mgr, "Orphan", "deleted_chat")
+
+        asyncio.run(sm._fire_cron_jobs())
+
+        assert sm._trigger_service.specs == []
+        assert mgr.get_job(job_id).run_count == 0
+        # It never counts as due, so it cannot hold the runner awake.
+        now = datetime.now()
+        due_at = mgr.next_due_at(now, runnable=sm._job_runnable)
+        assert due_at is None or due_at > now
+
+    def test_moving_a_job_restarts_its_schedule(self, proactive_file, proactive_on):
+        sm, mgr, _ = _scheduler(proactive_file)
+        job_id = _overdue_in(mgr, "Orphan", "deleted_chat")
+        mgr.update_job(job_id, updates={"session_id": MAIN_SESSION_ID})
+        job = mgr.get_job(job_id)
+        assert job.session_id == MAIN_SESSION_ID
+        assert not job.is_due(datetime.now())  # no late run of a missed slot
+
+    def test_session_round_trips_in_proactive_md(self, proactive_file):
+        mgr = ProactiveManager(proactive_file)
+        mgr.load()
+        job = mgr.add_job(
+            name="Chat brief", frequency="daily", instruction="x", session_id="abc123"
+        )
+        again = ProactiveManager(proactive_file)
+        again.load()
+        assert again.get_job(job.id).session_id == "abc123"
+        assert CronJob.from_dict({"id": "x"}).session_id == MAIN_SESSION_ID
+
+    def test_scheduled_task_fires_in_its_session(self):
+        sm = SchedulerManager()
+        sm._trigger_service = _FakeTriggerService()
+        task = ScheduledTask(
+            id="abc",
+            name="Call mom",
+            instruction="Remind the user to call mom",
+            schedule=ScheduleParser.parse("every day at 7am"),
+            session_id="chat1",
+        )
+        asyncio.run(sm._fire_schedule(task))
+        (spec,) = sm._trigger_service.specs
+        assert spec.session_id == "chat1"
+
+    def test_immediate_runs_in_the_calling_session(self):
+        sm = SchedulerManager()
+        sm._trigger_service = _FakeTriggerService()
+        asyncio.run(
+            sm.queue_immediate_trigger(
+                name="Now", instruction="Do it", session_id="chat1"
+            )
+        )
+        (spec,) = sm._trigger_service.specs
+        assert spec.session_id == "chat1"
+
+    def test_scheduled_task_session_is_saved_only_when_not_main(self):
+        expr = ScheduleParser.parse("every day at 7am")
+        mine = ScheduledTask(
+            id="a", name="A", instruction="x", schedule=expr, session_id="chat1"
+        )
+        builtin = ScheduledTask(id="b", name="B", instruction="x", schedule=expr)
+        assert mine.to_dict()["session_id"] == "chat1"
+        assert "session_id" not in builtin.to_dict()
+        assert ScheduledTask.from_dict(mine.to_dict(), expr).session_id == "chat1"
+        assert (
+            ScheduledTask.from_dict(builtin.to_dict(), expr).session_id
+            == MAIN_SESSION_ID
+        )
+
+    def test_deleted_session_schedule_stops_without_firing(self):
+        sm = SchedulerManager()
+        sm._trigger_service = _FakeTriggerService()
+        sm._session_manager = _sessions()
+        task = ScheduledTask(
+            id="abc",
+            name="Call mom",
+            instruction="Remind the user",
+            schedule=ScheduleParser.parse("every 1 minutes"),
+            session_id="deleted_chat",
+        )
+        sm._schedules[task.id] = task
+
+        async def scenario():
+            sm._is_running = True
+            await asyncio.wait_for(sm._schedule_loop(task.id), timeout=5)
+
+        asyncio.run(scenario())
+        assert sm._trigger_service.specs == []
+        assert sm.get_schedule(task.id) is task  # kept, just unavailable
+        assert sm.is_session_available("deleted_chat") is False
+        assert sm.is_session_available(MAIN_SESSION_ID) is True
 
 
 # ─────────────────────────── LLM failure latch ───────────────────────────

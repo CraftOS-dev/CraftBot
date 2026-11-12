@@ -19,6 +19,12 @@ export interface CronJob {
   enabled: boolean
   priority: number
   permissionTier: number
+  /** The chat the job runs in (the one that created it; 'main' from Settings). */
+  sessionId: string
+  /** That chat's title; null once the chat is deleted. */
+  sessionTitle: string | null
+  /** False once its chat is deleted: the job is kept but does not run. */
+  available: boolean
   time?: string
   day?: string
   runCount: number

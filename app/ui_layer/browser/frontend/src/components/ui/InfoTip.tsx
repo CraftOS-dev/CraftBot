@@ -4,7 +4,7 @@ import { Info } from 'lucide-react'
 import styles from './InfoTip.module.css'
 
 export interface InfoTipProps {
-  /** Accessible name of the ⓘ trigger, e.g. "About cron jobs". */
+  /** Accessible name of the ⓘ trigger, e.g. "About recurring tasks". */
   label: string
   /** Bold first line of the tooltip. */
   title?: string

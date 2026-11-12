@@ -69,7 +69,7 @@ session_id:               str|None owning session
 USER_MESSAGE                  user input (UI or external platform)
 RUN_CONTINUATION              framework-queued "next turn" of an ongoing run
 SCHEDULED / SCHEDULED_ONCE /
-SCHEDULED_IMMEDIATE           scheduler fires (schedule_task; main session)
+SCHEDULED_IMMEDIATE           scheduler fires (schedule_task; scheduling session)
 MEMORY                        memory-processing workflow (main session)
 CRON_JOB /
 PROACTIVE_HEARTBEAT /
@@ -103,7 +103,7 @@ When a session's loop claims work, ALL triggers currently due for that session f
 
 ### Workflow runs (memory / proactive)
 
-Everything the scheduler fires runs IN the main session as a normal run: memory processing, cron jobs, the heartbeat, the planners, and every `schedule_task` fire, `"immediate"` included. There are no separate task objects. The main session runs one turn at a time: a fire that arrives while a turn is running waits in its queue, and when that turn ends everything due (queued user messages and scheduler fires) is merged into ONE turn as a numbered checklist (see Trigger aggregation). The workflow's skills and action sets are loaded onto the session at run start and unloaded at run end. The run is an ordinary main-chat run: a system line announces why it started (e.g. "Cron job", "Heartbeat", "Proactive planning", "Scheduled task: <name>"), its steps stream in the main chat, it sees the main conversation, and its run-ending `send_message` appears directly in the main chat; `end_turn` says nothing. Action and token limits show the normal Continue/Stop prompt.
+Everything the scheduler fires runs as a normal run in a session: memory processing, the heartbeat and the planners in the main session; each cron job and every `schedule_task` fire (`"immediate"` included) in the session that created it (main for cron jobs added in Settings). If that session is deleted, the task is kept but skipped as unavailable until it is moved (a cron job moves with `cron_job_update(job_id, updates={"session_id": "main"})`). There are no separate task objects. Each session runs one turn at a time: a fire that arrives while a turn is running waits in its queue, and when that turn ends everything due (queued user messages and scheduler fires) is merged into ONE turn as a numbered checklist (see Trigger aggregation). The workflow's skills and action sets are loaded onto the session at run start and unloaded at run end. The run is an ordinary run of that session: a system line announces why it started (e.g. "Recurring task", "Heartbeat", "Proactive planning", "Scheduled task: <name>"), its steps stream in that chat, it sees that chat's conversation, and its run-ending `send_message` appears directly there; `end_turn` says nothing. Action and token limits show the normal Continue/Stop prompt.
 
 **memory**
 - Trigger: the scheduler `memory-processing` job (runs once a day at a user-configurable time, 3am by default), or the user's "Process Memory Now" button in Settings > Memory (ignores the threshold).
@@ -113,7 +113,7 @@ Everything the scheduler fires runs IN the main session as a normal run: memory 
 - Skipped entirely if `is_memory_enabled()` is False. See `## Memory`.
 
 **cron jobs**
-- Source: the scheduler's internal cron-job runner (CRON_JOB). It wakes exactly at the next slot of any cron job in PROACTIVE.md; code (not the model) selects the due jobs, stamps `last_run` / `run_count`, and fires ONE trigger for all of them into the main session.
+- Source: the scheduler's internal cron-job runner (CRON_JOB). It wakes exactly at the next slot of any cron job in PROACTIVE.md; code (not the model) selects the due jobs, stamps `last_run` / `run_count`, and fires ONE trigger per session, into the session each job belongs to; a job whose session was deleted is skipped and not stamped.
 - The run loads `cron-job-runner` + action sets [file_operations, proactive, web_research]; its instruction lists each due job. The run records each job's result with `cron_job_update(job_id, add_outcome={result, success})`.
 
 **proactive heartbeat**
@@ -238,7 +238,7 @@ use_skill(name) / unload_skill(name)    load / unload skills mid-run
 
 ### Spinning off and deferring work: `schedule_task`
 
-`schedule_task(name, instruction, schedule, priority?, enabled?, action_sets?, skills?, payload?)` creates deferred work from anywhere. Every fire, `"immediate"` included, is queued into the MAIN session (not the chat that scheduled it) and runs as that session's next turn, not in parallel, so write the instruction self-contained; its run-ending `send_message` appears in the main chat. Expressions other than `"immediate"` are validated by [app/scheduler/parser.py](app/scheduler/parser.py):
+`schedule_task(name, instruction, schedule, priority?, enabled?, action_sets?, skills?, payload?)` creates deferred work from anywhere. Every fire, `"immediate"` included, is queued into the session that scheduled it and runs as that session's next turn, not in parallel, so write the instruction self-contained; its run-ending `send_message` appears in that chat. If that session is deleted, the task is kept but no longer fires (`scheduled_task_list` shows `available: false`). Expressions other than `"immediate"` are validated by [app/scheduler/parser.py](app/scheduler/parser.py):
 
 ```
 "immediate"               run right now (queues an immediate trigger)
@@ -3585,7 +3585,7 @@ Toggling `memory.enabled` to false does NOT delete `MEMORY.md` or `chroma_db_mem
 
 ## Proactive
 
-The proactive system lets you do work on a schedule without a user prompt. Three mechanisms exist: **cron jobs** (PROACTIVE.md `## Cron Jobs`, each run at its own slot by the scheduler's cron-job runner), the **heartbeat** (a checklist in PROACTIVE.md `## Heartbeat`, checked every few minutes) and **scheduled tasks** (scheduler_config.json, created with `schedule_task`). Most user-facing automations are cron jobs. Every run they start executes in the MAIN session as a normal run; its run-ending `send_message` appears directly in the main chat. Cron jobs, the heartbeat and the planners run only while proactive mode is on (`proactive.enabled` in settings.json).
+The proactive system lets you do work on a schedule without a user prompt. Three mechanisms exist: **cron jobs** (PROACTIVE.md `## Cron Jobs`, each run at its own slot by the scheduler's cron-job runner), the **heartbeat** (a checklist in PROACTIVE.md `## Heartbeat`, checked every few minutes) and **scheduled tasks** (scheduler_config.json, created with `schedule_task`). Most user-facing automations are cron jobs. Cron jobs and scheduled tasks run as a normal run in the session that created them, the heartbeat and planners in the MAIN session; the run-ending `send_message` appears directly in that chat. Cron jobs, the heartbeat and the planners run only while proactive mode is on (`proactive.enabled` in settings.json).
 
 Code: [app/proactive/manager.py](app/proactive/manager.py) (`ProactiveManager`), [app/proactive/parser.py](app/proactive/parser.py), [app/proactive/types.py](app/proactive/types.py). Authority on rubric and tiers: [agent_file_system/PROACTIVE.md](agent_file_system/PROACTIVE.md).
 
@@ -3712,10 +3712,10 @@ Why: these runs fire automatically. If they waited for user confirmation each cy
 - Fires when one or more cron jobs reach their slot (see "Cron job behavior" below).
 - Its instruction lists exactly the due jobs; code already selected them and stamped `last_run` / `run_count`. Do not call `cron_job_list` to work out what is due.
 - For each job, picks one of these execution types:
-  - **DELEGATED** (default when `general_agent`'s tools cover the work: files, shell/PowerShell, `web_search` / `web_fetch`, `http_request`): `spawn_subagent(agent_type="general_agent", query=<fully self-contained instruction>)`. Independent jobs are spawned in parallel in the same decision. The sub-agent never messages the user; this run sends the ONE result message, so the heavy tool work stays out of the main context while the run stays visible in the main chat.
+  - **DELEGATED** (default when `general_agent`'s tools cover the work: files, shell/PowerShell, `web_search` / `web_fetch`, `http_request`): `spawn_subagent(agent_type="general_agent", query=<fully self-contained instruction>)`. Independent jobs are spawned in parallel in the same decision. The sub-agent never messages the user; this run sends the ONE result message, so the heavy tool work stays out of the session's context while the run stays visible in its chat.
   - **INLINE** (work that needs connected-app integrations such as email, calendar or messaging platforms, memory, the Mini Browser, or the proactive actions; `general_agent` has none of those tools): runs the job in this run, moves on.
 - Records each job's result with `cron_job_update(job_id, add_outcome={result, success})`.
-- Ends with ONE `send_message` covering every job with something for the user (shown directly in the main chat), or `end_turn` when nothing needs attention.
+- Ends with ONE `send_message` covering every job with something for the user (shown directly in the chat the jobs run in), or `end_turn` when nothing needs attention.
 
 **heartbeat-processor** ([skills/heartbeat-processor/SKILL.md](skills/heartbeat-processor/SKILL.md))
 - Fires on each `heartbeat` tick (default every 30 min) while the Heartbeat checklist is not empty.
@@ -3733,7 +3733,7 @@ The most underused pattern in this section. Use it when:
 - The user wants something done at a SPECIFIC future moment (not on a recurring cadence).
 - A planner has identified a concrete one-shot action ("research X tomorrow morning at 9am").
 
-These tasks fire ONCE in the main session, return a result via their run-ending `send_message` (shown in the main chat) and/or by writing to the workspace, and auto-remove themselves from `scheduler_config.json` after firing.
+These tasks fire ONCE in the session that scheduled them, return a result via their run-ending `send_message` (shown in that chat) and/or by writing to the workspace, and auto-remove themselves from `scheduler_config.json` after firing.
 
 Use `schedule_task` with one of these expressions:
 
@@ -3803,7 +3803,7 @@ schedule_task(
 )
 ```
 
-`schedule="immediate"` queues a trigger in the MAIN session (every schedule_task fire runs there, not in the calling chat). From a main-session run it waits in the queue and is merged into the next turn; it is not parallel work (use `spawn_subagent` for that). Write the instruction self-contained.
+`schedule="immediate"` queues a trigger in the calling session (every schedule_task fire runs in the session that scheduled it). It waits in that session's queue and is merged into its next turn; it is not parallel work (use `spawn_subagent` for that). Write the instruction self-contained.
 
 **Why this pattern matters.** It is the right pattern when a planner identifies a discrete future action — the planner schedules the task, then ends its own run, and the future-agent runs the actual work later.
 
@@ -3812,11 +3812,11 @@ schedule_task(
 ```
 1. schedule_task(schedule="<future moment>", ...) creates entry in scheduler_config.json.
 2. The scheduler holds it until fire_at is reached.
-3. At fire_at, scheduler emits a SCHEDULED_ONCE trigger into the MAIN session.
-4. The main session runs it as a normal run (merged with anything else due).
+3. At fire_at, scheduler emits a SCHEDULED_ONCE trigger into the session that scheduled it (nothing fires if that session was deleted).
+4. That session runs it as a normal run (merged with anything else due).
 5. The agent runs the instruction.
 6. After firing, the scheduler removes the entry (one-shots are auto-removed).
-7. The run-ending send_message appears in the main chat; other output lands in workspace files (depending on instruction).
+7. The run-ending send_message appears in that chat; other output lands in workspace files (depending on instruction).
 ```
 
 **Verifying a one-shot is queued:**
@@ -3902,7 +3902,7 @@ If the task revealed an operational lesson useful to future-you, consider whethe
 
 ```
 1. ONE final send_message at the right tier   (if there's anything user-facing;
-                                               shown in the main chat)
+                                               shown in the chat it runs in)
 2. otherwise end_turn                          (nothing is posted)
 ```
 
@@ -3928,14 +3928,14 @@ Each cron job has one slot per period, in local time: hourly at :MM, daily at HH
 2. At the slot, code (not the model) selects the due jobs
    (proactive_manager.get_due_jobs()) and stamps last_run / run_count on them
    (mark_dispatched).
-3. It fires ONE trigger (source CRON_JOB, value "cron_job") into the MAIN
-   session. The run loads the cron-job-runner skill +
+3. It fires ONE trigger per session (source CRON_JOB, value "cron_job") into
+   the session each job belongs to. The run loads the cron-job-runner skill +
    action_sets=[file_operations, proactive, web_research].
 4. The instruction lists each due job: name, id, schedule, tier, instruction,
    conditions, and a "Late" note when it runs more than 2 minutes after its slot.
 5. The run records each job's result with cron_job_update(job_id,
    add_outcome={result, success}) and ends with ONE send_message, shown
-   directly in the main chat; end_turn posts nothing.
+   directly in that chat; end_turn posts nothing.
 ```
 
 A slot missed while CraftBot was closed or asleep runs once, late, when it is back (only the most recent missed slot). A new, re-enabled or rescheduled job never fires for a slot before it took effect (`active_since`).
@@ -4071,10 +4071,10 @@ Step 5: Confirm to user
         Tell them how to disable: "Ask me to disable or remove it."
 
 Step 6: When the job fires later (cron-job-runner skill runs it in the
-        main session):
+        session that created it):
         - Execute the instruction (delegated to a general_agent sub-agent
           when its tools cover the work)
-        - End with ONE send_message (respecting tier), shown in the main chat,
+        - End with ONE send_message (respecting tier), shown in that chat,
           or end_turn when there is nothing to report
         - Before that, record the result with cron_job_update add_outcome
 ```
@@ -4853,7 +4853,7 @@ continue_work             send_message flag: true = run continues, absent = run 
 core (action set)         always-loaded set; cannot be opted out                            ## Action Sets
 craftos_integrations      standalone package owning the integration subsystem              ## Integrations
 cron job                  PROACTIVE.md job, one run per hourly/daily/weekly/monthly slot   ## Proactive
-cron-job-runner           skill that runs the due cron jobs (in the main session)          ## Proactive
+cron-job-runner           skill that runs the due cron jobs (in their session)             ## Proactive
 cron_job_add              action to register a new cron job in PROACTIVE.md                ## Proactive
 cron_job_update           action to modify a cron job or record a run's outcome            ## Proactive
 Decision Rubric           proactive task scoring (Impact/Risk/Cost/Urgency/Confidence)     PROACTIVE.md, ## Proactive

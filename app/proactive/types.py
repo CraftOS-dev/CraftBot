@@ -9,6 +9,8 @@ import calendar
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
+from agent_core import MAIN_SESSION_ID
+
 
 FREQUENCIES = ("hourly", "daily", "weekly", "monthly")
 WEEKDAYS = (
@@ -139,6 +141,9 @@ class CronJob:
         enabled: Whether the job is active
         priority: Job priority (lower = higher priority)
         permission_tier: Permission level (0 = silent, 1 = notify)
+        session_id: The session the job runs in: the one that created it
+            ("main" for jobs added in Settings). If that session is
+            deleted the job is kept but never fires.
         time: HH:MM slot time (hourly jobs use only the minute)
         day: Weekday name for weekly jobs, 1-31 for monthly jobs
         conditions: List of conditions that must be met
@@ -156,6 +161,7 @@ class CronJob:
     enabled: bool = True
     priority: int = 50
     permission_tier: int = 0
+    session_id: str = MAIN_SESSION_ID
     time: Optional[str] = None  # HH:MM
     day: Optional[str] = None  # weekday name (weekly) or 1-31 (monthly)
     conditions: List[CronJobCondition] = field(default_factory=list)
@@ -290,6 +296,7 @@ class CronJob:
             "enabled": self.enabled,
             "priority": self.priority,
             "permission_tier": self.permission_tier,
+            "session_id": self.session_id,
             "run_count": self.run_count,
             "instruction": self.instruction,
         }
@@ -359,6 +366,7 @@ class CronJob:
             enabled=data.get("enabled", True),
             priority=data.get("priority", 50),
             permission_tier=data.get("permission_tier", 0),
+            session_id=str(data.get("session_id") or MAIN_SESSION_ID),
             time=str(time_value) if time_value is not None else None,
             day=str(day_value) if day_value is not None else None,
             conditions=conditions,
