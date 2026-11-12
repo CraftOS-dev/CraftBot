@@ -39,6 +39,8 @@ class FrameworkHost:
         from app.agent_app.framework_bridge import FrameworkBridge
 
         self.bridge = FrameworkBridge(self)
+        from app.agent_app.framework_connections import FrameworkConnections
+        self.connections = FrameworkConnections(self)
         from app.agent_app.framework_maintenance import FrameworkMaintenance
         from app.agent_app.framework_sharing import FrameworkSharing
 
@@ -104,6 +106,12 @@ class FrameworkHost:
                     ]
                     for sid in sessions:
                         await self.agent.request_run_stop(sid)
+                    if row.get("connection"):
+                        await self.disconnect(row["path"], row["id"])
+                        deleted += 1
+                        for sid in sessions:
+                            await self.agent.delete_session(sid)
+                        continue
                     result = await self.request(
                         {
                             "operation": "manage",
@@ -161,7 +169,7 @@ class FrameworkHost:
         # Repair interrupted/re-scaffolded creations before a running app clears
         # their build state. The old builder (and its history) remains the owner.
         for row in (inventory.get("data") or {}).get("apps", []):
-            if row.get("status") == "missing":
+            if row.get("status") == "missing" or row.get("connection"):
                 continue
             builder = self._building_conversation(row["path"], cli.home)
             if builder and builder.agent_app_framework_key and builder.agent_app_framework_key != app_key(cli.home, row["path"], row["id"]):
@@ -197,7 +205,12 @@ class FrameworkHost:
                 attachment["appId"], cli.home,
             ) and getattr(session, "agent_app_framework_key", None) != attachment["key"]:
                 self.agent.session_manager.bind_framework_app(session.id, attachment["key"])
-            if not (attachment.get("autoStart") or attachment.get("maintenanceResume")):
+            if attachment.get("connection") or not (attachment.get("autoStart", True) or attachment.get("maintenanceResume")):
+                continue
+            if (attachment["path"], attachment["appId"]) not in registered:
+                continue
+            creation = self.store.get("creation", attachment.get("sessionId")) or {}
+            if creation.get("building"):
                 continue
             try:
                 row = await self.selected(attachment["path"], attachment["appId"])
@@ -213,6 +226,7 @@ class FrameworkHost:
                 attachment.pop("startError", None)
                 attachment.pop("maintenanceResume", None)
             except Exception as error:
+                attachment = self.store.get("attachment", attachment["key"]) or attachment
                 attachment["startError"] = str(error)
             self.store.put("attachment", attachment["key"], attachment)
         await self.bridge.restore()
@@ -224,11 +238,28 @@ class FrameworkHost:
         cli = await asyncio.to_thread(framework.configured_cli)
         key = app_key(cli.home, path, app_id)
         previous = self.store.get("attachment", key) or {}
+        connection = row.get("connection")
+        previous_connection = previous.get("connection") or {}
+        if connection and any(previous_connection.get(k) != connection.get(k) for k in ("credentialId", "principal")):
+            await self.connections.stop_pump(path)
+            for run in list(self.bridge.runs.values()):
+                if run["path"] == path:
+                    await self.bridge.terminate(run, "access_changed", settle=False)
+            if previous_connection.get("principal") != connection.get("principal"):
+                # A different account must not inherit this account's chat.
+                old_session = self.agent.session_manager.get(previous.get("sessionId"))
+                if old_session:
+                    old_session.agent_app_framework_key = None
+                    old_session.archived = True
+                    self.agent.session_manager.persist(old_session.id)
+                    self.store.delete("conversation", old_session.id)
+                previous = {"uiTheme": previous["uiTheme"]} if "uiTheme" in previous else {}
+                session_id = None
         # The app owns its side chat. Running an app command from Main or another
         # chat must never replace that conversation or move its messages there.
         # A creation owns its conversation before and throughout scaffolding.
         # Re-scaffolding can change the upstream ID without creating a new build.
-        builder = self._building_conversation(path, cli.home)
+        builder = None if row.get("connection") else self._building_conversation(path, cli.home)
         session = builder
         old_key = getattr(builder, "agent_app_framework_key", None)
         if builder and old_key != key:
@@ -247,6 +278,7 @@ class FrameworkHost:
                 agent_app_framework_key=key,
             )
         value = {
+            "autoStart": True,
             **previous,
             "key": key,
             "home": str(cli.home),
@@ -257,6 +289,11 @@ class FrameworkHost:
             "observedStatus": row.get("status"),
             "observedPort": row.get("port"),
         }
+        if row.get("connection"):
+            previous_connection = previous.get("connection") or {}
+            value.update(connection=row["connection"], autoStart=False, ownerToolsAllowed=False)
+            if previous_connection.get("credentialId") != row["connection"].get("credentialId"):
+                value["tasksAllowed"] = False
         creation = self.store.get("creation", session.id) or {}
         if "uiTheme" not in value and creation.get("uiTheme"):
             value["uiTheme"] = creation["uiTheme"]
@@ -358,11 +395,31 @@ class FrameworkHost:
             else ""
         )
 
+    async def disconnect(self, path, app_id):
+        from app.agent_app.framework_connections import is_connection
+        if not is_connection(path):
+            raise ValueError("Select a URL-connected app.")
+        await self.selected(path, app_id)
+        cli = await asyncio.to_thread(framework.configured_cli)
+        key = app_key(cli.home, path, app_id)
+        grant = self.store.get("attachment", key)
+        if grant:
+            await self.bridge.consent(path, app_id, False)
+        await self.connections.stop_pump(path)
+        result = await command("a2app", [path, "logout"])
+        if result["status"] != "success":
+            raise RuntimeError(result.get("stderr") or "The app could not be disconnected.")
+        await self.changed()
+        return {"status": "success", "data": {"ok": True, "removed": {"id": app_id, "path": path}}}
+
     async def workflow(
         self, activity, request, path=None, app_id=None, *, creation=None, parent_session_id=None
     ):
         if self.resetting:
             raise RuntimeError("Wait for the Agent Apps reset to finish.")
+        from app.agent_app.framework_connections import is_connection
+        if is_connection(path) and activity != "operate":
+            raise ValueError("Connected apps can be operated here; modify their code on their host.")
         activities = {
             "create": "creator",
             "modify": "modify",
@@ -397,7 +454,8 @@ class FrameworkHost:
                 "uiTheme": validate_ui_theme({"themeId": creation.get("uiTheme") or "craftbot"}),
             }
         cli = await asyncio.to_thread(framework.configured_cli)
-        if activity == "create":
+        new_app = activity in {"create", "import", "convert"} and not path
+        if new_app:
             path = str(cli.home / "apps" / f"craftbot-{uuid.uuid4().hex[:12]}")
         stamp = None
         if activity == "verify":
@@ -448,9 +506,9 @@ class FrameworkHost:
             session = self.agent.session_manager.get(attached["sessionId"])
         else:
             session = self.agent.session_manager.create_session(
-                session_type=SessionType.AGENT_APP if activity == "create" else SessionType.CHAT,
-                title=(creation or {}).get("name", "New app") if activity == "create" else f"Agent App: {activity}",
-                agent_app_framework_pending=activity == "create",
+                session_type=SessionType.AGENT_APP if new_app else SessionType.CHAT,
+                title=(creation or {}).get("name", "New app" if activity == "create" else "Imported app") if new_app else f"Agent App: {activity}",
+                agent_app_framework_pending=new_app,
             )
         if path:
             self.store.put(
@@ -463,7 +521,7 @@ class FrameworkHost:
                     "sessionId": session.id,
                 },
             )
-        if activity == "create":
+        if new_app:
             self.store.put("creation", session.id, {"path": path, **(creation or {}), "building": True})
         from app.triggers.service import TriggerSpec
         from app.triggers.sources import TriggerSource
@@ -475,6 +533,8 @@ class FrameworkHost:
             prompt += "The destination below is allocated but DOES NOT EXIST yet. Discover the blueprints and scaffold it with the existing CLI before following the creator workflow.\n"
             if creation:
                 prompt += "CraftBot binds the selected name and access mode to this destination's scaffold command. Use agent_app_command for scaffolding; do not replace the user's selections.\n"
+        elif new_app:
+            prompt += "The destination below is allocated but DOES NOT EXIST yet. Use it for adoption/conversion (or --into when installing) so this app keeps its current side chat. Follow the importer skill to choose the appropriate route with the user.\n"
         if path:
             prompt += context_note(path, app_id or "new app")
         await self.agent.trigger_service.emit(
@@ -719,6 +779,21 @@ class FrameworkHost:
     async def request(self, data):
         operation = data.get("operation")
 
+        if operation == "connect":
+            if self.resetting:
+                raise RuntimeError("Wait for the Agent Apps reset to finish.")
+            return await self.connections.start(data.get("url", ""))
+        if operation == "connect_status":
+            return self.connections.attempts.get(data.get("id"), {"status": "error", "error": "This connection attempt has ended. Try again."})
+        if operation == "connect_cancel":
+            return await self.connections.cancel(data.get("id"))
+        if operation == "disconnect":
+            return await self.disconnect(data["path"], data["appId"])
+        from app.agent_app.framework_connections import is_connection
+        remote = is_connection(data.get("path", ""))
+        if remote and operation in {"manage", "maintenance", "sharing", "backup_delete", "workflow"}:
+            raise ValueError("This app runs elsewhere. Manage its files and process on its host.")
+
         if operation == "snapshot":
             return await self.snapshot()
         if operation == "task_status":
@@ -744,6 +819,8 @@ class FrameworkHost:
             )
         if operation == "details":
             row = await self.selected(data["path"], data["appId"])
+            if row.get("connection"):
+                return {"capabilities": {"declared": {}}}
             manifest = json.loads(
                 await asyncio.to_thread(
                     (Path(row["path"]) / "manifest.json").read_text, encoding="utf-8"
@@ -776,6 +853,8 @@ class FrameworkHost:
         if operation == "attach":
             return await self.attach(data["path"], data["appId"])
         if operation == "preference":
+            if remote and any(name in data for name in ("autoStart", "logCleanup", "backupsEnabled", "backupInterval", "backupKeep")):
+                raise ValueError("Connected apps manage their own startup and backups.")
             attachment = await self.attach(data["path"], data["appId"])
             attachment = self.maintenance.patch(attachment, data)
             await self.changed()
@@ -920,6 +999,7 @@ class FrameworkHost:
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
+        await self.connections.close()
         if self.bridge:
             await self.bridge.close()
         if _host is self:

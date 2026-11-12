@@ -26,7 +26,7 @@ TARGET_PYTHON = tuple(int(v) for v in runtime_manifest.version("python").split("
 
 class NodeStage:
     name = "node"
-    description = "Node.js runtime"
+    description = "Node.js and npm (Agent Apps)"
     optional = False
 
     def check(self, ctx: Context) -> StageResult:
@@ -39,8 +39,13 @@ class NodeStage:
             )
         return StageResult(
             Status.SATISFIED,
-            f"{rt.version or '?'} ({rt.source})",
-            {"node": rt.node, "version": rt.version, "source": rt.source},
+            f"{rt.version} / npm {npm.stdout.strip()} ({rt.source})",
+            {
+                "node": rt.node,
+                "npm": rt.npm,
+                "version": rt.version,
+                "source": rt.source,
+            },
         )
 
     def apply(self, ctx: Context, log: LogFn) -> StageResult:
@@ -49,11 +54,7 @@ class NodeStage:
         rt = node_runtime.ensure_sidecar(log=log, offline=ctx.offline)
         if rt is None:
             return StageResult(Status.FAILED, "sidecar download failed")
-        return StageResult(
-            Status.SATISFIED,
-            f"{rt.version or '?'} ({rt.source})",
-            {"node": rt.node, "version": rt.version},
-        )
+        return self.check(ctx)
 
 
 class RipgrepStage:

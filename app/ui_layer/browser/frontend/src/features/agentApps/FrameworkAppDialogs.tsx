@@ -69,7 +69,7 @@ export function FrameworkAppDelete({ app, onClose, onDeleted }: {
     setError('')
     try {
       const result = await frameworkRequest<RemovalResult>({
-        operation: 'manage', path: app.path, appId: app.id, verb: missing || keepFiles ? 'forget' : 'remove', confirm: app.id, stopFirst: !missing,
+        operation: app.connection ? 'disconnect' : 'manage', path: app.path, appId: app.id, verb: missing || keepFiles ? 'forget' : 'remove', confirm: app.id, stopFirst: !missing,
         ...(keepFiles ? { keepFiles: true } : {}),
       }, 1_250_000)
       if (!keepFiles && !missing && result.data?.reason === 'no-canon') {
@@ -82,7 +82,7 @@ export function FrameworkAppDelete({ app, onClose, onDeleted }: {
         throw new Error(result.stderr?.trim() || t('registry.deleteFailed'))
       }
       removeIframe(frameworkFrameId(app.path, app.id))
-      showToast('success', t(keepFiles ? 'registry.unregistered' : 'registry.deleted', { name: app.name }))
+      showToast('success', app.connection ? `Disconnected ${app.name}` : t(keepFiles ? 'registry.unregistered' : 'registry.deleted', { name: app.name }))
       onDeleted()
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
@@ -92,17 +92,17 @@ export function FrameworkAppDelete({ app, onClose, onDeleted }: {
     }
   }
   return <div onMouseDown={event => event.stopPropagation()}>
-    <Modal isOpen onClose={onClose} closeDisabled={busy} title={t('page.deleteModalTitle')} size="sm">
+    <Modal isOpen onClose={onClose} closeDisabled={busy} title={app.connection ? 'Disconnect app' : t('page.deleteModalTitle')} size="sm">
       <ModalBody className={confirmStyles.body}>
         <div className={confirmStyles.warningIcon}><AlertTriangle size={24} /></div>
-        <p className={confirmStyles.message}>{keepFiles ? t('registry.keepFilesMessage', { name: app.name }) : missing ? t('registry.forgetMessage', { name: app.name }) : t('registry.deleteMessage', { name: app.name })}</p>
+        <p className={confirmStyles.message}>{app.connection ? `Disconnect ${app.name} from CraftBot? The app and its data will stay on its host.` : keepFiles ? t('registry.keepFilesMessage', { name: app.name }) : missing ? t('registry.forgetMessage', { name: app.name }) : t('registry.deleteMessage', { name: app.name })}</p>
         {!connected && <p role="status">{t('registry.disconnected')}</p>}
         {error && <p role="alert" className={confirmStyles.message}>{error}</p>}
       </ModalBody>
       <ModalFooter>
         <Button variant="secondary" disabled={busy} onClick={onClose}>{t('common:actions.cancel')}</Button>
         <Button variant="danger" loading={busy} disabled={!allowed || busy} onClick={() => void remove()}>
-          {t(busy ? 'registry.deleting' : keepFiles ? 'registry.removeFromList' : 'common:actions.delete')}
+          {app.connection ? (busy ? 'Disconnecting...' : 'Disconnect') : t(busy ? 'registry.deleting' : keepFiles ? 'registry.removeFromList' : 'common:actions.delete')}
         </Button>
       </ModalFooter>
     </Modal>

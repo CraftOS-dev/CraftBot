@@ -50,7 +50,7 @@ def main() -> int:
     ap.add_argument(
         "--skip-deps",
         action="store_true",
-        help="skip the dependency install (fast structural check only)",
+        help="skip Python dependencies (still provisions Node and the framework)",
     )
     args = ap.parse_args()
 
@@ -89,6 +89,7 @@ def main() -> int:
         env = dict(os.environ)
         env["CRAFTBOT_HOME"] = str(state_dir)
         env["PYTHONPATH"] = str(src_root)
+        env["A2APP_HOME"] = str(workdir / "a2app")
 
         print("\n== 3. Verify path resolution inside the install")
         res = _run([sys.executable, "-m", "app.paths"], cwd=src_root, env=env)
@@ -130,6 +131,10 @@ def main() -> int:
         required = [
             "run.py",
             "app/provision/__init__.py",
+            "app/provision/agent_app_framework.py",
+            "app/vendor/agent-app/source.json",
+            "app/vendor/agent-app/agent-app-framework.zip",
+            "app/data/default_agent_app/kanban-board.zip",
             "app/data/action/read_pdf.py",
             "craftos_integrations/providers/whatsapp_web/bridge.js",
             "craftos_integrations/providers/gmail/INTEGRATION.md",
@@ -150,8 +155,30 @@ def main() -> int:
             print("   FAIL: no lock in the payload")
             ok = False
 
+        # This uses only the stdlib and Node: even the fast payload check must
+        # prove that both shipped CLIs and their bundled dependencies work in a
+        # fresh managed state directory, not just exist in the ZIP.
+        print("\n== 4b. Provision and verify Agent-App and A2App")
+        framework_check = _run(
+            [
+                sys.executable,
+                "-c",
+                "import sys;from app import provision;"
+                "from app.provision.runtimes import NodeStage;"
+                "from app.provision.agent_app_framework import AgentAppFrameworkStage;"
+                "r=provision.install(stages=[NodeStage(),AgentAppFrameworkStage()],log=print);"
+                "print(provision.format_report(r));sys.exit(0 if r.ok else 1)",
+            ],
+            cwd=src_root,
+            env=env,
+        )
+        print(framework_check.stdout[-4000:])
+        if framework_check.returncode:
+            print("   FAIL: framework provisioning", framework_check.stderr[-2000:])
+            ok = False
+
         if args.skip_deps:
-            print("\n== 5. Provisioning SKIPPED (--skip-deps)")
+            print("\n== 5. Python dependency provisioning SKIPPED (--skip-deps)")
         else:
             # A fresh venv, not this interpreter. Provisioning into the
             # developer's own site-packages would report success because

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Sparkles, Download, ArrowRight, Loader2, Package, Store, FolderInput, Upload, Search } from 'lucide-react'
+import { Sparkles, Download, ArrowRight, Loader2, Package, Store, FolderInput, Upload, Search, Link } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Button } from './Button'
 import { Modal } from './Modal'
@@ -13,6 +13,7 @@ import { frameworkRequest } from '../../features/agentApps/frameworkApi'
 import { useFrameworkCreation } from '../../features/agentApps/useFrameworkCreation'
 import { frameworkRoute } from '../../features/agentApps/frameworkIdentity'
 import { useAppSelector } from '../../store/hooks'
+import { ConnectAgentApp } from '../../features/agentApps/ConnectAgentApp'
 
 // The modal's tabs, in the order the guided tour walks them.
 const TAB_TOUR_ANCHORS: Record<'marketplace' | 'custom' | 'import', TourAnchorId> = {
@@ -40,7 +41,7 @@ interface MarketplaceApp {
 
 export function CreateAgentAppModal({ isOpen, onClose, onInstalled }: CreateAgentAppModalProps) {
   const { t } = useTranslation(['components', 'common'])
-  const [activeTab, setActiveTab] = useState<'marketplace' | 'custom' | 'import'>('marketplace')
+  const [activeTab, setActiveTab] = useState<'marketplace' | 'custom' | 'import' | 'connect'>('marketplace')
   const native = useFrameworkCreation(onClose)
   const navigate = useNavigate()
   const registryApps = useAppSelector(state => state.agentApp.framework.apps)
@@ -108,6 +109,10 @@ export function CreateAgentAppModal({ isOpen, onClose, onInstalled }: CreateAgen
   // Upload ZIP, then install the staged package through Agent-App.
   const handleZipUpload = async (file: File) => {
     if (!isConnected || importing) return
+    if (file.size > 512 * 1024 * 1024) {
+      setImportError('Agent-App packages must be 512 MiB or smaller. Export the app without dependencies, build output or local data, then upload it again.')
+      return
+    }
     setImporting(true)
     setImportError(null)
     try {
@@ -252,6 +257,7 @@ export function CreateAgentAppModal({ isOpen, onClose, onInstalled }: CreateAgen
     { id: 'marketplace' as const, label: t('components:createAgentApp.tabMarketplace'), icon: <Store size={14} /> },
     { id: 'custom' as const, label: t('components:createAgentApp.tabCustom'), icon: <Sparkles size={14} /> },
     { id: 'import' as const, label: t('components:createAgentApp.tabImport'), icon: <FolderInput size={14} /> },
+    { id: 'connect' as const, label: 'Connect', icon: <Link size={14} /> },
   ]
 
   return (
@@ -274,7 +280,7 @@ export function CreateAgentAppModal({ isOpen, onClose, onInstalled }: CreateAgen
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
               className={`${styles.tab} ${activeTab === tab.id ? styles.tabActive : ''}`}
-              {...tourAnchorProps(TAB_TOUR_ANCHORS[tab.id])}
+              {...(tab.id === 'connect' ? {} : tourAnchorProps(TAB_TOUR_ANCHORS[tab.id]))}
             >
               {tab.icon}
               {tab.label}
@@ -412,6 +418,8 @@ export function CreateAgentAppModal({ isOpen, onClose, onInstalled }: CreateAgen
             disabled={!isConnected}
           />
         )}
+
+        {activeTab === 'connect' && <ConnectAgentApp onClose={onClose} />}
 
         {/* Import Tab — URL/path + ZIP upload */}
         {activeTab === 'import' && (

@@ -1814,8 +1814,7 @@ if __name__ == "__main__":
         # Only a required stage is fatal. An optional one (Playwright, the
         # WhatsApp bridge) degrades a feature; taking the whole install down
         # for it would be worse than starting without it.
-        _required_failed = [name for name, _ in _report.required_failures]
-        if _required_failed:
+        if _report.required_failures:
             sys.exit(1)
 
     # Step 2: Install GUI components (optional)

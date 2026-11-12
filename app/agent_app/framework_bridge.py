@@ -190,11 +190,19 @@ class FrameworkBridge:
                 }
                 await asyncio.to_thread(register_profile, cli.home, profile)
                 self.store.put("endpoint", str(cli.home), {"port": port})
+                self.endpoint = f"http://127.0.0.1:{port}/tasks"
             except BaseException:
                 await runner.cleanup()
                 raise
             self.runner = runner
             self.http = ClientSession(timeout=ClientTimeout(total=8), trust_env=False)
+
+    async def revision(self, path, app_id):
+        from app.agent_app.framework_connections import is_connection, connection_revision
+        if is_connection(path):
+            cli = await asyncio.to_thread(framework.configured_cli)
+            return await connection_revision(cli, path, app_id)
+        return await asyncio.to_thread(capability_fingerprint, path)
 
     async def request_status(self, path, app_id):
         row = await self.host.selected(path, app_id)
@@ -204,7 +212,12 @@ class FrameworkBridge:
             grant = await self.host.attach(path, app_id)
         if row.get("status") != "running":
             return {"permissionRequired": False, "needsReview": False, "error": grant.get("bridgeError")}
-        revision = await asyncio.to_thread(capability_fingerprint, path)
+        try:
+            revision = await self.revision(path, app_id)
+        except PermissionError as error:
+            if not row.get("connection"):
+                raise
+            return {"permissionRequired": False, "needsReview": False, "error": str(error)}
         allowed = grant.get("tasksAllowed") is True and grant.get("capabilityFingerprint") == revision
         waiting = await pending_tasks(cli, path, app_id)
         blocked = grant.get("blockedTask")
@@ -227,7 +240,7 @@ class FrameworkBridge:
         key = (asyncio.get_running_loop(), canonical)
         lock = framework._lifecycle_locks.setdefault(key, asyncio.Lock())
         async with lock:
-            if allow and revision and revision != await asyncio.to_thread(capability_fingerprint, path):
+            if allow and revision and revision != await self.revision(path, app_id):
                 raise ValueError("The app changed. Review its requests again.")
             result = await self._consent(path, app_id, allow, owner_tools, revision)
             if review_id:
@@ -254,6 +267,21 @@ class FrameworkBridge:
                     await self.terminate(run, "consent_revoked", settle=False)
         await self.start()
         cli = await asyncio.to_thread(framework.configured_cli)
+        if attachment.get("connection"):
+            await self.host.connections.stop_pump(path)
+            if allow:
+                fingerprint = await self.revision(path, app_id)
+                if revision and revision != fingerprint:
+                    raise ValueError("The app changed. Review its requests again.")
+                attachment = self.store.get("attachment", key) or attachment
+                attachment.update(tasksAllowed=True, ownerToolsAllowed=False, capabilityFingerprint=fingerprint)
+            attachment.pop("bridgeError", None)
+            attachment.pop("blockedTask", None)
+            self.store.put("attachment", key, attachment)
+            if allow:
+                await self.host.connections.start_pump(path, app_id)
+            await self.host.changed()
+            return attachment
         status = await cli.run(
             "agent-app",
             [path, "bridge", "status", "--harness", self.profile_id],
@@ -290,6 +318,9 @@ class FrameworkBridge:
             fingerprint = await asyncio.to_thread(capability_fingerprint, path)
             if revision and revision != fingerprint:
                 raise ValueError("The app changed. Review its requests again.")
+            # Theme/startup choices can change while the CLI checks/stops the
+            # bridge. Never save the earlier attachment over those preferences.
+            attachment = self.store.get("attachment", key) or attachment
             attachment.update(
                 tasksAllowed=True,
                 ownerToolsAllowed=(owner_tools is True)
@@ -309,6 +340,7 @@ class FrameworkBridge:
             if row.get("status") != "running":
                 # Permissions can be saved while stopped. The lifecycle hook
                 # reconnects the bridge when the person starts the app.
+                attachment = self.store.get("attachment", key) or attachment
                 attachment.pop("bridgeError", None)
                 self.store.put("attachment", attachment["key"], attachment)
                 await self.host.changed()
@@ -320,6 +352,7 @@ class FrameworkBridge:
                 timeout=35,
                 env_extra={TOKEN_ENV: self.token},
             )
+            attachment = self.store.get("attachment", key) or attachment
             if not result.ok:
                 attachment["bridgeError"] = (
                     result.stderr or "Agent-App could not start the task bridge."
@@ -333,6 +366,7 @@ class FrameworkBridge:
             self.store.put("attachment", attachment["key"], attachment)
             self.owned_paths.add(path)
         else:
+            attachment = self.store.get("attachment", key) or attachment
             attachment.pop("bridgeError", None)
             self.store.put("attachment", attachment["key"], attachment)
         await self.host.changed()
@@ -344,21 +378,25 @@ class FrameworkBridge:
             if grant.get("home") != str(cli.home) or not grant.get("tasksAllowed"):
                 continue
             try:
+                if grant.get("connection"):
+                    await self.start()
+                    await self.host.connections.start_pump(grant["path"], grant["appId"])
+                    continue
                 row = await self.host.selected(grant["path"], grant["appId"])
                 if row.get("status") != "running":
                     # A saved grant is a preference, not a request to launch an
                     # app. Start reconnects the bridge through lifecycle_changed.
+                    grant = self.store.get("attachment", grant["key"]) or grant
                     grant.pop("bridgeError", None)
                     self.store.put("attachment", grant["key"], grant)
                     continue
-                if grant.get("capabilityFingerprint") != await asyncio.to_thread(
-                    capability_fingerprint, grant["path"]
-                ):
+                if grant.get("capabilityFingerprint") != await self.revision(grant["path"], grant["appId"]):
                     raise ValueError(
                         "The app changed. Review app task permissions again."
                     )
                 await self.consent(grant["path"], grant["appId"], True)
             except Exception as exc:
+                grant = self.store.get("attachment", grant["key"]) or grant
                 grant["bridgeError"] = str(exc)
                 self.store.put("attachment", grant["key"], grant)
 
@@ -383,6 +421,7 @@ class FrameworkBridge:
                         await self.terminate(run, "app_stopped", settle=False)
                 await self._stop_owned_bridge(cli, path)
         except Exception as exc:
+            grant = self.store.get("attachment", grant["key"]) or grant
             grant["bridgeError"] = str(exc)
             self.store.put("attachment", grant["key"], grant)
 
@@ -484,7 +523,7 @@ class FrameworkBridge:
         grant = self.store.get("attachment", key) or {}
         if not grant.get("tasksAllowed") or grant.get(
             "capabilityFingerprint"
-        ) != await asyncio.to_thread(capability_fingerprint, row["path"]):
+        ) != await self.revision(row["path"], row["id"]):
             raise DeliveryError("This app needs permission to send requests to CraftBot. Review its requests and try again.", "consent_required")
         if (
             row.get("status") != "running"
@@ -495,15 +534,15 @@ class FrameworkBridge:
             raise ValueError("The live task identity or claim is invalid.")
         # Never resolve a directory for delegated operations: a dev record would
         # silently select a different database. Pin the live control address.
-        target = f"http://127.0.0.1:{int(row['port'])}"
+        target = row["path"] if row.get("connection") else f"http://127.0.0.1:{int(row['port'])}"
         identity = await self.http_json(target, "/api/_a2app", "")
         if identity.get("app", {}).get("id") != row["id"]:
             raise ValueError("A different app is answering.")
         token = (body.get("credential") or {}).get("token")
         local_owner = not token and identity.get("protocol") == "0.1"
         if local_owner:
-            manifest = json.loads((Path(row["path"]) / "manifest.json").read_text(encoding="utf-8"))
-            if (manifest.get("authMode") != "none"
+            manifest = {} if row.get("connection") else json.loads((Path(row["path"]) / "manifest.json").read_text(encoding="utf-8"))
+            if not row.get("connection") and (manifest.get("authMode") != "none"
                     or task["request"].get("principal") not in (None, "owner")
                     or task["claim"].get("principal") != "owner"):
                 raise DeliveryError("This app needs task-scoped credentials for requests from signed-in users. Update the app before trying again.")
@@ -545,10 +584,10 @@ class FrameworkBridge:
         # Only the local owner principal can opt into host tools. A member's
         # app credential never inherits the owner's workspace authority.
         owner_tools = (
-            grant.get("ownerToolsAllowed") is True and who["principal"] == "owner"
+            not row.get("connection") and grant.get("ownerToolsAllowed") is True and who["principal"] == "owner"
         )
         extra_actions = WORKSPACE_ACTIONS if owner_tools else frozenset()
-        if who["principal"] == "owner":
+        if (not row.get("connection") and who["principal"] == "owner") or who["principal"] == (row.get("connection") or {}).get("principal"):
             # The local app's requests belong to its existing side chat, just
             # like messages typed there. Authority belongs to a task/turn, not
             # to the conversation: normal chat must retain its usual tools.
@@ -562,7 +601,7 @@ class FrameworkBridge:
                 isolated_app_task=True,
                 app_task_actions=sorted(extra_actions),
             )
-        authority = TaskAuthority(target, task["id"], token)
+        authority = TaskAuthority(target, task["id"], token, app_id=row["id"])
         authority.allowed_actions = authority.allowed_actions | extra_actions
         run = {
             "key": receipt_key,
@@ -673,7 +712,7 @@ class FrameworkBridge:
             raise PermissionError("The app's workspace permission changed.")
         if not grant.get("tasksAllowed") or grant.get(
             "capabilityFingerprint"
-        ) != await asyncio.to_thread(capability_fingerprint, run["path"]):
+        ) != await self.revision(run["path"], run["appId"]):
             raise PermissionError("The app's grant changed.")
         identity = await self.http_json(authority.target, "/api/_a2app", "")
         if identity.get("app", {}).get("id") != run["appId"]:

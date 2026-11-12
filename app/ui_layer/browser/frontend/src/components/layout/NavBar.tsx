@@ -136,12 +136,11 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
   const frameworkSessionIds = useAppSelector(selectFrameworkAppSessionIds)
   const pendingFrameworkApps = useAppSelector(selectPendingFrameworkApps)
   const frameworkEmpty = framework.status === 'success' && !framework.warning
-    && framework.apps.length === 0 && framework.connected.length === 0 && pendingFrameworkApps.length === 0
+    && framework.apps.length === 0 && pendingFrameworkApps.length === 0
   const sidebarApps = useMemo(() => applySavedOrder<SidebarAppEntry>([
     ...framework.apps.map(app => ({ kind: 'framework' as const, id: frameworkKey(app.path, app.id), app })),
-    ...framework.connected.map(app => ({ kind: 'connected' as const, id: `connected:${JSON.stringify([app.origin, app.credentialId])}`, app })),
     ...pendingFrameworkApps.map(session => ({ kind: 'pending' as const, id: `pending:${session.id}`, session })),
-  ], agentAppOrder, entry => entry.id, 'last'), [framework.apps, framework.connected, pendingFrameworkApps, agentAppOrder])
+  ], agentAppOrder, entry => entry.id, 'last'), [framework.apps, pendingFrameworkApps, agentAppOrder])
   const skillMeta = useAppSelector(selectSkillMeta)
   const [lastSeenBySession] = usePersistedState(UI_STATE.chat.lastSeenMessageIds)
   const { theme } = useTheme()

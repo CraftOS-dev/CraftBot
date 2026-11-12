@@ -26,10 +26,11 @@ const errors = {
 } as const
 const NO_BUILD_EVENTS: AgentAppBuildEvent[] = []
 
-function usableFrameUrl(value: string): string | null {
+function usableFrameUrl(value: string, remoteOrigin?: string): string | null {
   try {
     const url = new URL(frameUrl(value))
-    if (url.protocol !== 'http:' || !['127.0.0.1', 'localhost'].includes(url.hostname)
+    if (!(remoteOrigin ? ['http:', 'https:'].includes(url.protocol) && url.origin === new URL(frameUrl(remoteOrigin)).origin
+      : url.protocol === 'http:' && ['127.0.0.1', 'localhost'].includes(url.hostname))
       || url.username || url.password || url.origin === window.location.origin) return null
     return url.toString()
   } catch { return null }
@@ -95,7 +96,7 @@ export function FrameworkView({ path, appId, blocked = false, moving = false }: 
 
   const current = response.requestId !== null && response.requestId === request.current
   const code = !path || !appId ? 'not_registered' : current && response.status === 'error' ? response.code : null
-  const url = view ? usableFrameUrl(view.url) : null
+  const url = view ? usableFrameUrl(view.url, app?.connection?.origin) : null
   const invalid = view !== null && url === null
   const message = invalid ? t('registry.view.unreachable')
     : code ? t(errors[code as keyof typeof errors] || 'registry.view.failed') : null
@@ -103,7 +104,7 @@ export function FrameworkView({ path, appId, blocked = false, moving = false }: 
   const retry = () => { removeIframe(frameworkFrameId(path, appId)); lastView.current = null; dispatch(invalidateFrameworkView({ path, appId })); setFrameAttempt(value => value + 1); setAttempt(value => value + 1) }
 
   return <section className={surface.surface} aria-label={t('registry.view.title')} style={blocked ? { pointerEvents: 'none' } : undefined}>
-    <FrameworkRequestFeedback name={name} state={requests} />
+    <FrameworkRequestFeedback name={name} state={requests} remote={!!app?.connection} />
     {view && !connected && <div className={styles.connectionNotice} role="status">{t('registry.disconnected')}</div>}
     {url && !message ? <FrameworkFrame key={`${url}:${frameAttempt}`} id={frameworkFrameId(path, appId)} url={url} name={name} blocked={blocked || requests.open} moving={moving} retry={retry} />
       : <div className={surface.state} role={message ? 'alert' : 'status'}>

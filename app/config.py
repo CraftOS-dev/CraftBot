@@ -635,8 +635,8 @@ def set_mini_browser_setting(key: str, value: Any) -> None:
 def get_marketplace_ref() -> Optional[str]:
     """Branch the Agent App marketplace is read from, or None for the default.
 
-    Set agent_app.marketplace_ref in settings.json to test a marketplace
-    branch; CRAFTBOT_MARKETPLACE_REF overrides it for one-off runs.
+    Set agent_app.marketplace_ref in settings.json to use another marketplace
+    branch. When unset, the marketplace uses main.
     """
     settings = get_settings()
     ref = settings.get("agent_app", {}).get("marketplace_ref")

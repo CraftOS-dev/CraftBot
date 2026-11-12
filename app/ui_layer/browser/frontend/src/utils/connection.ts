@@ -4,13 +4,12 @@
  * In development (Vite dev server), the proxy forwards /ws to the backend,
  * so we use window.location.host.
  *
- * In production (static server from PyInstaller binary), the frontend is
- * served on a different port than the backend. VITE_BACKEND_PORT is baked
- * in at build time so the frontend knows where to connect directly.
+ * The static server supplies its backend port in the HTML at request time.
+ * Vite and pages served by the backend itself use their same-origin /ws.
  */
 export function getWsUrl(): string {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  const backendPort = import.meta.env.VITE_BACKEND_PORT
+  const backendPort = document.querySelector<HTMLMetaElement>('meta[name="craftbot-backend-port"]')?.content
   if (backendPort && backendPort !== window.location.port) {
     // Connect directly to backend port
     return `${protocol}//${window.location.hostname}:${backendPort}/ws`
@@ -38,7 +37,7 @@ export async function getWsProtocols(): Promise<string[]> {
  * Resolve the base URL for API requests to the backend.
  */
 export function getApiBaseUrl(): string {
-  const backendPort = import.meta.env.VITE_BACKEND_PORT
+  const backendPort = document.querySelector<HTMLMetaElement>('meta[name="craftbot-backend-port"]')?.content
   if (backendPort && backendPort !== window.location.port) {
     return `${window.location.protocol}//${window.location.hostname}:${backendPort}`
   }

@@ -6,7 +6,7 @@
  */
 
 import i18n from '../../i18n/config'
-import { buildThemeMessage, DEFAULT_CUSTOM_COLORS, type AgentAppTheme } from '../../pages/AgentApp/themeCatalog'
+import { buildThemeMessage, DEFAULT_CUSTOM_COLORS, type AgentAppTheme, type LegacyThemeSupport } from '../../pages/AgentApp/themeCatalog'
 
 const MAX_POOL_SIZE = 5
 export const APP_FRAME_PERMISSIONS = 'microphone; camera; display-capture; clipboard-read; clipboard-write; fullscreen'
@@ -19,19 +19,24 @@ const owners = new Map<string, symbol>()
 const listeners = new Set<() => void>()
 let themeMode: 'light' | 'dark' = 'dark'
 let themes = new Map<string, AgentAppTheme>()
+let legacyThemes = new Map<string, LegacyThemeSupport | undefined>()
 
 function sendTheme(id: string) {
   const frame = pool.get(id)
   const theme = themes.get(id)
   if (!frame?.contentWindow || !theme) return
   // Target the embedded app's exact origin, never a wildcard or another tab.
-  frame.contentWindow.postMessage(buildThemeMessage(theme.themeId, themeMode, theme.customColors || DEFAULT_CUSTOM_COLORS), new URL(frame.src).origin)
+  const legacy = legacyThemes.get(id)
+  const origin = new URL(frame.src).origin
+  if (legacy) frame.contentWindow.postMessage({ type: 'craftbot-theme', theme: themeMode }, origin)
+  frame.contentWindow.postMessage(buildThemeMessage(theme.themeId, themeMode, theme.customColors || DEFAULT_CUSTOM_COLORS, legacy), origin)
 }
 
 /** Also updates parked frames: switching apps must not restore an old mode. */
-export function syncFrameworkThemes(mode: 'light' | 'dark', apps: { path: string; id: string; uiTheme?: AgentAppTheme | null }[]) {
+export function syncFrameworkThemes(mode: 'light' | 'dark', apps: { path: string; id: string; uiTheme?: AgentAppTheme | null; themeSupport?: LegacyThemeSupport }[]) {
   themeMode = mode
   themes = new Map(apps.map(app => [frameworkFrameId(app.path, app.id), app.uiTheme || { themeId: 'craftbot' }]))
+  legacyThemes = new Map(apps.map(app => [frameworkFrameId(app.path, app.id), app.themeSupport]))
   for (const id of pool.keys()) sendTheme(id)
 }
 

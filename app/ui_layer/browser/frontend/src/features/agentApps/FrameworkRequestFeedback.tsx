@@ -56,7 +56,7 @@ export function useFrameworkRequests(path: string, appId: string, enabled: boole
   return { status, error, busy, choose, review: () => setReview(true), open: enabled && !!status?.permissionRequired && (review || status.needsReview) }
 }
 
-export function FrameworkRequestFeedback({ name, state }: { name: string; state: ReturnType<typeof useFrameworkRequests> }) {
+export function FrameworkRequestFeedback({ name, state, remote = false }: { name: string; state: ReturnType<typeof useFrameworkRequests>; remote?: boolean }) {
   const { t } = useTranslation('agentapp')
   const { status, error, busy, choose, open } = state
   return <>
@@ -72,7 +72,7 @@ export function FrameworkRequestFeedback({ name, state }: { name: string; state:
         <ul className={styles.list}>{status?.requests?.map(request => <li key={request} className={styles.item}>
           <MessageSquareText size={16} className={styles.icon} aria-hidden /><span className={styles.label}>{request.replace(/_/g, ' ')}</span>
         </li>)}</ul>
-        <p className={styles.intro}>{t('registry.requests.scope')}</p>
+        <p className={styles.intro}>{remote ? 'CraftBot can use this app within your approved access. App requests cannot access local files or run commands on your computer.' : t('registry.requests.scope')}</p>
         {error && <p role="alert" className={styles.error}>{error}</p>}
       </ModalBody>
       <ModalFooter>

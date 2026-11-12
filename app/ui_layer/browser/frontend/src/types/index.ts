@@ -896,8 +896,10 @@ export interface FrameworkRegistryApp {
   path: string
   status: 'running' | 'stopped' | 'missing' | 'unreachable'
   port?: number
+  connection?: FrameworkConnectedApp
   marketplace?: { id: string; location: string; ref?: string }
   uiTheme?: import('../pages/AgentApp/themeCatalog').AgentAppTheme | null
+  themeSupport?: import('../pages/AgentApp/themeCatalog').LegacyThemeSupport
 }
 
 export interface FrameworkConnectedApp {
@@ -906,6 +908,8 @@ export interface FrameworkConnectedApp {
   origin: string
   credentialId: string | null
   principalName: string | null
+  principal: string
+  expiresAt?: string
   status: 'online' | 'offline' | 'unreachable' | 'expired'
 }
 

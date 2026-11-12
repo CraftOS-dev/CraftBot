@@ -16,7 +16,7 @@ export function FrameworkAppControls({ app, menu = false, compact = false }: { a
   const job = useAppSelector(state => state.agentApp.frameworkLifecycle[frameworkAppKey(app.path, app.id)])
   const busy = job?.status === 'running'
   const operation = busy ? job.operation : app.status === 'running' ? 'stop' : 'start'
-  const supported = app.status === 'running' || app.status === 'stopped'
+  const supported = !app.connection && (app.status === 'running' || app.status === 'stopped')
   const act = () => {
     if (!connected || !fresh || busy || !supported) return
     const request = { requestId: crypto.randomUUID(), path: app.path, appId: app.id, operation }

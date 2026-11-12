@@ -14,7 +14,7 @@ interface AppDetails {
 }
 interface CommandResult { status: string; stderr?: string; data?: { ok?: boolean; file?: string; path?: string; url?: string; backup?: string } }
 
-export function useFrameworkAppSettings(path: string, appId: string, expanded: boolean, status: FrameworkRegistryApp['status']) {
+export function useFrameworkAppSettings(path: string, appId: string, expanded: boolean, status: FrameworkRegistryApp['status'], remote = false) {
   const connected = useAppSelector(s => s.connection.connected)
   const [attachment, setAttachment] = useState<FrameworkAttachment>()
   const [loaded, setLoaded] = useState(false)
@@ -36,13 +36,14 @@ export function useFrameworkAppSettings(path: string, appId: string, expanded: b
       if (active) { setAttachment(value.attachments.find(a => a.path === path && a.appId === appId)); setLoaded(true) }
     }).catch(e => { if (active) setError(String(e)) })
     void frameworkRequest<AppDetails>({ operation: 'details', path, appId }).then(value => { if (active) setDetails(value) }).catch(e => { if (active) setError(String(e)) })
+    if (remote) return () => { active = false }
     const refresh = () => frameworkRequest<MaintenanceInfo>({ operation: 'maintenance', path, appId }).then(value => { if (active) { setMaintenance(value); setMaintenanceError('') } }).catch(e => { if (active) setMaintenanceError(String(e)) })
     void refresh()
     const timer = window.setInterval(() => { if (!pending.current) void refresh() }, 30_000)
     return () => { active = false; window.clearInterval(timer) }
-  }, [path, appId, connected, expanded])
+  }, [path, appId, connected, expanded, remote])
   useEffect(() => {
-    if (!connected || !expanded) return
+    if (!connected || !expanded || remote) return
     let active = true
     const refresh = () => {
       const version = actionVersion.current
@@ -53,7 +54,7 @@ export function useFrameworkAppSettings(path: string, appId: string, expanded: b
     void refresh()
     const timer = window.setInterval(() => { if (!pending.current) void refresh() }, 30_000)
     return () => { active = false; window.clearInterval(timer) }
-  }, [path, appId, connected, expanded, status])
+  }, [path, appId, connected, expanded, status, remote])
   const act = async (fn: () => Promise<unknown>) => {
     if (!connected || pending.current) return
     pending.current = true; actionVersion.current++; setBusy(true); setError(''); setNotice('')
@@ -91,13 +92,13 @@ export function FrameworkAppActions({ app, settings }: { app: FrameworkRegistryA
   const declaredRequests = Object.entries(details?.capabilities.declared || {})
   const resultValue = notice && (output?.data?.file || output?.data?.url || output?.data?.path)
   return <>
-    <AppSettingsSection title={t('settings:agentApp.preferences')}>
+    {!app.connection && <AppSettingsSection title={t('settings:agentApp.preferences')}>
       <AppSettingsToggle label={t('settings:agentApp.autoLaunchLabel')} description={t('settings:agentApp.autoLaunchDesc')}
-        checked={attachment?.autoStart === true} disabled={disabled || !loaded} onChange={value => void settings.autoStart(value)} />
+        checked={attachment?.autoStart !== false} disabled={disabled || !loaded} onChange={value => void settings.autoStart(value)} />
       <AppSettingsToggle label={t('settings:agentApp.logCleanupLabel')} description={t('settings:agentApp.logCleanupDesc')}
         checked={attachment?.logCleanup === true} disabled={disabled || !loaded} divider onChange={value => void settings.preference('logCleanup', value)} />
       {attachment?.startError && <p role="alert" style={{ ...appSettingHintStyle, color: 'var(--color-error)' }}>{attachment.startError}</p>}
-    </AppSettingsSection>
+    </AppSettingsSection>}
     <AppSettingsSection title={t('agentapp:triggerConsent.settingsTitle')}>
       <AppSettingsToggle label={t('agentapp:triggerConsent.settingsLabel')}
         checked={attachment?.tasksAllowed === true} disabled={disabled || !loaded || !details}
@@ -109,12 +110,12 @@ export function FrameworkAppActions({ app, settings }: { app: FrameworkRegistryA
       {requestsOpen && !declaredRequests.length && <p style={appSettingHintStyle}>{t('agentapp:triggerConsent.runtimeRequests')}</p>}
       {requestsOpen && declaredRequests.length > 0 && <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>{declaredRequests.map(([name, capability]) =>
         <li key={name} style={{ ...appSettingRowStyle, borderTop: '1px solid var(--border-primary)', justifyContent: 'flex-start' }}><MessageSquareText size={14} /><span style={{ fontSize: 'var(--text-sm)' }}>{capability?.description || name}</span></li>)}</ul>}
-      <AppSettingsToggle label="Owner access to local tools" description="Allow the app owner to read and write local files and run commands with CraftBot's permissions."
+      {!app.connection && <AppSettingsToggle label="Owner access to local tools" description="Allow the app owner to read and write local files and run commands with CraftBot's permissions."
         checked={attachment?.ownerToolsAllowed === true} disabled={disabled || !loaded || !details || !attachment?.tasksAllowed} divider
-        onChange={allow => void settings.consent(true, allow)} />
+        onChange={allow => void settings.consent(true, allow)} />}
       {attachment?.bridgeError && <p role="alert" style={{ ...appSettingHintStyle, color: 'var(--color-error)' }}>{attachment.bridgeError}</p>}
     </AppSettingsSection>
-    <FrameworkMaintenanceControls app={app} settings={settings} />
+    {!app.connection && <FrameworkMaintenanceControls app={app} settings={settings} />}
     {(error || notice) && <div style={{ padding: 'var(--space-3)', borderTop: '1px solid var(--border-primary)' }}>
       <p role={error ? 'alert' : 'status'} style={{ ...appSettingHintStyle, color: error ? 'var(--color-error)' : 'var(--color-success)' }}>{error || notice}</p>
       {resultValue && <div style={{ ...appSettingRowStyle, gap: 'var(--space-2)' }}>

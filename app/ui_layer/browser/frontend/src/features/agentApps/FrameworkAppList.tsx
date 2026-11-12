@@ -6,7 +6,7 @@ import { useWebSocket } from '../../contexts/WebSocketContext'
 import { SidebarPopover } from '../../components/layout/SidebarPopover'
 import { useAppSelector } from '../../store/hooks'
 import { frameworkAppKey } from '../../store/slices/agentAppSlice'
-import type { FrameworkRegistryApp, FrameworkConnectedApp, SessionInfo } from '../../types'
+import type { FrameworkRegistryApp, SessionInfo } from '../../types'
 import type { useSortableList } from '../../hooks'
 import { FrameworkAppControls, FrameworkAppFeedback } from './FrameworkAppControls'
 import { FrameworkAppDelete, FrameworkAppTheme } from './FrameworkAppDialogs'
@@ -16,7 +16,6 @@ import styles from './FrameworkAppList.module.css'
 
 export type SidebarAppEntry =
   | { kind: 'framework'; id: string; app: FrameworkRegistryApp }
-  | { kind: 'connected'; id: string; app: FrameworkConnectedApp }
   | { kind: 'pending'; id: string; session: SessionInfo }
 
 /** Registry apps and pending builds share the existing sidebar layout. */
@@ -82,7 +81,7 @@ export function FrameworkAppList({ entries, renderPending, renderSessionDot, sor
   const hasApps = entries.length > 0
   if (!hasApps && snapshot.status === 'success' && !snapshot.warning && !dialog) return null
   const stale = !connected || snapshot.status !== 'success'
-  const statusLabel = (status: FrameworkRegistryApp['status'] | FrameworkConnectedApp['status']) => {
+  const statusLabel = (status: FrameworkRegistryApp['status']) => {
     const label = t(`registry.status.${status}`)
     return stale ? t('registry.lastKnown', { status: label }) : label
   }
@@ -100,17 +99,6 @@ export function FrameworkAppList({ entries, renderPending, renderSessionDot, sor
     <ul className={`${styles.list} ${flyout ? styles.flyoutList : ''}`}>
       {entries.map(entry => {
         if (entry.kind === 'pending') return <li key={entry.id} ref={sortable?.rowRef(entry.id)} style={sortable?.rowStyle(entry.id)}>{renderPending?.(entry.session)}</li>
-        if (entry.kind === 'connected') {
-          const app = entry.app
-          return <li key={entry.id} ref={sortable?.rowRef(entry.id)} style={sortable?.rowStyle(entry.id)}
-            className={`${navStyles.sessionRow} ${app.status !== 'online' ? navStyles.agentAppRowDimmed : ''} ${sortable?.draggingId === entry.id ? navStyles.rowDragging : ''}`}
-            title={[app.name, t('registry.remote'), statusLabel(app.status), app.origin, app.principalName].filter(Boolean).join(' · ')}>
-            <div {...sortable?.handleProps(entry.id)} className={`${flyout ? `${navStyles.flyoutItem} ${styles.flyoutButton} ${app.status !== 'online' ? navStyles.flyoutItemDimmed : ''}` : navStyles.agentAppTab} ${styles.remote}`}>
-              <span className={flyout ? navStyles.flyoutItemIcon : navStyles.agentAppTabIcon}><Globe size={13} aria-hidden="true" /></span>
-              <span className={flyout ? navStyles.flyoutItemLabel : navStyles.agentAppTabLabel}>{app.name}</span>
-            </div>
-          </li>
-        }
         const app = entry.app
         const key = frameworkAppKey(app.path, app.id)
         const busy = jobs[key]?.status === 'running'
@@ -132,7 +120,7 @@ export function FrameworkAppList({ entries, renderPending, renderSessionDot, sor
                 onOpen?.()
               }}>
               <span className={flyout ? navStyles.flyoutItemIcon : navStyles.agentAppTabIcon}>
-                {busy ? <Loader2 size={13} className={navStyles.spinner} /> : <Box size={13} aria-hidden="true" />}
+                {busy ? <Loader2 size={13} className={navStyles.spinner} /> : app.connection ? <Globe size={13} aria-hidden="true" /> : <Box size={13} aria-hidden="true" />}
               </span>
               <span className={flyout ? navStyles.flyoutItemLabel : navStyles.agentAppTabLabel}>{app.name}</span>
               {renderSessionDot?.(app)}
@@ -162,7 +150,7 @@ export function FrameworkAppList({ entries, renderPending, renderSessionDot, sor
       <button className={`${navStyles.sessionMenuItem} ${navStyles.sessionMenuItemDanger}`}
         disabled={stale || jobs[frameworkAppKey(menuApp.path, menuApp.id)]?.status === 'running'}
         onClick={() => { setDialog({ kind: 'delete', app: menuApp }); setMenu(null) }}>
-        <Trash2 size={13} />{t('common:actions.delete')}
+        <Trash2 size={13} />{menuApp.connection ? 'Disconnect' : t('common:actions.delete')}
       </button>
     </SidebarPopover>}
     {dialog?.kind === 'theme' && <FrameworkAppTheme app={dialog.app} onClose={() => setDialog(null)} />}

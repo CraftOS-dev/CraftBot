@@ -59,4 +59,5 @@ class HostStore:
 
 def app_key(home: Path, path: str, app_id: str) -> str:
     # The profile and path disambiguate independent copies of the same app ID.
-    return json.dumps([str(home.resolve()), str(Path(path).resolve()), app_id])
+    from app.agent_app.framework_connections import is_connection
+    return json.dumps([str(home.resolve()), path if is_connection(path) else str(Path(path).resolve()), app_id])
