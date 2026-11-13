@@ -37,6 +37,33 @@ SEVERITIES = ("DEBUG", "INFO", "WARN", "ERROR")
 # an http_request body) can't bloat the prompt. ~8000 chars ≈ ~2000 tokens; the
 # agent retrieves the full content with grep_files / read_file when it needs it.
 MAX_EVENT_INLINE_CHARS = 16000
+# Event types never moved to a file, whatever their size. Action schemas are only
+# useful verbatim: a pointer would make the agent read the registry back through
+# read_file before every call. A user's message is the request itself: once a
+# session has synced, the stream's new events are the only way a message reaches
+# the model, so a pointer meant the model never saw it (a 26k-character prompt
+# arrived as "Action None completed. The output is too long..."). The context
+# budget check, not this limit, decides whether a long message fits.
+KEEP_INLINE_EVENT_TYPES = frozenset({EventType.ACTION_SCHEMAS, EventType.USER_MESSAGE})
+
+
+def user_message_for_query(text: str) -> str:
+    """How a trigger's {query} restates a user message.
+
+    The {query} block of SELECT_ACTION_PROMPT restates the message the event
+    stream already carries in full (KEEP_INLINE_EVENT_TYPES), so a long message
+    restated there would be sent twice in the same request. Messages up to
+    MAX_EVENT_INLINE_CHARS are restated as they always were; a longer one is
+    referred to instead.
+    """
+    if len(text) <= MAX_EVENT_INLINE_CHARS:
+        return text
+    return (
+        f"[the user's message of {len(text):,} characters, quoted in full in the "
+        f"event stream above]"
+    )
+
+
 # Always preserve at least this many most-recent events in tail_events when summarizing.
 # Guards against a single oversized event (e.g. a large read_pdf result) being purged in the
 # same tick it arrives — the UI consumer polls tail_events and would otherwise miss it,
@@ -280,9 +307,7 @@ class EventStream:
         """
         if severity not in SEVERITIES:
             severity = "INFO"
-        if event_type is EventType.ACTION_SCHEMAS:
-            # Schemas are only useful verbatim: a pointer would make the agent
-            # read the registry back through read_file before every call.
+        if event_type in KEEP_INLINE_EVENT_TYPES:
             msg = message.strip()
         else:
             msg = self._externalize_message(message.strip(), action_name=action_name)
@@ -442,9 +467,9 @@ class EventStream:
 
         The record survives with its `action_id` intact so the UI (which
         mirrors `tail_events`) still pairs start↔end, and its message becomes
-        a pointer the agent can re-read on demand. Action schemas stay
-        verbatim on purpose; summarize_by_LLM decides their fate. Caller holds
-        the lock.
+        a pointer the agent can re-read on demand. KEEP_INLINE_EVENT_TYPES
+        stay verbatim on purpose; summarize_by_LLM decides their fate. Caller
+        holds the lock.
 
         Returns the number of tokens reclaimed.
         """
@@ -456,7 +481,7 @@ class EventStream:
             message = rec.event.message
             if len(message) <= MAX_EVENT_INLINE_CHARS:
                 continue
-            if rec.event.event_type is EventType.ACTION_SCHEMAS:
+            if rec.event.event_type in KEEP_INLINE_EVENT_TYPES:
                 continue
             pointer = self._externalize_message(
                 message, action_name=rec.event.action_name, force=True
@@ -521,6 +546,58 @@ class EventStream:
                     f"{reclaimed} tokens (now {self._total_tokens})"
                 )
             return reclaimed
+
+    def set_aside_unsent_user_messages(self) -> int:
+        """Replace the user messages the model has not received with a note.
+
+        For a run ended because its request cannot fit the model's context
+        window even after a fold. User messages are never collapsed
+        (KEEP_INLINE_EVENT_TYPES), so the one that does not fit would ride in
+        every later request of the session and each would be refused in turn.
+        The user has been told it was not processed; the note tells the model
+        the same, and says where the text is saved. The chat bubble
+        (display_message) is unchanged.
+
+        Returns ``(characters, tokens, platform)`` for each message set aside;
+        ``platform`` names the integration it came from, or is None for a
+        message typed in CraftBot itself.
+        """
+        with self._lock:
+            set_aside: List[Tuple[int, int, Optional[str]]] = []
+            for rec in self.tail_events:
+                if rec.delivered or rec.event.event_type is not EventType.USER_MESSAGE:
+                    continue
+                message = rec.event.message
+                # "user message from platform: WhatsApp" (see
+                # AgentBase._handle_chat_message); a UI message is "user message".
+                _, _, platform = rec.event.kind.partition("from platform: ")
+                set_aside.append(
+                    (len(message), count_tokens(message), platform or None)
+                )
+                where = ""
+                if self.temp_dir is not None:
+                    try:
+                        self.temp_dir.mkdir(parents=True, exist_ok=True)
+                        ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S%f")
+                        path = (
+                            self.temp_dir
+                            / f"event_user_message_{ts}_{len(set_aside)}.txt"
+                        )
+                        path.write_text(message, encoding="utf-8")
+                        where = f" Its text is saved in {path}."
+                    except Exception:
+                        logger.exception(
+                            "[EventStream] Failed to save a user message set aside"
+                        )
+                before = get_cached_token_count(rec)
+                rec.event.message = (
+                    f"[Not processed: this message ({len(message)} characters) did not "
+                    f"fit the model's context window, and the user was asked to "
+                    f"shorten it.{where}]"
+                )
+                rec._cached_tokens = None
+                self._total_tokens -= before - get_cached_token_count(rec)
+            return set_aside
 
     def summarize_by_LLM(self, keep_tokens: int) -> None:
         """

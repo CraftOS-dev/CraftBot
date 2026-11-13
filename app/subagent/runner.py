@@ -47,6 +47,7 @@ import time
 from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple
 
 from agent_core.core.impl.llm import LLMCallType, LLMConsecutiveFailureError
+from agent_core.core.impl.llm.interface import LLMContextOverflowError
 from app.logger import logger
 from app.subagent.context_engine import SubAgentContextEngine
 from app.subagent.registry import SUB_TASK_END_ACTION, get_subagent_definition
@@ -295,6 +296,23 @@ class SubAgentRunner:
                 status="failed",
                 result=f"(sub-agent aborted — LLM unavailable: {cause})",
             )
+        except LLMContextOverflowError as e:
+            # Only this sub-agent ends; its parent reads why from the result.
+            logger.error(f"[SubAgentRunner] {sub.id} request does not fit: {e}")
+            self.event_stream_manager.log(
+                kind="subagent_error",
+                message=f"Request does not fit the model's context window: {e}",
+                severity="ERROR",
+                task_id=sub.id,
+            )
+            self.subagent_manager.end(
+                sub.id,
+                status="failed",
+                result=(
+                    "(sub-agent stopped — its request does not fit the model's "
+                    f"context window: {e})"
+                ),
+            )
         except Exception as e:
             logger.exception(
                 f"[SubAgentRunner] {sub.id} step {sub.iterations} crashed: {e}"
@@ -486,11 +504,13 @@ class SubAgentRunner:
         for attempt in range(1, _MAX_PARSE_RETRIES + 1):
             try:
                 raw = await self._invoke_llm(sub, current_user_prompt, system_prompt)
-            except LLMConsecutiveFailureError:
+            except (LLMConsecutiveFailureError, LLMContextOverflowError):
                 # Fatal: the LLM is in a broken state (e.g. out-of-credits,
-                # auth). Retrying within this turn can't help — let it
-                # propagate so the runner ends the sub-agent with the real
-                # cause instead of looping the parse retries.
+                # auth), or the request cannot fit the model's context window
+                # (the same request again cannot fit either). Retrying within
+                # this turn can't help — let it propagate so the runner ends
+                # the sub-agent with the real cause instead of looping the
+                # parse retries.
                 raise
             except Exception as e:
                 logger.exception(
