@@ -63,6 +63,7 @@ def user_data():
 
 
 def wait_ready(tree, state, timeout=900):
+    started = time.monotonic()
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if (state / ".agent-ready").exists() and (tree / "craftbot.pid").exists():
@@ -79,6 +80,23 @@ def wait_ready(tree, state, timeout=900):
                     return json.loads((tree / "craftbot.pid").read_text())
             except (OSError, ValueError):
                 pass
+        if time.monotonic() - started > 60:
+            # A dead startup process cannot become ready. Fail promptly with
+            # its logs instead of waiting the full model-download deadline.
+            probe = subprocess.run(
+                [
+                    sys.executable,
+                    "-c",
+                    "import craftbot; raise SystemExit(0 if craftbot._owned_pid() else 1)",
+                ],
+                cwd=tree,
+                capture_output=True,
+                timeout=30,
+            )
+            if probe.returncode == 1:
+                raise RuntimeError(
+                    "Startup process exited before CraftBot became ready"
+                )
         time.sleep(5)
     raise RuntimeError(
         "CraftBot did not become ready (PID, agent-ready, frontend and backend)"

@@ -9,6 +9,8 @@ on:
       - 'installer/**'
       - 'app/console.py'
       - 'app/python_runtime.py'
+      - 'app/provision/runtimes.py'
+      - 'launcher/**'
       - 'scripts/test_startup_acceptance.py'
       - '.github/workflows/startup-acceptance.yml'
   workflow_dispatch:
@@ -66,6 +68,7 @@ jobs:
         if: matrix.method == 'installer'
         with:
           workspaces: launcher
+          cache-on-failure: true
       - name: Build native installer
         if: matrix.method == 'installer'
         working-directory: launcher

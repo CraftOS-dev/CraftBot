@@ -23,16 +23,13 @@ from app.provision.types import Context, LogFn, StageResult, Status
 # pip. python.org's embeddable package is Windows-only and ships without pip,
 # so it cannot serve the same role.
 #
-# The release tag and patch version are RESOLVED FROM THE API, never
-# hardcoded. Hardcoding them was tried and produced a silent 404: the guessed
-# tag, patch version and platform triple were all wrong, so the download
-# failed and the install aborted at the first stage. The asset name embeds
-# all three (cpython-3.10.21+20260825-x86_64-pc-windows-msvc-install_only),
-# so any one being stale breaks it. Same approach as node_runtime, which
-# reads nodejs.org/dist/index.json rather than pinning a version.
+# Resolve actual asset URLs from release metadata instead of constructing
+# filenames. New releases stopped including Python 3.10 after its EOL, so
+# retain the last published 3.10 release while these dependency locks need it.
 PBS_API = (
     "https://api.github.com/repos/astral-sh/python-build-standalone/releases/latest"
 )
+PBS_310_API = "https://api.github.com/repos/astral-sh/python-build-standalone/releases/tags/20261009"
 
 # The version the locks are generated for. NOT a minimum: a lock is valid
 # for exactly one (platform, python) pair, so accepting "3.10 or newer" would
@@ -175,8 +172,8 @@ def _pbs_triple() -> Optional[str]:
 def _pbs_download_url(log: LogFn) -> Optional[str]:
     """Resolve the download URL for a TARGET_PYTHON build, or None.
 
-    Asks the API for the newest release and picks the asset matching this
-    machine's triple. `install_only` is the variant that extracts to a
+    Tries the newest release, then the last release containing Python 3.10,
+    and picks the asset matching this machine's triple. `install_only` extracts to a
     ready-to-run tree; the full builds carry object files and headers nobody
     here needs.
     """
@@ -195,21 +192,24 @@ def _pbs_download_url(log: LogFn) -> Optional[str]:
     except ImportError:
         ctx = ssl.create_default_context()
 
-    try:
-        req = urllib.request.Request(PBS_API, headers={"User-Agent": "CraftBot"})
-        data = json.loads(urllib.request.urlopen(req, timeout=60, context=ctx).read())
-    except Exception as e:
-        log(f"    could not reach the Python download index: {str(e)[:160]}")
-        return None
-
     prefix = f"cpython-{TARGET_PYTHON[0]}.{TARGET_PYTHON[1]}."
     suffix = f"-{triple}-install_only.tar.gz"
-    for asset in data.get("assets", []):
-        name = asset.get("name") or ""
-        if name.startswith(prefix) and name.endswith(suffix):
-            return asset.get("browser_download_url")
-
-    log(f"    no {prefix}*{suffix} in release {data.get('tag_name')}")
+    indexes = [PBS_API] + ([PBS_310_API] if TARGET_PYTHON == (3, 10) else [])
+    for index in indexes:
+        try:
+            req = urllib.request.Request(index, headers={"User-Agent": "CraftBot"})
+            with urllib.request.urlopen(req, timeout=60, context=ctx) as response:
+                data = json.load(response)
+        except Exception as e:
+            log(f"    could not reach the Python download index: {str(e)[:160]}")
+            return None
+        for asset in data.get("assets", []):
+            name = asset.get("name") or ""
+            if name.startswith(prefix) and name.endswith(suffix):
+                url = asset.get("browser_download_url")
+                if url:
+                    return url
+        log(f"    no {prefix}*{suffix} in release {data.get('tag_name')}")
     return None
 
 
