@@ -21,6 +21,7 @@ from contextlib import nullcontext
 from typing import Awaitable, Callable, Dict, Optional, TYPE_CHECKING
 
 from agent_core.core.trigger import Trigger
+from agent_core.core.impl.event_stream.event_stream import user_message_for_query
 from agent_core.core.impl.trigger.session_queue import (
     SessionTriggerQueue,
     QueueClosed,
@@ -139,16 +140,17 @@ def _merge_triggers(base: Trigger, extras: list[Trigger]) -> Trigger:
         p = t.payload or {}
         entries = p.get("queued_user_messages")
         if entries:
-            # Deferred user message(s): checklist shows the raw text.
+            # Deferred user message(s): checklist shows the raw text (a long
+            # one by reference: the stream carries it in full).
             for e in entries:
                 text = (e.get("display") or e.get("content") or "").strip()
-                items.append(f"[user message] {text}")
+                items.append(f"[user message] {user_message_for_query(text)}")
                 user_texts.append((e.get("content") or text).strip())
             all_entries.extend(list(entries))
         elif t.source == TriggerSource.USER_MESSAGE.value and p.get("user_message"):
             # Pre-upgrade rehydrated user-message row.
             raw = (p.get("user_message") or "").strip()
-            items.append(f"[user message] {raw}")
+            items.append(f"[user message] {user_message_for_query(raw)}")
             user_texts.append(raw)
             all_entries.append(
                 {"label": "user message", "content": raw, "display": raw}

@@ -72,6 +72,7 @@ from app.internal_action_interface import InternalActionInterface
 from app.llm import LLMInterface
 from agent_core.core.errors import (
     ClassifiedError,
+    ErrorAction,
     ErrorCategory,
     ErrorInfo,
     ErrorInfoLike,
@@ -79,6 +80,11 @@ from agent_core.core.errors import (
     redact,
 )
 from agent_core.core.impl.llm.errors import LLMConsecutiveFailureError
+from agent_core.core.impl.llm.interface import LLMContextOverflowError
+from agent_core.core.impl.event_stream.event_stream import (
+    MAX_EVENT_INLINE_CHARS,
+    user_message_for_query,
+)
 from app.vlm_interface import VLMInterface
 from app.image_gen_interface import ImageGenInterface
 from app.video_gen_interface import VideoGenInterface
@@ -2014,6 +2020,108 @@ class AgentBase:
         )
 
     @staticmethod
+    def _context_overflow_in(error: BaseException) -> LLMContextOverflowError | None:
+        """The `LLMContextOverflowError` in ``error``'s chain, if any."""
+        seen: set[int] = set()
+        exc: BaseException | None = error
+        while exc is not None and id(exc) not in seen:
+            seen.add(id(exc))
+            if isinstance(exc, LLMContextOverflowError):
+                return exc
+            exc = exc.__cause__ or exc.__context__
+        return None
+
+    def _set_aside_what_did_not_fit(
+        self, session_id: str
+    ) -> tuple[list[tuple[int, int, Optional[str]]], Optional[int]]:
+        """Set aside the session's unsent user messages after an overflow, and
+        read the model's input budget, for _context_overflow_info."""
+        set_aside: list[tuple[int, int, Optional[str]]] = []
+        if session_id and self.event_stream_manager:
+            try:
+                stream = self.event_stream_manager.get_stream_by_id(session_id)
+                set_aside = stream.set_aside_unsent_user_messages()
+            except Exception:
+                logger.error(
+                    "[REACT ERROR] Could not set aside the messages that did not fit",
+                    exc_info=True,
+                )
+        try:
+            budget: Optional[int] = self.llm.input_budget()
+        except Exception:
+            budget = None
+        return set_aside, budget
+
+    @staticmethod
+    def _context_overflow_info(
+        exc: LLMContextOverflowError,
+        set_aside: Iterable[tuple[int, int, Optional[str]]] = (),
+        budget: Optional[int] = None,
+    ) -> ErrorInfo:
+        """A request that cannot fit the model's context window, even after the
+        router folded the stream. User-actionable, so the calm "system" tier;
+        the detail carries the token counts when the budget check raised it.
+
+        The advice follows the cause. The unsent messages (set aside, as
+        ``(characters, tokens, platform)``) are the cause when they take at
+        least half the input budget, since a fold keeps at most half of what
+        the budget leaves for history; then the user is asked to shorten a
+        message they typed, or told which integration sent the one that did not
+        fit. Otherwise the conversation itself has outgrown the window (a
+        continuation turn, or history that a fold could not bring down).
+        """
+        detail = redact(str(exc)).strip().rstrip(".") or (
+            "The request exceeded the model's context window"
+        )
+        set_aside = list(set_aside)
+        typed = [m for m in set_aside if m[2] in (None, "CraftBot Interface")]
+        received = [m for m in set_aside if m not in typed]
+        platforms = ", ".join(sorted({m[2] for m in received if m[2]}))
+        if budget:
+            messages_are_the_cause = 2 * sum(m[1] for m in set_aside) >= budget
+        else:
+            messages_are_the_cause = (
+                sum(m[0] for m in set_aside) > MAX_EVENT_INLINE_CHARS
+            )
+        if messages_are_the_cause and typed:
+            title = "Message too large for the model"
+            message = (
+                f"Your message ({sum(m[0] for m in typed):,} characters) is too large "
+                f"for this model: {detail}. It was not processed. Shorten it, attach "
+                "long text as a file instead, or switch to a model with a larger "
+                "context window."
+            )
+        elif messages_are_the_cause:
+            title = "Message too large for the model"
+            message = (
+                f"A message received from {platforms} "
+                f"({sum(m[0] for m in received):,} characters) is too large for this "
+                f"model: {detail}. It was not processed. Switch to a model with a "
+                "larger context window to handle messages this size."
+            )
+        else:
+            title = "Conversation too large for the model"
+            unsent = ""
+            if typed:
+                unsent = " Your latest message was not processed; send it again."
+            elif received:
+                unsent = f" The latest message from {platforms} was not processed."
+            message = (
+                f"This conversation no longer fits the model's context window: "
+                f"{detail}. Retrying would send the same request, so the run was "
+                f"stopped.{unsent} Start a new chat, or switch to a model with a "
+                "larger context window."
+            )
+        return ErrorInfo(
+            category=ErrorCategory.CONTEXT_OVERFLOW,
+            code="CONTEXT_OVERFLOW",
+            title=title,
+            message=message,
+            actions=[ErrorAction(label="Open settings", action="open_settings_model")],
+            raw_message=str(exc),
+        )
+
+    @staticmethod
     def _critical_fallback_info(raw_message: str) -> ErrorInfo:
         """Built when NO recognized/classified error info is available —
         i.e. a genuinely unexpected exception, not a known LLM/config
@@ -2046,12 +2154,22 @@ class AgentBase:
           config problem — a genuine bug or crash) — full error detail with
           the red "error" styling.
 
-        This is independent of whether the run halts: only a fatal
-        `LLMConsecutiveFailureError` halts the run (5 failed attempts, or an
-        immediate fail-fast category); everything else lets the react loop
-        continue to the next turn while still telling the user what happened.
+        This is independent of whether the run halts: a fatal
+        `LLMConsecutiveFailureError` (5 failed attempts, or an immediate
+        fail-fast category) and an `LLMContextOverflowError` halt the run;
+        everything else lets the react loop continue to the next turn while
+        still telling the user what happened.
         """
         is_fatal, fatal_exc, classified_info = self._classify_react_error(error)
+        overflow = self._context_overflow_in(error)
+        if overflow is not None:
+            # The router has already folded the stream and collapsed what it
+            # could; the next turn would send the same request and overflow
+            # again, every turn, with nothing counting the attempts. Stop, and
+            # set aside what was never sent, or it would be in every later
+            # request of the session too.
+            set_aside, budget = self._set_aside_what_did_not_fit(session_id)
+            classified_info = self._context_overflow_info(overflow, set_aside, budget)
         is_critical = classified_info is None
         if is_critical:
             # Nothing further down the stack classified/logged this in
@@ -2094,14 +2212,14 @@ class AgentBase:
                 task_id=session_id,
             )
             self.state_manager.bump_event_stream()
-            if is_fatal:
+            if is_fatal or overflow is not None:
                 # Stop the run instead of re-queueing to prevent infinite
                 # retries. The user resumes by sending a normal chat message
                 # — _handle_chat_message already resets the failure counter
                 # on intake, so no separate Retry action is needed.
                 logger.warning(
-                    f"[REACT ERROR] LLMConsecutiveFailureError — halting run for "
-                    f"session {session_id}."
+                    f"[REACT ERROR] {type(overflow or fatal_exc).__name__} — "
+                    f"halting run for session {session_id}."
                 )
                 self._emit_run_state(session_id, "idle")
                 await self._display_react_error(session_id, info, critical=is_critical)
@@ -2570,7 +2688,11 @@ class AgentBase:
                 logger.warning("Received empty message.")
                 return
 
-            logger.info(f"[CHAT RECEIVED] {chat_content}")
+            # Metadata only: the message itself is the user's private content.
+            logger.info(
+                f"[CHAT RECEIVED] {len(chat_content)} chars for session "
+                f"{payload.get('session_id') or MAIN_SESSION_ID}"
+            )
 
             # Clear any stuck consecutive-failure state from a prior aborted run.
             try:
@@ -2697,7 +2819,8 @@ class AgentBase:
                     source=TriggerSource.USER_MESSAGE,
                     description=(
                         "Please perform action that best suit this user chat "
-                        f"you just received{platform_hint}: {chat_content}"
+                        f"you just received{platform_hint}: "
+                        f"{user_message_for_query(chat_content)}"
                     ),
                     priority=3,
                     session_id=session_id,
