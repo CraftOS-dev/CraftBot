@@ -79,7 +79,7 @@ cargo test
 
 Rust 1.85+ (`rustup` installs it). No system libraries are needed on Windows
 or macOS; on Linux the runtime uses the system's X11/Wayland and OpenGL via
-`dlopen`, with a software renderer as fallback.
+`dlopen`; the setup window uses software rendering by default.
 
 Linux release binaries are built on Ubuntu 22.04 to keep their glibc
 requirements compatible with that release and newer distributions. Avoid
@@ -119,12 +119,12 @@ This is how CI can exercise the real pipeline on a runner without a display,
 and how a support case can be reproduced from a terminal. It is not a user
 CLI — `craftbot.py` is that.
 
-### Rendering fallback
+### Rendering
 
-Slint tries the GPU renderer first and falls back to its software renderer
-where OpenGL is unavailable (Windows Sandbox, most VMs, some remote
-desktops). To force one: `SLINT_BACKEND=winit-software` or
-`SLINT_BACKEND=winit-femtovg`.
+The setup window uses Slint's software renderer by default, including on
+Windows with the basic display driver, virtual machines, and remote desktops.
+An OpenGL driver is not required. `SLINT_BACKEND=winit-femtovg` explicitly
+selects GPU rendering; `SLINT_BACKEND=winit-software` selects software rendering.
 
 ## How it is wired into the repo
 

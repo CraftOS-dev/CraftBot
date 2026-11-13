@@ -81,6 +81,18 @@ fn main() {
         std::process::exit(headless(&args[1..]));
     }
 
+    // A basic Windows display driver can create a window but fail later
+    // when femtovg requests OpenGL symbols. Slint's automatic fallback does
+    // not catch that event-loop failure. This small setup UI needs no GPU.
+    let mut backend = slint::BackendSelector::new();
+    if std::env::var_os("SLINT_BACKEND").is_none() {
+        backend = backend.renderer_name("software".into());
+    }
+    if let Err(e) = backend.select() {
+        logger::log(&format!("could not initialize the window backend: {e}"));
+        std::process::exit(1);
+    }
+
     let ui = match InstallerWindow::new() {
         Ok(ui) => ui,
         Err(e) => {
@@ -179,6 +191,7 @@ fn main() {
     logger::log("entering event loop");
     if let Err(e) = ui.run() {
         logger::log(&format!("event loop ended with error: {e}"));
+        std::process::exit(1);
     }
     logger::log("window closed");
 }

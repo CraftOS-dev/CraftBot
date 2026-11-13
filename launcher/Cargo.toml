@@ -15,10 +15,8 @@ path = "src/main.rs"
 
 [dependencies]
 # UI. Slint draws its own widgets, so nothing needs to be present on the
-# user's machine. Both renderers are enabled: femtovg (GPU) is the default
-# and the software renderer is the fallback for machines with no usable
-# OpenGL — Windows Sandbox, most VMs, some remote desktops. That fallback is
-# the difference between "opens a window" and "does nothing when clicked".
+# user's machine. Software rendering is the default so a basic display
+# driver is sufficient. femtovg remains available as an explicit override.
 slint = { version = "1.17", default-features = false, features = [
     "std",
     "compat-1-2",
