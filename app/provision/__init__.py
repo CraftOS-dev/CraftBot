@@ -17,14 +17,15 @@ Order matters and is expressed once, here:
   native      → prove the embedding stack loads (not merely installed)
   smoke       → prove what actions import is importable
   node        → the one Node runtime
+  framework   → unpack Agent-App, A2App and toolkits; verify both CLIs
   default-app → install the bundled Kanban Board on new installations only
   frontend    → browser UI's npm tree (default UI, so required)
   whatsapp    → bridge's npm tree
   ripgrep     → the bundled search binary grep_files runs, checked not fetched
   playwright  → chromium for browser-automation actions
 
-Node comes after Python deps because nothing before it needs Node, and a slow
-optional download should not delay the failure of a required stage.
+Node comes after Python deps because nothing before it needs Node. Both Node
+and the framework are required for a complete CraftBot installation.
 """
 
 from __future__ import annotations
@@ -33,6 +34,7 @@ import sys
 from typing import List, Optional
 
 from app import paths
+from app.provision.agent_app_framework import AgentAppFrameworkStage
 from app.provision.default_agent_app import DefaultAgentAppStage, prepare_install
 from app.provision.deps import (
     FrontendStage,
@@ -80,6 +82,7 @@ def default_stages() -> List[Stage]:
         NativeRuntimeStage(),
         SmokeStage(),
         NodeStage(),
+        AgentAppFrameworkStage(),
         DefaultAgentAppStage(),
         FrontendStage(),
         WhatsAppBridgeStage(),

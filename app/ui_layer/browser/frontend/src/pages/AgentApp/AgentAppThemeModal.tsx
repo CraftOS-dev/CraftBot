@@ -1,17 +1,12 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Check } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Modal, ModalBody } from '../../components/ui/Modal'
 import {
-  PRESET_THEMES, ThemeMiniPreview, DEFAULT_CUSTOM_COLORS,
+  PRESET_THEMES, ThemeMiniPreview,
 } from './themeCatalog'
 import type { AgentAppThemeId, AgentAppCustomColors } from './themeCatalog'
 import styles from './AgentAppPage.module.css'
-
-// Re-exported so existing imports keep working; the catalog is the source
-// of truth shared with the create wizard.
-export { DEFAULT_CUSTOM_COLORS }
-export type { AgentAppThemeId, AgentAppCustomColors }
 
 interface Props {
   isOpen: boolean
@@ -19,11 +14,14 @@ interface Props {
   customColors: AgentAppCustomColors
   onSelect: (themeId: AgentAppThemeId, customColors?: AgentAppCustomColors) => void
   onClose: () => void
+  disabled?: boolean
+  error?: string
 }
 
-export function AgentAppThemeModal({ isOpen, activeTheme, customColors, onSelect, onClose }: Props) {
+export function AgentAppThemeModal({ isOpen, activeTheme, customColors, onSelect, onClose, disabled, error }: Props) {
   const { t } = useTranslation(['agentapp', 'common'])
   const [localColors, setLocalColors] = useState<AgentAppCustomColors>(customColors)
+  useEffect(() => { setLocalColors(customColors) }, [customColors])
 
   const handleColorChange = (key: keyof AgentAppCustomColors, value: string) => {
     const updated = { ...localColors, [key]: value }
@@ -46,6 +44,8 @@ export function AgentAppThemeModal({ isOpen, activeTheme, customColors, onSelect
             <button
               key={id}
               type="button"
+              disabled={disabled}
+              aria-pressed={activeTheme === id}
               className={`${styles.themeTile} ${activeTheme === id ? styles.themeTileActive : ''}`}
               onClick={() => onSelect(id)}
               title={t(descriptionKey) || t(labelKey)}
@@ -63,6 +63,8 @@ export function AgentAppThemeModal({ isOpen, activeTheme, customColors, onSelect
           {/* Custom tile */}
           <button
             type="button"
+            disabled={disabled}
+            aria-pressed={activeTheme === 'custom'}
             className={`${styles.themeTile} ${activeTheme === 'custom' ? styles.themeTileActive : ''}`}
             onClick={() => onSelect('custom', localColors)}
           >
@@ -90,6 +92,7 @@ export function AgentAppThemeModal({ isOpen, activeTheme, customColors, onSelect
               <label key={key} className={styles.colorRow}>
                 <input
                   type="color"
+                  disabled={disabled}
                   value={localColors[key]}
                   onChange={e => handleColorChange(key, e.target.value)}
                   className={styles.colorInput}
@@ -104,6 +107,7 @@ export function AgentAppThemeModal({ isOpen, activeTheme, customColors, onSelect
         <p className={styles.themeCaption}>
           {t('agentapp:themeModal.caption')}
         </p>
+        {error && <p role="alert">{error}</p>}
       </ModalBody>
     </Modal>
   )

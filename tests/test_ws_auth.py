@@ -89,6 +89,8 @@ def _stub_adapter() -> BrowserAdapter:
     adapter._get_initial_state = lambda: {"stub": True}
     adapter._get_skill_meta = lambda: {}
     adapter._agent_app_manager = SimpleNamespace(list_projects=lambda: [])
+    # Authentication tests do not query the user's shared framework registry.
+    adapter._schedule_framework_app_list = lambda: None
     return adapter
 
 

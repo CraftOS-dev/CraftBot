@@ -22,7 +22,8 @@ from agent_core.core.state.session import StateSession
 _REGISTRY = [
     ActionMetadata(name="send_message", action_sets=["core"]),
     ActionMetadata(name="read_file", action_sets=["core"]),
-    ActionMetadata(name="agent_app_notify_ready", action_sets=["agent_app"]),
+    ActionMetadata(name="a2app_command", action_sets=["a2app"]),
+    ActionMetadata(name="agent_app_command", action_sets=["agent_app"]),
     ActionMetadata(name="run_python", action_sets=["code_execution"]),
     ActionMetadata(name="find_files", action_sets=["file_operations"]),
     ActionMetadata(
@@ -135,7 +136,7 @@ def test_actions_follow_the_session_type(sessions):
     assert app.compiled_actions == [
         "send_message",
         "read_file",
-        "agent_app_notify_ready",
+        "a2app_command",
         "run_python",
         "find_files",
     ]
@@ -153,7 +154,7 @@ def test_restore_ignores_an_accumulated_stored_list(sessions):
     restored = sessions.restore_session(stored)
     assert "send_gmail" not in restored.compiled_actions
     assert "read_pdf" not in restored.compiled_actions
-    assert "agent_app_notify_ready" in restored.compiled_actions
+    assert "a2app_command" in restored.compiled_actions
 
 
 def test_loading_delivers_schemas_without_touching_actions(loader):
@@ -229,9 +230,52 @@ def test_loading_twice_is_a_no_op(loader):
 
 def test_actions_already_printed_are_not_repeated(loader):
     iai, session, stream = loader
-    result = iai.load_action_sets(["agent_app", "core"], session_id=session.id)
+    result = iai.load_action_sets(["a2app", "core"], session_id=session.id)
     assert result["actions"] == []
     assert _schema_events(stream) == []
+
+
+def test_build_tools_load_separately_from_app_operation(loader):
+    iai, session, stream = loader
+    assert "a2app_command" in session.compiled_actions
+    assert "agent_app_command" not in session.compiled_actions
+    result = iai.load_action_sets(["agent_app"], session_id=session.id)
+    assert result["actions"] == ["agent_app_command"]
+    assert _schema_events(stream)[0].schema_actions == ["agent_app_command"]
+    assert "agent_app_command" not in session.compiled_actions
+
+
+def test_restored_isolated_app_task_has_only_operating_tools(sessions):
+    session = Session.from_dict({
+        "id": "app-task", "type": SessionType.AGENT_APP,
+        "isolated_app_task": True,
+        "compiled_actions": ["agent_app_framework_command", "agent_app_command"],
+    })
+    restored = sessions.restore_session(session)
+    assert restored.compiled_actions == ["a2app_command", "send_message", "end_turn"]
+
+
+@pytest.mark.parametrize("name,surface", [
+    ("agent_app_command", "agent-app"), ("a2app_command", "a2app"),
+])
+def test_native_command_source_binds_the_cli_surface(monkeypatch, name, surface):
+    import asyncio
+    import inspect
+    from unittest.mock import AsyncMock
+    from agent_core.core.action_framework.registry import _strip_decorator
+    from app.agent_app import framework_commands
+    from app.data.action import agent_app_framework_actions as actions
+
+    command = AsyncMock(return_value={"status": "success", "stdout": "upstream result"})
+    monkeypatch.setattr(framework_commands, "command", command)
+    # Run the extracted function just as CraftBot does, with no module globals.
+    namespace = {}
+    exec(_strip_decorator(inspect.getsource(getattr(actions, name))), namespace)
+    result = asyncio.run(namespace[name]({
+        "args": ["--help"], "cwd": "C:/apps", "surface": "wrong-surface",
+    }))
+    command.assert_awaited_once_with(surface, ["--help"], cwd="C:/apps")
+    assert result == command.return_value
 
 
 def test_unknown_sets_are_reported(loader):
@@ -242,3 +286,26 @@ def test_unknown_sets_are_reported(loader):
     assert mixed["success"] is True
     assert mixed["unknown_sets"] == ["nope"]
     assert mixed["actions"] == ["read_pdf"]
+
+
+def test_upgrade_retires_legacy_actions_and_rebinds_chat_wizard(tmp_path, monkeypatch):
+    from agent_core.core.action_framework.registry import registry_instance
+    from app.database_interface import DatabaseInterface, RETIRED_APP_ACTIONS
+
+    monkeypatch.setattr(registry_instance, "_registry", {})
+    actions_dir = tmp_path / "action"
+    actions_dir.mkdir()
+    names = sorted(RETIRED_APP_ACTIONS | {"agent_app_scaffold", "my_custom_action"})
+    source = "from agent_core import action\n" + "\n".join(
+        f'@action(name="{name}", action_sets=["agent_app"])\n'
+        f'async def {name}(input_data):\n    return {{"old": True}}\n'
+        for name in names
+    )
+    saved = actions_dir / "old_app_actions.py"
+    saved.write_text(source, encoding="utf-8")
+    DatabaseInterface(data_dir=str(tmp_path))
+    assert not RETIRED_APP_ACTIONS.intersection(registry_instance._registry)
+    assert registry_instance.get_action_implementation("my_custom_action")
+    scaffold = registry_instance.get_action_implementation("agent_app_scaffold")
+    assert scaffold.handler.__module__ == "app.data.action.agent_app_actions"
+    assert saved.read_text(encoding="utf-8") == source

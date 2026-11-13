@@ -1,0 +1,15 @@
+.registry { min-width: 0; }
+.list { display: flex; flex-direction: column; gap: var(--space-1); list-style: none; margin: 0; padding: 0; }
+.flyoutList { gap: 2px; }
+.flyoutButton { flex: 1 1 auto; min-width: 0; }
+.list > li:hover .flyoutButton { padding-right: 30px; }
+.rowFeedback { margin: 0 var(--space-3); }
+.notice { display: flex; align-items: center; gap: 6px; margin: 6px 12px; font-size: var(--text-xs); color: var(--text-secondary); overflow-wrap: anywhere; }
+details.notice { display: block; }
+details.notice summary { cursor: pointer; }
+.spinner { flex-shrink: 0; animation: spin 1s linear infinite; }
+.controls { display: flex; flex-direction: column; align-items: center; gap: var(--space-3); min-width: 0; }
+.feedback { margin: 5px 0; font-size: var(--text-xs); color: var(--text-secondary); overflow-wrap: anywhere; }
+.feedback summary { cursor: pointer; }
+.feedback pre { white-space: pre-wrap; font: inherit; }
+@keyframes spin { to { transform: rotate(360deg); } }

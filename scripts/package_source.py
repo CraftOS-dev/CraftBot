@@ -89,6 +89,15 @@ def wanted(rel: str) -> bool:
 
 
 def build(output: Path) -> int:
+    from app import agent_app_package
+
+    # A source payload must carry exactly the reviewed distribution, including
+    # its runtime dependencies and knowledge bundle. Verify before publishing.
+    try:
+        agent_app_package.read_bundle(REPO_ROOT)
+    except (OSError, ValueError, zipfile.BadZipFile) as exc:
+        print(f"error: Agent-App distribution: {exc}", file=sys.stderr)
+        return 1
     files = [f for f in tracked_files() if wanted(f)]
     if not files:
         print("error: git ls-files returned nothing — not a checkout?", file=sys.stderr)
@@ -131,23 +140,37 @@ def build(output: Path) -> int:
 
     # A payload without these is installable and then broken at runtime, in
     # ways that surface far from the cause. Fail the build instead.
-    required = ripgrep_runtime.bundled_files() + [
-        "run.py",
-        "main.py",
-        "requirements.txt",
-        "app/paths.py",
-        "app/provision/__init__.py",
-        "app/provision/default_agent_app.py",
-        "app/data/default_agent_app/kanban-board.zip",
-        "app/data/default_agent_app/source.json",
-        "app/ui_layer/browser/frontend/dist/index.html",
-        "craftos_integrations/providers/whatsapp_web/bridge.js",
-        # craftbot.py imports these at module scope; without them every
-        # command fails before parsing its arguments.
-        "installer/helpers.py",
-        "installer/metadata.py",
-        "installer/payload.py",
-    ]
+    required = (
+        ripgrep_runtime.bundled_files()
+        + agent_app_package.bundled_files()
+        + [
+            "run.py",
+            "main.py",
+            "requirements.txt",
+            "app/paths.py",
+            "app/agent_app_package.py",
+            "app/agent_app/framework.py",
+            "app/agent_app/framework_cli.py",
+            "app/agent_app/framework_connections.py",
+            "app/agent_app/framework_connections.mjs",
+            "app/agent_app/framework_maintenance.py",
+            "app/agent_app/framework_maintenance.mjs",
+            "app/agent_app/framework_sharing.py",
+            "app/data/action/agent_app_framework_actions.py",
+            "app/provision/agent_app_framework.py",
+            "app/provision/__init__.py",
+            "app/provision/default_agent_app.py",
+            "app/data/default_agent_app/kanban-board.zip",
+            "app/data/default_agent_app/source.json",
+            "app/ui_layer/browser/frontend/dist/index.html",
+            "craftos_integrations/providers/whatsapp_web/bridge.js",
+            # craftbot.py imports these at module scope; without them every
+            # command fails before parsing its arguments.
+            "installer/helpers.py",
+            "installer/metadata.py",
+            "installer/payload.py",
+        ]
+    )
     with zipfile.ZipFile(output) as zf:
         names = set(zf.namelist())
     absent = [r for r in required if r not in names]

@@ -1,4 +1,5 @@
-import type { ReferenceInput, SessionInfo, AgentAppProject } from '../../types'
+import type { ReferenceInput, SessionInfo, FrameworkRegistryApp } from '../../types'
+import { frameworkKey } from '../../features/agentApps/frameworkIdentity'
 
 export interface ReferenceCandidate extends ReferenceInput {
   label: string
@@ -8,14 +9,13 @@ export interface ReferenceCandidate extends ReferenceInput {
 
 export const referenceKey = (r: ReferenceInput) => `${r.kind}:${r.targetId}`
 
-export function referenceCatalog(sessions: SessionInfo[], apps: AgentAppProject[], destination: string): ReferenceCandidate[] {
+export function referenceCatalog(sessions: SessionInfo[], registry: FrameworkRegistryApp[], destination: string): ReferenceCandidate[] {
   return [
     ...sessions.filter(s => s.id !== destination && (s.type === 'main' || s.type === 'chat')).map(s => ({
       kind: 'session' as const, targetId: s.id, label: s.title || 'Main chat',
       description: s.type, updatedAt: s.lastActiveAt || s.createdAt,
     })),
-    ...apps.map(a => ({ kind: 'agent_app' as const, targetId: a.id, label: a.name,
-      description: a.description || '', updatedAt: new Date(a.createdAt).toISOString() })),
+    ...registry.map(a => ({ kind: 'agent_app' as const, targetId: frameworkKey(a.path, a.id), label: a.name, description: `Agent-App · ${a.status}`, updatedAt: '' })),
   ]
 }
 

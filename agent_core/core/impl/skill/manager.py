@@ -38,6 +38,7 @@ class SkillManager:
         self._skills: Dict[str, Skill] = {}
         self._config: Optional[SkillsConfig] = None
         self._config_path: Optional[Path] = None
+        self._bundled_sources: Dict[str, Path] = {}
         self._initialized = True
 
     async def initialize(self, config_path: Optional[Path] = None) -> None:
@@ -75,9 +76,34 @@ class SkillManager:
         # Store skills by name
         self._skills.clear()
         for skill in skills:
+            # Upgrades preserve user files, including obsolete bundled skills.
+            # Once the framework is available, its skills replace these removed
+            # CraftBot workflows; keep the old files intact but out of discovery.
+            if self._bundled_sources and skill.name in {
+                "agent-app-creator", "agent-app-importer",
+                "agent-app-manager", "agent-app-modify",
+            }:
+                continue
             self._skills[skill.name] = skill
 
+        # Host-owned names, original immutable sources. Reloading settings must
+        # retain these sources and their relative reference directories.
+        for name, source in self._bundled_sources.items():
+            skill = SkillLoader.parse_skill_file(source)
+            skill.metadata.name = name
+            # CraftBot bindings only: the upstream skill files stay immutable.
+            skill.metadata.action_sets = (
+                ["a2app"]
+                if name in {"framework-operator", "framework-connect", "framework-walk-verify"}
+                else ["agent_app", "a2app"]
+            )
+            skill.instructions = f"Source: {source}\nResolve relative references from {source.parent}.\n\n{skill.instructions}"
+            self._skills[name] = skill
+
         logger.info(f"[SKILLS] Discovered {len(self._skills)} skills")
+
+    def add_bundled_sources(self, sources: Dict[str, Path]) -> None:
+        self._bundled_sources.update(sources)
 
     def reload_skills(self) -> int:
         """

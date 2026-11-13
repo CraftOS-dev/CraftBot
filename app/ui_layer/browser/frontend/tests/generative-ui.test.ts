@@ -542,7 +542,7 @@ test("the seam closes the panel on a click, on Enter, or when dragged to the pan
   await outputsButton(page).click()
   await expect(preview(page).getByRole('heading', { name: 'Weeknight tomato pasta' })).toBeVisible()
   // The seam is where it settles once the panel has finished opening.
-  await expect.poll(() => handle.locator('..').evaluate(element => element.getAnimations().length)).toBe(0)
+  await expect.poll(() => page.getByRole('region', { name: 'Output panel' }).evaluate(element => element.getAnimations().length)).toBe(0)
   const size = await handle.getAttribute('aria-valuenow')
   const rect = (await handle.boundingBox())!
   const workspace = (await handle.locator('..').boundingBox())!

@@ -360,8 +360,8 @@ def test_playbooks_suggest_mini_browser_next_to_playwright():
 
 
 def test_agent_app_trigger_brief_mentions_the_mini_browser():
-    source = (REPO_ROOT / "app/agent_app/manager.py").read_text("utf-8")
-    assert 'add_action_sets(["mini_browser"])' in source
+    source = (REPO_ROOT / "app/agent_app/framework_host.py").read_text("utf-8")
+    assert '"mini_browser"' in source
 
 
 # ── skills ──────────────────────────────────────────────────────────────

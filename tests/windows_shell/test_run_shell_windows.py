@@ -7,6 +7,7 @@ commands execute through the production launchers using real OS processes.
 """
 
 import ast
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -23,6 +24,11 @@ from unittest.mock import Mock, patch
 ROOT = Path(__file__).resolve().parents[2]
 ACTIONS = ROOT / "app/data/action"
 HERE = Path(__file__).resolve().parent
+_spec = importlib.util.spec_from_file_location(
+    "agent_core.utils.windows_process", ROOT / "agent_core/utils/windows_process.py"
+)
+_windows_process = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_windows_process)
 
 
 def load_action(file_name, function_name):
@@ -134,7 +140,11 @@ class WindowsShellTests(unittest.TestCase):
         self.cancellation.was_killed = Mock(return_value=False)
         modules = patch.dict(
             sys.modules,
-            {"app": app, self.cancellation.__name__: self.cancellation},
+            {
+                "app": app,
+                self.cancellation.__name__: self.cancellation,
+                "agent_core.utils.windows_process": _windows_process,
+            },
         )
         modules.start()
         self.addCleanup(modules.stop)

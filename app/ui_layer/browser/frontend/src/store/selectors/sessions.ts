@@ -1,6 +1,7 @@
 import { createSelector } from '@reduxjs/toolkit'
 import type { RootState } from '../index'
 import type { SessionInfo } from '../../types'
+import { frameworkKey } from '../../features/agentApps/frameworkIdentity'
 
 export const selectSessions = (state: RootState): SessionInfo[] =>
   state.sessions.sessions
@@ -27,3 +28,19 @@ export const selectChatSessions = createSelector(
 
 export const selectSessionById = (state: RootState, sessionId: string): SessionInfo | undefined =>
   state.sessions.sessions.find(s => s.id === sessionId)
+
+export const selectPendingFrameworkApps = createSelector(selectSessions, sessions =>
+  sessions.filter(session => session.type === 'agent_app' && session.agentAppFrameworkPending && !session.agentAppFrameworkKey),
+)
+
+export const selectFrameworkAppSessionIds = createSelector(selectSessions, sessions => {
+  const result: Record<string, string> = {}
+  for (const session of sessions) {
+    if (session.type !== 'agent_app' || !session.agentAppFrameworkKey) continue
+    try {
+      const [, path, id] = JSON.parse(session.agentAppFrameworkKey)
+      if (typeof path === 'string' && typeof id === 'string') result[frameworkKey(path, id)] = session.id
+    } catch { /* A malformed saved identity cannot choose another session. */ }
+  }
+  return result
+})

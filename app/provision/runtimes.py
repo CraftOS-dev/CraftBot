@@ -45,22 +45,47 @@ TARGET_PYTHON = (3, 10)
 
 class NodeStage:
     name = "node"
-    description = "Node.js runtime"
-    # Core chat works without Node; only Living UI hard-requires it. Failing
-    # the whole install because a Node download timed out would be worse than
-    # the feature being unavailable.
-    optional = True
+    description = "Node.js and npm (Agent Apps)"
+    optional = False
 
     def check(self, ctx: Context) -> StageResult:
         from app import node_runtime
+        from app.provision import proc
 
         rt = node_runtime.resolve(refresh=True)
         if rt is None:
-            return StageResult(Status.MISSING, "no Node >= 24 found")
+            return StageResult(
+                Status.MISSING, f"no Node >= {node_runtime.MIN_NODE_MAJOR} found"
+            )
+        if (node_runtime.major_of(rt.version) or 0) < node_runtime.MIN_NODE_MAJOR:
+            return StageResult(
+                Status.DEGRADED,
+                f"Node >= {node_runtime.MIN_NODE_MAJOR} required; found {rt.version or 'unusable runtime'}",
+            )
+        if not rt.npm or not Path(rt.npm).is_file():
+            return StageResult(Status.MISSING, "npm is missing from the Node runtime")
+        try:
+            npm = proc.run(
+                [rt.npm, "--version"],
+                timeout=30,
+                env=node_runtime.child_env(),
+                echo=False,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            return StageResult(Status.DEGRADED, f"npm could not start: {exc}")
+        if npm.returncode != 0 or not npm.stdout.strip():
+            return StageResult(
+                Status.DEGRADED, proc.failure_detail(npm, "npm could not start")
+            )
         return StageResult(
             Status.SATISFIED,
-            f"{rt.version or '?'} ({rt.source})",
-            {"node": rt.node, "version": rt.version, "source": rt.source},
+            f"{rt.version} / npm {npm.stdout.strip()} ({rt.source})",
+            {
+                "node": rt.node,
+                "npm": rt.npm,
+                "version": rt.version,
+                "source": rt.source,
+            },
         )
 
     def apply(self, ctx: Context, log: LogFn) -> StageResult:
@@ -71,11 +96,7 @@ class NodeStage:
         rt = node_runtime.ensure_sidecar(log=log)
         if rt is None:
             return StageResult(Status.FAILED, "sidecar download failed")
-        return StageResult(
-            Status.SATISFIED,
-            f"{rt.version or '?'} ({rt.source})",
-            {"node": rt.node, "version": rt.version},
-        )
+        return self.check(ctx)
 
 
 class RipgrepStage:

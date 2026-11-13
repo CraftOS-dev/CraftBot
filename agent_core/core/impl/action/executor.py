@@ -28,6 +28,7 @@ from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from typing import Any, Dict, List, Optional
 
 from agent_core.utils.logger import logger
+from agent_core.utils.windows_process import hidden_console_kwargs
 
 # ============================================
 # Global process pool (shared safely)
@@ -45,6 +46,13 @@ _PERSISTENT_VENV_DIR: Optional[Path] = None
 
 # Base packages that must be installed in the sandbox venv (empty - venv isolation is the sandbox)
 _SANDBOX_BASE_PACKAGES = []
+
+
+class _HiddenEnvBuilder(venv.EnvBuilder):
+    """Keep ensurepip's interpreter and installer children hidden too."""
+
+    def _call_new_python(self, context, *args, **kwargs):
+        return super()._call_new_python(context, *args, **kwargs, **hidden_console_kwargs())
 
 
 def _get_persistent_venv_dir() -> Path:
@@ -76,7 +84,7 @@ def _ensure_persistent_venv() -> Path:
 
         # Create the venv (only happens once)
         logger.info(f"[VENV] Creating persistent sandbox venv at {venv_dir}")
-        venv.EnvBuilder(with_pip=True).create(venv_dir)
+        _HiddenEnvBuilder(with_pip=True).create(venv_dir)
         logger.info("[VENV] Persistent sandbox venv created successfully")
 
     _PERSISTENT_VENV_DIR = venv_dir
@@ -92,6 +100,7 @@ def _ensure_persistent_venv() -> Path:
                 + _SANDBOX_BASE_PACKAGES,
                 capture_output=True,
                 timeout=120,
+                **hidden_console_kwargs(),
             )
             if result.returncode == 0:
                 # Create marker file to skip this check on future calls
@@ -155,6 +164,7 @@ def _find_system_python() -> Optional[str]:
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 timeout=10,
+                **hidden_console_kwargs(),
             )
             return found
         except Exception:
@@ -234,6 +244,7 @@ def _ensure_requirements(
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 timeout=15,
+                **hidden_console_kwargs(),
             )
             continue  # already installed
         except Exception:
@@ -245,6 +256,7 @@ def _ensure_requirements(
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 timeout=120,
+                **hidden_console_kwargs(),
             )
             installed_any = True
             logger.info(f"[REQUIREMENTS] Installed '{pkg}'")
@@ -321,6 +333,7 @@ def _atomic_action_venv_process(
                     [str(python_bin), "-m", "pip", "show", "--quiet", pkg],
                     capture_output=True,
                     timeout=15,
+                    **hidden_console_kwargs(),
                 )
                 if check_result.returncode == 0:
                     continue  # Already installed, skip
@@ -331,6 +344,7 @@ def _atomic_action_venv_process(
                         capture_output=True,
                         text=True,
                         timeout=120,
+                        **hidden_console_kwargs(),
                     )
                     if pip_result.returncode != 0:
                         stderr_lower = pip_result.stderr.lower()
@@ -407,6 +421,7 @@ except Exception as e:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
+                **hidden_console_kwargs(),
             )
             mark_subprocess(cancel_session_id, proc.pid)
             try:
@@ -502,6 +517,7 @@ except Exception as e:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
+                **hidden_console_kwargs(),
             )
             mark_subprocess(cancel_session_id, popen.pid)
             try:

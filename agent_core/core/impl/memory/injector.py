@@ -55,6 +55,16 @@ def inject_memory_event(query: str, session_id: Optional[str] = None) -> None:
     if not query or not query.strip():
         return
 
+    from agent_core.core.state import get_session_or_none
+
+    state = get_session_or_none(session_id)
+    if (
+        state
+        and state.current_session
+        and getattr(state.current_session, "isolated_app_task", False)
+    ):
+        return
+
     if not _is_memory_enabled():
         return
 

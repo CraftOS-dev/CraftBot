@@ -29,12 +29,8 @@ RESOURCE_BY_ACTION: Dict[str, Resource] = {
     "manage_integration_account": Resource.INTEGRATIONS,
     # Agent Apps
     "agent_app_scaffold": Resource.AGENT_APPS,
-    "agent_app_notify_ready": Resource.AGENT_APPS,
-    "agent_app_restart": Resource.AGENT_APPS,
-    "agent_app_marketplace_install": Resource.AGENT_APPS,
-    "agent_app_import_zip": Resource.AGENT_APPS,
-    "agent_app_import": Resource.AGENT_APPS,
-    "agent_app_convert": Resource.AGENT_APPS,
+    "agent_app_framework_workflow": Resource.AGENT_APPS,
+    "agent_app_command": Resource.AGENT_APPS,
 }
 
 

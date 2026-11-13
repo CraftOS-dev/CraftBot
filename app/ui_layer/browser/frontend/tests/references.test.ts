@@ -8,6 +8,22 @@ async function respond(page: Page, type: string, data: unknown) {
   await page.evaluate(({ type, data }) => window.dispatchEvent(new CustomEvent('fixture-response', { detail: { type, data } })), { type, data })
 }
 
+test('registry app mentions retain their native identity and source availability', async ({ page }) => {
+  await page.goto('/tests/references.html')
+  await expect(input(page)).toBeVisible()
+  const app = { id: 'native-notes', path: '/apps/native notes', name: 'Native Notes', status: 'stopped' }
+  await page.evaluate(app => (window as any).referenceDispatch({ type: 'agent_app_framework_list', data: { status: 'success', data: { apps: [app], connected: [] } } }), app)
+  await input(page).fill('Review @native')
+  await expect(page.getByRole('option', { name: /Native Notes/ })).toBeVisible()
+  await input(page).press('Enter')
+  await page.getByRole('button', { name: 'Native Notes', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Open source', exact: true })).toBeEnabled()
+  await page.keyboard.press('Escape')
+  await input(page).press('Enter')
+  await expect.poll(() => requests(page)).toHaveLength(1)
+  expect((await requests(page))[0].references).toEqual([{ kind: 'agent_app', targetId: `framework:${JSON.stringify([app.path, app.id])}` }])
+})
+
 test('typing @ searches both source types and selection attaches without sending', async ({ page }) => {
   await page.goto('/tests/references.html')
   await input(page).fill('@')
@@ -81,7 +97,7 @@ test('+ picker shares selections with @ and supports reference-only sends', asyn
   await expect(page.getByRole('button', { name: 'Weather dashboard', exact: true })).toHaveCount(1)
   await expect(input(page)).toHaveValue('')
   await input(page).press('Enter')
-  expect((await requests(page))[0].references).toEqual([{ kind: 'agent_app', targetId: 'weather' }])
+  expect((await requests(page))[0].references).toEqual([{ kind: 'agent_app', targetId: 'framework:["C:/test/weather","weather"]' }])
 })
 
 test('server echo and history reload retain the captured preview', async ({ page }) => {

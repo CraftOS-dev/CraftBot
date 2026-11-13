@@ -14,23 +14,19 @@ preview for context but is never applied on import.
 from __future__ import annotations
 
 import json
+import asyncio
 import shutil
 import tempfile
 import time
-import uuid
 import zipfile
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
-
-if TYPE_CHECKING:
-    from app.agent_app.manager import AgentAppManager
+from typing import Any, Dict, List, Optional, Tuple
 
 from app.config import (
     AGENT_FILE_SYSTEM_PATH,
     AGENT_FILE_SYSTEM_TEMPLATE_PATH,
-    AGENT_WORKSPACE_ROOT,
     APP_CONFIG_PATH,
     PROJECT_ROOT,
     get_app_version,
@@ -68,8 +64,6 @@ SKIP_FILE_SUFFIXES = (".db", ".sqlite", ".sqlite3", ".db-journal", ".pyc")
 SKILLS_CONFIG_PATH = APP_CONFIG_PATH / "skills_config.json"
 MCP_CONFIG_PATH = APP_CONFIG_PATH / "mcp_config.json"
 SKILLS_DIR = PROJECT_ROOT / "skills"
-AGENT_APP_PROJECTS_FILE = AGENT_WORKSPACE_ROOT / "agent_app_projects.json"
-AGENT_APP_DIR = AGENT_WORKSPACE_ROOT / "agent_app"
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -209,15 +203,6 @@ def _load_json(path: Path, default: Any) -> Any:
         return default
 
 
-def _load_agent_app_projects(path: Path) -> List[Dict[str, Any]]:
-    """Read a Agent App registry, tolerating both the {"projects":[...]} envelope
-    used by the AgentAppManager and a bare list (hand-written)."""
-    data = _load_json(path, {"projects": []})
-    if isinstance(data, dict):
-        return data.get("projects", []) or []
-    if isinstance(data, list):
-        return data
-    return []
 
 
 def _slugify(name: str) -> str:
@@ -247,14 +232,13 @@ def _gather_export_contents() -> Dict[str, Any]:
 
     md_present = [f for f in PROFILE_MD_FILES if (AGENT_FILE_SYSTEM_PATH / f).is_file()]
 
-    agent_app_projects = _load_agent_app_projects(AGENT_APP_PROJECTS_FILE)
 
     return {
         "agent_name": _agent_name(),
         "md_files": md_present,
         "skills": enabled_skills,
         "mcp_servers": [s.get("name", "") for s in mcp_servers],
-        "agent_app_apps": [p.get("name", p.get("id", "")) for p in agent_app_projects],
+        "agent_app_apps": [],
     }
 
 
@@ -337,29 +321,6 @@ def _write_mcp_dir(staging: Path) -> None:
     )
 
 
-def _write_agent_app_dir(staging: Path) -> None:
-    """Copy Agent App project source folders + the registry file."""
-    living_dir = staging / "agent_app"
-    living_dir.mkdir()
-    projects = _load_agent_app_projects(AGENT_APP_PROJECTS_FILE)
-    # Match the envelope the AgentAppManager uses on disk
-    # ({"projects": [...]}). Writing a flat list would make the manager's
-    # _load_projects() fail silently — and its next startup cleanup pass
-    # would then delete every Agent App folder as "orphaned".
-    (living_dir / "projects.json").write_text(
-        json.dumps({"projects": projects}, indent=2, ensure_ascii=False),
-        encoding="utf-8",
-    )
-    for project in projects:
-        project_path_str = project.get("path", "")
-        if not project_path_str:
-            continue
-        project_path = Path(project_path_str)
-        if not project_path.is_absolute():
-            project_path = PROJECT_ROOT / project_path
-        if not project_path.is_dir():
-            continue
-        _copy_dir_filtered(project_path, living_dir / project_path.name)
 
 
 def _zip_staging(staging: Path, agent_name: str) -> Path:
@@ -382,15 +343,18 @@ def export_profile(description: str = "") -> Dict[str, Any]:
     deleting the temp file. Mirrors the Agent App export flow.
     """
     contents = _gather_export_contents()
-    manifest = _build_manifest(contents, description=description)
-
     staging = Path(tempfile.mkdtemp(prefix="craftbot_profile_"))
     try:
+        from app.agent_app.framework_profile import export_packages
+
+        packages = asyncio.run(export_packages(staging))
+        contents["framework_apps"] = [p["name"] for p in packages]
+        contents["agent_app_apps"] = contents["framework_apps"]
+        manifest = _build_manifest(contents, description=description)
         _write_meta(staging, manifest)
         _write_profile_dir(staging, contents["md_files"])
         _write_skills_dir(staging, contents["skills"])
         _write_mcp_dir(staging)
-        _write_agent_app_dir(staging)
         out_path = _zip_staging(staging, contents["agent_name"])
 
         return {
@@ -401,6 +365,7 @@ def export_profile(description: str = "") -> Dict[str, Any]:
                 "skills": len(contents["skills"]),
                 "mcp_servers": len(contents["mcp_servers"]),
                 "agent_app_apps": len(contents["agent_app_apps"]),
+                "framework_apps": len(packages),
                 "md_files": len(contents["md_files"]),
             },
         }
@@ -832,234 +797,14 @@ def _apply_mcp(
     return added, skipped, needs_env, invalid
 
 
-def _plan_and_copy_agent_app_imports(
-    src_living_dir: Path,
-    bundle_projects: List[Dict[str, Any]],
-    target_living_dir: Path,
-    current_ids: set,
-    current_folders: set,
-) -> Tuple[List[Dict[str, Any]], List[str], List[str]]:
-    """Walk the bundle's projects, copy each folder into ``target_living_dir``
-    (renaming on id/folder conflict), and return the new registry records.
-
-    Returns ``(new_records, added_names, renamed_names)``. ``current_ids`` /
-    ``current_folders`` are mutated as new entries land so per-loop conflict
-    checks see them.
-    """
-    new_records: List[Dict[str, Any]] = []
-    added: List[str] = []
-    renamed: List[str] = []
-
-    for project in bundle_projects:
-        project_path_str = project.get("path", "")
-        if not project_path_str:
-            continue
-        original_folder = Path(project_path_str).name
-        src_folder = src_living_dir / original_folder
-        if not src_folder.is_dir():
-            continue
-
-        new_project = dict(project)
-        folder_name = original_folder
-        if project.get("id") in current_ids or folder_name in current_folders:
-            new_id = uuid.uuid4().hex[:8]
-            base_name = project.get("name", "imported")
-            new_project["id"] = new_id
-            new_project["name"] = f"{base_name} (imported)"
-            sanitized = _slugify(base_name).lower()
-            folder_name = f"{sanitized}_{new_id}"
-            new_project["path"] = str(target_living_dir / folder_name)
-            renamed.append(new_project["name"])
-        else:
-            new_project["path"] = str(target_living_dir / folder_name)
-            added.append(project.get("name", original_folder))
-
-        # Reset transient runtime fields so the imported project starts clean.
-        new_project["status"] = "stopped"
-        new_project.pop("pid", None)
-        new_project.pop("backendPid", None)
-
-        _copy_dir_filtered(src_folder, target_living_dir / folder_name)
-        new_records.append(new_project)
-        current_ids.add(new_project["id"])
-        current_folders.add(folder_name)
-
-    return new_records, added, renamed
 
 
-def _register_agent_app_via_manager(
-    records: List[Dict[str, Any]],
-    manager: "AgentAppManager",
-) -> None:
-    """Insert imported projects into the live manager and persist via its own
-    save path so they survive subsequent in-memory-driven flushes.
-
-    Without this, ``_apply_agent_app`` would write the registry file directly
-    but the still-running ``AgentAppManager`` would hold a stale in-memory
-    state; any later ``_save_projects()`` (status update, watchdog tick, port
-    change, etc.) would flush that stale state back and silently erase every
-    imported entry.
-    """
-    # Local import keeps the module's top-level surface light + dodges any
-    # circular-import risk between the settings and agent_app packages.
-    from app.agent_app.manager import AgentAppProject
-
-    for record in records:
-        try:
-            created_at_ms = record.get("createdAt")
-            if not isinstance(created_at_ms, (int, float)):
-                created_at_ms = datetime.now().timestamp() * 1000
-            project_obj = AgentAppProject(
-                id=record["id"],
-                name=record["name"],
-                description=record.get("description", ""),
-                path=record["path"],
-                status="stopped",
-                port=record.get("port"),
-                backend_port=record.get("backendPort"),
-                created_at=created_at_ms / 1000,
-                features=record.get("features", []) or [],
-                theme=record.get("theme", "system") or "system",
-                auto_launch=bool(record.get("autoLaunch", False)),
-                log_cleanup=bool(record.get("logCleanup", True)),
-                project_type=record.get("projectType", "native") or "native",
-                app_runtime=record.get("appRuntime"),
-            )
-        except Exception as exc:
-            logger.warning(
-                f"[PROFILE_BUNDLE] Skipping malformed imported project "
-                f"{record.get('id', '?')}: {exc}"
-            )
-            continue
-        manager.projects[project_obj.id] = project_obj
-        # Reserve the imported project's sticky live port so the allocator
-        # never re-hands it. (backend_port is vestigial and no longer bound.)
-        if project_obj.port:
-            manager.ports.reserve_known(project_obj.port)
-    try:
-        manager._save_projects()
-    except Exception:
-        logger.exception(
-            "[PROFILE_BUNDLE] Failed to persist imported Agent App projects"
-        )
 
 
-def _register_agent_app_via_file(records: List[Dict[str, Any]]) -> None:
-    """Fallback persistence — append records to the on-disk registry file.
-
-    Race-prone when an agent is running (see _register_agent_app_via_manager
-    for why), so reserved for inspection / non-running callers.
-    """
-    current_records = _load_agent_app_projects(AGENT_APP_PROJECTS_FILE)
-    current_records.extend(records)
-    AGENT_APP_PROJECTS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    AGENT_APP_PROJECTS_FILE.write_text(
-        json.dumps({"projects": current_records}, indent=2, ensure_ascii=False),
-        encoding="utf-8",
-    )
 
 
-def _wipe_agent_app_state(
-    manager: Optional["AgentAppManager"],
-    target_living_dir: Path,
-) -> None:
-    """Delete every existing Agent App folder + clear the registry.
-
-    Used by overwrite mode so the bundle's projects are the only ones present.
-    When a manager is provided, both its in-memory state and the registry file
-    are cleared (via _save_projects). With no manager, the registry file is
-    truncated to ``{"projects": []}`` directly.
-
-    Best-effort on the folders: one held open by a running process may fail to
-    delete on Windows; the on-startup orphan cleanup will sweep it later.
-    """
-    if manager is not None:
-        manager.projects.clear()
-        # Drop all running-instance records + every port reservation.
-        manager.instances.reset()
-        manager.ports.clear()
-        try:
-            manager._save_projects()
-        except Exception:
-            logger.exception(
-                "[PROFILE_BUNDLE] Failed to persist cleared Agent App state"
-            )
-    else:
-        AGENT_APP_PROJECTS_FILE.parent.mkdir(parents=True, exist_ok=True)
-        AGENT_APP_PROJECTS_FILE.write_text(
-            json.dumps({"projects": []}, indent=2), encoding="utf-8"
-        )
-    if target_living_dir.exists():
-        for child in list(target_living_dir.iterdir()):
-            if child.is_dir():
-                try:
-                    shutil.rmtree(child)
-                except OSError as exc:
-                    logger.warning(
-                        f"[PROFILE_BUNDLE] Failed to delete {child.name}: {exc}"
-                    )
 
 
-def _apply_agent_app(
-    src_living_dir: Path,
-    mode: str,
-    manager: Optional["AgentAppManager"] = None,
-) -> Tuple[List[str], List[str]]:
-    """Copy Agent App projects into the workspace and register them.
-
-    ``replace`` — renames on folder/id conflict so existing user data is never
-    destroyed; new projects added alongside.
-    ``overwrite`` — every existing Agent App project (folders + registry) is
-    deleted first, then the bundle's projects are installed under their
-    original ids/folder names.
-
-    When ``manager`` is provided, persistence goes through the live
-    ``AgentAppManager`` (required from a running agent); otherwise it falls
-    back to a direct file write.
-    """
-    bundle_projects = _load_agent_app_projects(src_living_dir / "projects.json")
-    target_living_dir = manager.agent_app_dir if manager is not None else AGENT_APP_DIR
-    target_living_dir.mkdir(parents=True, exist_ok=True)
-
-    if mode == "overwrite":
-        _wipe_agent_app_state(manager, target_living_dir)
-        # Empty starting set, so no conflict-rename happens.
-        current_ids: set = set()
-        current_folders: set = set()
-    elif manager is not None:
-        current_ids = set(manager.projects.keys())
-        current_folders = {
-            Path(p.path).name for p in manager.projects.values() if p.path
-        }
-    else:
-        current = _load_agent_app_projects(AGENT_APP_PROJECTS_FILE)
-        current_ids = {p.get("id") for p in current}
-        current_folders = {
-            Path(p.get("path", "")).name for p in current if p.get("path")
-        }
-
-    if not bundle_projects:
-        # In overwrite mode the empty state was already persisted in
-        # _wipe_agent_app_state(); nothing more to do.
-        return [], []
-
-    new_records, added, renamed = _plan_and_copy_agent_app_imports(
-        src_living_dir,
-        bundle_projects,
-        target_living_dir,
-        current_ids,
-        current_folders,
-    )
-
-    if not new_records:
-        return added, renamed
-
-    if manager is not None:
-        _register_agent_app_via_manager(new_records, manager)
-    else:
-        _register_agent_app_via_file(new_records)
-
-    return added, renamed
 
 
 VALID_IMPORT_MODES = ("replace", "overwrite")
@@ -1068,7 +813,6 @@ VALID_IMPORT_MODES = ("replace", "overwrite")
 def import_profile(
     bundle_path: str,
     mode: str = "replace",
-    agent_app_manager: Optional["AgentAppManager"] = None,
 ) -> Dict[str, Any]:
     """Apply a bundle to the current agent.
 
@@ -1084,8 +828,6 @@ def import_profile(
             MCP config, and Agent App state, then installs the bundle's
             content as the entire agent identity. Destructive; the recipient's
             agent ends up = the bundle's.
-        agent_app_manager: live AgentAppManager from the adapter. Required for
-            Agent App projects to survive — see _apply_agent_app() for why.
 
     Returns:
         Dict with success flag and ImportSummary contents. The agent will need
@@ -1119,6 +861,18 @@ def import_profile(
             }
         bundle_name = manifest.get("name") or "imported profile"
 
+        from app.agent_app.framework_profile import stage_packages
+
+        old_index = work_dir / "agent_app" / "projects.json"
+        if old_index.exists():
+            old_apps = json.loads(old_index.read_text(encoding="utf-8"))
+            if isinstance(old_apps, dict):
+                old_apps = old_apps.get("projects", [])
+            if old_apps:
+                raise ValueError("This profile contains legacy CraftBot apps. Import their source "
+                                 "through Add Agent App to convert them with the framework first.")
+        framework_packages = stage_packages(work_dir)
+
         md_applied = _apply_md_files(work_dir / "profile", mode)
         (
             skills_added,
@@ -1130,9 +884,7 @@ def import_profile(
         mcp_added, mcp_skipped, mcp_needs_env, mcp_invalid = _apply_mcp(
             work_dir / "mcp", mode
         )
-        living_added, living_renamed = _apply_agent_app(
-            work_dir / "agent_app", mode, manager=agent_app_manager
-        )
+
 
         # NOTE: agent_name is intentionally NOT applied — per product decision,
         # users keep their own agent name and just inherit the personality/skills.
@@ -1148,8 +900,8 @@ def import_profile(
             mcp_needs_env=mcp_needs_env,
             mcp_invalid=mcp_invalid,
             md_applied=md_applied,
-            agent_app_added=living_added,
-            agent_app_renamed=living_renamed,
+            agent_app_added=[p["name"] for p in framework_packages],
+            agent_app_renamed=[],
         )
         return {
             "success": True,
@@ -1157,6 +909,7 @@ def import_profile(
             "bundle_name": bundle_name,
             "summary": summary.to_dict(),
             "restart_required": False,
+            "framework_packages": framework_packages,
         }
     except (ValueError, json.JSONDecodeError) as exc:
         return {"success": False, "error": str(exc)}

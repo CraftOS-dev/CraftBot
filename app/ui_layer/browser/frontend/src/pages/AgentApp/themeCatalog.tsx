@@ -9,7 +9,7 @@ import React from 'react'
  * tokens.css) that carries light AND dark palettes and follows the host's
  * mode. 'custom' pins the four core colors via the bridge's customColors.
  * Applied over postMessage: { type: 'livingui-theme', themeId, mode,
- * customColors? } (see agent-app/kit/src/theme/bridge.ts). The wire type stays
+ * customColors? }. The wire type stays
  * 'livingui-theme' — a frozen contract with already-built apps.
  */
 
@@ -25,6 +25,16 @@ export interface AgentAppCustomColors {
   surface: string
   text: string
   accent: string
+}
+
+export interface AgentAppTheme {
+  themeId: AgentAppThemeId
+  customColors?: AgentAppCustomColors
+}
+
+export interface LegacyThemeSupport {
+  presets: string[]
+  palettes: Record<string, Record<'light' | 'dark', AgentAppCustomColors>>
 }
 
 export const DEFAULT_CUSTOM_COLORS: AgentAppCustomColors = {
@@ -77,7 +87,14 @@ export function buildThemeMessage(
   themeId: AgentAppThemeId,
   mode: 'dark' | 'light',
   customColors: AgentAppCustomColors,
+  legacy?: LegacyThemeSupport,
 ): { type: 'livingui-theme'; themeId: string; mode: 'dark' | 'light'; customColors?: AgentAppCustomColors } {
+  // Older app-owned handlers only know a few preset names. Use their Custom
+  // path with the installed kit's palette; retain the user's selected preset.
+  if (legacy && (themeId === 'custom' || !legacy.presets.includes(themeId))) {
+    const colors = themeId === 'custom' ? customColors : legacy.palettes[themeId]?.[mode]
+    if (colors) return { type: 'livingui-theme', themeId: 'custom', mode, customColors: colors }
+  }
   if (themeId === 'custom') {
     return { type: 'livingui-theme', themeId: 'craftbot', mode, customColors }
   }

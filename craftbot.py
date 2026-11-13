@@ -1591,20 +1591,7 @@ def _full_install_frozen(
     if not report.ok:
         print()
         print(provision.format_report(report))
-        required_failed = [
-            name
-            for name, res in report.results
-            if not res.ok
-            and name
-            in (
-                "python",
-                "python-deps",
-                "native-runtime",
-                "smoke",
-                "frontend",
-                "default-agent-app",
-            )
-        ]
+        required_failed = [name for name, _ in report.required_failures]
         if required_failed:
             raise RuntimeError(
                 "Setup could not complete: "

@@ -88,68 +88,26 @@ class TestTheSignalSurvivesTheMerge:
         assert merged["awaiting_answer"] is False
 
 
-class TestTheSupervisorRespectsTheDecision:
-    @pytest.fixture
-    def host(self, monkeypatch, tmp_path):
-        """A FactoryHost with a real open Arc for one project."""
-        from app.factory.engine import ARC_BUILD, Arc
-        from app.factory.host_craftbot import FactoryHost
+@pytest.mark.parametrize("awaiting_answer", [False, True])
+def test_ended_run_cleans_up_without_scheduling_a_continuation(monkeypatch, awaiting_answer):
+    from unittest.mock import AsyncMock, Mock
+    from app.agent_base import AgentBase
+    from app.agent_app import framework_host
 
-        h = FactoryHost()
-        arc = Arc(tmp_path / "arc.json")
-        arc.open(ARC_BUILD)
-        monkeypatch.setattr(h, "arc_for", lambda _pid: arc)
-        kicks = []
-        monkeypatch.setattr(h, "kick", lambda _pid="": kicks.append("kick"))
-        return h, arc, kicks
-
-    def test_a_parked_question_pauses_the_arc(self, host):
-        h, arc, kicks = host
-        h.on_run_end("4fa24e8b", {}, awaiting_answer=True)
-        assert arc.paused and arc.paused["by"] == "question"
-        assert kicks == [], "a parked question must not wake the supervisor"
-
-    def test_the_supervisor_never_acts_on_a_parked_question(self, host):
-        # There is no deadline either: a timer here would be the system
-        # deciding how long the agent may wait — and the only thing a resume
-        # can do with an unanswered question is ask it again, which is the
-        # original bug this file exists for.
-        h, arc, _kicks = host
-        h.on_run_end("4fa24e8b", {}, awaiting_answer=True)
-        arc._d["last_activity_at"] = 0.0  # hours idle — still the user's move
-        arc.save()
-        project = types.SimpleNamespace(
-            id="4fa24e8b", name="Brainstorm Graph", path=".", session_id="agentapp_x"
-        )
-        assert h._tick_project("4fa24e8b", project) is False
-
-    def test_the_answer_is_the_wakeup(self, host):
-        # The user replies -> that run ends -> the pause clears and the
-        # supervisor is kicked; the arc carries on as normal.
-        h, arc, kicks = host
-        h.on_run_end("4fa24e8b", {}, awaiting_answer=True)
-        h.on_run_end("4fa24e8b", {})
-        assert arc.paused is None
-        assert kicks == ["kick"]
-
-    def test_a_real_surrender_only_kicks_the_supervisor(self, host):
-        # Run-end records facts; the ONE dispatch decision point is the
-        # supervisor tick, where backoff and the stall cap live.
-        h, arc, kicks = host
-        h.on_run_end("4fa24e8b", {})
-        assert kicks == ["kick"]
-        assert arc.paused is None
-
-    def test_a_user_stop_is_recorded_as_intent(self, host):
-        h, arc, _kicks = host
-        h._emit_chat = lambda pid, text: None
-        h.pause_by_user("4fa24e8b")
-        assert arc.paused and arc.paused["by"] == "user"
-        arc._d["last_activity_at"] = 0.0
-        arc.save()
-        project = types.SimpleNamespace(
-            id="4fa24e8b", name="Brainstorm Graph", path=".", session_id="agentapp_x"
-        )
-        assert h._tick_project("4fa24e8b", project) is False, (
-            "the stop button is a stop, not a deferral"
-        )
+    bridge = types.SimpleNamespace(ended=AsyncMock())
+    monkeypatch.setattr(framework_host, "get_host", lambda: types.SimpleNamespace(bridge=bridge))
+    agent = types.SimpleNamespace(
+        state_manager=types.SimpleNamespace(bump_event_stream=Mock()),
+        session_manager=types.SimpleNamespace(touch_session=Mock()),
+        _check_agent_limits=AsyncMock(return_value=True),
+        _on_run_end=AsyncMock(),
+        trigger_service=types.SimpleNamespace(emit=AsyncMock()),
+    )
+    session = types.SimpleNamespace(id="app-chat")
+    trigger = types.SimpleNamespace(payload={"run_source": "framework_workflow"})
+    asyncio.run(AgentBase._finalize_turn(agent, session, trigger, {
+        "run_ends": True, "awaiting_answer": awaiting_answer,
+    }))
+    agent._on_run_end.assert_awaited_once_with(session, trigger.payload)
+    bridge.ended.assert_awaited_once_with(session.id, awaiting_answer=awaiting_answer)
+    agent.trigger_service.emit.assert_not_called()

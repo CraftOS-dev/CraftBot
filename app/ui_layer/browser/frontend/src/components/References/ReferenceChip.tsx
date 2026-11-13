@@ -7,6 +7,7 @@ import type { ReferenceInput, ReferenceSnapshot } from '../../types'
 import { ReferenceDialog } from './ReferenceDialog'
 import { useAppSelector } from '../../store/hooks'
 import styles from './References.module.css'
+import { frameworkKey, frameworkRoute } from '../../features/agentApps/frameworkIdentity'
 
 export function ReferenceChip({ reference, onRemove }: { reference: ReferenceInput & { label: string }; onRemove?: () => void }) {
   const { t } = useTranslation('chat')
@@ -14,9 +15,10 @@ export function ReferenceChip({ reference, onRemove }: { reference: ReferenceInp
   const panelApps = usePanelAppActions()
   const [open, setOpen] = useState(false)
   const snapshot = 'capturedAt' in reference && reference.capturedAt ? reference as ReferenceSnapshot : null
+  const frameworkApp = useAppSelector(state => state.agentApp.framework.apps.find(a => frameworkKey(a.path, a.id) === reference.targetId || state.agentApp.framework.aliases?.[reference.targetId] === frameworkKey(a.path, a.id)))
   const available = useAppSelector(state => reference.kind === 'session'
     ? state.sessions.sessions.some(s => s.id === reference.targetId)
-    : reference.kind === 'agent_app' && state.agentApp.projects.some(a => a.id === reference.targetId))
+    : reference.kind === 'agent_app' && !!frameworkApp)
   const Icon = reference.kind === 'session' ? MessageSquare : AppWindow
   return <>
     <span className={styles.chip}>
@@ -31,7 +33,7 @@ export function ReferenceChip({ reference, onRemove }: { reference: ReferenceInp
         <p>{t('references.retention')}</p>
         {!available && <p role="status">{t('references.unavailable')}</p>}
         {reference.kind === 'agent_app' && panelApps && <button type="button" disabled={!available || !panelApps.canOpen(reference.targetId)} onClick={() => { setOpen(false); panelApps.open(reference.targetId) }}>{t('apps.openPanel')}</button>}
-        <button type="button" disabled={!available} onClick={() => { setOpen(false); navigate(reference.kind === 'session' ? `/session/${encodeURIComponent(reference.targetId)}` : `/agent-app/${encodeURIComponent(reference.targetId)}`) }}>{t('references.openSource')}</button>
+        <button type="button" disabled={!available} onClick={() => { setOpen(false); navigate(reference.kind === 'session' ? `/session/${encodeURIComponent(reference.targetId)}` : frameworkApp ? frameworkRoute(frameworkApp.path, frameworkApp.id) : `/agent-app/${encodeURIComponent(reference.targetId)}`) }}>{t('references.openSource')}</button>
     </ReferenceDialog>
   </>
 }

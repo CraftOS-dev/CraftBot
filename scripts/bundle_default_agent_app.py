@@ -1,62 +1,69 @@
 #!/usr/bin/env python3
-"""Refresh the included Kanban from the configured marketplace ref.
+"""Refresh bundled Kanban from source.json's repository/ref (main by default).
 
-Run with CraftBot's Python environment. Repository aliases and the ref come
-from the existing marketplace configuration. source.json supplies the app ID
-and records the resulting commit/checksum; installation uses the bundled ZIP.
+Use --ref for a one-off candidate; it records the resolved commit and sourceRef
+without changing the configured update ref. App and toolkit files are unmodified.
 """
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import io
 import json
-from pathlib import Path
-import sys
-import urllib.error
+from pathlib import Path, PurePosixPath
+import re
 from urllib.parse import quote
+from urllib.request import Request, urlopen
 import zipfile
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-DESTINATION = REPO_ROOT / "app" / "data" / "default_agent_app"
-APP_ID = json.loads((DESTINATION / "source.json").read_text(encoding="utf-8"))["appId"]
+DESTINATION = REPO_ROOT / "app/data/default_agent_app"
+APP_ID = "kanban-board"
 
 
 def build_bundle(upstream: bytes) -> bytes:
-    """Extract just the published app and its license into a repeatable ZIP."""
-    files = {}
+    """Package a one-app offline catalogue with its separately resolved toolkit."""
     with zipfile.ZipFile(io.BytesIO(upstream)) as source:
+        root = source.namelist()[0].split("/")[0] + "/"
+        catalogue = json.loads(source.read(root + "catalogue.json"))
+        app = next(row for row in catalogue["apps"] if row["id"] == APP_ID)
+        if app.get("folder") != APP_ID:
+            raise ValueError("Unexpected marketplace app folder")
+        manifest = json.loads(source.read(root + APP_ID + "/manifest.json"))
+        if not re.fullmatch(r"\d+\.\d+\.\d+", str(manifest.get("agentAppVersion", ""))):
+            raise ValueError("Kanban is still in the legacy format; await its framework release.")
+        toolkit = json.loads(source.read(root + APP_ID + "/.a2app/toolkit.json"))["id"]
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", toolkit):
+            raise ValueError("Invalid marketplace toolkit ID")
+        toolkit_prefix = f"toolkits/{toolkit}/"
+        toolkit_manifest = json.loads(source.read(root + toolkit_prefix + "a2app.toolkit.json"))
+        if toolkit_manifest["id"] != toolkit or app.get("toolkit") != toolkit:
+            raise ValueError("Marketplace toolkit declarations disagree")
+        files = {}
         for member in source.infolist():
-            if member.is_dir():
+            if member.is_dir() or not member.filename.startswith(root):
                 continue
-            parts = member.filename.split("/")
-            if len(parts) > 2 and parts[1] == APP_ID:
-                relative = "/".join(parts[2:])
-                if any(
-                    part
-                    in (
-                        "..",
-                        "node_modules",
-                        "pb_data",
-                        ".superuser",
-                        ".git",
-                        ".factory",
-                        ".snapshots",
-                        "logs",
-                    )
-                    for part in parts
-                ):
-                    raise ValueError(
-                        f"Unexpected runtime state in upstream: {member.filename}"
-                    )
-                files[relative] = source.read(member)
-            elif len(parts) == 2 and parts[1] == "LICENSE":
-                files["LICENSE"] = source.read(member)
-    if "LICENSE" not in files:
-        raise ValueError("Upstream license missing")
-    manifest = json.loads(files["manifest.json"])
-    manifest["marketplaceAppId"] = APP_ID
-    files["manifest.json"] = (json.dumps(manifest, indent=2) + "\n").encode()
+            name = member.filename[len(root):]
+            if not name.startswith((APP_ID + "/", toolkit_prefix)):
+                continue
+            parts = PurePosixPath(name).parts
+            if (".." in parts or "\\" in name or ":" in name
+                    or (member.external_attr >> 16) & 0o170000 == 0o120000):
+                raise ValueError("Unsafe marketplace archive entry")
+            if set(parts) & {
+                "node_modules", "pb_data", "pb_public", ".superuser", ".git",
+                ".factory", ".snapshots", "logs", "credentials.json", "live.json",
+                "dev.json", "gate-pass.json",
+            }:
+                raise ValueError(f"Unexpected runtime state in upstream: {name}")
+            if name in files:
+                raise ValueError("Duplicate marketplace archive entry")
+            files[name] = source.read(member)
+        license_data = source.read(root + "LICENSE")
+        files.setdefault(APP_ID + "/LICENSE", license_data)
+        files.setdefault(toolkit_prefix + "LICENSE", license_data)
+        files["catalogue.json"] = (json.dumps({"apps": [app]}, indent=2) + "\n").encode()
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as bundle:
         for name, data in sorted(files.items()):
@@ -68,38 +75,30 @@ def build_bundle(upstream: bytes) -> bytes:
 
 
 def main() -> None:
-    sys.path.insert(0, str(REPO_ROOT))
-    from app.agent_app import marketplace_source
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--ref", help="One-off source ref; future refreshes still use source.json's ref")
+    args = parser.parse_args()
+    config = json.loads((DESTINATION / "source.json").read_text(encoding="utf-8"))
+    repository = config["repository"]
+    update_ref = config.get("ref", "main")
+    selected_ref = args.ref or update_ref
+    def download(url):
+        with urlopen(Request(url, headers={"User-Agent": "CraftBot-bundle"}), timeout=120) as response:
+            return response.read()
 
-    selected_ref = quote(marketplace_source.ref(), safe="")
-    for index, repository in enumerate(marketplace_source.REPOS):
-        try:
-            commit = json.loads(
-                marketplace_source._read_url(
-                    f"https://api.github.com/repos/{repository}/commits/{selected_ref}",
-                    120,
-                )
-            )
-            revision = commit["sha"]
-            upstream = marketplace_source._read_url(
-                f"https://codeload.github.com/{repository}/zip/{revision}", 120
-            )
-            break
-        except (urllib.error.URLError, OSError):
-            if index == len(marketplace_source.REPOS) - 1:
-                raise
+    commit = json.loads(download(
+        f"https://api.github.com/repos/{repository}/commits/{quote(selected_ref, safe='')}",
+    ))
+    revision = commit["sha"]
+    upstream = download(f"https://codeload.github.com/{repository}/zip/{revision}")
     bundle = build_bundle(upstream)
-    DESTINATION.mkdir(parents=True, exist_ok=True)
-    (DESTINATION / f"{APP_ID}.zip").write_bytes(bundle)
     provenance = {
-        "repository": repository,
-        "revision": revision,
-        "appId": APP_ID,
+        "repository": repository, "ref": update_ref, "sourceRef": selected_ref,
+        "revision": revision, "appId": APP_ID,
         "sha256": hashlib.sha256(bundle).hexdigest(),
     }
-    (DESTINATION / "source.json").write_text(
-        json.dumps(provenance, indent=2) + "\n", encoding="utf-8"
-    )
+    (DESTINATION / f"{APP_ID}.zip").write_bytes(bundle)
+    (DESTINATION / "source.json").write_text(json.dumps(provenance, indent=2) + "\n", encoding="utf-8")
     print(f"Bundled {APP_ID} from {repository} at {revision}: {len(bundle):,} bytes")
 
 

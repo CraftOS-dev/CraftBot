@@ -86,6 +86,34 @@ def sessions(tmp_path, monkeypatch):
         StateSession.end(sid)
 
 
+@pytest.mark.parametrize("name,sets", [
+    ("operator", ["a2app"]), ("connect", ["a2app"]),
+    ("walk-verify", ["a2app"]), ("creator", ["agent_app", "a2app"]),
+    ("modify", ["agent_app", "a2app"]), ("importer", ["agent_app", "a2app"]),
+])
+def test_framework_skill_bindings_preserve_source(tmp_path, monkeypatch, name, sets):
+    from agent_core.core.impl.skill.loader import SkillLoader
+
+    source = tmp_path / "SKILL.md"
+    original = f"---\nname: {name}\ndescription: Upstream instructions\n---\nKeep this unchanged.\n"
+    source.write_text(original, encoding="utf-8")
+    monkeypatch.setattr(skill_manager, "_bundled_sources", {f"framework-{name}": source})
+    monkeypatch.setattr(skill_manager, "_skills", {})
+    monkeypatch.setattr(skill_manager, "_config", SimpleNamespace(get_search_directories=lambda: []))
+    retired = ["agent-app-creator", "agent-app-importer", "agent-app-manager", "agent-app-modify"]
+    monkeypatch.setattr(SkillLoader, "discover_skills", lambda *_: [
+        SimpleNamespace(name=n) for n in [*retired, "my-custom-skill"]
+    ])
+    for _ in range(2):  # Reload must keep the host binding without rewriting upstream.
+        asyncio.run(skill_manager._discover_skills())
+        skill = skill_manager.get_skill(f"framework-{name}")
+        assert skill.metadata.action_sets == sets
+        assert "Keep this unchanged." in skill.instructions
+        assert source.read_text(encoding="utf-8") == original
+        assert not set(retired).intersection(skill_manager._skills)
+        assert "my-custom-skill" in skill_manager._skills
+
+
 def _skill_events(stream, event_type=EventType.SKILL_INSTRUCTIONS):
     return [r for r in stream.tail_events if r.event.event_type is event_type]
 

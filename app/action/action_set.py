@@ -20,10 +20,12 @@ logger = logging.getLogger("ActionSetManager")
 # tests/test_capability_catalog.py fails on any such set.
 DEFAULT_SET_DESCRIPTIONS: Dict[str, str] = {
     "agent_app": (
-        "Agent Apps: create (scaffold), import and convert apps, restart and "
-        "verify them, call their HTTP API and read their usage, report build "
-        "progress and findings, approve their triggers, browse and install "
-        "from the marketplace"
+        "Build and evolve Agent Apps: setup wizard, create, modify, import, install, "
+        "validate, independently verify and manage lifecycle through the upstream CLI"
+    ),
+    "a2app": (
+        "Connect to and control Agent Apps: discover installed or shared apps, "
+        "inspect context and data, invoke operations and complete app requests"
     ),
     "content_creation": "Generate images and videos",
     "proactive": (

@@ -236,7 +236,7 @@ def shell_exec(input_data: dict) -> dict:
 
 @action(
     name="run_shell",
-    description="Executes a command line with cmd.exe, capturing stdout, stderr, and exit code. Stdin is closed (EOF) by default. For PowerShell, use run_powershell. IMPORTANT: For long-running commands that don't terminate (e.g., 'npm run dev', 'npm start', 'python -m http.server', 'flask run', watch processes, dev servers), you MUST set background=true. Otherwise, the command will block the entire task until timeout and may not capture any output.",
+    description="Executes a command line with cmd.exe, capturing stdout, stderr, and exit code. Stdin is closed (EOF) by default. For PowerShell, use run_powershell. IMPORTANT: For long-running commands that don't terminate (e.g., 'npm run dev', 'npm start', 'python -m http.server', 'flask run', watch processes, dev servers), you MUST set background=true. Otherwise, the command will block the entire task until timeout and may not capture any output. Keep helper processes hidden; use background=true instead of opening a terminal with start, cmd /k, or PowerShell -NoExit. Open a visible interactive window only when the user explicitly requests it.",
     platforms=["windows"],
     default=True,
     action_sets=["core"],
@@ -372,12 +372,13 @@ def shell_exec_windows(input_data: dict) -> dict:
     args = 'cmd.exe /d /s /c "' + command + '"'
 
     creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    from agent_core.utils.windows_process import hidden_console_kwargs
+
+    process_options = hidden_console_kwargs(new_process_group=True)
 
     # Background mode: start process and return immediately
     if background:
         try:
-            # Use CREATE_NEW_PROCESS_GROUP to detach from parent
-            bg_flags = creation_flags | subprocess.CREATE_NEW_PROCESS_GROUP
             process = subprocess.Popen(
                 args,
                 stdout=subprocess.DEVNULL,
@@ -385,7 +386,7 @@ def shell_exec_windows(input_data: dict) -> dict:
                 stdin=subprocess.DEVNULL,
                 cwd=cwd if cwd else None,
                 env=env,
-                creationflags=bg_flags,
+                **process_options,
             )
             return {
                 "status": "background",
@@ -417,8 +418,6 @@ def shell_exec_windows(input_data: dict) -> dict:
 
         run_session_id = input_data.get("_session_id") or ""
 
-        # Use CREATE_NEW_PROCESS_GROUP so we can kill the entire process tree
-        fg_flags = creation_flags | subprocess.CREATE_NEW_PROCESS_GROUP
         process = subprocess.Popen(
             args,
             stdout=subprocess.PIPE,
@@ -428,7 +427,7 @@ def shell_exec_windows(input_data: dict) -> dict:
             env=env,
             text=True,
             errors="replace",
-            creationflags=fg_flags,
+            **process_options,
         )
         register_process(run_session_id, process)
 
