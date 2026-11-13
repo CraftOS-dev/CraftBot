@@ -265,6 +265,15 @@ def main():
         restarted = wait_ready(tree, state)
         assert initial["pid"] != restarted["pid"], "did not start a new process"
         result["passed"].append("real_os_startup_manager_and_readiness")
+        run(
+            [
+                python,
+                str(ROOT / "scripts/verify_startup_ui.py"),
+                "--output",
+                str(EVIDENCE / "browser"),
+            ]
+        )
+        result["passed"].append("browser_receives_backend_state_after_startup")
 
         cli("autostart", "disable")
         assert json.loads((state / "startup.json").read_text())["enabled"] is False

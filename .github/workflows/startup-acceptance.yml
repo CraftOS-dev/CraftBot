@@ -56,6 +56,8 @@ jobs:
           Xvfb :99 -screen 0 1280x720x24 > "$RUNNER_TEMP/xvfb.log" 2>&1 &
       - name: Build source payload
         shell: bash
+        env:
+          VITE_BACKEND_PORT: '7926'
         run: |
           cd app/ui_layer/browser/frontend
           npm ci

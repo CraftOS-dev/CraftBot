@@ -81,6 +81,12 @@ Rust 1.85+ (`rustup` installs it). No system libraries are needed on Windows
 or macOS; on Linux the runtime uses the system's X11/Wayland and OpenGL via
 `dlopen`, with a software renderer as fallback.
 
+Linux release binaries are built on Ubuntu 22.04 to keep their glibc
+requirements compatible with that release and newer distributions. Avoid
+building release artifacts on `ubuntu-latest`, which can silently raise the
+minimum glibc version. Minimal X11 desktops also need `libxkbcommon-x11-0`
+(in addition to their display server and a browser).
+
 The CraftBot version is baked in at build time: `CRAFTBOT_VERSION=1.4.0
 cargo build --release`, or a `VERSION` file at the repo root, or "latest"
 for a dev build (downloads the newest release).
