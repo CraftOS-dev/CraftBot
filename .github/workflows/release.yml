@@ -142,7 +142,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          # Keep the installer compatible with glibc 2.35 (Ubuntu 22.04+).
+          - os: ubuntu-22.04
             os_label: linux
           - os: windows-latest
             os_label: windows

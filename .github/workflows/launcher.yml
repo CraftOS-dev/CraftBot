@@ -25,7 +25,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          # Build against the oldest supported glibc, not the moving latest
+          # runner (whose binaries cannot launch on older Ubuntu releases).
+          - os: ubuntu-22.04
             os_label: linux
           - os: windows-latest
             os_label: windows
@@ -44,6 +46,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+          targets: ${{ matrix.os_label == 'macos' && 'x86_64-apple-darwin,aarch64-apple-darwin' || '' }}
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
@@ -72,10 +75,18 @@ jobs:
       - name: Build
         run: cargo build --release
 
+      - name: Build universal Mac installer for reboot validation
+        if: matrix.os_label == 'macos' && (github.head_ref == 'fix/system-restart-auto-launch' || github.ref_name == 'fix/system-restart-auto-launch')
+        run: |
+          cargo build --release --locked --target x86_64-apple-darwin
+          lipo -create target/release/CraftBotInstaller target/x86_64-apple-darwin/release/CraftBotInstaller -output target/release/CraftBotInstaller-universal
+          mv target/release/CraftBotInstaller-universal target/release/CraftBotInstaller
+          lipo -info target/release/CraftBotInstaller
+
       - name: Save installers for disposable reboot tests
         if: github.head_ref == 'fix/system-restart-auto-launch' || github.ref_name == 'fix/system-restart-auto-launch'
         uses: actions/upload-artifact@v4
         with:
           name: reboot-installer-${{ matrix.os_label }}
-          path: launcher/target/release/CraftBotInstaller*
+          path: launcher/target/release/CraftBotInstaller${{ runner.os == 'Windows' && '.exe' || '' }}
           retention-days: 7
