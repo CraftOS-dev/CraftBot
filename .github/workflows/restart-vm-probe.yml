@@ -1,0 +1,44 @@
+name: Reboot VM capability probe
+
+on:
+  push:
+    branches: [fix/system-restart-auto-launch]
+    paths: ['.github/workflows/restart-vm-probe.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  macos-hypervisor:
+    # Standard runners are free for this public repository. Check an Intel
+    # runner explicitly: Apple Silicon runners do not expose nested macOS VMs.
+    runs-on: macos-15-intel
+    timeout-minutes: 10
+    steps:
+      - name: Inspect available virtualization
+        run: |
+          sw_vers
+          uname -m
+          sysctl kern.hv_support
+          df -h /
+          cat > "$RUNNER_TEMP/hv-probe.c" <<'EOF'
+          #include <Hypervisor/Hypervisor.h>
+          #include <stdio.h>
+          int main(void) {
+              hv_return_t result = hv_vm_create(HV_VM_DEFAULT);
+              printf("hv_vm_create: 0x%x\n", result);
+              if (result == HV_SUCCESS) {
+                  printf("hv_vm_destroy: 0x%x\n", hv_vm_destroy());
+              }
+              return 0;
+          }
+          EOF
+          cat > "$RUNNER_TEMP/hv-entitlements.plist" <<'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict><key>com.apple.security.hypervisor</key><true/></dict></plist>
+          EOF
+          clang "$RUNNER_TEMP/hv-probe.c" -framework Hypervisor -o "$RUNNER_TEMP/hv-probe"
+          codesign --force --sign - --entitlements "$RUNNER_TEMP/hv-entitlements.plist" "$RUNNER_TEMP/hv-probe"
+          "$RUNNER_TEMP/hv-probe"
