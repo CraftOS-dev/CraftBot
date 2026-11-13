@@ -63,7 +63,7 @@ def vcredist_installed() -> bool:
     try:
         with winreg.OpenKey(
             winreg.HKEY_LOCAL_MACHINE,
-            r"SOFTWARE\Microsoft\VisualStudio.0\VC\Runtimesd",
+            r"SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64",
         ) as key:
             installed, _ = winreg.QueryValueEx(key, "Installed")
             return bool(installed)

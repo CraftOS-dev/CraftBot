@@ -12,6 +12,9 @@ Commands:
     python craftbot.py status             Show if CraftBot is running
     python craftbot.py logs [-n N]        Show last N log lines (default: 50)
     python craftbot.py install [options]  Register for auto-start on boot/login
+    python craftbot.py autostart enable   Enable automatic startup at login
+    python craftbot.py autostart disable  Disable automatic startup (keep installed)
+    python craftbot.py autostart status   Show automatic startup status
     python craftbot.py uninstall          Remove auto-start registration
     python craftbot.py repair [options]   Re-copy current EXE over the installed
                                           copy and restart (frozen EXE only)
@@ -28,6 +31,7 @@ Options passed to 'start' / 'install':
     --agent-app-port PORT   First Agent App port, apps get PORT to PORT+99 (default: 3100)
     --conda                Use conda environment
     --no-conda              Don't use conda
+    --no-autostart          Install without automatic startup at login
 
 Examples:
     python craftbot.py start                   # Start in background (browser mode)
@@ -39,31 +43,21 @@ Examples:
 """
 
 import sys
+import os
 
 # In windowed (console=False) PyInstaller builds, sys.stdout and sys.stderr
 # are None. Lots of libraries (including run.py at import time) call
 # sys.stdout.isatty() unconditionally and crash with AttributeError. Install
-# a dummy file-like before ANY other import that might transitively hit
+# an output handle before ANY other import that might transitively hit
 # stdout. Must be the very first thing this module does.
 if sys.stdout is None or sys.stderr is None:
-    import io
-
-    class _NullIO(io.TextIOBase):
-        def isatty(self) -> bool:
-            return False
-
-        def write(self, s: str) -> int:
-            return len(s)
-
-        def flush(self) -> None:
-            pass
-
+    # Real handles can also be passed through an interpreter handoff.
+    output = open(os.devnull, "w", encoding="utf-8")
     if sys.stdout is None:
-        sys.stdout = _NullIO()
+        sys.stdout = output
     if sys.stderr is None:
-        sys.stderr = _NullIO()
+        sys.stderr = output
 
-import os
 import shlex
 import shutil
 import signal
@@ -76,6 +70,7 @@ from typing import Callable, List, Optional
 from installer import helpers as _helpers
 from installer import metadata as _metadata
 from installer import payload as _payload
+from installer import startup as _startup
 
 # Store platform once so static analysers don't short-circuit platform branches
 _PLATFORM: str = sys.platform
@@ -388,6 +383,21 @@ def _remove_pid() -> None:
         os.remove(PID_FILE)
     except FileNotFoundError:
         pass
+
+
+def _claim_service_process() -> bool:
+    """Publish a login service's PID without replacing an already running app."""
+    if _owned_pid():
+        print("CraftBot is already running; skipping automatic startup.")
+        return False
+    _write_pid(os.getpid())
+    return True
+
+
+def _release_service_process(pid: int) -> None:
+    # A manual restart may already have replaced our PID record.
+    if _owned_pid() == pid:
+        _remove_pid()
 
 
 def _parse_port_arg(args: List[str], flag: str, default: int) -> int:
@@ -749,7 +759,7 @@ def cmd_start(extra_args: List[str]) -> bool:
     # Create a desktop shortcut so the user can reopen the browser anytime
     if "--cli" not in run_args:
         if _PLATFORM == "win32":
-            _create_desktop_shortcut_windows()
+            _create_desktop_shortcut_windows(extra_args)
         else:
             _create_desktop_shortcut_unix(extra_args)
 
@@ -807,6 +817,10 @@ def cmd_stop(quiet: bool = False, args: Optional[List[str]] = None) -> bool:
 
     if _stop_orphan_listeners(args):
         stopped = True
+
+    # A forced termination (and a reboot) cannot run the agent's cleanup.
+    # Do not leave the previous process's readiness behind after stop.
+    _clear_agent_ready()
 
     if not stopped and not quiet:
         if had_record:
@@ -993,29 +1007,34 @@ def _ensure_ico() -> Optional[str]:
         return None
 
 
-def _create_desktop_shortcut_windows() -> None:
+def _ps_literal(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+
+def _create_desktop_shortcut_windows(extra_args: Optional[List[str]] = None) -> None:
     """Create a .lnk shortcut on the Windows Desktop with the CraftBot icon."""
     desktop = _find_desktop()
     if not desktop:
         return
     shortcut_path = os.path.join(desktop, SHORTCUT_NAME)
-    if os.path.exists(shortcut_path):
-        return  # already exists, don't recreate
+    # Refresh existing links too: upgrades and custom ports must take effect.
     ico_path = _ensure_ico()
     try:
         # Write the PS script to a temp file with UTF-8-BOM so PowerShell
         # handles non-ASCII paths (e.g. Japanese Desktop folder) correctly.
         import tempfile
 
+        browser_command = '/c start "" ' + _frontend_url(extra_args or [])
         ps_lines = [
             "$ws = New-Object -ComObject WScript.Shell",
-            f'$s = $ws.CreateShortcut("{shortcut_path}")',
+            f"$s = $ws.CreateShortcut({_ps_literal(shortcut_path)})",
             '$s.TargetPath = "cmd.exe"',
-            f'$s.Arguments = "/c start {BROWSER_URL}"',
+            f"$s.Arguments = {_ps_literal(browser_command)}",
+            '$s.WorkingDirectory = ""',
             "$s.WindowStyle = 7",  # minimized (hides the cmd flash)
         ]
         if ico_path:
-            ps_lines.append(f'$s.IconLocation = "{ico_path},0"')
+            ps_lines.append(f"$s.IconLocation = {_ps_literal(ico_path + ',0')}")
         ps_lines += [
             '$s.Description = "Open CraftBot in your browser"',
             "$s.Save()",
@@ -1037,6 +1056,8 @@ def _create_desktop_shortcut_windows() -> None:
                 ],
                 capture_output=True,
                 timeout=15,
+                check=True,
+                **_quiet_windows_flags(),
             )
         finally:
             try:
@@ -1063,16 +1084,6 @@ def _installed_launch() -> Optional[List[str]]:
     return _metadata.launch_command(INSTALL_METADATA_FILE)
 
 
-def _shortcut_start_command(extra_args: List[str]) -> Optional[str]:
-    restart_args = _port_args(extra_args)
-    if IS_FROZEN:
-        launch = _installed_launch()
-        if not launch:
-            return None
-        return shlex.join(launch + restart_args)
-    return shlex.join([_python_exe(), "craftbot.py", "start"] + restart_args)
-
-
 def _create_desktop_shortcut_unix(extra_args: Optional[List[str]] = None) -> None:
     """Create a desktop shortcut on Linux or macOS."""
     if extra_args is None:
@@ -1085,24 +1096,7 @@ def _create_desktop_shortcut_unix(extra_args: Optional[List[str]] = None) -> Non
         if _PLATFORM == "darwin":
             # macOS does not support XDG .desktop files — create a double-clickable .command script
             shortcut_path = os.path.join(desktop, "CraftBot.command")
-            backend_url = _backend_url(extra_args)
-            start_cmd = _shortcut_start_command(extra_args)
-            if not start_cmd:
-                print("  (Could not create desktop shortcut: no installed agent found)")
-                return
-            content = (
-                "#!/bin/sh\n"
-                f"cd {shlex.quote(BASE_DIR)} || exit 1\n"
-                f"backend_status=$(curl -sS -o /dev/null -w '%{{http_code}}' "
-                f"{shlex.quote(backend_url)} 2>/dev/null || true)\n"
-                f"if curl -fsS {shlex.quote(browser_url)} >/dev/null 2>&1 "
-                '&& [ "$backend_status" -ge 100 ] 2>/dev/null '
-                '&& [ "$backend_status" -lt 500 ] 2>/dev/null; then\n'
-                f"  open {shlex.quote(browser_url)}\n"
-                "else\n"
-                f"  exec {start_cmd}\n"
-                "fi\n"
-            )
+            content = f"#!/bin/sh\nexec open {shlex.quote(browser_url)}\n"
             with open(shortcut_path, "w") as f:
                 f.write(content)
             os.chmod(shortcut_path, 0o755)
@@ -1135,12 +1129,51 @@ def _create_desktop_shortcut_unix(extra_args: Optional[List[str]] = None) -> Non
 # ─── Auto-start: Windows Task Scheduler ───────────────────────────────────────
 
 
+def _quiet_windows_flags() -> dict:
+    return {"creationflags": 0x08000000} if _PLATFORM == "win32" else {}
+
+
+def _autostart_launch(run_args: List[str]) -> Optional[List[str]]:
+    launch = _installed_launch() if IS_FROZEN else [_python_exe(), RUN_SCRIPT]
+    if not launch:
+        print("No installed CraftBot found — run install first.")
+        return None
+    args = _build_run_args(run_args)
+    if os.path.basename(launch[-1]) == "run.py":
+        if "--service" not in args:
+            args.append("--service")
+        # Login managers do not inherit CRAFTBOT_HOME / XDG_DATA_HOME from
+        # the installation shell. Keep the same data and preferences after
+        # login, including when the user relocated them.
+        args.append(f"--state-root={paths.STATE_ROOT.resolve()}")
+    return launch + args
+
+
+def _remove_windows_registry() -> bool:
+    try:
+        import winreg
+
+        with winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            r"Software\Microsoft\Windows\CurrentVersion\Run",
+            0,
+            winreg.KEY_SET_VALUE,
+        ) as key:
+            winreg.DeleteValue(key, TASK_NAME)
+        return True
+    except FileNotFoundError:
+        return True
+    except OSError as exc:
+        print(f"Could not remove the old login registry entry: {exc}")
+        return False
+
+
 def _install_windows_registry(action: str) -> bool:
     """Fallback: register auto-start via HKCU Run registry key (no admin needed)."""
     try:
         import winreg
 
-        key = winreg.OpenKey(
+        key = winreg.CreateKeyEx(
             winreg.HKEY_CURRENT_USER,
             r"Software\Microsoft\Windows\CurrentVersion\Run",
             0,
@@ -1153,63 +1186,90 @@ def _install_windows_registry(action: str) -> bool:
         return False
 
 
-def _install_windows(run_args: List[str]) -> None:
-    if IS_FROZEN:
-        # Register the installed CraftBot for auto-start: [python, run.py].
-        launch = _installed_launch()
-        if not launch:
-            print(
-                f"  {RED}✗{RESET} {WHITE}No installed CraftBot found — run install first.{RESET}"
-            )
-            return
-        # 8.3 short paths avoid quoting trouble in Task Scheduler's XML for
-        # paths containing spaces, which %LOCALAPPDATA%\Programs often does.
-        quoted = " ".join(f'"{_to_short_path(part)}"' for part in launch)
-        action = f"{quoted} {' '.join(run_args)}".strip()
-    else:
-        python = _python_exe()
-        # Use 8.3 short paths to avoid Unicode/long-path failures in schtasks /tr
-        python_s = _to_short_path(python)
-        script_s = _to_short_path(RUN_SCRIPT)
-        action = f'"{python_s}" "{script_s}" {" ".join(run_args)}'
+def _install_windows(run_args: List[str]) -> bool:
+    import csv
+    import tempfile
 
-    # Try Task Scheduler first; silently fall back to Registry on failure
+    command = _autostart_launch(run_args)
+    if not command:
+        return False
+    directory = (
+        os.path.dirname(command[1])
+        if len(command) > 1 and command[1].endswith(".py")
+        else BASE_DIR
+    )
+    # XML separates the executable from its arguments, preserving Unicode and
+    # spaces without relying on 8.3 names. Configure background-app settings
+    # explicitly; schtasks /sc ONLOGON otherwise inherits battery/72h limits.
     registered = False
+    xml_file = None
     try:
+        identity = subprocess.run(
+            ["whoami", "/user", "/fo", "csv", "/nh"],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=10,
+            **_quiet_windows_flags(),
+        )
+        user = next(csv.reader([identity.stdout.strip()]))[1]
+        if not user.startswith("S-1-"):
+            raise ValueError("Could not determine the current Windows user SID")
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".xml", delete=False, encoding="utf-16"
+        ) as f:
+            xml_file = f.name
+            f.write(_startup.windows_task_xml(command, directory, user))
         result = subprocess.run(
-            [
-                "schtasks",
-                "/create",
-                "/tn",
-                TASK_NAME,
-                "/tr",
-                action,
-                "/sc",
-                "ONLOGON",
-                "/f",
-            ],
+            ["schtasks", "/create", "/tn", TASK_NAME, "/xml", xml_file, "/f"],
             capture_output=True,
             text=True,
             timeout=30,
+            **_quiet_windows_flags(),
         )
         registered = result.returncode == 0
-    except Exception:
-        pass
-
-    if not registered:
-        registered = _install_windows_registry(action)
+    except (OSError, subprocess.SubprocessError, ValueError, IndexError) as exc:
+        print(f"Task Scheduler registration unavailable: {exc}")
+    finally:
+        if xml_file:
+            os.remove(xml_file)
 
     if registered:
+        # An earlier non-admin installation may have used HKCU Run. Keep only
+        # one launch trigger, rather than starting two agents at the next login.
+        registered = _remove_windows_registry()
+    else:
+        # Remove an obsolete task before falling back, so its old action cannot
+        # race the updated registry action. A missing task is fine.
+        try:
+            query = subprocess.run(
+                ["schtasks", "/query", "/tn", TASK_NAME],
+                capture_output=True,
+                timeout=10,
+                **_quiet_windows_flags(),
+            )
+            if query.returncode == 0:
+                subprocess.run(
+                    ["schtasks", "/delete", "/tn", TASK_NAME, "/f"],
+                    capture_output=True,
+                    check=True,
+                    timeout=15,
+                    **_quiet_windows_flags(),
+                )
+            registered = _install_windows_registry(subprocess.list2cmdline(command))
+        except (OSError, subprocess.SubprocessError) as exc:
+            print(f"Could not replace the old startup task: {exc}")
+    if registered:
         print("Auto-start registered. CraftBot will start automatically on login.")
-        print(f"Open CraftBot: {BROWSER_URL}")
-        _create_desktop_shortcut_windows()
+        _create_desktop_shortcut_windows(run_args)
     else:
         print(
-            "Could not register auto-start. Use 'python craftbot.py start' to start manually."
+            "Could not register auto-start. Run 'python craftbot.py autostart enable' to retry."
         )
+    return registered
 
 
-def _uninstall_windows() -> None:
+def _uninstall_windows(*, stop: bool = True) -> bool:
     removed_any = False
 
     # Remove from Task Scheduler
@@ -1249,25 +1309,26 @@ def _uninstall_windows() -> None:
 
     if not removed_any:
         print("No auto-start registration found (already uninstalled?).")
+    return not _is_installed()
 
 
 # ─── Auto-start: Linux systemd (user service) ─────────────────────────────────
 
 
-def _install_linux(run_args: List[str]) -> None:
+def _install_linux(run_args: List[str]) -> bool:
     service_dir = os.path.expanduser("~/.config/systemd/user")
     os.makedirs(service_dir, exist_ok=True)
 
     service_file = os.path.join(service_dir, f"{SYSTEMD_SERVICE}.service")
-    if IS_FROZEN:
-        launch = _installed_launch()
-        if not launch:
-            print("Error: no installed CraftBot found — run install first.")
-            return
-        exec_start = f"{' '.join(launch)} {' '.join(run_args)}".strip()
-    else:
-        python = _installed_python()
-        exec_start = f"{python} {RUN_SCRIPT} {' '.join(run_args)}"
+    command = _autostart_launch(run_args)
+    if not command:
+        return False
+    exec_start = " ".join(_startup.systemd_quote(arg, command=True) for arg in command)
+    directory = (
+        os.path.dirname(command[1])
+        if len(command) > 1 and command[1].endswith(".py")
+        else BASE_DIR
+    )
 
     content = f"""[Unit]
 Description=CraftBot AI Agent
@@ -1276,7 +1337,7 @@ After=network.target
 [Service]
 Type=simple
 ExecStart={exec_start}
-WorkingDirectory={BASE_DIR}
+WorkingDirectory={_startup.systemd_path(directory)}
 Restart=on-failure
 RestartSec=5
 Environment=PYTHONUNBUFFERED=1
@@ -1296,9 +1357,10 @@ WantedBy=default.target
         print("CraftBot will start automatically when you log in.")
         print(f"\nOpen CraftBot: {BROWSER_URL}")
         print(f"  Tip: Bookmark {BROWSER_URL} so you never have to remember it!")
-        _create_desktop_shortcut_unix()
+        _create_desktop_shortcut_unix(run_args)
         print(f"\nTo start it now: systemctl --user start {SYSTEMD_SERVICE}")
         print(f"To view logs:    journalctl --user -u {SYSTEMD_SERVICE} -f")
+        return True
     except subprocess.CalledProcessError as e:
         print(f"Error enabling systemd service: {e}")
         print(f"Service file written to: {service_file}")
@@ -1307,9 +1369,10 @@ WantedBy=default.target
         )
     except FileNotFoundError:
         print("systemctl not found. Is systemd running on this system?")
+    return False
 
 
-def _uninstall_linux() -> None:
+def _uninstall_linux(*, stop: bool = True) -> bool:
     service_file = os.path.expanduser(
         f"~/.config/systemd/user/{SYSTEMD_SERVICE}.service"
     )
@@ -1319,13 +1382,15 @@ def _uninstall_linux() -> None:
             capture_output=True,
             timeout=10,
         )
-        subprocess.run(
-            ["systemctl", "--user", "stop", SYSTEMD_SERVICE],
-            capture_output=True,
-            timeout=10,
-        )
+        if stop:
+            subprocess.run(
+                ["systemctl", "--user", "stop", SYSTEMD_SERVICE],
+                capture_output=True,
+                timeout=10,
+            )
     except Exception:
         pass
+
     if os.path.isfile(service_file):
         os.remove(service_file)
         print("Auto-start removed (service file deleted).")
@@ -1338,101 +1403,72 @@ def _uninstall_linux() -> None:
     except Exception:
         pass
 
+    return not os.path.isfile(service_file)
+
 
 # ─── Auto-start: macOS launchd ────────────────────────────────────────────────
 
 
-def _install_macos(run_args: List[str]) -> None:
+def _install_macos(run_args: List[str]) -> bool:
+    import plistlib
+
     agents_dir = os.path.expanduser("~/Library/LaunchAgents")
     os.makedirs(agents_dir, exist_ok=True)
 
     plist_file = os.path.join(agents_dir, f"{LAUNCHD_LABEL}.plist")
-    if IS_FROZEN:
-        launch = _installed_launch()
-        if not launch:
-            print("Error: no installed CraftBot found — run install first.")
-            return
-        program_args = launch + run_args
-    else:
-        python = _installed_python()
-        program_args = [python, RUN_SCRIPT] + run_args
-    program_args_xml = "\n".join(f"        <string>{a}</string>" for a in program_args)
+    program_args = _autostart_launch(run_args)
+    if not program_args:
+        return False
+    directory = (
+        os.path.dirname(program_args[1])
+        if len(program_args) > 1 and program_args[1].endswith(".py")
+        else BASE_DIR
+    )
+    with open(plist_file, "wb") as f:
+        plistlib.dump(
+            {
+                "Label": LAUNCHD_LABEL,
+                "ProgramArguments": program_args,
+                "WorkingDirectory": directory,
+                "RunAtLoad": True,
+                "KeepAlive": False,
+                "StandardOutPath": LOG_FILE,
+                "StandardErrorPath": LOG_FILE,
+                "EnvironmentVariables": {"PYTHONUNBUFFERED": "1"},
+            },
+            f,
+        )
 
-    content = f"""<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
-    "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>{LAUNCHD_LABEL}</string>
-    <key>ProgramArguments</key>
-    <array>
-{program_args_xml}
-    </array>
-    <key>WorkingDirectory</key>
-    <string>{BASE_DIR}</string>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>KeepAlive</key>
-    <false/>
-    <key>StandardOutPath</key>
-    <string>{LOG_FILE}</string>
-    <key>StandardErrorPath</key>
-    <string>{LOG_FILE}</string>
-    <key>EnvironmentVariables</key>
-    <dict>
-        <key>PYTHONUNBUFFERED</key>
-        <string>1</string>
-    </dict>
-</dict>
-</plist>
-"""
-    with open(plist_file, "w") as f:
-        f.write(content)
-
-    # `launchctl load` honours RunAtLoad, so loading the agent starts CraftBot
-    # then and there. When one is already running — the normal case, since
-    # install starts it first — that second process fights the first for ports
-    # 7925/7926 and one of them loses. Writing the plist is enough on its own:
-    # launchd bootstraps ~/Library/LaunchAgents at login, so auto-start works
-    # from the next login whether or not it was loaded now.
-    if _owned_pid():
-        print(f"Auto-start registered as launchd agent '{LAUNCHD_LABEL}'.")
-        print("CraftBot is already running — auto-start begins at your next login.")
-        _print_launchd_hints(plist_file)
-        return
-
-    try:
-        subprocess.run(["launchctl", "load", plist_file], check=True, timeout=10)
-        print(f"Auto-start registered as launchd agent '{LAUNCHD_LABEL}'.")
-        print("CraftBot will start automatically when you log in.")
-        _print_launchd_hints(plist_file)
-    except subprocess.CalledProcessError as e:
-        print(f"Error loading launchd agent: {e}")
-        print(f"Plist written to: {plist_file}")
-        print(f"Try manually: launchctl load {plist_file}")
+    # launchd reads ~/Library/LaunchAgents at login. Do not load RunAtLoad
+    # now: changing the login preference must not start a second agent.
+    print(f"Auto-start registered as launchd agent '{LAUNCHD_LABEL}'.")
+    print("CraftBot will start automatically at your next login.")
+    _print_launchd_hints(plist_file, run_args)
+    return True
 
 
-def _print_launchd_hints(plist_file: str) -> None:
+def _print_launchd_hints(plist_file: str, run_args: List[str]) -> None:
     print(f"\nOpen CraftBot: {BROWSER_URL}")
     print(f"  Tip: Bookmark {BROWSER_URL} so you never have to remember it!")
-    _create_desktop_shortcut_unix()
+    _create_desktop_shortcut_unix(run_args)
     print(f"\nPlist file: {plist_file}")
 
 
-def _uninstall_macos() -> None:
+def _uninstall_macos(*, stop: bool = True) -> bool:
     plist_file = os.path.expanduser(f"~/Library/LaunchAgents/{LAUNCHD_LABEL}.plist")
     if os.path.isfile(plist_file):
         try:
-            subprocess.run(
-                ["launchctl", "unload", plist_file], capture_output=True, timeout=10
-            )
+            if stop:
+                subprocess.run(
+                    ["launchctl", "unload", plist_file], capture_output=True, timeout=10
+                )
         except Exception:
             pass
         os.remove(plist_file)
         print("Auto-start removed.")
     else:
         print("No launchd agent found.")
+    return not os.path.isfile(plist_file)
 
 
 # ─── Install / Uninstall dispatch ─────────────────────────────────────────────
@@ -1445,12 +1481,18 @@ def _is_installed() -> bool:
         # Check Task Scheduler
         try:
             result = subprocess.run(
-                ["schtasks", "/query", "/tn", TASK_NAME],
+                ["schtasks", "/query", "/tn", TASK_NAME, "/xml"],
                 capture_output=True,
+                text=True,
                 timeout=10,
             )
             if result.returncode == 0:
-                return True
+                import xml.etree.ElementTree as ET
+
+                root = ET.fromstring(result.stdout)
+                enabled = root.find("{*}Settings/{*}Enabled")
+                if enabled is None or enabled.text != "false":
+                    return True
         except Exception:
             pass
         # Check Registry fallback
@@ -1475,7 +1517,73 @@ def _is_installed() -> bool:
         service_file = os.path.expanduser(
             f"~/.config/systemd/user/{SYSTEMD_SERVICE}.service"
         )
-        return os.path.isfile(service_file)
+        if not os.path.isfile(service_file):
+            return False
+        try:
+            return (
+                subprocess.run(
+                    ["systemctl", "--user", "is-enabled", "--quiet", SYSTEMD_SERVICE],
+                    capture_output=True,
+                    timeout=10,
+                ).returncode
+                == 0
+            )
+        except (OSError, subprocess.SubprocessError):
+            return False
+
+
+def _startup_options(extra_args: List[str]) -> tuple:
+    settings = _startup.read(paths.STATE_ROOT)
+    enabled = settings["enabled"] and "--no-autostart" not in extra_args
+    return _startup.merge_args(settings["args"], extra_args), enabled
+
+
+def _configure_autostart(enabled: bool, run_args: List[str]) -> bool:
+    """Refresh OS registration on every install/repair, honoring an opt-out."""
+    try:
+        if enabled:
+            ok = _helpers.dispatch_per_platform(
+                win=_install_windows, mac=_install_macos, linux=_install_linux
+            )(_build_run_args(run_args))
+        else:
+            ok = _helpers.dispatch_per_platform(
+                win=_uninstall_windows, mac=_uninstall_macos, linux=_uninstall_linux
+            )(stop=False)
+        if not ok:
+            print(
+                "Automatic startup could not be updated; installation is not complete."
+            )
+            return False
+        _startup.write(paths.STATE_ROOT, enabled, run_args)
+        return True
+    except (OSError, subprocess.SubprocessError) as exc:
+        print(f"Could not update automatic startup: {exc}")
+        return False
+
+
+def cmd_autostart(args: List[str]) -> bool:
+    if not args or args[0] not in ("enable", "disable", "status"):
+        print("Usage: python craftbot.py autostart enable|disable|status [options]")
+        return False
+    action = args[0]
+    if action == "status":
+        print(
+            "Automatic startup at login: "
+            + ("enabled" if _is_installed() else "disabled")
+        )
+        return True
+    try:
+        settings = _startup.read(paths.STATE_ROOT)
+    except (ValueError, OSError):
+        # An explicit command can repair corrupt preference data.
+        settings = {"args": []}
+    run_args = _startup.merge_args(settings["args"], args[1:])
+    if not _configure_autostart(action == "enable", run_args):
+        return False
+    print(
+        f"Automatic startup {'enabled' if action == 'enable' else 'disabled'} for future logins."
+    )
+    return True
 
 
 def _remove_legacy_agent_bundle(target_dir: str) -> None:
@@ -1526,6 +1634,7 @@ def _full_install_frozen(
     if not IS_FROZEN:
         raise RuntimeError("_full_install_frozen called outside frozen mode")
 
+    extra_args, auto_start = _startup_options(extra_args)
     target_dir = os.path.normpath(target_dir)
 
     from app import paths, provision
@@ -1643,15 +1752,13 @@ def _full_install_frozen(
             except OSError as e:
                 print(f"  (could not copy icon: {e})")
 
-    # 5. Register auto-start.
-    run_args = _build_run_args(extra_args, service_mode=True)
-    _helpers.dispatch_per_platform(
-        win=_install_windows, mac=_install_macos, linux=_install_linux
-    )(run_args)
-
-    # 6. Start.
+    # Start before registering RunAtLoad on macOS, as in source installs.
     if not cmd_start(extra_args):
         raise RuntimeError("CraftBot installed but failed to start.")
+    if not _configure_autostart(auto_start, extra_args):
+        raise RuntimeError(
+            "CraftBot started but automatic startup could not be configured."
+        )
 
 
 def cmd_install(extra_args: List[str]) -> bool:
@@ -1667,6 +1774,7 @@ def cmd_install(extra_args: List[str]) -> bool:
         _full_install_frozen(target_dir, extra_args)
         return True
 
+    extra_args, auto_start = _startup_options(extra_args)
     _warn_path_issues()
     # ── Step 1: Install dependencies via install.py ────────────────────────
     install_script = os.path.join(BASE_DIR, "install.py")
@@ -1757,21 +1865,10 @@ def cmd_install(extra_args: List[str]) -> bool:
     print()
 
     # ── Step 3: Register auto-start ────────────────────────────────────────
-    if _is_installed():
-        print(
-            f"\n  {DIM}▸ STEP 3/3  ░░  AUTO-START ALREADY REGISTERED — SKIPPING{RESET}"
-        )
-        if _PLATFORM == "win32":
-            _create_desktop_shortcut_windows()
-        elif _PLATFORM != "darwin":
-            _create_desktop_shortcut_unix()
-    else:
-        _retro_step(3, 3, "Registering auto-start")
-        run_args = _build_run_args(extra_args, service_mode=True)
-        _helpers.dispatch_per_platform(
-            win=_install_windows, mac=_install_macos, linux=_install_linux
-        )(run_args)
-        print()
+    _retro_step(3, 3, "Updating automatic startup")
+    if not _configure_autostart(auto_start, extra_args):
+        return False
+    print()
 
     print(f"\n  {GREEN}▸{RESET} {WHITE}CRAFTBOT IS RUNNING IN THE BACKGROUND{RESET}")
     print(f"  {DIM}░░{RESET} {ORANGE}{_frontend_url(extra_args)}{RESET}")
@@ -2092,6 +2189,10 @@ def main() -> None:
 
     elif command == "install":
         if not cmd_install(rest):
+            sys.exit(1)
+
+    elif command == "autostart":
+        if not cmd_autostart(rest):
             sys.exit(1)
 
     elif command == "uninstall":

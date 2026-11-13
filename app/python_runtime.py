@@ -173,10 +173,22 @@ def reexec_if_needed() -> None:
         return
     env = {**os.environ, _REEXEC_MARK: "1"}
     argv = [target, *sys.argv]
-    sys.stdout.flush()
-    sys.stderr.flush()
+    for stream in (sys.stdout, sys.stderr):
+        if stream is not None:
+            stream.flush()
     if sys.platform == "win32":
         # execv on Windows spawns a detached child and returns the console
         # immediately — run as a subprocess and forward the exit code.
-        sys.exit(subprocess.run(argv, env=env).returncode)
+        # Python-level replacements for absent pythonw handles (notably the
+        # startup log) are not inherited unless explicitly passed here.
+        sys.exit(
+            subprocess.run(
+                argv,
+                env=env,
+                stdin=sys.stdin,
+                stdout=sys.stdout,
+                stderr=sys.stderr,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            ).returncode
+        )
     os.execve(target, argv, env)

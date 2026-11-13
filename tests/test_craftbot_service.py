@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-import shlex
 import subprocess
 import sys
 
@@ -8,11 +7,34 @@ import pytest
 import craftbot
 
 
+@pytest.fixture(autouse=True)
+def configured_context_window():
+    """Service management runs before the agent's model dependencies exist."""
+
+
+@pytest.fixture(autouse=True)
+def isolated_service_state(tmp_path, monkeypatch):
+    monkeypatch.setattr(craftbot, "PID_FILE", str(tmp_path / "craftbot.pid"))
+    monkeypatch.setattr(craftbot, "LOG_FILE", str(tmp_path / "craftbot.log"))
+    monkeypatch.setattr(craftbot, "_orphan_listeners", lambda args=None: [])
+    monkeypatch.setattr(craftbot.paths, "STATE_ROOT", tmp_path)
+    monkeypatch.setattr(craftbot.paths, "AGENT_READY_FILE", tmp_path / ".agent-ready")
+
+
 class _ExitedProcess:
     pid = 12345
 
     def wait(self, timeout=None):
         return 1
+
+
+@pytest.mark.parametrize("pid", [None, 12345])
+def test_stop_clears_readiness_even_after_a_previous_crash(monkeypatch, pid):
+    craftbot.paths.AGENT_READY_FILE.write_text("stale process")
+    monkeypatch.setattr(craftbot, "_owned_pid", lambda: pid)
+    monkeypatch.setattr(craftbot, "_kill_owned_pid", lambda value: None)
+    craftbot.cmd_stop(quiet=True)
+    assert not craftbot.paths.AGENT_READY_FILE.exists()
 
 
 class _RunningProcess:
@@ -67,106 +89,33 @@ def test_start_reports_immediate_child_failure(tmp_path, monkeypatch, capsys):
     assert events == []
 
 
-def test_macos_source_shortcut_uses_custom_backend_port(tmp_path, monkeypatch, capsys):
+@pytest.mark.parametrize(
+    "platform,filename", [("darwin", "CraftBot.command"), ("linux", "CraftBot.desktop")]
+)
+@pytest.mark.parametrize("frozen", [False, True])
+def test_unix_shortcuts_only_open_the_configured_url(
+    tmp_path, monkeypatch, platform, filename, frozen
+):
     desktop = tmp_path / "Desktop"
     desktop.mkdir()
-    base_dir = tmp_path / "Craft Bot"
-    base_dir.mkdir()
-    python_exe = "/Applications/Python 3.10/bin/python3.10"
-
-    monkeypatch.setattr(craftbot, "_PLATFORM", "darwin")
-    monkeypatch.setattr(craftbot, "IS_FROZEN", False)
-    monkeypatch.setattr(craftbot, "BASE_DIR", str(base_dir))
+    monkeypatch.setattr(craftbot, "_PLATFORM", platform)
+    monkeypatch.setattr(craftbot, "IS_FROZEN", frozen)
     monkeypatch.setattr(craftbot, "_find_desktop", lambda: str(desktop))
-    monkeypatch.setattr(craftbot, "_python_exe", lambda: python_exe)
-
-    craftbot._create_desktop_shortcut_unix(["--backend-port", "8123"])
-
-    shortcut = desktop / "CraftBot.command"
-    content = shortcut.read_text()
-    assert f"cd {shlex.quote(str(base_dir))}" in content
-    assert "curl -fsS http://localhost:7925" in content
-    assert (
-        "backend_status=$(curl -sS -o /dev/null -w '%{http_code}' http://localhost:8123"
-        in content
-    )
-    assert '[ "$backend_status" -ge 100 ]' in content
-    assert '[ "$backend_status" -lt 500 ]' in content
-    assert "curl -fsS http://localhost:8123" not in content
-    assert "http://localhost:7926" not in content
-    assert "open http://localhost:7925" in content
-    assert (
-        f"exec {shlex.quote(python_exe)} craftbot.py start --backend-port 8123"
-        in content
-    )
-
-    output = capsys.readouterr().out
-    assert "Desktop shortcut created" in output
-
-
-def test_macos_source_shortcut_accepts_equals_backend_port(tmp_path, monkeypatch):
-    desktop = tmp_path / "Desktop"
-    desktop.mkdir()
-    base_dir = tmp_path / "CraftBot"
-    base_dir.mkdir()
-
-    monkeypatch.setattr(craftbot, "_PLATFORM", "darwin")
-    monkeypatch.setattr(craftbot, "IS_FROZEN", False)
-    monkeypatch.setattr(craftbot, "BASE_DIR", str(base_dir))
-    monkeypatch.setattr(craftbot, "_find_desktop", lambda: str(desktop))
-    monkeypatch.setattr(craftbot, "_python_exe", lambda: "/usr/local/bin/python3.10")
-
-    craftbot._create_desktop_shortcut_unix(["--backend-port=8123"])
-
-    content = (desktop / "CraftBot.command").read_text()
-    assert (
-        "backend_status=$(curl -sS -o /dev/null -w '%{http_code}' http://localhost:8123"
-        in content
-    )
-    assert "craftbot.py start --backend-port=8123" in content
-
-
-def test_shortcut_keeps_agent_app_port(tmp_path, monkeypatch):
-    desktop = tmp_path / "Desktop"
-    desktop.mkdir()
-    base_dir = tmp_path / "CraftBot"
-    base_dir.mkdir()
-
-    monkeypatch.setattr(craftbot, "_PLATFORM", "darwin")
-    monkeypatch.setattr(craftbot, "IS_FROZEN", False)
-    monkeypatch.setattr(craftbot, "BASE_DIR", str(base_dir))
-    monkeypatch.setattr(craftbot, "_find_desktop", lambda: str(desktop))
-    monkeypatch.setattr(craftbot, "_python_exe", lambda: "/usr/local/bin/python3.10")
-
+    # Replace an older shortcut which may have started the app itself.
+    (desktop / filename).write_text("old shortcut: craftbot.py start")
     craftbot._create_desktop_shortcut_unix(
-        ["--backend-port", "17926", "--agent-app-port", "13100", "--no-conda"]
+        ["--frontend-port=8123", "--backend-port", "8124"]
     )
-
-    content = (desktop / "CraftBot.command").read_text()
-    assert "craftbot.py start --backend-port 17926 --agent-app-port 13100" in content
-    assert "--no-conda" not in content
-
-
-def test_macos_frozen_shortcut_starts_installed_agent_executable(tmp_path, monkeypatch):
-    desktop = tmp_path / "Desktop"
-    desktop.mkdir()
-    base_dir = tmp_path / "CraftBot"
-    base_dir.mkdir()
-    installed_agent = "/Applications/CraftBot/CraftBot Agent"
-
-    monkeypatch.setattr(craftbot, "_PLATFORM", "darwin")
-    monkeypatch.setattr(craftbot, "IS_FROZEN", True)
-    monkeypatch.setattr(craftbot, "BASE_DIR", str(base_dir))
-    monkeypatch.setattr(craftbot, "_find_desktop", lambda: str(desktop))
-    monkeypatch.setattr(craftbot, "_python_exe", lambda: "/bad/python")
-    monkeypatch.setattr(craftbot, "_installed_launch", lambda: [installed_agent])
-
-    craftbot._create_desktop_shortcut_unix(["--frontend-port", "9000"])
-
-    content = (desktop / "CraftBot.command").read_text()
-    assert f"exec {shlex.quote(installed_agent)} --frontend-port 9000" in content
-    assert "craftbot.py start" not in content
-    assert "/bad/python" not in content
+    content = (desktop / filename).read_text()
+    assert "http://localhost:8123" in content
+    assert "7925" not in content
+    assert "craftbot.py" not in content
+    assert "run.py" not in content
+    assert "curl" not in content
+    if platform == "darwin":
+        assert content == "#!/bin/sh\nexec open http://localhost:8123\n"
+    else:
+        assert "Exec=" in content
 
 
 def test_start_ignores_stale_ready_marker_when_child_exits(

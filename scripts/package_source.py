@@ -147,6 +147,7 @@ def build(output: Path) -> int:
         "installer/helpers.py",
         "installer/metadata.py",
         "installer/payload.py",
+        "installer/startup.py",
     ]
     with zipfile.ZipFile(output) as zf:
         names = set(zf.namelist())

@@ -77,11 +77,16 @@ python craftbot.py stop       # Stop CraftBot
 python craftbot.py restart    # Restart CraftBot
 python craftbot.py status     # Check if it's running and if auto-start is enabled
 python craftbot.py logs       # See recent log output
+python craftbot.py autostart disable  # Don't launch automatically at future logins
+python craftbot.py autostart enable   # Restore automatic startup at login
+python craftbot.py autostart status   # Check automatic startup registration
 python craftbot.py uninstall  # Stop, remove auto-start, and uninstall packages
 ```
 
 > [!TIP]
-> After `install` or `start`, a **CraftBot desktop shortcut** is created automatically. If you close the browser, just double-click the shortcut to reopen it.
+> After `install` or `start`, a **CraftBot desktop shortcut** is created automatically. It only opens the browser; it never starts or restarts CraftBot. Automatic startup runs CraftBot in the background when you log in after a restart, without opening a browser. If you disabled startup, run `python craftbot.py start` before using the shortcut.
+
+Both the installer and `python craftbot.py install` enable automatic startup by default. Use `python craftbot.py install --no-autostart` to opt out during installation. Reinstall and Repair refresh the startup configuration and preserve an explicit opt-out and custom ports. Disabling automatic startup does not stop the current session; use `python craftbot.py stop` for that.
 
 ---
 

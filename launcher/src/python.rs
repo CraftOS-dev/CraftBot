@@ -8,9 +8,9 @@
 //! module puts it. When install.py later runs its own `python` stage it
 //! finds this one already there and accepts it; nothing is downloaded twice.
 //!
-//! The release tag, patch version and platform triple are resolved from the
-//! GitHub API rather than hardcoded, for the reason recorded in runtimes.py:
-//! a hardcoded asset name went stale and produced a silent 404.
+//! Asset URLs are resolved from GitHub release metadata, including the final
+//! Python 3.10 release when the newest release no longer carries that version.
+//! This mirrors app/provision/runtimes.py and its dependency-lock constraint.
 
 use crate::download;
 use crate::logger;
@@ -23,6 +23,26 @@ pub const TARGET: (u32, u32) = (3, 10);
 
 const PBS_API: &str =
     "https://api.github.com/repos/astral-sh/python-build-standalone/releases/latest";
+const PBS_310_API: &str =
+    "https://api.github.com/repos/astral-sh/python-build-standalone/releases/tags/20261009";
+const PBS_310_ARCHIVE: &str = "https://github.com/astral-sh/python-build-standalone/releases/download/20261009/cpython-3.10.22%2B20261009";
+
+fn archived_url(triple: &str) -> Option<String> {
+    if TARGET == (3, 10)
+        && matches!(
+            triple,
+            "x86_64-pc-windows-msvc"
+                | "x86_64-unknown-linux-gnu"
+                | "aarch64-unknown-linux-gnu"
+                | "x86_64-apple-darwin"
+                | "aarch64-apple-darwin"
+        )
+    {
+        Some(format!("{PBS_310_ARCHIVE}-{triple}-install_only.tar.gz"))
+    } else {
+        None
+    }
+}
 
 /// The interpreter to run CraftBot with, downloading it if needed.
 pub fn ensure(
@@ -130,27 +150,115 @@ fn triple() -> Option<String> {
 }
 
 fn resolve_url(triple: &str) -> Result<String, String> {
-    let data = download::get_json(PBS_API)
-        .map_err(|e| format!("could not reach the Python download index: {e}"))?;
+    resolve_url_with(triple, download::get_json)
+}
+
+fn resolve_url_with(
+    triple: &str,
+    mut fetch: impl FnMut(&str) -> Result<serde_json::Value, String>,
+) -> Result<String, String> {
     let prefix = format!("cpython-{}.{}.", TARGET.0, TARGET.1);
     let suffix = format!("-{triple}-install_only.tar.gz");
-    let assets = data
-        .get("assets")
-        .and_then(|a| a.as_array())
-        .cloned()
-        .unwrap_or_default();
-    for asset in &assets {
-        let name = asset.get("name").and_then(|n| n.as_str()).unwrap_or("");
-        if name.starts_with(&prefix) && name.ends_with(&suffix) {
-            if let Some(url) = asset.get("browser_download_url").and_then(|u| u.as_str()) {
-                return Ok(url.to_string());
+    let mut indexes = vec![PBS_API];
+    if TARGET == (3, 10) {
+        indexes.push(PBS_310_API);
+    }
+    for index in indexes {
+        let data = match fetch(index) {
+            Ok(data) => data,
+            Err(error) => {
+                // GitHub API quotas are shared by public egress IP. Assets
+                // use a separate endpoint, so metadata throttling must not
+                // strand a fresh install whose compatible build is known.
+                if let Some(url) = archived_url(triple) {
+                    logger::log(&format!(
+                        "Python index unavailable ({error}); using archived 3.10.22 download"
+                    ));
+                    return Ok(url);
+                }
+                return Err(format!(
+                    "could not reach the Python download index: {error}"
+                ));
+            }
+        };
+        if let Some(assets) = data.get("assets").and_then(|a| a.as_array()) {
+            for asset in assets {
+                let name = asset.get("name").and_then(|n| n.as_str()).unwrap_or("");
+                if name.starts_with(&prefix) && name.ends_with(&suffix) {
+                    if let Some(url) = asset.get("browser_download_url").and_then(|u| u.as_str()) {
+                        if !url.is_empty() {
+                            return Ok(url.to_string());
+                        }
+                    }
+                }
             }
         }
     }
-    let tag = data.get("tag_name").and_then(|t| t.as_str()).unwrap_or("?");
     Err(format!(
-        "no {prefix}*{suffix} in python-build-standalone release {tag}"
+        "no {prefix}*{suffix} in the checked python-build-standalone releases"
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn api_rate_limit_does_not_block_known_python_downloads() {
+        for triple in [
+            "x86_64-pc-windows-msvc",
+            "x86_64-unknown-linux-gnu",
+            "aarch64-unknown-linux-gnu",
+            "x86_64-apple-darwin",
+            "aarch64-apple-darwin",
+        ] {
+            let url =
+                resolve_url_with(triple, |_| Err("HTTP 403 rate limit exceeded".into())).unwrap();
+            assert_eq!(
+                url,
+                format!("{PBS_310_ARCHIVE}-{triple}-install_only.tar.gz")
+            );
+        }
+        assert!(resolve_url_with("unsupported-target", |_| Err("HTTP 403".into())).is_err());
+    }
+
+    #[test]
+    fn resolves_retired_python_from_last_supported_release() {
+        for triple in [
+            "x86_64-pc-windows-msvc",
+            "x86_64-unknown-linux-gnu",
+            "x86_64-apple-darwin",
+            "aarch64-apple-darwin",
+        ] {
+            let mut requests = Vec::new();
+            let url = resolve_url_with(triple, |index| {
+                requests.push(index.to_string());
+                Ok(if index == PBS_API {
+                    json!({"assets": []})
+                } else {
+                    json!({"assets": [{
+                        "name": format!("cpython-3.10.22+20261009-{triple}-install_only.tar.gz"),
+                        "browser_download_url": "https://example.test/compatible-python.tar.gz"
+                    }]})
+                })
+            })
+            .unwrap();
+            assert_eq!(requests, [PBS_API, PBS_310_API]);
+            assert_eq!(url, "https://example.test/compatible-python.tar.gz");
+        }
+    }
+
+    #[test]
+    fn does_not_substitute_a_different_python_version() {
+        let result = resolve_url_with("x86_64-unknown-linux-gnu", |_| {
+            Ok(json!({"assets": [{
+                "name": "cpython-3.11.0+20261110-x86_64-unknown-linux-gnu-install_only.tar.gz",
+                "browser_download_url": "https://example.test/wrong-python.tar.gz"
+            }]}))
+        });
+        assert!(result.is_err());
+    }
 }
 
 /// Extract a .tar.gz, preserving permissions — the executable bit on

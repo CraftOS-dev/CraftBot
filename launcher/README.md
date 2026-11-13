@@ -50,6 +50,14 @@ State is read the same way `craftbot.py` writes it in source mode:
 `craftbot.pid` beside `craftbot.py`, and `.agent-ready` under the user data
 directory for "running and actually serving" versus "still starting".
 
+Install and Repair refresh login startup through `craftbot.py install`, using
+the current interpreter, source directory and saved ports. Automatic startup
+defaults to enabled; `craftbot.py autostart disable` opts out without uninstalling
+or stopping the current session, and `autostart enable` restores it. The choice
+is kept in `startup.json` under the user data directory and survives Repair.
+Desktop shortcuts only open the browser. Login startup writes its own PID and
+logs, so the launcher can also recognize an agent started after a reboot.
+
 ### Files the launcher owns
 
 | | Windows | macOS | Linux |
@@ -71,7 +79,13 @@ cargo test
 
 Rust 1.85+ (`rustup` installs it). No system libraries are needed on Windows
 or macOS; on Linux the runtime uses the system's X11/Wayland and OpenGL via
-`dlopen`, with a software renderer as fallback.
+`dlopen`; the setup window uses software rendering by default.
+
+Linux release binaries are built on Ubuntu 22.04 to keep their glibc
+requirements compatible with that release and newer distributions. Avoid
+building release artifacts on `ubuntu-latest`, which can silently raise the
+minimum glibc version. Minimal X11 desktops also need `libxkbcommon-x11-0`
+(in addition to their display server and a browser).
 
 The CraftBot version is baked in at build time: `CRAFTBOT_VERSION=1.4.0
 cargo build --release`, or a `VERSION` file at the repo root, or "latest"
@@ -105,12 +119,12 @@ This is how CI can exercise the real pipeline on a runner without a display,
 and how a support case can be reproduced from a terminal. It is not a user
 CLI — `craftbot.py` is that.
 
-### Rendering fallback
+### Rendering
 
-Slint tries the GPU renderer first and falls back to its software renderer
-where OpenGL is unavailable (Windows Sandbox, most VMs, some remote
-desktops). To force one: `SLINT_BACKEND=winit-software` or
-`SLINT_BACKEND=winit-femtovg`.
+The setup window uses Slint's software renderer by default, including on
+Windows with the basic display driver, virtual machines, and remote desktops.
+An OpenGL driver is not required. `SLINT_BACKEND=winit-femtovg` explicitly
+selects GPU rendering; `SLINT_BACKEND=winit-software` selects software rendering.
 
 ## How it is wired into the repo
 
@@ -125,7 +139,7 @@ desktops). To force one: `SLINT_BACKEND=winit-software` or
   shortcut so `uninstall` on a managed install does not pip-uninstall from
   a sidecar the launcher is about to delete.
 - `scripts/package_source.py` excludes `launcher/` from `CraftBot-src.zip`
-  and requires `installer/{helpers,metadata,payload}.py`, which
+  and requires `installer/{helpers,metadata,payload,startup}.py`, which
   `craftbot.py` imports at module scope.
 - The Tk installer (`installer/ui/`, `installer/wizard.py`,
   `installer/api.py`, `packaging/`) and the PyInstaller hooks (`hooks/`,

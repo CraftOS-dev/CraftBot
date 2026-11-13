@@ -15,10 +15,8 @@ path = "src/main.rs"
 
 [dependencies]
 # UI. Slint draws its own widgets, so nothing needs to be present on the
-# user's machine. Both renderers are enabled: femtovg (GPU) is the default
-# and the software renderer is the fallback for machines with no usable
-# OpenGL — Windows Sandbox, most VMs, some remote desktops. That fallback is
-# the difference between "opens a window" and "does nothing when clicked".
+# user's machine. Software rendering is the default so a basic display
+# driver is sufficient. femtovg remains available as an explicit override.
 slint = { version = "1.17", default-features = false, features = [
     "std",
     "compat-1-2",
@@ -29,9 +27,9 @@ slint = { version = "1.17", default-features = false, features = [
 ] }
 
 # HTTP, blocking. All downloads run on a worker thread, so a synchronous
-# client is the simplest correct choice. rustls: no OpenSSL to find or ship.
-# native-certs: trust the OS certificate store rather than a bundled list, so
-# a corporate TLS-inspecting proxy whose CA is installed on the machine works.
+# client is the simplest correct choice. Unix uses rustls with the OS trust
+# store; Windows selects Schannel below, including its automatic root updates.
+# Both honor installed corporate CAs and require no bundled OpenSSL library.
 ureq = { version = "2.12", default-features = false, features = ["tls", "native-certs", "json"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -48,6 +46,8 @@ dirs = "6"
 fs4 = "0.13"
 
 [target.'cfg(windows)'.dependencies]
+native-tls = "0.2"
+ureq = { version = "2.12", default-features = false, features = ["native-tls"] }
 windows-sys = { version = "0.59", features = [
     "Win32_Foundation",
     "Win32_System_Threading",

@@ -129,6 +129,7 @@ def main() -> int:
         # are exec'd from source so their absence is silent until called.
         required = [
             "run.py",
+            "installer/startup.py",
             "app/provision/__init__.py",
             "app/data/action/read_pdf.py",
             "craftos_integrations/providers/whatsapp_web/bridge.js",
