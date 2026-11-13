@@ -1,0 +1,82 @@
+name: Startup acceptance
+
+on:
+  push:
+    branches: [fix/system-restart-auto-launch]
+    paths:
+      - 'craftbot.py'
+      - 'run.py'
+      - 'installer/**'
+      - 'app/console.py'
+      - 'app/python_runtime.py'
+      - 'scripts/test_startup_acceptance.py'
+      - '.github/workflows/startup-acceptance.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: startup-acceptance-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  install-and-start:
+    name: ${{ matrix.method }} (${{ matrix.os }})
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+        method: [cli, installer]
+    runs-on: ${{ matrix.os }}
+    env:
+      PYTHONUNBUFFERED: '1'
+      PYTHONUTF8: '1'
+      PIP_NO_CACHE_DIR: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Linux desktop and service prerequisites
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxkbcommon-dev libgl1-mesa-dev libfontconfig1-dev xvfb dbus-user-session
+          sudo loginctl enable-linger "$USER"
+          sudo systemctl start "user@$(id -u).service"
+          echo "XDG_RUNTIME_DIR=/run/user/$(id -u)" >> "$GITHUB_ENV"
+          echo 'DISPLAY=:99' >> "$GITHUB_ENV"
+          Xvfb :99 -screen 0 1280x720x24 > "$RUNNER_TEMP/xvfb.log" 2>&1 &
+      - name: Build source payload
+        shell: bash
+        run: |
+          cd app/ui_layer/browser/frontend
+          npm ci
+          npx vite build
+          cd ../../../..
+          python scripts/package_source.py
+      - uses: dtolnay/rust-toolchain@stable
+        if: matrix.method == 'installer'
+      - uses: Swatinem/rust-cache@v2
+        if: matrix.method == 'installer'
+        with:
+          workspaces: launcher
+      - name: Build native installer
+        if: matrix.method == 'installer'
+        working-directory: launcher
+        run: cargo build --release --locked
+      # Hosted runners test a real installation and real startup managers.
+      # They do NOT prove an OS reboot, login trigger or interactive GUI login.
+      - name: Install, start through OS manager, repair and toggle auto-start
+        run: python scripts/test_startup_acceptance.py --method ${{ matrix.method }}
+      - name: Upload acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: startup-${{ matrix.method }}-${{ matrix.os }}
+          path: startup-evidence/
