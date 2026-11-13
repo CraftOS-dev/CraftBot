@@ -331,6 +331,7 @@ class SchedulerManager:
         """
         self._master_enabled = enabled
         logger.info(f"[SCHEDULER] Master enabled set to: {enabled}")
+        self.rearm_proactive()
 
     def list_schedules(self) -> List[ScheduledTask]:
         """List all scheduled tasks."""
@@ -381,6 +382,11 @@ class SchedulerManager:
             event.set()
         else:
             loop.call_soon_threadsafe(event.set)
+
+    def _cron_jobs_active(self) -> bool:
+        """Cron jobs fire only while the scheduler (scheduler_config.json
+        "enabled") and proactive mode are both on."""
+        return self._master_enabled and self._proactive_enabled()
 
     @staticmethod
     def _proactive_enabled() -> bool:
@@ -499,6 +505,8 @@ class SchedulerManager:
             # 3. Load config from disk
             config = self._load_config()
             self._master_enabled = config.enabled
+            # The cron-job runner follows the master switch too.
+            self.rearm_proactive()
 
             if not config.enabled:
                 logger.info("[SCHEDULER] Scheduler disabled in config")
@@ -844,7 +852,7 @@ class SchedulerManager:
 
                 now = time.time()
                 delay = float(CRON_RECHECK_SECONDS)
-                if self._proactive_manager is not None and self._proactive_enabled():
+                if self._proactive_manager is not None and self._cron_jobs_active():
                     due_at = self._proactive_manager.next_due_at(
                         datetime.fromtimestamp(now), runnable=self._job_runnable
                     )
@@ -873,7 +881,7 @@ class SchedulerManager:
         if (
             self._proactive_manager is None
             or not self._trigger_service
-            or not self._proactive_enabled()
+            or not self._cron_jobs_active()
         ):
             return
         now = time.time()
@@ -952,7 +960,9 @@ class SchedulerManager:
             lines.append(f"{i}. {job.name} (id: {job.id}; {when}; {tier})")
             lines.append(f"   Instruction: {job.instruction.strip()}")
             if job.conditions:
-                conditions = ", ".join(c.type for c in job.conditions)
+                conditions = json.dumps(
+                    [c.to_dict() for c in job.conditions], ensure_ascii=False
+                )
                 lines.append(
                     f"   Conditions: {conditions}. If one does not hold now, "
                     f"skip this job."
