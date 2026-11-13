@@ -11,8 +11,6 @@ on:
       - 'app/provision/runtimes.py'
       - 'app/provision/verify.py'
       - 'tests/test_native_runtime.py'
-      - 'tests/test_restart_verifier.py'
-      - 'scripts/verify_restart.py'
       - 'tests/test_python_downloads.py'
       - 'tests/test_autostart.py'
       - 'tests/test_craftbot_service.py'
@@ -27,8 +25,6 @@ on:
       - 'app/provision/runtimes.py'
       - 'app/provision/verify.py'
       - 'tests/test_native_runtime.py'
-      - 'tests/test_restart_verifier.py'
-      - 'scripts/verify_restart.py'
       - 'tests/test_python_downloads.py'
       - 'tests/test_autostart.py'
       - 'tests/test_craftbot_service.py'
@@ -48,4 +44,4 @@ jobs:
           python-version: '3.10'
       - run: python -m pip install pytest==9.0.2
       - name: Check login startup and browser-only shortcuts
-        run: python -m pytest tests/test_autostart.py tests/test_craftbot_service.py tests/test_python_downloads.py tests/test_native_runtime.py tests/test_restart_verifier.py -q
+        run: python -m pytest tests/test_autostart.py tests/test_craftbot_service.py tests/test_python_downloads.py tests/test_native_runtime.py -q

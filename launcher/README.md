@@ -139,7 +139,7 @@ selects GPU rendering; `SLINT_BACKEND=winit-software` selects software rendering
   shortcut so `uninstall` on a managed install does not pip-uninstall from
   a sidecar the launcher is about to delete.
 - `scripts/package_source.py` excludes `launcher/` from `CraftBot-src.zip`
-  and requires `installer/{helpers,metadata,payload}.py`, which
+  and requires `installer/{helpers,metadata,payload,startup}.py`, which
   `craftbot.py` imports at module scope.
 - The Tk installer (`installer/ui/`, `installer/wizard.py`,
   `installer/api.py`, `packaging/`) and the PyInstaller hooks (`hooks/`,
