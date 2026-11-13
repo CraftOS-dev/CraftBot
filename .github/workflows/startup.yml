@@ -1,0 +1,39 @@
+name: Startup regressions
+
+on:
+  push:
+    paths:
+      - 'craftbot.py'
+      - 'run.py'
+      - 'installer/**'
+      - 'app/console.py'
+      - 'app/python_runtime.py'
+      - 'tests/test_autostart.py'
+      - 'tests/test_craftbot_service.py'
+      - '.github/workflows/startup.yml'
+  pull_request:
+    paths:
+      - 'craftbot.py'
+      - 'run.py'
+      - 'installer/**'
+      - 'app/console.py'
+      - 'app/python_runtime.py'
+      - 'tests/test_autostart.py'
+      - 'tests/test_craftbot_service.py'
+      - '.github/workflows/startup.yml'
+
+jobs:
+  startup:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - run: python -m pip install pytest==9.0.2
+      - name: Check login startup and browser-only shortcuts
+        run: python -m pytest tests/test_autostart.py tests/test_craftbot_service.py -q

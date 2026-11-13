@@ -44,7 +44,9 @@ from app import python_runtime
 from app import node_runtime
 from app.console import configure_console
 
-configure_console()
+configure_console(
+    log_file=os.path.join(os.path.dirname(os.path.abspath(__file__)), "craftbot.log")
+)
 
 multiprocessing.freeze_support()
 
@@ -79,6 +81,8 @@ def _bootstrap_state():
     CRAFTBOT_HOME is seeded in a dev checkout too.
     """
     if _paths.CODE_ROOT.resolve() == _paths.STATE_ROOT.resolve():
+        # Login tasks do not inherit the installer's working directory.
+        os.chdir(_paths.STATE_ROOT)
         return
 
     import shutil as _shutil
@@ -1483,6 +1487,17 @@ if __name__ == "__main__":
     # Whatever `python` launched us is a trampoline: hop onto the project's
     # interpreter (the one the dependencies live in) before doing anything.
     python_runtime.reexec_if_needed()
+
+    # Login services run this script directly, rather than through cmd_start.
+    # Record their identity too, so status/stop/the installer can find them.
+    # Consume the internal flag here; it must not reach the agent's CLI.
+    if "--service" in sys.argv:
+        sys.argv.remove("--service")
+        import craftbot
+
+        if not craftbot._claim_service_process():
+            sys.exit(0)
+        atexit.register(craftbot._release_service_process, os.getpid())
 
     args_list = sys.argv[1:]
     args = set(args_list)

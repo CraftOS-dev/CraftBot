@@ -50,6 +50,14 @@ State is read the same way `craftbot.py` writes it in source mode:
 `craftbot.pid` beside `craftbot.py`, and `.agent-ready` under the user data
 directory for "running and actually serving" versus "still starting".
 
+Install and Repair refresh login startup through `craftbot.py install`, using
+the current interpreter, source directory and saved ports. Automatic startup
+defaults to enabled; `craftbot.py autostart disable` opts out without uninstalling
+or stopping the current session, and `autostart enable` restores it. The choice
+is kept in `startup.json` under the user data directory and survives Repair.
+Desktop shortcuts only open the browser. Login startup writes its own PID and
+logs, so the launcher can also recognize an agent started after a reboot.
+
 ### Files the launcher owns
 
 | | Windows | macOS | Linux |
