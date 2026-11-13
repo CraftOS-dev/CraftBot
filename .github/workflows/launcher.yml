@@ -71,3 +71,11 @@ jobs:
 
       - name: Build
         run: cargo build --release
+
+      - name: Save installers for disposable reboot tests
+        if: github.head_ref == 'fix/system-restart-auto-launch' || github.ref_name == 'fix/system-restart-auto-launch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: reboot-installer-${{ matrix.os_label }}
+          path: launcher/target/release/CraftBotInstaller*
+          retention-days: 7
