@@ -221,6 +221,7 @@ def main():
         parser.error("The baseline describes a different installation or user")
     deadline = time.monotonic() + args.timeout
     error = None
+    stopped_since = None
     while time.monotonic() < deadline:
         try:
             result = observe(
@@ -233,6 +234,16 @@ def main():
             )
             if previous:
                 require_reboot(previous, result)
+            # A delayed login task must not turn an immediate absence into a
+            # false opt-out pass. Require two minutes of continuous absence
+            # after a graphical login, with no service intervention.
+            if args.expect == "stopped":
+                if stopped_since is None:
+                    stopped_since = time.monotonic()
+                if time.monotonic() - stopped_since < 120:
+                    time.sleep(5)
+                    continue
+                result["stopped_observation_seconds"] = time.monotonic() - stopped_since
             result.update(
                 {
                     "installation": binding,
@@ -253,6 +264,7 @@ def main():
             subprocess.SubprocessError,
         ) as exc:
             error = exc
+            stopped_since = None
             time.sleep(5)
     print(f"FAIL: {error}", file=sys.stderr)
     return 1

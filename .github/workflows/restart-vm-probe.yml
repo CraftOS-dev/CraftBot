@@ -89,4 +89,9 @@ jobs:
         run: |
           echo 'Rebooting this disposable VM. The independent LaunchDaemon will upload the changed boot identity.'
           sudo shutdown -r +1
+          # The runner normally reports its shutdown as job cancellation and
+          # the hosted service immediately deletes the VM. Pause only this
+          # disposable job's listener/worker so the independent boot probe has
+          # a chance to report before the bounded job timeout tears it down.
+          sudo pkill -STOP -f 'Runner[.](Listener|Worker)'
           sleep 600
