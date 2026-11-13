@@ -513,6 +513,62 @@ class TestCronJobRunner:
         assert asyncio.run(scenario())
 
 
+class TestCronRunnerGates:
+    def test_scheduler_switch_off_dispatches_nothing(
+        self, proactive_file, proactive_on
+    ):
+        sm, mgr, _ = _scheduler(proactive_file)
+        job_id = _overdue_job(mgr)
+        sm._master_enabled = False
+
+        asyncio.run(sm._fire_cron_jobs())
+        assert sm._trigger_service.specs == []
+        assert mgr.get_job(job_id).run_count == 0
+
+        sm.set_master_enabled(True)
+        asyncio.run(sm._fire_cron_jobs())
+        assert len(sm._trigger_service.specs) == 1
+
+    def test_reloading_a_disabled_config_stops_cron_jobs(
+        self, proactive_file, proactive_on, tmp_path
+    ):
+        sm, mgr, _ = _scheduler(proactive_file)
+        job_id = _overdue_job(mgr)
+        config = tmp_path / "scheduler_config.json"
+        config.write_text(json.dumps({"enabled": False, "schedules": []}), "utf-8")
+        sm._config_path = config
+
+        result = asyncio.run(sm.reload())
+
+        assert result["success"] is True
+        asyncio.run(sm._fire_cron_jobs())
+        assert sm._trigger_service.specs == []
+        assert mgr.get_job(job_id).run_count == 0
+
+    def test_conditions_reach_the_run_with_their_parameters(
+        self, proactive_file, proactive_on
+    ):
+        sm, mgr, _ = _scheduler(proactive_file)
+        job_id = _overdue_job(mgr)
+        stored = mgr.get_job(job_id)
+        from app.proactive.types import CronJobCondition
+
+        stored.conditions = [
+            CronJobCondition.from_dict(
+                {"type": "file_exists", "path": "/reports/ready.flag"}
+            )
+        ]
+        mgr.save()
+
+        asyncio.run(sm._fire_cron_jobs())
+
+        (spec,) = sm._trigger_service.specs
+        assert (
+            '[{"type": "file_exists", "path": "/reports/ready.flag"}]'
+            in spec.description
+        )
+
+
 class TestHeartbeat:
     def test_empty_checklist_never_fires(self, proactive_file, proactive_on):
         sm, mgr, heartbeat = _scheduler(proactive_file)
