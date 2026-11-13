@@ -71,7 +71,11 @@ def wait_ready(tree, state, timeout=900):
                     "http://127.0.0.1:7925", timeout=5
                 ) as response:
                     html = response.read().decode("utf-8")
-                if 'id="root"' in html and port_open(7926):
+                with urllib.request.urlopen(
+                    "http://127.0.0.1:7926/api/state", timeout=5
+                ) as response:
+                    backend = json.load(response)
+                if 'id="root"' in html and isinstance(backend, dict) and backend:
                     return json.loads((tree / "craftbot.pid").read_text())
             except (OSError, ValueError):
                 pass

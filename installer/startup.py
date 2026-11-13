@@ -124,3 +124,12 @@ def systemd_quote(value: str, *, command=False) -> str:
     if command:
         value = value.replace("$", "$$")
     return json.dumps(value, ensure_ascii=False)
+
+
+def systemd_path(value: str) -> str:
+    # WorkingDirectory is one literal path, not a word list like ExecStart.
+    # systemd does not strip quotes here: a quoted path fails the absolute
+    # path check. Spaces are literal; only unit specifiers need escaping.
+    if "\n" in value or "\r" in value:
+        raise ValueError("systemd working directories cannot contain newlines")
+    return value.replace("%", "%%")

@@ -818,6 +818,10 @@ def cmd_stop(quiet: bool = False, args: Optional[List[str]] = None) -> bool:
     if _stop_orphan_listeners(args):
         stopped = True
 
+    # A forced termination (and a reboot) cannot run the agent's cleanup.
+    # Do not leave the previous process's readiness behind after stop.
+    _clear_agent_ready()
+
     if not stopped and not quiet:
         if had_record:
             print(f"  {DIM}▸ CraftBot not running — cleaned up stale PID file{RESET}")
@@ -1135,8 +1139,13 @@ def _autostart_launch(run_args: List[str]) -> Optional[List[str]]:
         print("No installed CraftBot found — run install first.")
         return None
     args = _build_run_args(run_args)
-    if os.path.basename(launch[-1]) == "run.py" and "--service" not in args:
-        args.append("--service")
+    if os.path.basename(launch[-1]) == "run.py":
+        if "--service" not in args:
+            args.append("--service")
+        # Login managers do not inherit CRAFTBOT_HOME / XDG_DATA_HOME from
+        # the installation shell. Keep the same data and preferences after
+        # login, including when the user relocated them.
+        args.append(f"--state-root={paths.STATE_ROOT.resolve()}")
     return launch + args
 
 
@@ -1328,7 +1337,7 @@ After=network.target
 [Service]
 Type=simple
 ExecStart={exec_start}
-WorkingDirectory={_startup.systemd_quote(directory)}
+WorkingDirectory={_startup.systemd_path(directory)}
 Restart=on-failure
 RestartSec=5
 Environment=PYTHONUNBUFFERED=1

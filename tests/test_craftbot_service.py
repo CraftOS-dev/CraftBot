@@ -28,6 +28,15 @@ class _ExitedProcess:
         return 1
 
 
+@pytest.mark.parametrize("pid", [None, 12345])
+def test_stop_clears_readiness_even_after_a_previous_crash(monkeypatch, pid):
+    craftbot.paths.AGENT_READY_FILE.write_text("stale process")
+    monkeypatch.setattr(craftbot, "_owned_pid", lambda: pid)
+    monkeypatch.setattr(craftbot, "_kill_owned_pid", lambda value: None)
+    craftbot.cmd_stop(quiet=True)
+    assert not craftbot.paths.AGENT_READY_FILE.exists()
+
+
 class _RunningProcess:
     pid = 23456
 

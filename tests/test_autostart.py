@@ -212,6 +212,7 @@ def test_unix_registration_quotes_paths_and_keeps_ports(
             "8123",
             "--no-open-browser",
             "--service",
+            f"--state-root={tmp_path.resolve()}",
         ]
         assert data["RunAtLoad"] is True
     else:
@@ -234,6 +235,34 @@ def test_service_pid_is_published_and_cleared():
     assert craftbot._owned_pid() == os.getpid()
     craftbot._release_service_process(os.getpid())
     assert not Path(craftbot.PID_FILE).exists()
+
+
+@pytest.mark.skipif(
+    sys.platform != "linux" or not shutil.which("systemd-analyze"),
+    reason="requires systemd's real unit parser",
+)
+def test_generated_linux_unit_is_accepted_by_systemd(tmp_path, monkeypatch):
+    home = tmp_path / "Home with spaces"
+    home.mkdir()
+    monkeypatch.setattr(
+        craftbot.os.path, "expanduser", lambda path: str(home / path.removeprefix("~/"))
+    )
+    monkeypatch.setattr(craftbot, "_python_exe", lambda: sys.executable)
+    real_run = subprocess.run
+    monkeypatch.setattr(
+        craftbot.subprocess,
+        "run",
+        lambda cmd, **kw: subprocess.CompletedProcess(cmd, 0),
+    )
+    assert craftbot._install_linux([])
+    unit = home / ".config/systemd/user/craftbot.service"
+    result = real_run(
+        ["systemd-analyze", "verify", str(unit)],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 @pytest.mark.skipif(
@@ -324,7 +353,10 @@ def test_real_windows_shortcut_refreshes_url_without_launching_agent(
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="requires pythonw.exe")
-def test_real_run_service_entry_from_unrelated_working_directory(tmp_path):
+@pytest.mark.parametrize("relocated_state", [False, True])
+def test_real_run_service_entry_from_unrelated_working_directory(
+    tmp_path, monkeypatch, relocated_state
+):
     """Run the actual entry point, stopping at preflight before real servers start."""
     repo = Path(__file__).resolve().parents[1]
     tree = tmp_path / "installed CraftBot"
@@ -352,23 +384,30 @@ def test_real_run_service_entry_from_unrelated_working_directory(tmp_path):
     pythonw = Path(sys.executable).with_name("pythonw.exe")
     (tree / "config.json").write_text(json.dumps({"python_executable": str(pythonw)}))
     (tree / "craftbot.pid").write_text('{"pid": 2147483647, "started": 1}')
+    state = tmp_path / "relocated user data" if relocated_state else tree
+    monkeypatch.setattr(craftbot.paths, "STATE_ROOT", state)
+    monkeypatch.setattr(craftbot, "RUN_SCRIPT", str(tree / "run.py"))
+    monkeypatch.setattr(craftbot, "_python_exe", lambda: str(pythonw))
+    command = craftbot._autostart_launch([])
     runner = tmp_path / "entry_probe.py"
     runner.write_text(
         textwrap.dedent("""\
         import json, os, pathlib, runpy, sys
         tree = pathlib.Path(sys.argv[1])
+        state = pathlib.Path(sys.argv[2])
+        command = sys.argv[3:]
         sys.path.insert(0, str(tree))
         from app import runtime_preflight
         def reached_preflight(**kwargs):
             import craftbot
             assert craftbot._owned_pid() == os.getpid()
             assert "--service" not in sys.argv
-            assert pathlib.Path.cwd() == tree
+            assert pathlib.Path.cwd() == state
             print("SERVICE ENTRY OK", flush=True)
             (tree / "preflight-reached").touch()
             raise SystemExit(0)
         runtime_preflight.ensure_runtime_dependencies = reached_preflight
-        sys.argv = [str(tree / "run.py"), "--service", "--no-open-browser"]
+        sys.argv = command
         runpy.run_path(str(tree / "run.py"), run_name="__main__")
     """),
         encoding="utf-8",
@@ -380,7 +419,7 @@ def test_real_run_service_entry_from_unrelated_working_directory(tmp_path):
         and k not in ("PYTHONPATH", "VIRTUAL_ENV")
     }
     child = subprocess.run(
-        [str(pythonw), str(runner), str(tree)],
+        [str(pythonw), str(runner), str(tree), str(state), *command[1:]],
         cwd=os.environ["WINDIR"],
         env=env,
         close_fds=True,

@@ -33,16 +33,24 @@ import webbrowser
 import atexit
 from typing import Tuple, Optional, Dict, Any, List
 
-from app.runtime_preflight import (
+# Internal service argument: apply before importing any app module, because
+# app.paths resolves STATE_ROOT at import time. Keep it out of the agent's
+# arguments; interpreter handoffs inherit the resulting environment.
+for _argument in sys.argv[1:]:
+    if _argument.startswith("--state-root="):
+        os.environ["CRAFTBOT_HOME"] = _argument.split("=", 1)[1]
+        sys.argv.remove(_argument)
+
+from app.runtime_preflight import (  # noqa: E402
     ensure_runtime_dependencies,
     mark_runtime_dependencies_checked,
 )
-from app import python_runtime
+from app import python_runtime  # noqa: E402
 
 # Single resolved Node runtime — see app/node_runtime.py. install.py
 # downloads the sidecar when nothing suitable exists; run.py never installs.
-from app import node_runtime
-from app.console import configure_console
+from app import node_runtime  # noqa: E402
+from app.console import configure_console  # noqa: E402
 
 configure_console(
     log_file=os.path.join(os.path.dirname(os.path.abspath(__file__)), "craftbot.log")
