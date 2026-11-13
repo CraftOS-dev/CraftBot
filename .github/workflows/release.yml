@@ -171,6 +171,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: launcher
+          prefix-key: native-${{ matrix.os }}
 
       # Slint's Linux backend loads these at runtime through dlopen, and its
       # build has no C dependencies — this is insurance for the few crates

@@ -52,6 +52,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: launcher
+          prefix-key: native-${{ matrix.os }}
 
       # Same insurance as the Release workflow: Slint has no C build deps,
       # but a few crates probe for these headers.

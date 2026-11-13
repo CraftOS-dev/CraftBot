@@ -68,6 +68,7 @@ jobs:
         if: matrix.method == 'installer'
         with:
           workspaces: launcher
+          prefix-key: native-${{ matrix.os }}
           cache-on-failure: true
       - name: Build native installer
         if: matrix.method == 'installer'
