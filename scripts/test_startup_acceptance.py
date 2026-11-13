@@ -62,6 +62,16 @@ def user_data():
     )
 
 
+def wait_stopped(timeout=30):
+    """Allow the OS to finish terminating children after the stop command."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if not port_open(7925) and not port_open(7926):
+            return
+        time.sleep(0.5)
+    raise RuntimeError("stop left a server running after 30 seconds")
+
+
 def wait_ready(tree, state, timeout=900):
     started = time.monotonic()
     deadline = time.monotonic() + timeout
@@ -259,7 +269,7 @@ def main():
         result["passed"].append("desktop_shortcut_contains_only_browser_open")
 
         cli("stop", check=False)
-        assert not port_open(7925) and not port_open(7926), "stop left a server running"
+        wait_stopped()
         assert not (state / ".agent-ready").exists(), "stop left stale readiness"
         start_registered()
         restarted = wait_ready(tree, state)
