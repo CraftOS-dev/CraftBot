@@ -25,6 +25,24 @@ const PBS_API: &str =
     "https://api.github.com/repos/astral-sh/python-build-standalone/releases/latest";
 const PBS_310_API: &str =
     "https://api.github.com/repos/astral-sh/python-build-standalone/releases/tags/20261009";
+const PBS_310_ARCHIVE: &str = "https://github.com/astral-sh/python-build-standalone/releases/download/20261009/cpython-3.10.22%2B20261009";
+
+fn archived_url(triple: &str) -> Option<String> {
+    if TARGET == (3, 10)
+        && matches!(
+            triple,
+            "x86_64-pc-windows-msvc"
+                | "x86_64-unknown-linux-gnu"
+                | "aarch64-unknown-linux-gnu"
+                | "x86_64-apple-darwin"
+                | "aarch64-apple-darwin"
+        )
+    {
+        Some(format!("{PBS_310_ARCHIVE}-{triple}-install_only.tar.gz"))
+    } else {
+        None
+    }
+}
 
 /// The interpreter to run CraftBot with, downloading it if needed.
 pub fn ensure(
@@ -146,8 +164,23 @@ fn resolve_url_with(
         indexes.push(PBS_310_API);
     }
     for index in indexes {
-        let data =
-            fetch(index).map_err(|e| format!("could not reach the Python download index: {e}"))?;
+        let data = match fetch(index) {
+            Ok(data) => data,
+            Err(error) => {
+                // GitHub API quotas are shared by public egress IP. Assets
+                // use a separate endpoint, so metadata throttling must not
+                // strand a fresh install whose compatible build is known.
+                if let Some(url) = archived_url(triple) {
+                    logger::log(&format!(
+                        "Python index unavailable ({error}); using archived 3.10.22 download"
+                    ));
+                    return Ok(url);
+                }
+                return Err(format!(
+                    "could not reach the Python download index: {error}"
+                ));
+            }
+        };
         if let Some(assets) = data.get("assets").and_then(|a| a.as_array()) {
             for asset in assets {
                 let name = asset.get("name").and_then(|n| n.as_str()).unwrap_or("");
@@ -170,6 +203,25 @@ fn resolve_url_with(
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn api_rate_limit_does_not_block_known_python_downloads() {
+        for triple in [
+            "x86_64-pc-windows-msvc",
+            "x86_64-unknown-linux-gnu",
+            "aarch64-unknown-linux-gnu",
+            "x86_64-apple-darwin",
+            "aarch64-apple-darwin",
+        ] {
+            let url =
+                resolve_url_with(triple, |_| Err("HTTP 403 rate limit exceeded".into())).unwrap();
+            assert_eq!(
+                url,
+                format!("{PBS_310_ARCHIVE}-{triple}-install_only.tar.gz")
+            );
+        }
+        assert!(resolve_url_with("unsupported-target", |_| Err("HTTP 403".into())).is_err());
+    }
 
     #[test]
     fn resolves_retired_python_from_last_supported_release() {

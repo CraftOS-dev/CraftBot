@@ -3,6 +3,7 @@
 import io
 import json
 import urllib.request
+import urllib.error
 
 import pytest
 
@@ -12,6 +13,32 @@ from app.provision import runtimes
 @pytest.fixture(autouse=True)
 def configured_context_window():
     """Download selection needs no model configuration."""
+
+
+@pytest.mark.parametrize("triple", sorted(runtimes.PBS_310_TRIPLES))
+def test_api_rate_limit_uses_known_release_asset(monkeypatch, triple):
+    monkeypatch.setattr(runtimes, "_pbs_triple", lambda: triple)
+
+    def rate_limited(request, **kwargs):
+        raise urllib.error.HTTPError(
+            request.full_url, 403, "rate limit exceeded", {}, None
+        )
+
+    monkeypatch.setattr(urllib.request, "urlopen", rate_limited)
+    assert runtimes._pbs_download_url(lambda message: None) == (
+        f"{runtimes.PBS_310_ARCHIVE}-{triple}-install_only.tar.gz"
+    )
+
+
+def test_unavailable_index_never_falls_back_to_wrong_python_version(monkeypatch):
+    monkeypatch.setattr(runtimes, "TARGET_PYTHON", (3, 11))
+    monkeypatch.setattr(runtimes, "_pbs_triple", lambda: "x86_64-unknown-linux-gnu")
+    monkeypatch.setattr(
+        urllib.request,
+        "urlopen",
+        lambda *a, **kw: (_ for _ in ()).throw(OSError("offline")),
+    )
+    assert runtimes._pbs_download_url(lambda message: None) is None
 
 
 @pytest.mark.parametrize(

@@ -30,6 +30,14 @@ PBS_API = (
     "https://api.github.com/repos/astral-sh/python-build-standalone/releases/latest"
 )
 PBS_310_API = "https://api.github.com/repos/astral-sh/python-build-standalone/releases/tags/20261009"
+PBS_310_ARCHIVE = "https://github.com/astral-sh/python-build-standalone/releases/download/20261009/cpython-3.10.22%2B20261009"
+PBS_310_TRIPLES = {
+    "x86_64-pc-windows-msvc",
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+    "x86_64-apple-darwin",
+    "aarch64-apple-darwin",
+}
 
 # The version the locks are generated for. NOT a minimum: a lock is valid
 # for exactly one (platform, python) pair, so accepting "3.10 or newer" would
@@ -202,6 +210,12 @@ def _pbs_download_url(log: LogFn) -> Optional[str]:
                 data = json.load(response)
         except Exception as e:
             log(f"    could not reach the Python download index: {str(e)[:160]}")
+            # Shared/public IPs can exhaust GitHub's unauthenticated API quota.
+            # Release assets have a separate download endpoint. Keep the known
+            # final 3.10 build available even when metadata cannot be queried.
+            if TARGET_PYTHON == (3, 10) and triple in PBS_310_TRIPLES:
+                log("    using the archived Python 3.10.22 release download")
+                return f"{PBS_310_ARCHIVE}-{triple}-install_only.tar.gz"
             return None
         for asset in data.get("assets", []):
             name = asset.get("name") or ""
