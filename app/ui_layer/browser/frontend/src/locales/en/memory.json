@@ -88,6 +88,10 @@
     "supersededLabel": "Superseded (kept as history, excluded from recall)",
     "contentPlaceholder": "e.g. John prefers concise replies"
   },
+  "entity": {
+    "deleteTitle": "Delete entity",
+    "deleteMessage": "This removes “{{name}}” and its links from the graph. The memories themselves are not changed."
+  },
   "files": {
     "title": "Agent files",
     "aboutAria": "About file indexing",
@@ -108,6 +112,7 @@
   },
   "toast": {
     "updateFailed": "Failed to update indexed files",
-    "skipped": "Skipped {{path}}: {{reason}}"
+    "skipped": "Skipped {{path}}: {{reason}}",
+    "entityDeleteFailed": "Failed to delete entity"
   }
 }

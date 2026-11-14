@@ -246,84 +246,99 @@
   },
   "proactive": {
     "title": "Comportamiento proactivo",
-    "subtitle": "Configura cuándo el agente actúa de forma autónoma y gestiona las tareas programadas",
+    "subtitle": "Configura el trabajo que tu agente realiza sin instrucciones: tareas recurrentes, supervisión y planificación",
     "enableLabel": "Activar el modo proactivo",
-    "enableDesc": "Permite que el agente ejecute tareas programadas y comportamientos proactivos automáticamente",
-    "heartbeatTitle": "Programación de latidos",
-    "heartbeatDesc": "Los latidos comprueban y ejecutan periódicamente las tareas proactivas según su frecuencia",
+    "enableDesc": "Permite que tu agente ejecute automáticamente las tareas recurrentes, el latido y los planificadores. Los resultados y los asuntos que requieren tu atención se publican en el chat.",
+    "cronJobs": {
+      "title": "Tareas recurrentes",
+      "desc": "Tareas que tu agente ejecuta según un horario fijo, por ejemplo cada día a las 09:00 o cada viernes. Cada tarea se ejecuta en el chat donde se creó; las que añades aquí se ejecutan en tu chat principal.",
+      "add": "Añadir tarea recurrente",
+      "search": "Buscar tareas recurrentes...",
+      "loading": "Cargando tareas recurrentes...",
+      "empty": "No hay tareas recurrentes.",
+      "createFirst": "Crear una tarea recurrente",
+      "deleteTitle": "Eliminar tarea recurrente",
+      "deleteMessage": "Esta tarea recurrente se eliminará de forma permanente.",
+      "searchCount": "{{shown}} de {{total}}",
+      "tip": {
+        "aria": "Acerca de las tareas recurrentes",
+        "title": "Cómo funcionan las tareas recurrentes",
+        "line1": "Cada tarea recurrente (también llamada tarea cron) es una instrucción con un horario: cada hora, cada día, cada semana o cada mes. Si el agente no estaba en ejecución a la hora programada, la tarea se ejecuta una vez al reiniciarse, salvo que ya no sea pertinente.",
+        "line2": "A la hora programada, el agente ejecuta la tarea en el chat donde se creó e informa allí del resultado. Si ese chat se elimina, la tarea se conserva pero no se ejecuta hasta que la muevas a tu chat principal.",
+        "line3": "También puedes crear una tarea pidiéndoselo al agente en el chat, por ejemplo: «Cada viernes a las 17:00, resume mi semana». Las tareas se guardan en PROACTIVE.md, en los archivos del agente."
+      },
+      "count_one": "{{count}} tarea",
+      "count_other": "{{count}} tareas",
+      "dayTime": "{{day}}, {{time}}",
+      "lastRun": "Última ejecución: {{date}}",
+      "neverRun": "Aún no se ha ejecutado",
+      "runs_one": "{{count}} ejecución",
+      "runs_other": "{{count}} ejecuciones",
+      "priority": {
+        "high": "Prioridad alta",
+        "medium": "Prioridad media",
+        "low": "Prioridad baja"
+      },
+      "mainChat": "Chat principal",
+      "untitledChat": "Chat sin título",
+      "runsIn": "Se ejecuta en {{chat}}",
+      "unavailable": "No disponible: se eliminó el chat en el que se ejecuta esta tarea.",
+      "moveToMain": "Mover al chat principal"
+    },
     "heartbeat": {
+      "title": "Latido",
+      "desc": "A intervalos regulares, tu agente revisa la lista de abajo y solo actúa cuando un elemento requiere tu atención.",
       "label": "Latido",
-      "desc": "Se ejecuta cada 30 minutos para comprobar y ejecutar todas las tareas proactivas pendientes"
+      "rowDesc": "Solo se ejecuta cuando la lista contiene elementos",
+      "interval": "Intervalo",
+      "everyMinutes_one": "Cada {{count}} minuto",
+      "everyMinutes_other": "Cada {{count}} minutos",
+      "everyHours_one": "Cada hora",
+      "everyHours_other": "Cada {{count}} horas",
+      "checklistLabel": "Lista de comprobación",
+      "checklistPlaceholder": "- Revisa mi bandeja de entrada por correos urgentes de clientes\n- Informa si falla la compilación nocturna",
+      "checklistHint": "Un elemento por línea. El agente la lee en cada latido; si la dejas vacía, el latido no se ejecuta.",
+      "idle": "Inactivo: la lista está vacía",
+      "tip": {
+        "aria": "Acerca del latido",
+        "title": "Cómo funciona el latido",
+        "line1": "En cada intervalo, el agente revisa todos los elementos de la lista y usa tus apps conectadas cuando un elemento lo requiere.",
+        "line2": "Si ningún elemento requiere tu atención, la ejecución termina sin mensaje. En caso contrario, el agente gestiona el elemento e informa del resultado en tu chat principal.",
+        "line3": "La lista se guarda en la sección Heartbeat de PROACTIVE.md, en los archivos del agente. El agente también puede actualizarla si se lo pides."
+      }
     },
     "plannersTitle": "Planificadores",
-    "plannersDesc": "Los planificadores revisan las interacciones recientes y planifican actividades proactivas",
+    "plannersDesc": "Revisiones periódicas en las que tu agente repasa tus objetivos y lo que viene, planifica con antelación y te envía un breve resumen en tu chat principal.",
     "planners": {
       "dayLabel": "Planificador diario",
-      "dayDesc": "Planifica las actividades y prioridades diarias",
+      "dayDesc": "Planifica tu día y envía un resumen matutino",
       "weekLabel": "Planificador semanal",
-      "weekDesc": "Planifica los objetivos y tareas semanales",
+      "weekDesc": "Repasa tu semana y planifica la siguiente",
       "monthLabel": "Planificador mensual",
-      "monthDesc": "Planifica los objetivos mensuales y las revisiones"
+      "monthDesc": "Repasa tu mes y tus objetivos a largo plazo",
+      "runsOn": "Día",
+      "time": "Hora",
+      "everyDay": "Todos los días",
+      "monthDay": "Día {{day}}",
+      "monthDayHint": "Los días 29 a 31 se ejecutan el último día de los meses más cortos",
+      "tip": {
+        "aria": "Acerca de los planificadores",
+        "title": "Qué hacen los planificadores",
+        "line1": "El planificador diario establece las prioridades del día. El semanal revisa la semana pasada y planifica la siguiente. El mensual sigue el avance de tus objetivos a largo plazo.",
+        "line2": "Cada planificador revisa tus chats recientes y tus apps conectadas, como el calendario, y actualiza el plan guardado en PROACTIVE.md (la sección Goals, Plan, and Status).",
+        "line3": "Los planes se apoyan entre sí: los objetivos del mes orientan el plan semanal, que a su vez orienta cada día."
+      }
     },
-    "tasksTitle": "Tareas proactivas",
-    "tasksDesc": "Tareas definidas en PROACTIVE.md que el agente ejecuta durante los latidos",
-    "addTask": "Añadir tarea",
-    "searchTasks": "Buscar tareas...",
-    "searchCount": "{{shown}} de {{total}}",
-    "loadingTasks": "Cargando tareas...",
-    "noTasks": "Aún no se han definido tareas proactivas.",
-    "createFirst": "Crea tu primera tarea",
-    "taskCount_one": "{{count}} tarea",
-    "taskCount_other": "{{count}} tareas",
-    "active": "Activa",
-    "disabled": "Desactivada",
-    "meta": {
-      "time": "Hora: {{time}}",
-      "day": "Día: {{day}}",
-      "runs": "Ejecuciones: {{value}}",
-      "last": "Última: {{date}}"
-    },
-    "resetTitle": "Restablecer tareas proactivas",
-    "resetDesc": "Esto eliminará todas las tareas proactivas y restaurará PROACTIVE.md desde la plantilla predeterminada. Esta acción no se puede deshacer.",
-    "resetButton": "Restablecer todas las tareas",
-    "resetting": "Restableciendo...",
     "priority": {
       "high": "Alta",
       "medium": "Media",
       "low": "Baja"
-    },
-    "notify": {
-      "notifies": "Notifica",
-      "silent": "Silenciosa"
     },
     "frequency": {
       "hourly": "Cada hora",
       "daily": "Diaria",
       "weekly": "Semanal",
       "monthly": "Mensual"
-    },
-    "deleteConfirmTitle": "Eliminar tarea",
-    "deleteConfirmMessage": "¿Seguro que quieres eliminar esta tarea?",
-    "resetConfirmTitle": "Restablecer tareas",
-    "resetConfirmMessage": "¿Seguro que quieres restablecer todas las tareas proactivas? Esto restaurará el PROACTIVE.md predeterminado desde la plantilla.",
-    "taskForm": {
-      "editTitle": "Editar tarea",
-      "addTitle": "Añadir tarea proactiva",
-      "name": "Nombre de la tarea",
-      "namePlaceholder": "p. ej., Revisar correos",
-      "frequency": "Frecuencia",
-      "priority": "Prioridad",
-      "priorityHint": "(la más alta se ejecuta primero)",
-      "time": "Hora (HH:MM)",
-      "dayOfWeek": "Día de la semana",
-      "selectDay": "Selecciona un día",
-      "notifyLabel": "Avisarme antes de ejecutar",
-      "notifyDesc": "Cuando está activado, el agente te informará antes de ejecutar esta tarea. Cuando está desactivado, la tarea se ejecuta en silencio.",
-      "instruction": "Instrucción",
-      "instructionPlaceholder": "Describe lo que debe hacer el agente...",
-      "instructionHint": "Sé específico y concreto. El agente seguirá estas instrucciones durante la ejecución.",
-      "enabledLabel": "Activada",
-      "enabledDesc": "La tarea se ejecutará durante los latidos"
     },
     "weekdays": {
       "monday": "Lunes",
@@ -334,22 +349,46 @@
       "saturday": "Sábado",
       "sunday": "Domingo"
     },
-    "cron": {
-      "twiceHourly": "Dos veces cada hora",
-      "hourly": "Cada hora en el minuto :{{minute}}",
-      "daily": "Cada día a las {{time}}",
-      "weekly": "Cada semana el {{day}} a las {{time}}",
-      "monthly": "Cada mes el día {{day}} a las {{time}}",
-      "raw": "Cron: {{cron}}",
-      "days": {
-        "sun": "Domingo",
-        "mon": "Lunes",
-        "tue": "Martes",
-        "wed": "Miércoles",
-        "thu": "Jueves",
-        "fri": "Viernes",
-        "sat": "Sábado"
+    "toast": {
+      "scheduleFailed": "Error al actualizar la programación",
+      "checklistFailed": "No se pudo guardar la lista"
+    },
+    "cronJobForm": {
+      "editTitle": "Editar tarea recurrente",
+      "addTitle": "Añadir tarea recurrente",
+      "name": "Nombre de la tarea",
+      "namePlaceholder": "p. ej., Revisar el correo",
+      "frequency": "Frecuencia",
+      "priority": "Prioridad",
+      "priorityHint": "(la más alta se ejecuta primero)",
+      "time": "Hora (HH:MM)",
+      "dayOfWeek": "Día de la semana",
+      "selectDay": "Selecciona un día",
+      "notifyLabel": "Informar de cada resultado",
+      "notifyDesc": "Si está activado, el agente informa del resultado de cada ejecución. Si está desactivado, la tarea se ejecuta de forma silenciosa y solo informa de los asuntos que requieren tu atención.",
+      "instruction": "Instrucción",
+      "instructionPlaceholder": "Describe lo que debe hacer el agente...",
+      "instructionHint": "Sé específico y concreto. El agente sigue estas instrucciones en cada ejecución.",
+      "enabledLabel": "Activada",
+      "enabledDesc": "La tarea se ejecuta a su hora programada"
+    },
+    "reset": {
+      "title": "Restablecer valores predeterminados",
+      "desc": "Elimina todas las tareas recurrentes, vacía la lista del latido y borra los planes de los planificadores. Esta acción no se puede deshacer.",
+      "button": "Restablecer valores predeterminados",
+      "confirmTitle": "¿Restablecer valores predeterminados?",
+      "confirmMessage": "Se eliminarán todas las tareas recurrentes, se vaciará la lista del latido y se borrarán los planes de los planificadores. Esta acción no se puede deshacer.",
+      "resetting": "Restableciendo...",
+      "tip": {
+        "aria": "Acerca del restablecimiento",
+        "title": "Qué hace el restablecimiento",
+        "line1": "Las tareas recurrentes, la lista del latido y los planes de los planificadores se guardan en un solo archivo, PROACTIVE.md, en los archivos del agente.",
+        "line2": "El restablecimiento recupera la versión original de ese archivo. No afecta a las horas de los planificadores, al intervalo del latido, a tu memoria ni a tus chats."
       }
+    },
+    "notify": {
+      "notifies": "Informa del resultado",
+      "silent": "Silenciosa"
     }
   },
   "memory": {

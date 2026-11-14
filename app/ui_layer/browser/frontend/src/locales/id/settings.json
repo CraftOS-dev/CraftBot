@@ -246,84 +246,99 @@
   },
   "proactive": {
     "title": "Perilaku Proaktif",
-    "subtitle": "Konfigurasikan kapan agen bertindak secara mandiri dan mengelola tugas terjadwal",
+    "subtitle": "Atur pekerjaan yang dilakukan agen Anda tanpa perintah: tugas berulang, pemantauan, dan perencanaan",
     "enableLabel": "Aktifkan Mode Proaktif",
-    "enableDesc": "Izinkan agen menjalankan tugas terjadwal dan perilaku proaktif secara otomatis",
-    "heartbeatTitle": "Jadwal Heartbeat",
-    "heartbeatDesc": "Heartbeat secara berkala memeriksa dan menjalankan tugas proaktif berdasarkan frekuensinya",
+    "enableDesc": "Mengizinkan agen Anda menjalankan tugas berulang, heartbeat, dan perencana secara otomatis. Hasil dan hal yang memerlukan perhatian Anda dikirim ke chat.",
+    "cronJobs": {
+      "title": "Tugas Berulang",
+      "desc": "Tugas yang dijalankan agen Anda sesuai jadwal tetap, misalnya setiap hari pukul 09.00 atau setiap Jumat. Setiap tugas berjalan di chat tempat tugas itu dibuat; tugas yang ditambahkan di sini berjalan di chat utama Anda.",
+      "add": "Tambah Tugas Berulang",
+      "search": "Cari tugas berulang...",
+      "loading": "Memuat tugas berulang...",
+      "empty": "Belum ada tugas berulang.",
+      "createFirst": "Buat tugas berulang",
+      "deleteTitle": "Hapus Tugas Berulang",
+      "deleteMessage": "Tugas berulang ini akan dihapus secara permanen.",
+      "searchCount": "{{shown}} dari {{total}}",
+      "tip": {
+        "aria": "Tentang tugas berulang",
+        "title": "Cara kerja tugas berulang",
+        "line1": "Setiap tugas berulang (juga dikenal sebagai cron job) adalah instruksi dengan jadwal: per jam, harian, mingguan, atau bulanan. Jika agen tidak berjalan pada waktu terjadwal, tugas dijalankan satu kali saat agen dimulai ulang, kecuali sudah tidak relevan.",
+        "line2": "Pada waktu terjadwal, agen menjalankan tugas di chat tempat tugas itu dibuat dan melaporkan hasilnya di sana. Jika chat tersebut dihapus, tugas tetap disimpan tetapi tidak berjalan sampai Anda memindahkannya ke chat utama.",
+        "line3": "Anda juga dapat membuat tugas dengan meminta agen di chat, misalnya: “Setiap Jumat pukul 17.00, rangkum minggu saya.” Tugas disimpan di PROACTIVE.md dalam file agen."
+      },
+      "count_one": "{{count}} tugas",
+      "count_other": "{{count}} tugas",
+      "dayTime": "{{day}}, {{time}}",
+      "lastRun": "Terakhir dijalankan {{date}}",
+      "neverRun": "Belum pernah dijalankan",
+      "runs_one": "{{count}} kali dijalankan",
+      "runs_other": "{{count}} kali dijalankan",
+      "priority": {
+        "high": "Prioritas tinggi",
+        "medium": "Prioritas sedang",
+        "low": "Prioritas rendah"
+      },
+      "mainChat": "Chat utama",
+      "untitledChat": "Chat tanpa judul",
+      "runsIn": "Berjalan di {{chat}}",
+      "unavailable": "Tidak tersedia: chat tempat tugas ini berjalan telah dihapus.",
+      "moveToMain": "Pindahkan ke chat utama"
+    },
     "heartbeat": {
+      "title": "Heartbeat",
+      "desc": "Pada interval tetap, agen Anda meninjau daftar periksa di bawah dan hanya bertindak jika ada item yang memerlukan perhatian Anda.",
       "label": "Heartbeat",
-      "desc": "Berjalan setiap 30 menit untuk memeriksa dan menjalankan semua tugas proaktif yang jatuh tempo"
+      "rowDesc": "Hanya berjalan jika daftar periksa berisi item",
+      "interval": "Interval",
+      "everyMinutes_one": "Setiap {{count}} menit",
+      "everyMinutes_other": "Setiap {{count}} menit",
+      "everyHours_one": "Setiap jam",
+      "everyHours_other": "Setiap {{count}} jam",
+      "checklistLabel": "Daftar periksa",
+      "checklistPlaceholder": "- Periksa kotak masuk saya untuk email mendesak dari klien\n- Laporkan jika build malam gagal",
+      "checklistHint": "Satu item per baris. Agen membacanya setiap detak; jika kosong, heartbeat tidak berjalan.",
+      "idle": "Tidak aktif: daftar periksa kosong",
+      "tip": {
+        "aria": "Tentang heartbeat",
+        "title": "Cara kerja heartbeat",
+        "line1": "Pada setiap interval, agen meninjau setiap item daftar periksa dan menggunakan aplikasi yang tersambung jika item memerlukannya.",
+        "line2": "Jika tidak ada item yang memerlukan perhatian Anda, proses berakhir tanpa pesan. Jika ada, agen menangani item tersebut dan melaporkan hasilnya di chat utama Anda.",
+        "line3": "Daftar periksa disimpan di bagian Heartbeat pada PROACTIVE.md dalam file agen. Agen juga dapat memperbaruinya atas permintaan Anda."
+      }
     },
     "plannersTitle": "Perencana",
-    "plannersDesc": "Perencana meninjau interaksi terbaru dan merencanakan aktivitas proaktif",
+    "plannersDesc": "Pemeriksaan rutin saat agen Anda meninjau tujuan dan hal yang akan datang, merencanakan ke depan, lalu mengirim ringkasan singkat ke chat utama Anda.",
     "planners": {
       "dayLabel": "Perencana Harian",
-      "dayDesc": "Merencanakan aktivitas dan prioritas harian",
+      "dayDesc": "Merencanakan hari Anda dan mengirim ringkasan pagi",
       "weekLabel": "Perencana Mingguan",
-      "weekDesc": "Merencanakan tujuan dan tugas mingguan",
+      "weekDesc": "Meninjau minggu Anda dan merencanakan minggu berikutnya",
       "monthLabel": "Perencana Bulanan",
-      "monthDesc": "Merencanakan sasaran dan tinjauan bulanan"
+      "monthDesc": "Meninjau bulan Anda dan tujuan jangka panjang",
+      "runsOn": "Hari",
+      "time": "Waktu",
+      "everyDay": "Setiap hari",
+      "monthDay": "Tanggal {{day}}",
+      "monthDayHint": "Tanggal 29 sampai 31 berjalan pada hari terakhir bulan yang lebih pendek",
+      "tip": {
+        "aria": "Tentang perencana",
+        "title": "Fungsi perencana",
+        "line1": "Perencana harian menetapkan prioritas hari ini. Perencana mingguan meninjau minggu lalu dan merencanakan minggu berikutnya. Perencana bulanan memantau kemajuan tujuan jangka panjang Anda.",
+        "line2": "Setiap perencana meninjau chat terbaru dan aplikasi yang tersambung, seperti kalender Anda, lalu memperbarui rencana yang disimpan di PROACTIVE.md (bagian Goals, Plan, and Status).",
+        "line3": "Rencana-rencana ini saling melengkapi: tujuan bulanan mengarahkan rencana mingguan, yang kemudian mengarahkan setiap hari."
+      }
     },
-    "tasksTitle": "Tugas Proaktif",
-    "tasksDesc": "Tugas yang didefinisikan dalam PROACTIVE.md yang dijalankan agen selama heartbeat",
-    "addTask": "Tambah Tugas",
-    "searchTasks": "Cari tugas...",
-    "searchCount": "{{shown}} dari {{total}}",
-    "loadingTasks": "Memuat tugas...",
-    "noTasks": "Belum ada tugas proaktif yang didefinisikan.",
-    "createFirst": "Buat tugas pertama Anda",
-    "taskCount_one": "{{count}} tugas",
-    "taskCount_other": "{{count}} tugas",
-    "active": "Aktif",
-    "disabled": "Nonaktif",
-    "meta": {
-      "time": "Waktu: {{time}}",
-      "day": "Hari: {{day}}",
-      "runs": "Berjalan: {{value}}",
-      "last": "Terakhir: {{date}}"
-    },
-    "resetTitle": "Atur Ulang Tugas Proaktif",
-    "resetDesc": "Ini akan menghapus semua tugas proaktif dan memulihkan PROACTIVE.md dari templat default. Tindakan ini tidak dapat dibatalkan.",
-    "resetButton": "Atur Ulang Semua Tugas",
-    "resetting": "Mengatur ulang...",
     "priority": {
       "high": "Tinggi",
       "medium": "Sedang",
       "low": "Rendah"
-    },
-    "notify": {
-      "notifies": "Memberi tahu",
-      "silent": "Senyap"
     },
     "frequency": {
       "hourly": "Per jam",
       "daily": "Harian",
       "weekly": "Mingguan",
       "monthly": "Bulanan"
-    },
-    "deleteConfirmTitle": "Hapus Tugas",
-    "deleteConfirmMessage": "Apakah Anda yakin ingin menghapus tugas ini?",
-    "resetConfirmTitle": "Atur Ulang Tugas",
-    "resetConfirmMessage": "Apakah Anda yakin ingin mengatur ulang semua tugas proaktif? Ini akan memulihkan PROACTIVE.md default dari templat.",
-    "taskForm": {
-      "editTitle": "Edit Tugas",
-      "addTitle": "Tambah Tugas Proaktif",
-      "name": "Nama Tugas",
-      "namePlaceholder": "mis., Periksa email",
-      "frequency": "Frekuensi",
-      "priority": "Prioritas",
-      "priorityHint": "(yang lebih tinggi berjalan lebih dulu)",
-      "time": "Waktu (HH:MM)",
-      "dayOfWeek": "Hari dalam Seminggu",
-      "selectDay": "Pilih hari",
-      "notifyLabel": "Beri tahu saya sebelum menjalankan",
-      "notifyDesc": "Saat diaktifkan, agen akan memberi tahu Anda sebelum menjalankan tugas ini. Saat dinonaktifkan, tugas berjalan secara senyap.",
-      "instruction": "Instruksi",
-      "instructionPlaceholder": "Jelaskan apa yang harus dilakukan agen...",
-      "instructionHint": "Spesifik dan dapat ditindaklanjuti. Agen akan mengikuti instruksi ini selama eksekusi.",
-      "enabledLabel": "Aktif",
-      "enabledDesc": "Tugas akan dijalankan selama heartbeat"
     },
     "weekdays": {
       "monday": "Senin",
@@ -334,22 +349,46 @@
       "saturday": "Sabtu",
       "sunday": "Minggu"
     },
-    "cron": {
-      "twiceHourly": "Dua kali setiap jam",
-      "hourly": "Setiap jam pada menit ke-:{{minute}}",
-      "daily": "Setiap hari pukul {{time}}",
-      "weekly": "Setiap minggu pada {{day}} pukul {{time}}",
-      "monthly": "Setiap bulan pada tanggal {{day}} pukul {{time}}",
-      "raw": "Cron: {{cron}}",
-      "days": {
-        "sun": "Minggu",
-        "mon": "Senin",
-        "tue": "Selasa",
-        "wed": "Rabu",
-        "thu": "Kamis",
-        "fri": "Jumat",
-        "sat": "Sabtu"
+    "toast": {
+      "scheduleFailed": "Gagal memperbarui jadwal",
+      "checklistFailed": "Gagal menyimpan daftar periksa"
+    },
+    "cronJobForm": {
+      "editTitle": "Edit Tugas Berulang",
+      "addTitle": "Tambah Tugas Berulang",
+      "name": "Nama Tugas",
+      "namePlaceholder": "mis. Periksa email",
+      "frequency": "Frekuensi",
+      "priority": "Prioritas",
+      "priorityHint": "(yang lebih tinggi berjalan lebih dulu)",
+      "time": "Waktu (HH:MM)",
+      "dayOfWeek": "Hari dalam Seminggu",
+      "selectDay": "Pilih hari",
+      "notifyLabel": "Laporkan setiap hasil",
+      "notifyDesc": "Jika aktif, agen melaporkan hasil setiap proses. Jika nonaktif, tugas berjalan senyap dan hanya melaporkan hal yang memerlukan perhatian Anda.",
+      "instruction": "Instruksi",
+      "instructionPlaceholder": "Jelaskan apa yang harus dilakukan agen...",
+      "instructionHint": "Tulis secara spesifik dan dapat ditindaklanjuti. Agen mengikuti instruksi ini pada setiap proses.",
+      "enabledLabel": "Aktif",
+      "enabledDesc": "Tugas berjalan pada waktu terjadwalnya"
+    },
+    "reset": {
+      "title": "Atur ulang ke bawaan",
+      "desc": "Menghapus semua tugas berulang, mengosongkan daftar periksa heartbeat, dan menghapus rencana para perencana. Tindakan ini tidak dapat dibatalkan.",
+      "button": "Atur ulang ke bawaan",
+      "confirmTitle": "Atur ulang ke bawaan?",
+      "confirmMessage": "Semua tugas berulang akan dihapus, daftar periksa heartbeat akan dikosongkan, dan rencana para perencana akan dihapus. Tindakan ini tidak dapat dibatalkan.",
+      "resetting": "Mengatur ulang...",
+      "tip": {
+        "aria": "Tentang atur ulang",
+        "title": "Fungsi atur ulang",
+        "line1": "Tugas berulang, daftar periksa heartbeat, dan rencana para perencana disimpan dalam satu file, PROACTIVE.md, di file agen.",
+        "line2": "Atur ulang mengembalikan versi asli file tersebut. Waktu perencana, interval heartbeat, memori, dan chat Anda tidak terpengaruh."
       }
+    },
+    "notify": {
+      "notifies": "Melaporkan hasil",
+      "silent": "Senyap"
     }
   },
   "memory": {

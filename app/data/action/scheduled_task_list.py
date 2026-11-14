@@ -47,6 +47,9 @@ def scheduled_task_list(input_data: dict) -> dict:
                     if s.next_run
                     else None,
                     "run_count": s.run_count,
+                    # The chat it fires in; unavailable once that chat is deleted.
+                    "session_id": s.session_id,
+                    "available": scheduler.is_session_available(s.session_id),
                 }
             )
 

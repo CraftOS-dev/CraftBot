@@ -15,10 +15,11 @@ from typing import Dict, Optional
 from app.ui_layer.events.resource_changes import Resource
 
 RESOURCE_BY_ACTION: Dict[str, Resource] = {
-    # Recurring (proactive) tasks
-    "recurring_add": Resource.PROACTIVE,
-    "recurring_update_task": Resource.PROACTIVE,
-    "recurring_remove": Resource.PROACTIVE,
+    # Cron jobs and the heartbeat checklist (PROACTIVE.md)
+    "cron_job_add": Resource.PROACTIVE,
+    "cron_job_update": Resource.PROACTIVE,
+    "cron_job_remove": Resource.PROACTIVE,
+    "heartbeat_checklist_update": Resource.PROACTIVE,
     # Scheduled tasks
     "schedule_task": Resource.SCHEDULER,
     "schedule_task_toggle": Resource.SCHEDULER,

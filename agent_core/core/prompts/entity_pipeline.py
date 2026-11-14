@@ -24,12 +24,18 @@ jobs, and a hard boundary around them:
    breakfast spot two blocks from the Acme Corp office" — confirm
    Blue Bottle Diner, reject Acme Corp (a landmark, not the subject).
 2. CREATE new entities. The record texts will show you named things that
-   deserve to exist as entities but are not in the known-entity list yet:
-   - people, companies, teams, projects, products, tools, services, places
+   deserve to exist as entities but are not in the known-entity list yet.
+   An entity is a specific, named thing in the user's world that a memory
+   is about:
+   - people, companies, teams, the user's own projects and products,
+     places, named events and programs
    - canonical names: match spellings already used in the known-entity
-     list and the record texts exactly ("Agent App", not "agent-app")
+     list and the record texts exactly ("Acme Corp", not "acme-corp")
    - NOT: dates, numbers, generic nouns, common terms, role words
-     ("User", "Agent"), code keywords, capitalised sentence-starters
+     ("User", "Agent"), code keywords, capitalised sentence-starters,
+     tools and services the user merely uses (calendars, email, office
+     software), file formats, file and folder names, paths, commands,
+     settings, the agent's own features and vocabulary
    - Prefer precision over recall: an entity should matter to someone
      asking "what does the agent know about X?"
 

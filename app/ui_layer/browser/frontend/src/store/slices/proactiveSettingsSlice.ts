@@ -10,7 +10,8 @@ export interface ScheduleConfig {
   payload?: { type: string; frequency?: string; scope?: string }
 }
 
-export interface ProactiveTask {
+/** A cron job from PROACTIVE.md's "Cron Jobs" section. */
+export interface CronJob {
   id: string
   name: string
   frequency: string
@@ -18,6 +19,12 @@ export interface ProactiveTask {
   enabled: boolean
   priority: number
   permissionTier: number
+  /** The chat the job runs in (the one that created it; 'main' from Settings). */
+  sessionId: string
+  /** That chat's title; null once the chat is deleted. */
+  sessionTitle: string | null
+  /** False once its chat is deleted: the job is kept but does not run. */
+  available: boolean
   time?: string
   day?: string
   runCount: number
@@ -26,22 +33,39 @@ export interface ProactiveTask {
   outcomeHistory: Array<{ timestamp: string; result: string; success: boolean }>
 }
 
+/** Heartbeat interval + planner schedules as Settings → Proactive edits them. */
+export interface ProactiveSchedule {
+  heartbeatMinutes: number
+  dayPlannerTime: string
+  weekPlannerDay: string
+  weekPlannerTime: string
+  monthPlannerDay: number
+  monthPlannerTime: string
+}
+
 interface ProactiveSettingsState {
   schedulerEnabled: boolean
   schedules: ScheduleConfig[]
-  tasks: ProactiveTask[]
+  cronJobs: CronJob[]
+  schedule: ProactiveSchedule | null
+  heartbeatOptions: number[]
+  /** PROACTIVE.md's "Heartbeat" checklist; null until loaded. */
+  heartbeatChecklist: string | null
   hasLoadedMode: boolean
   hasLoadedConfig: boolean
-  hasLoadedTasks: boolean
+  hasLoadedCronJobs: boolean
 }
 
 const initialState: ProactiveSettingsState = {
   schedulerEnabled: true,
   schedules: [],
-  tasks: [],
+  cronJobs: [],
+  schedule: null,
+  heartbeatOptions: [],
+  heartbeatChecklist: null,
   hasLoadedMode: false,
   hasLoadedConfig: false,
-  hasLoadedTasks: false,
+  hasLoadedCronJobs: false,
 }
 
 const proactiveSettingsSlice = createSlice({
@@ -56,13 +80,23 @@ const proactiveSettingsSlice = createSlice({
       state.schedules = action.payload
       state.hasLoadedConfig = true
     },
-    setTasks(state, action: PayloadAction<ProactiveTask[]>) {
-      state.tasks = action.payload
-      state.hasLoadedTasks = true
+    setCronJobs(state, action: PayloadAction<CronJob[]>) {
+      state.cronJobs = action.payload
+      state.hasLoadedCronJobs = true
     },
-    setTaskEnabled(state, action: PayloadAction<{ taskId: string; enabled: boolean }>) {
-      const t = state.tasks.find(x => x.id === action.payload.taskId)
-      if (t) t.enabled = action.payload.enabled
+    setCronJobEnabled(state, action: PayloadAction<{ jobId: string; enabled: boolean }>) {
+      const job = state.cronJobs.find(x => x.id === action.payload.jobId)
+      if (job) job.enabled = action.payload.enabled
+    },
+    setProactiveSchedule(
+      state,
+      action: PayloadAction<{ schedule: ProactiveSchedule; heartbeatOptions: number[] }>,
+    ) {
+      state.schedule = action.payload.schedule
+      state.heartbeatOptions = action.payload.heartbeatOptions
+    },
+    setHeartbeatChecklist(state, action: PayloadAction<string>) {
+      state.heartbeatChecklist = action.payload
     },
   },
 })
@@ -70,8 +104,10 @@ const proactiveSettingsSlice = createSlice({
 export const {
   setSchedulerEnabled,
   setSchedules,
-  setTasks,
-  setTaskEnabled,
+  setCronJobs,
+  setCronJobEnabled,
+  setProactiveSchedule,
+  setHeartbeatChecklist,
 } = proactiveSettingsSlice.actions
 
 export default proactiveSettingsSlice.reducer
@@ -96,7 +132,36 @@ register('scheduler_config_update', (data, dispatch) => {
   if (d.success && d.config) dispatch(setSchedules(d.config.schedules || []))
 })
 
-register('proactive_tasks_get', (data, dispatch) => {
-  const d = data as { success: boolean; tasks: ProactiveTask[] }
-  if (d.success) dispatch(setTasks(d.tasks || []))
+register('cron_jobs_get', (data, dispatch) => {
+  const d = data as { success: boolean; jobs: CronJob[] }
+  if (d.success) dispatch(setCronJobs(d.jobs || []))
+})
+
+register('heartbeat_checklist_get', (data, dispatch) => {
+  const d = data as { success: boolean; checklist?: string }
+  if (d.success) dispatch(setHeartbeatChecklist(d.checklist ?? ''))
+})
+
+register('proactive_schedule_get', (data, dispatch) => {
+  const d = data as Partial<ProactiveSchedule> & { success: boolean; heartbeatOptions?: number[] }
+  if (
+    !d.success
+    || d.heartbeatMinutes === undefined
+    || !d.dayPlannerTime
+    || !d.weekPlannerDay
+    || !d.weekPlannerTime
+    || d.monthPlannerDay === undefined
+    || !d.monthPlannerTime
+  ) return
+  dispatch(setProactiveSchedule({
+    schedule: {
+      heartbeatMinutes: d.heartbeatMinutes,
+      dayPlannerTime: d.dayPlannerTime,
+      weekPlannerDay: d.weekPlannerDay,
+      weekPlannerTime: d.weekPlannerTime,
+      monthPlannerDay: d.monthPlannerDay,
+      monthPlannerTime: d.monthPlannerTime,
+    },
+    heartbeatOptions: d.heartbeatOptions ?? [],
+  }))
 })

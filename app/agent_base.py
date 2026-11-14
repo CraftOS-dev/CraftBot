@@ -157,6 +157,7 @@ RUN_START_SOURCES = {
     TriggerSource.SCHEDULED_ONCE.value,
     TriggerSource.SCHEDULED_IMMEDIATE.value,
     TriggerSource.MEMORY.value,
+    TriggerSource.CRON_JOB.value,
     TriggerSource.PROACTIVE_HEARTBEAT.value,
     TriggerSource.PROACTIVE_PLANNER.value,
     TriggerSource.ONBOARDING.value,
@@ -200,7 +201,8 @@ TRIGGER_ANNOUNCEMENTS: Dict[str, tuple[str, str]] = {
     TriggerSource.SCHEDULED_ONCE.value: ("⏰", "Scheduled task"),
     TriggerSource.SCHEDULED_IMMEDIATE.value: ("⏰", "Scheduled task"),
     TriggerSource.MEMORY.value: ("⚙️", "Memory processing workflow"),
-    TriggerSource.PROACTIVE_HEARTBEAT.value: ("⚙️", "Proactive check"),
+    TriggerSource.CRON_JOB.value: ("⏰", "Recurring task"),
+    TriggerSource.PROACTIVE_HEARTBEAT.value: ("⚙️", "Heartbeat"),
     TriggerSource.PROACTIVE_PLANNER.value: ("⚙️", "Proactive planning"),
     TriggerSource.ONBOARDING.value: ("⚙️", "Onboarding workflow"),
     TriggerSource.SKILL_WORKFLOW.value: ("⚙️", "Skill workflow"),
@@ -488,6 +490,10 @@ class AgentBase:
         proactive_file = AGENT_FILE_SYSTEM_PATH / "PROACTIVE.md"
         self.proactive_manager = initialize_proactive_manager(proactive_file)
         InternalActionInterface.proactive_manager = self.proactive_manager
+        # The scheduler fires PROACTIVE.md cron jobs at their exact slots
+        # (re-armed whenever the jobs are saved) and gives the heartbeat its
+        # checklist.
+        self.scheduler.set_proactive_manager(self.proactive_manager)
 
         self._command_registry: Dict[str, AgentCommand] = {}
         self._register_builtin_commands()
@@ -705,6 +711,7 @@ class AgentBase:
                     trigger.payload.update(workflow)
                     self._update_aggregated_description(trigger, desc)
             elif trigger.source in (
+                TriggerSource.CRON_JOB.value,
                 TriggerSource.PROACTIVE_HEARTBEAT.value,
                 TriggerSource.PROACTIVE_PLANNER.value,
             ):
@@ -908,10 +915,15 @@ class AgentBase:
                 logger.error(f"[ENTITY-JUDGE] Pipeline failed: {e}")
 
     def _prepare_proactive_run(self, trigger: Trigger) -> Optional[tuple[str, dict]]:
-        """Pre-check a proactive heartbeat/planner trigger.
+        """Pre-check a cron-job, heartbeat or planner trigger.
 
         Returns (instruction, workflow_payload) when there is work to do, or
-        None to skip (proactive disabled / nothing due).
+        None to skip (proactive disabled / nothing to do).
+
+        Cron jobs: the scheduler already chose and stamped the due jobs; the
+        trigger's description lists them with their instructions, so the run
+        never re-derives what is due. Heartbeat: the description carries the
+        checklist the run must go through.
         """
         from app.ui_layer.settings.proactive_settings import is_proactive_enabled
 
@@ -919,38 +931,38 @@ class AgentBase:
             logger.info("[PROACTIVE] Proactive mode is disabled, skipping trigger")
             return None
 
-        if trigger.source == TriggerSource.PROACTIVE_HEARTBEAT.value:
-            all_due_tasks = self.proactive_manager.get_all_due_tasks()
-            if not all_due_tasks:
-                logger.info("[PROACTIVE] No due tasks, skipping heartbeat")
+        action_sets = ["file_operations", "proactive", "web_research"]
+        if trigger.source == TriggerSource.CRON_JOB.value:
+            job_ids = (trigger.payload or {}).get("cron_job_ids") or []
+            if not job_ids:
+                logger.info("[PROACTIVE] Cron-job trigger carries no jobs, skipping")
                 return None
-            freq_counts: Dict[str, int] = {}
-            for t in all_due_tasks:
-                freq_counts[t.frequency] = freq_counts.get(t.frequency, 0) + 1
-            summary = ", ".join(f"{cnt} {freq}" for freq, cnt in freq_counts.items())
-            instruction = (
-                f"Execute all due proactive tasks from PROACTIVE.md. "
-                f"Due tasks: {summary} ({len(all_due_tasks)} total). "
-                f"Use recurring_read with frequency='all' and enabled_only=true, "
-                f"then filter by each task's time/day fields."
-            )
+            workflow = {
+                "run_source": TriggerSource.CRON_JOB.value,
+                "workflow_skills": ["cron-job-runner"],
+                "workflow_action_sets": action_sets,
+            }
+            logger.info(f"[PROACTIVE] Cron-job run: {', '.join(job_ids)}")
+            return trigger.next_action_description, workflow
+
+        if trigger.source == TriggerSource.PROACTIVE_HEARTBEAT.value:
             workflow = {
                 "run_source": TriggerSource.PROACTIVE_HEARTBEAT.value,
                 "workflow_skills": ["heartbeat-processor"],
-                "workflow_action_sets": [
-                    "file_operations",
-                    "proactive",
-                    "web_research",
-                ],
+                "workflow_action_sets": action_sets,
             }
-            logger.info(f"[PROACTIVE] Heartbeat run: {summary}")
-            return instruction, workflow
+            logger.info("[PROACTIVE] Heartbeat run")
+            return trigger.next_action_description, workflow
 
         # Planner
         scope = trigger.payload.get("scope", "day")
+        brief = {"day": "morning brief", "week": "weekly review"}.get(
+            scope, "monthly review"
+        )
         instruction = (
-            f"Review recent interactions and plan {scope}ly proactive "
-            f"activities. Update PROACTIVE.md planner section with findings."
+            f"Run the {scope} planner: follow the {scope}-planner skill, update "
+            f"the Goals, Plan, and Status section of PROACTIVE.md, then end with "
+            f"ONE send_message: the user's {brief}."
         )
         workflow = {
             "run_source": TriggerSource.PROACTIVE_PLANNER.value,
@@ -4311,6 +4323,7 @@ class AgentBase:
         await self.scheduler.initialize(
             config_path=scheduler_config_path,
             trigger_service=self.trigger_service,
+            session_manager=self.session_manager,
         )
         await self.scheduler.start()
 

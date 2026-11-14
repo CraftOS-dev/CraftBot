@@ -45,11 +45,22 @@ from app.ui_layer.settings import (
     get_scheduler_config,
     update_scheduler_config,
     toggle_schedule_runtime,
-    get_recurring_tasks,
-    add_recurring_task,
-    update_recurring_task,
-    remove_recurring_task,
-    reset_recurring_tasks,
+    HEARTBEAT_SCHEDULE_ID,
+    DAY_PLANNER_SCHEDULE_ID,
+    WEEK_PLANNER_SCHEDULE_ID,
+    MONTH_PLANNER_SCHEDULE_ID,
+    heartbeat_schedule_expression,
+    day_planner_schedule_expression,
+    week_planner_schedule_expression,
+    month_planner_schedule_expression,
+    get_proactive_schedule,
+    get_cron_jobs,
+    add_cron_job,
+    update_cron_job,
+    remove_cron_job,
+    reset_cron_jobs,
+    get_heartbeat_checklist,
+    set_heartbeat_checklist,
     reload_proactive_manager,
     # Memory settings
     get_memory_mode,
@@ -1804,25 +1815,31 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             updates = data.get("updates", {})
             await self._handle_scheduler_config_update(updates)
 
-        elif msg_type == "proactive_tasks_get":
+        elif msg_type == "cron_jobs_get":
             frequency = data.get("frequency")
-            await self._handle_proactive_tasks_get(frequency)
+            await self._handle_cron_jobs_get(frequency)
 
-        elif msg_type == "proactive_task_add":
-            task_data = data.get("task", {})
-            await self._handle_proactive_task_add(task_data)
+        elif msg_type == "cron_job_add":
+            job_data = data.get("job", {})
+            await self._handle_cron_job_add(job_data)
 
-        elif msg_type == "proactive_task_update":
-            task_id = data.get("taskId", "")
+        elif msg_type == "cron_job_update":
+            job_id = data.get("jobId", "")
             updates = data.get("updates", {})
-            await self._handle_proactive_task_update(task_id, updates)
+            await self._handle_cron_job_update(job_id, updates)
 
-        elif msg_type == "proactive_task_remove":
-            task_id = data.get("taskId", "")
-            await self._handle_proactive_task_remove(task_id)
+        elif msg_type == "cron_job_remove":
+            job_id = data.get("jobId", "")
+            await self._handle_cron_job_remove(job_id)
 
-        elif msg_type == "proactive_tasks_reset":
-            await self._handle_proactive_tasks_reset()
+        elif msg_type == "cron_jobs_reset":
+            await self._handle_cron_jobs_reset()
+
+        elif msg_type == "heartbeat_checklist_get":
+            await self._handle_heartbeat_checklist_get(ws)
+
+        elif msg_type == "heartbeat_checklist_set":
+            await self._handle_heartbeat_checklist_set(data.get("checklist", ""))
 
         elif msg_type == "proactive_file_read":
             await self._handle_proactive_file_read()
@@ -1833,6 +1850,12 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         elif msg_type == "proactive_mode_set":
             enabled = data.get("enabled", True)
             await self._handle_proactive_mode_set(enabled)
+
+        elif msg_type == "proactive_schedule_get":
+            await self._handle_proactive_schedule_get(ws)
+
+        elif msg_type == "proactive_schedule_set":
+            await self._handle_proactive_schedule_set(data)
 
         # Memory operations
         elif msg_type == "memory_mode_get":
@@ -1862,6 +1885,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         elif msg_type == "memory_item_remove":
             item_id = data.get("itemId", "")
             await self._handle_memory_item_remove(item_id)
+
+        elif msg_type == "memory_entity_remove":
+            name = data.get("name", "")
+            await self._handle_memory_entity_remove(name)
 
         elif msg_type == "memory_reset":
             await self._handle_memory_reset()
@@ -5118,6 +5145,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             "craftbot-skill-improve",
             "memory-processor",
             "heartbeat-processor",
+            "cron-job-runner",
             "user-profile-interview",
             "day-planner",
             "week-planner",
@@ -5143,6 +5171,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             "memory-processor",
             "user-profile-interview",
             "heartbeat-processor",
+            "cron-job-runner",
             "day-planner",
             "week-planner",
             "month-planner",
@@ -5545,210 +5574,159 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
             )
 
-    async def _handle_proactive_tasks_get(self, frequency: str = None) -> None:
-        """Get proactive tasks from PROACTIVE.md."""
+    async def _handle_cron_jobs_get(self, frequency: str = None) -> None:
+        """Send the cron jobs in PROACTIVE.md."""
         agent = self._controller.agent
         proactive_manager = getattr(agent, "proactive_manager", None)
 
-        # Reload from file before getting tasks
+        # Reload from file before listing
         if proactive_manager:
             reload_proactive_manager(proactive_manager)
 
-        result = get_recurring_tasks(
-            proactive_manager,
-            frequency=frequency,
-            enabled_only=False,
+        result = get_cron_jobs(
+            proactive_manager, frequency=frequency, enabled_only=False
         )
 
         if result.get("success"):
+            # The chat each job runs in; None once that chat is deleted.
+            sessions = getattr(agent, "session_manager", None)
+
+            def _chat(session_id):
+                return sessions.get(session_id) if sessions else None
+
             # Convert to frontend format (camelCase)
-            tasks_data = []
-            for task in result.get("tasks", []):
-                task_dict = {
-                    "id": task.get("id"),
-                    "name": task.get("name"),
-                    "frequency": task.get("frequency"),
-                    "instruction": task.get("instruction"),
-                    "enabled": task.get("enabled"),
-                    "priority": task.get("priority"),
-                    "permissionTier": task.get("permission_tier"),
-                    "time": task.get("time"),
-                    "day": task.get("day"),
-                    "runCount": task.get("run_count", 0),
-                    "lastRun": task.get("last_executed"),
-                    "nextRun": task.get("next_run"),
-                    "outcomeHistory": task.get("outcome_history", []),
-                }
-                tasks_data.append(task_dict)
-
-            await self._broadcast(
+            jobs_data = [
                 {
-                    "type": "proactive_tasks_get",
-                    "data": {
-                        "tasks": tasks_data,
-                        "success": True,
-                    },
+                    "id": job.get("id"),
+                    "name": job.get("name"),
+                    "frequency": job.get("frequency"),
+                    "instruction": job.get("instruction"),
+                    "enabled": job.get("enabled"),
+                    "priority": job.get("priority"),
+                    "permissionTier": job.get("permission_tier"),
+                    "sessionId": job.get("session_id"),
+                    "sessionTitle": getattr(_chat(job.get("session_id")), "title", None),
+                    "available": _chat(job.get("session_id")) is not None,
+                    "time": job.get("time"),
+                    "day": job.get("day"),
+                    "runCount": job.get("run_count", 0),
+                    "lastRun": job.get("last_executed"),
+                    "nextRun": job.get("next_run"),
+                    "outcomeHistory": job.get("outcome_history", []),
                 }
-            )
+                for job in result.get("jobs", [])
+            ]
+            data = {"jobs": jobs_data, "success": True}
         else:
-            await self._broadcast(
-                {
-                    "type": "proactive_tasks_get",
-                    "data": {
-                        "tasks": [],
-                        "success": False,
-                        "error": result.get("error", "Unknown error"),
-                    },
-                }
-            )
+            data = {
+                "jobs": [],
+                "success": False,
+                "error": result.get("error", "Unknown error"),
+            }
+        await self._broadcast({"type": "cron_jobs_get", "data": data})
 
-    async def _handle_proactive_task_add(self, task_data: Dict[str, Any]) -> None:
-        """Add a new proactive task."""
+    async def _handle_cron_job_add(self, job_data: Dict[str, Any]) -> None:
+        """Add a cron job."""
         agent = self._controller.agent
         proactive_manager = getattr(agent, "proactive_manager", None)
 
-        result = add_recurring_task(
+        result = add_cron_job(
             proactive_manager,
-            name=task_data.get("name", "New Task"),
-            frequency=task_data.get("frequency", "daily"),
-            instruction=task_data.get("instruction", ""),
-            enabled=task_data.get("enabled", True),
-            priority=task_data.get("priority", 50),
-            permission_tier=task_data.get("permissionTier", 1),
-            time=task_data.get("time"),
-            day=task_data.get("day"),
+            name=job_data.get("name", "New cron job"),
+            frequency=job_data.get("frequency", "daily"),
+            instruction=job_data.get("instruction", ""),
+            enabled=job_data.get("enabled", True),
+            priority=job_data.get("priority", 50),
+            permission_tier=job_data.get("permissionTier", 1),
+            time=job_data.get("time"),
+            day=job_data.get("day"),
         )
 
         if result.get("success"):
-            await self._broadcast(
-                {
-                    "type": "proactive_task_add",
-                    "data": {
-                        "taskId": result.get("task", {}).get("id"),
-                        "success": True,
-                    },
-                }
-            )
+            data = {"jobId": result.get("job", {}).get("id"), "success": True}
         else:
-            await self._broadcast(
-                {
-                    "type": "proactive_task_add",
-                    "data": {
-                        "success": False,
-                        "error": result.get("error", "Unknown error"),
-                    },
-                }
-            )
+            data = {"success": False, "error": result.get("error", "Unknown error")}
+        await self._broadcast({"type": "cron_job_add", "data": data})
 
-    async def _handle_proactive_task_update(
-        self, task_id: str, updates: Dict[str, Any]
+    async def _handle_cron_job_update(
+        self, job_id: str, updates: Dict[str, Any]
     ) -> None:
-        """Update a proactive task."""
+        """Update a cron job."""
         agent = self._controller.agent
         proactive_manager = getattr(agent, "proactive_manager", None)
 
         # Convert camelCase to snake_case for the UI layer
-        update_dict = {}
-        if "name" in updates:
-            update_dict["name"] = updates["name"]
-        if "instruction" in updates:
-            update_dict["instruction"] = updates["instruction"]
-        if "enabled" in updates:
-            update_dict["enabled"] = updates["enabled"]
-        if "priority" in updates:
-            update_dict["priority"] = updates["priority"]
-        if "permissionTier" in updates:
-            update_dict["permission_tier"] = updates["permissionTier"]
-        if "time" in updates:
-            update_dict["time"] = updates["time"]
-        if "day" in updates:
-            update_dict["day"] = updates["day"]
-        if "frequency" in updates:
-            update_dict["frequency"] = updates["frequency"]
+        field_names = {
+            "name": "name",
+            "instruction": "instruction",
+            "enabled": "enabled",
+            "priority": "priority",
+            "permissionTier": "permission_tier",
+            "time": "time",
+            "day": "day",
+            "frequency": "frequency",
+            "sessionId": "session_id",
+        }
+        update_dict = {
+            field: updates[key] for key, field in field_names.items() if key in updates
+        }
 
-        result = update_recurring_task(proactive_manager, task_id, update_dict)
+        result = update_cron_job(proactive_manager, job_id, update_dict)
 
-        if result.get("success"):
-            await self._broadcast(
-                {
-                    "type": "proactive_task_update",
-                    "data": {
-                        "taskId": task_id,
-                        "success": True,
-                    },
-                }
-            )
-        else:
-            await self._broadcast(
-                {
-                    "type": "proactive_task_update",
-                    "data": {
-                        "taskId": task_id,
-                        "success": False,
-                        "error": result.get("error", "Unknown error"),
-                    },
-                }
-            )
+        data = {"jobId": job_id, "success": bool(result.get("success"))}
+        if not result.get("success"):
+            data["error"] = result.get("error", "Unknown error")
+        await self._broadcast({"type": "cron_job_update", "data": data})
 
-    async def _handle_proactive_task_remove(self, task_id: str) -> None:
-        """Remove a proactive task."""
+    async def _handle_cron_job_remove(self, job_id: str) -> None:
+        """Remove a cron job."""
         agent = self._controller.agent
         proactive_manager = getattr(agent, "proactive_manager", None)
 
-        result = remove_recurring_task(proactive_manager, task_id)
+        result = remove_cron_job(proactive_manager, job_id)
 
         if result.get("success"):
-            await self._broadcast(
-                {
-                    "type": "proactive_task_remove",
-                    "data": {
-                        "taskId": task_id,
-                        "removed": True,
-                        "success": True,
-                    },
-                }
-            )
+            data = {"jobId": job_id, "removed": True, "success": True}
         else:
-            await self._broadcast(
-                {
-                    "type": "proactive_task_remove",
-                    "data": {
-                        "taskId": task_id,
-                        "success": False,
-                        "error": result.get("error", "Unknown error"),
-                    },
-                }
-            )
+            data = {
+                "jobId": job_id,
+                "success": False,
+                "error": result.get("error", "Unknown error"),
+            }
+        await self._broadcast({"type": "cron_job_remove", "data": data})
 
-    async def _handle_proactive_tasks_reset(self) -> None:
-        """Reset all proactive tasks (restore from template)."""
-        result = reset_recurring_tasks()
+    async def _handle_cron_jobs_reset(self) -> None:
+        """Reset the cron jobs (restore PROACTIVE.md from the template)."""
+        result = reset_cron_jobs()
 
         if result.get("success"):
-            # Reload proactive manager
             agent = self._controller.agent
             proactive_manager = getattr(agent, "proactive_manager", None)
             if proactive_manager:
                 reload_proactive_manager(proactive_manager)
-
-            await self._broadcast(
-                {
-                    "type": "proactive_tasks_reset",
-                    "data": {
-                        "success": True,
-                    },
-                }
-            )
+            data = {"success": True}
         else:
-            await self._broadcast(
-                {
-                    "type": "proactive_tasks_reset",
-                    "data": {
-                        "success": False,
-                        "error": result.get("error", "Unknown error"),
-                    },
-                }
-            )
+            data = {"success": False, "error": result.get("error", "Unknown error")}
+        await self._broadcast({"type": "cron_jobs_reset", "data": data})
+
+    async def _handle_heartbeat_checklist_get(self, ws=None) -> None:
+        """Send the Heartbeat checklist (what the heartbeat reads each tick)."""
+        proactive_manager = getattr(self._controller.agent, "proactive_manager", None)
+        result = get_heartbeat_checklist(proactive_manager)
+        if result.get("success"):
+            data = {"success": True, "checklist": result["checklist"]}
+        else:
+            data = {"success": False, "error": result.get("error", "Unknown error")}
+        await self._send_to(ws, {"type": "heartbeat_checklist_get", "data": data})
+
+    async def _handle_heartbeat_checklist_set(self, checklist: str) -> None:
+        """Replace the Heartbeat checklist."""
+        proactive_manager = getattr(self._controller.agent, "proactive_manager", None)
+        result = set_heartbeat_checklist(proactive_manager, str(checklist or ""))
+        data = {"success": bool(result.get("success"))}
+        if not result.get("success"):
+            data["error"] = result.get("error", "Unknown error")
+        await self._broadcast({"type": "heartbeat_checklist_set", "data": data})
 
     async def _handle_proactive_file_read(self) -> None:
         """Read the raw PROACTIVE.md file content."""
@@ -5794,6 +5772,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
     async def _handle_proactive_mode_set(self, enabled: bool) -> None:
         """Set the proactive mode on or off."""
         result = set_proactive_mode(enabled)
+        # Due cron jobs wake the scheduler only while proactive mode is on.
+        scheduler = getattr(self._controller.agent, "scheduler", None)
+        if result.get("success") and scheduler is not None:
+            scheduler.rearm_proactive()
 
         await self._broadcast(
             {
@@ -5805,6 +5787,78 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 },
             }
         )
+
+    async def _handle_proactive_schedule_get(self, ws=None) -> None:
+        """Send the heartbeat interval + planner schedules to the panel."""
+        result = get_proactive_schedule()
+        if result.get("success"):
+            data = {
+                "success": True,
+                "heartbeatMinutes": result["heartbeat_minutes"],
+                "heartbeatOptions": result["heartbeat_options"],
+                "dayPlannerTime": result["day_planner_time"],
+                "weekPlannerDay": result["week_planner_day"],
+                "weekPlannerTime": result["week_planner_time"],
+                "monthPlannerDay": result["month_planner_day"],
+                "monthPlannerTime": result["month_planner_time"],
+            }
+        else:
+            data = {"success": False, "error": result.get("error", "Unknown error")}
+        await self._send_to(ws, {"type": "proactive_schedule_get", "data": data})
+
+    async def _handle_proactive_schedule_set(self, data: dict) -> None:
+        """Apply the heartbeat interval and/or planner schedules.
+
+        Like the memory-processing time: applied live via update_schedule
+        (persists + reschedules), or through the config file when the
+        scheduler holds no runtime copy (master switch off).
+        """
+        try:
+            updates: Dict[str, str] = {}
+            if "heartbeatMinutes" in data:
+                updates[HEARTBEAT_SCHEDULE_ID] = heartbeat_schedule_expression(
+                    int(data["heartbeatMinutes"])
+                )
+            if "dayPlannerHour" in data or "dayPlannerMinute" in data:
+                updates[DAY_PLANNER_SCHEDULE_ID] = day_planner_schedule_expression(
+                    int(data.get("dayPlannerHour", 0)),
+                    int(data.get("dayPlannerMinute", 0)),
+                )
+            if "weekPlannerDay" in data:
+                updates[WEEK_PLANNER_SCHEDULE_ID] = week_planner_schedule_expression(
+                    str(data["weekPlannerDay"]),
+                    int(data.get("weekPlannerHour", 0)),
+                    int(data.get("weekPlannerMinute", 0)),
+                )
+            if "monthPlannerDay" in data:
+                updates[MONTH_PLANNER_SCHEDULE_ID] = month_planner_schedule_expression(
+                    int(data["monthPlannerDay"]),
+                    int(data.get("monthPlannerHour", 0)),
+                    int(data.get("monthPlannerMinute", 0)),
+                )
+            scheduler = getattr(self._controller.agent, "scheduler", None)
+            for schedule_id, expression in updates.items():
+                applied = bool(
+                    scheduler
+                    and scheduler.get_schedule(schedule_id)
+                    and scheduler.update_schedule(schedule_id, schedule=expression)
+                )
+                if not applied:
+                    result = update_scheduler_config(
+                        {"schedule_updates": {schedule_id: {"schedule": expression}}}
+                    )
+                    if not result.get("success"):
+                        raise RuntimeError(result.get("error", "Update failed"))
+            await self._broadcast(
+                {"type": "proactive_schedule_set", "data": {"success": True}}
+            )
+        except Exception as e:
+            await self._broadcast(
+                {
+                    "type": "proactive_schedule_set",
+                    "data": {"success": False, "error": str(e)},
+                }
+            )
 
     # ─────────────────────────────────────────────────────────────────────
     # Memory Operation Handlers
@@ -5970,6 +6024,29 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         "success": False,
                         "error": result.get("error", "Unknown error"),
                     },
+                }
+            )
+
+    async def _handle_memory_entity_remove(self, name: str) -> None:
+        """Delete an entity from ENTITIES.md and push the rebuilt graph.
+
+        The fresh graph rides in this reply (like the per-file index
+        mutations) so the node disappears in one round-trip.
+        """
+        try:
+            agent = self._controller.agent
+            removed = await asyncio.to_thread(
+                agent.memory_manager.remove_entity, name
+            )
+            data: Dict[str, Any] = {"success": removed, "name": name}
+            if removed:
+                data["graph"] = await self._memory_graph_snapshot()
+            await self._broadcast({"type": "memory_entity_remove", "data": data})
+        except Exception as e:
+            await self._broadcast(
+                {
+                    "type": "memory_entity_remove",
+                    "data": {"success": False, "name": name, "error": str(e)},
                 }
             )
 

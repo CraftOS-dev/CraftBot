@@ -128,7 +128,7 @@ export const UI_STATE = {
   memory: {
     /** Right sidebar width in px. */
     panelWidth: defineUiState('memory.panelWidth', 340, 'preference'),
-    hideCoreFiles: defineUiState('memory.hideCoreFiles', false, 'preference'),
+    hideCoreFiles: defineUiState('memory.hideCoreFiles', true, 'preference'),
     showMemories: defineUiState('memory.showMemories', true, 'preference'),
     showEntities: defineUiState('memory.showEntities', true, 'preference'),
     showFiles: defineUiState('memory.showFiles', true, 'preference'),
@@ -189,7 +189,7 @@ export const UI_STATE = {
     skillsSearch: defineUiState('settings.skills.search', '', 'session'),
     mcpSearch: defineUiState('settings.mcp.search', '', 'session'),
     integrationsSearch: defineUiState('settings.integrations.search', '', 'session'),
-    proactiveTaskSearch: defineUiState('settings.proactive.taskSearch', '', 'session'),
+    cronJobSearch: defineUiState('settings.proactive.cronJobSearch', '', 'session'),
     /** Project ids whose cards are expanded. */
     agentAppExpandedProjects: defineUiState<string[]>('settings.agentApp.expandedProjects', [], 'preference'),
     /** By orphaned project id. */

@@ -29,6 +29,7 @@ class TriggerSource(str, Enum):
     LIMIT_REACHED = "limit_reached"
     # Background workflows (all land in the main session)
     MEMORY = "memory"
+    CRON_JOB = "cron_job"
     PROACTIVE_HEARTBEAT = "proactive_heartbeat"
     PROACTIVE_PLANNER = "proactive_planner"
     ONBOARDING = "onboarding"

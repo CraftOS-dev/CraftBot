@@ -27,8 +27,8 @@ DEFAULT_SET_DESCRIPTIONS: Dict[str, str] = {
     ),
     "content_creation": "Generate images and videos",
     "proactive": (
-        "Recurring proactive tasks in PROACTIVE.md (add, read, update, remove) "
-        "and scheduled tasks"
+        "Cron jobs and the heartbeat checklist in PROACTIVE.md (add, list, "
+        "update, remove) and scheduled tasks"
     ),
     "scheduler": (
         "Schedule one-time and recurring tasks (create, list, enable or "

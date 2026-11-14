@@ -88,6 +88,10 @@
     "supersededLabel": "已被取代（保留为历史记录，不参与检索）",
     "contentPlaceholder": "例如：John 偏好简洁的回复"
   },
+  "entity": {
+    "deleteTitle": "删除实体",
+    "deleteMessage": "这将从图谱中移除“{{name}}”及其链接。记忆本身不会改变。"
+  },
   "files": {
     "title": "智能体文件",
     "aboutAria": "关于文件索引",
@@ -108,6 +112,7 @@
   },
   "toast": {
     "updateFailed": "更新已索引文件失败",
-    "skipped": "已跳过 {{path}}：{{reason}}"
+    "skipped": "已跳过 {{path}}：{{reason}}",
+    "entityDeleteFailed": "删除实体失败"
   }
 }

@@ -1,9 +1,13 @@
 # -*- coding: utf-8 -*-
 """
-Parser for PROACTIVE.md file format.
+Parser for the PROACTIVE.md file format.
 
-This module provides parsing and serialization for the structured PROACTIVE.md format
-that uses YAML code blocks within markdown for machine-parseable task definitions.
+PROACTIVE.md has three parts, two of them read by code:
+- Cron Jobs: YAML job blocks between the CRON_JOBS markers.
+- Heartbeat: a free-form checklist between the HEARTBEAT markers; the
+  heartbeat reads it on every tick.
+- Goals, Plan, and Status: maintained by the planners with file operations,
+  never parsed or rewritten here.
 """
 
 import re
@@ -12,42 +16,38 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Tuple
 
-from .types import RecurringTask, RecurringData
+from .types import CronJob, ProactiveData
 
 
 class ProactiveParser:
-    """Parser for PROACTIVE.md format.
+    """Parser for PROACTIVE.md.
 
-    The format uses delimiter comments to safely identify sections:
-    - <!-- PROACTIVE_TASKS_START --> ... <!-- PROACTIVE_TASKS_END -->
-
-    The "Goals, Plan, and Status" section is maintained by planners via file operations
-    and is not parsed programmatically.
-
-    Each task is defined with a markdown header followed by a YAML code block.
+    Sections are located by delimiter comments, so prose around them is
+    free-form. Each cron job is a markdown header followed by a YAML block.
     """
 
-    TASKS_START = "<!-- PROACTIVE_TASKS_START -->"
-    TASKS_END = "<!-- PROACTIVE_TASKS_END -->"
+    CRON_JOBS_START = "<!-- CRON_JOBS_START -->"
+    CRON_JOBS_END = "<!-- CRON_JOBS_END -->"
+    HEARTBEAT_START = "<!-- HEARTBEAT_START -->"
+    HEARTBEAT_END = "<!-- HEARTBEAT_END -->"
+
+    # Shown inside an empty Heartbeat section; comments never count as items.
+    HEARTBEAT_PLACEHOLDER = (
+        "<!-- Add what the heartbeat should check, one item per line, e.g.\n"
+        "- Check my inbox for urgent email from clients -->"
+    )
 
     # Regex patterns
     FRONTMATTER_PATTERN = re.compile(r"^---\s*\n(.*?)\n---", re.DOTALL)
-    TASK_HEADER_PATTERN = re.compile(r"^###\s*\[(\w+)\]\s*(.+)$", re.MULTILINE)
+    JOB_HEADER_PATTERN = re.compile(r"^###\s*\[(\w+)\]\s*(.+)$", re.MULTILINE)
     YAML_BLOCK_PATTERN = re.compile(r"```yaml\s*\n(.*?)```", re.DOTALL)
+    HTML_COMMENT_PATTERN = re.compile(r"<!--.*?-->", re.DOTALL)
 
     @classmethod
-    def parse(cls, content: str) -> RecurringData:
-        """Parse PROACTIVE.md content into RecurringData.
+    def parse(cls, content: str) -> ProactiveData:
+        """Parse PROACTIVE.md content into ProactiveData."""
+        data = ProactiveData()
 
-        Args:
-            content: Raw content of PROACTIVE.md file
-
-        Returns:
-            RecurringData object with parsed tasks and metadata
-        """
-        data = RecurringData()
-
-        # Parse frontmatter
         frontmatter = cls._parse_frontmatter(content)
         data.version = frontmatter.get("version", "1.0")
         last_updated = frontmatter.get("last_updated")
@@ -59,29 +59,23 @@ class ProactiveParser:
             except ValueError:
                 data.last_updated = None
 
-        # Parse tasks
-        data.tasks = cls._parse_tasks(content)
-
-        # Note: planner_outputs field is deprecated - planners now update
-        # the "Goals, Plan, and Status" section via file operations
-
+        data.jobs = cls._parse_jobs(content)
+        data.heartbeat_checklist = cls._parse_heartbeat(content)
         return data
 
     @classmethod
-    def parse_file(cls, file_path: Path) -> RecurringData:
-        """Parse PROACTIVE.md file.
+    def parse_file(cls, file_path: Path) -> ProactiveData:
+        """Parse a PROACTIVE.md file."""
+        return cls.parse(file_path.read_text(encoding="utf-8"))
 
-        Args:
-            file_path: Path to PROACTIVE.md file
-
-        Returns:
-            RecurringData object with parsed tasks and metadata
-
-        Raises:
-            FileNotFoundError: If the file doesn't exist
-        """
-        content = file_path.read_text(encoding="utf-8")
-        return cls.parse(content)
+    @classmethod
+    def _section(cls, content: str, start: str, end: str) -> Optional[str]:
+        """Text between two markers, or None when either is missing."""
+        start_idx = content.find(start)
+        end_idx = content.find(end)
+        if start_idx == -1 or end_idx == -1 or end_idx < start_idx:
+            return None
+        return content[start_idx + len(start) : end_idx]
 
     @classmethod
     def _parse_frontmatter(cls, content: str) -> Dict[str, Any]:
@@ -95,206 +89,185 @@ class ProactiveParser:
         return {}
 
     @classmethod
-    def _parse_tasks(cls, content: str) -> List[RecurringTask]:
-        """Extract and parse task definitions from tasks section."""
-        # Find tasks section
-        start_idx = content.find(cls.TASKS_START)
-        end_idx = content.find(cls.TASKS_END)
-        if start_idx == -1 or end_idx == -1:
+    def _parse_jobs(cls, content: str) -> List[CronJob]:
+        """Extract and parse the cron job blocks."""
+        section = cls._section(content, cls.CRON_JOBS_START, cls.CRON_JOBS_END)
+        if section is None:
             return []
 
-        tasks_content = content[start_idx + len(cls.TASKS_START) : end_idx]
-
-        # Find all task headers and their YAML blocks
-        tasks = []
-        header_matches = list(cls.TASK_HEADER_PATTERN.finditer(tasks_content))
-
+        jobs = []
+        header_matches = list(cls.JOB_HEADER_PATTERN.finditer(section))
         for i, header_match in enumerate(header_matches):
             frequency = header_match.group(1).lower()
             name = header_match.group(2).strip()
 
-            # Find the YAML block after this header
             start = header_match.end()
             end = (
                 header_matches[i + 1].start()
                 if i + 1 < len(header_matches)
-                else len(tasks_content)
+                else len(section)
             )
-            section_content = tasks_content[start:end]
-
-            yaml_match = cls.YAML_BLOCK_PATTERN.search(section_content)
-            if yaml_match:
-                try:
-                    yaml_data = yaml.safe_load(yaml_match.group(1))
-                    if yaml_data:
-                        task = RecurringTask.from_dict(yaml_data, name=name)
-                        # Ensure frequency matches header
-                        if not task.frequency:
-                            task.frequency = frequency
-                        tasks.append(task)
-                except yaml.YAMLError:
-                    continue
-
-        return tasks
+            yaml_match = cls.YAML_BLOCK_PATTERN.search(section[start:end])
+            if not yaml_match:
+                continue
+            try:
+                yaml_data = yaml.safe_load(yaml_match.group(1))
+            except yaml.YAMLError:
+                continue
+            if yaml_data:
+                job = CronJob.from_dict(yaml_data, name=name)
+                if not job.frequency:
+                    job.frequency = frequency
+                jobs.append(job)
+        return jobs
 
     @classmethod
-    def serialize(cls, data: RecurringData, template: Optional[str] = None) -> str:
-        """Serialize RecurringData back to PROACTIVE.md format.
+    def _parse_heartbeat(cls, content: str) -> str:
+        """The Heartbeat checklist as written, minus marker comments."""
+        section = cls._section(content, cls.HEARTBEAT_START, cls.HEARTBEAT_END)
+        if section is None:
+            return ""
+        return cls.HTML_COMMENT_PATTERN.sub("", section).strip()
 
-        Args:
-            data: RecurringData to serialize
-            template: Optional template to use (preserves non-task content)
+    @classmethod
+    def serialize(cls, data: ProactiveData, template: Optional[str] = None) -> str:
+        """Serialize ProactiveData back to PROACTIVE.md.
 
-        Returns:
-            Formatted PROACTIVE.md content
+        With a template (the file as it is now), only the frontmatter, the
+        Cron Jobs section and the Heartbeat section are regenerated; every
+        other part of the file is kept exactly as it is.
         """
         if template:
             return cls._serialize_with_template(data, template)
         return cls._serialize_full(data)
 
     @classmethod
-    def _serialize_with_template(cls, data: RecurringData, template: str) -> str:
-        """Serialize using existing template, replacing only the tasks section."""
+    def _replace_section(cls, text: str, start: str, end: str, body: str) -> str:
+        start_idx = text.find(start)
+        end_idx = text.find(end)
+        if start_idx == -1 or end_idx == -1 or end_idx < start_idx:
+            return text
+        return text[: start_idx + len(start)] + body + text[end_idx:]
+
+    @classmethod
+    def _heartbeat_body(cls, checklist: str) -> str:
+        checklist = checklist.strip()
+        return f"\n\n{checklist or cls.HEARTBEAT_PLACEHOLDER}\n\n"
+
+    @classmethod
+    def _serialize_with_template(cls, data: ProactiveData, template: str) -> str:
         result = template
 
-        # Update frontmatter
-        frontmatter_match = cls.FRONTMATTER_PATTERN.match(result)
-        if frontmatter_match:
-            new_frontmatter = f"""---
-version: {data.version}
-last_updated: {data.last_updated.isoformat() if data.last_updated else datetime.now().isoformat()}
----"""
-            result = cls.FRONTMATTER_PATTERN.sub(new_frontmatter, result, count=1)
-
-        # Update tasks section
-        tasks_content = cls._serialize_tasks(data.tasks)
-        start_idx = result.find(cls.TASKS_START)
-        end_idx = result.find(cls.TASKS_END)
-        if start_idx != -1 and end_idx != -1:
-            result = (
-                result[: start_idx + len(cls.TASKS_START)]
-                + "\n\n"
-                + tasks_content
-                + "\n"
-                + result[end_idx:]
+        if cls.FRONTMATTER_PATTERN.match(result):
+            stamp = (data.last_updated or datetime.now()).isoformat()
+            new_frontmatter = (
+                f"---\nversion: {data.version}\nlast_updated: {stamp}\n---"
+            )
+            result = cls.FRONTMATTER_PATTERN.sub(
+                lambda _m: new_frontmatter, result, count=1
             )
 
-        # Note: "Goals, Plan, and Status" section is managed by planners via
-        # file operations and is not modified by this serialization
-
+        result = cls._replace_section(
+            result,
+            cls.CRON_JOBS_START,
+            cls.CRON_JOBS_END,
+            "\n\n" + cls._serialize_jobs(data.jobs) + "\n",
+        )
+        result = cls._replace_section(
+            result,
+            cls.HEARTBEAT_START,
+            cls.HEARTBEAT_END,
+            cls._heartbeat_body(data.heartbeat_checklist),
+        )
         return result
 
     @classmethod
-    def _serialize_full(cls, data: RecurringData) -> str:
-        """Serialize to full PROACTIVE.md format."""
-        lines = []
-
-        # Frontmatter
-        lines.append("---")
-        lines.append(f"version: {data.version}")
-        lines.append(
-            f"last_updated: {data.last_updated.isoformat() if data.last_updated else datetime.now().isoformat()}"
+    def _serialize_full(cls, data: ProactiveData) -> str:
+        """Serialize to a complete PROACTIVE.md (no file to keep)."""
+        stamp = (data.last_updated or datetime.now()).isoformat()
+        heartbeat = (
+            cls.HEARTBEAT_START
+            + cls._heartbeat_body(data.heartbeat_checklist)
+            + cls.HEARTBEAT_END
         )
-        lines.append("---")
-        lines.append("")
-
-        # Header and overview
-        lines.append("# Proactive Tasks")
-        lines.append("")
-        lines.append(cls._get_overview_text())
-        lines.append("")
-
-        # Tasks section
-        lines.append(cls.TASKS_START)
-        lines.append("")
-        lines.append(cls._serialize_tasks(data.tasks))
-        lines.append(cls.TASKS_END)
-        lines.append("")
-
-        # Goals, Plan, and Status section (placeholder - managed by planners)
-        lines.append("## Goals, Plan, and Status")
-        lines.append("")
-        lines.append("### Long-Term Goals")
-        lines.append("<!-- Updated by month planner -->")
-        lines.append("No long-term goals defined yet.")
-        lines.append("")
-        lines.append("### Current Focus")
-        lines.append("<!-- Updated by week/day planner -->")
-        lines.append("No current focus defined.")
-        lines.append("")
-        lines.append("### Recent Accomplishments")
-        lines.append("<!-- Updated by planners after task completion -->")
-        lines.append("None yet.")
-        lines.append("")
-        lines.append("### Upcoming Priorities")
-        lines.append("<!-- Updated by day planner -->")
-        lines.append("None defined.")
-
-        return "\n".join(lines)
+        return "\n".join(
+            [
+                "---",
+                f"version: {data.version}",
+                f"last_updated: {stamp}",
+                "---",
+                "",
+                "# Proactive",
+                "",
+                cls._get_overview_text(),
+                "",
+                "## Cron Jobs",
+                "",
+                cls.CRON_JOBS_START,
+                "",
+                cls._serialize_jobs(data.jobs),
+                cls.CRON_JOBS_END,
+                "",
+                "## Heartbeat",
+                "",
+                heartbeat,
+                "",
+                "## Goals, Plan, and Status",
+                "",
+                "### Long-Term Goals",
+                "<!-- Updated by month planner -->",
+                "No long-term goals defined yet.",
+                "",
+                "### Current Focus",
+                "<!-- Updated by week/day planner -->",
+                "No current focus defined.",
+                "",
+                "### Recent Accomplishments",
+                "<!-- Updated by planners after task completion -->",
+                "None yet.",
+                "",
+                "### Upcoming Priorities",
+                "<!-- Updated by day planner -->",
+                "None defined.",
+            ]
+        )
 
     @classmethod
-    def _serialize_tasks(cls, tasks: List[RecurringTask]) -> str:
-        """Serialize tasks to markdown with YAML blocks."""
-        if not tasks:
-            return "No recurring tasks configured.\n"
+    def _serialize_jobs(cls, jobs: List[CronJob]) -> str:
+        """Serialize cron jobs to markdown with YAML blocks."""
+        if not jobs:
+            return "No cron jobs configured.\n"
 
         lines = []
-        # Group tasks by frequency
-        frequencies = ["hourly", "daily", "weekly", "monthly"]
-
-        for freq in frequencies:
-            freq_tasks = [t for t in tasks if t.frequency == freq]
-            for task in freq_tasks:
-                lines.append(f"### [{freq.upper()}] {task.name}")
+        for freq in ("hourly", "daily", "weekly", "monthly"):
+            for job in (j for j in jobs if j.frequency == freq):
+                lines.append(f"### [{freq.upper()}] {job.name}")
                 lines.append("```yaml")
-
-                # Create YAML content
-                yaml_data = task.to_dict()
                 yaml_content = yaml.dump(
-                    yaml_data,
+                    job.to_dict(),
                     default_flow_style=False,
                     allow_unicode=True,
                     sort_keys=False,
                 )
                 lines.append(yaml_content.rstrip())
-
                 lines.append("```")
                 lines.append("")
-
         return "\n".join(lines)
 
     @classmethod
     def _get_overview_text(cls) -> str:
-        """Get the standard overview text for PROACTIVE.md."""
-        return """You can operate proactively based on scheduled activations. Schedules can be hourly (every X hours), daily (at a specific time), weekly (on a specific day), or monthly (on a specific date).
+        """The standard overview text for a freshly written PROACTIVE.md."""
+        return """This file drives what you do without a user prompt.
 
-When a schedule fires, you execute a proactive check workflow. First, read PROACTIVE.md to understand configured proactive tasks and their conditions. Then research the agent file system for relevant context - user preferences, project status, organizational priorities.
+- Cron Jobs: each job runs at its own set time (hourly at :MM, daily at HH:MM, weekly on a day, monthly on a date). When jobs are due, CraftBot starts a run whose instruction lists exactly those jobs, in the chat that created them (the main chat for jobs added in Settings). If that chat is deleted, its jobs are kept but do not run. A time missed while CraftBot was off runs once, late, when it is back.
+- Heartbeat: every few minutes (Settings > Proactive), if the checklist below is not empty, you read it, check each item, act only if something needs attention, and report or end silently.
+- Goals, Plan, and Status: kept up to date by the day, week and month planners.
 
-Evaluate each potential proactive task using a five-dimension rubric. Score each dimension from 1 to 5:
-- Impact: How significant is the outcome? (1=negligible, 5=critical)
-- Risk: What could go wrong? (1=high risk, 5=no risk)
-- Cost: Resources and effort required? (1=very high, 5=negligible)
-- Urgency: How time-sensitive? (1=not urgent, 5=immediate)
-- Confidence: Will the user accept this? (1=unlikely, 5=certain)
-
-Add the scores. Tasks scoring 18 or above are strong candidates for execution. Tasks scoring 13-17 may be worth doing but might need user input first. Tasks below 13 should be skipped or deferred.
-
-Before acting on any proactive task, follow the tiered permission model:
-- Tier 0 (silent): Searching, analyzing, drafting, internal operations - proceed without notifying the user
-- Tier 1 (notify): Inform user of task execution and findings - inform and proceed without waiting
-- Tier 2 (approval): Actions that modify state or create artifacts - ask for approval before proceeding
-- Tier 3 (high-risk): Emailing external parties, changing configs, sensitive operations - explicit detailed approval required
-
-When requesting permission for proactive tasks, prefix your message with the star emoji to indicate it is a proactive request.
-
-After executing proactive tasks, update PROACTIVE.md with what was done, when, and the outcome."""
+CraftBot records each cron job run on the job entry; the run records its outcome."""
 
 
 def validate_yaml_block(yaml_str: str) -> Tuple[bool, Optional[str]]:
-    """Validate a YAML block for task definition.
-
-    Args:
-        yaml_str: YAML content to validate
+    """Validate a YAML block for a cron job definition.
 
     Returns:
         Tuple of (is_valid, error_message)
@@ -304,13 +277,11 @@ def validate_yaml_block(yaml_str: str) -> Tuple[bool, Optional[str]]:
         if not isinstance(data, dict):
             return False, "YAML must be a dictionary"
 
-        # Check required fields
         required = ["id", "frequency", "instruction"]
         missing = [f for f in required if f not in data]
         if missing:
             return False, f"Missing required fields: {', '.join(missing)}"
 
-        # Validate frequency
         valid_frequencies = ["hourly", "daily", "weekly", "monthly"]
         if data.get("frequency") not in valid_frequencies:
             return (
@@ -318,10 +289,9 @@ def validate_yaml_block(yaml_str: str) -> Tuple[bool, Optional[str]]:
                 f"Invalid frequency. Must be one of: {', '.join(valid_frequencies)}",
             )
 
-        # Validate permission_tier
         tier = data.get("permission_tier", 0)
-        if not isinstance(tier, int) or tier < 0 or tier > 3:
-            return False, "permission_tier must be an integer from 0 to 3"
+        if not isinstance(tier, int) or tier < 0 or tier > 1:
+            return False, "permission_tier must be 0 (silent) or 1 (notify)"
 
         return True, None
 

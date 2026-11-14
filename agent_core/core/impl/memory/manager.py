@@ -30,6 +30,7 @@ from agent_core.utils.logger import logger
 from agent_core.core.impl.memory.bm25_index import BM25Index
 from agent_core.core.impl.memory.graph import (
     CONNECTION_LINE_RE,
+    ENTITY_EXCLUDED_FILES,
     ENTITY_REGISTRY_FILE,
     _CONNECTION_TEXT_SEPARATOR,
     MemoryGraph,
@@ -841,7 +842,8 @@ class MemoryManager:
         its ``?``-marked candidate entity names plus the chunk's FULL text
         (capped) — far richer evidence than the 160-char record preview.
         A record with no candidates still needs one review of its text for
-        new entities.
+        new entities. Chunks of ENTITY_EXCLUDED_FILES are never judged, so
+        the default documentation files cannot generate entities.
         """
         self._ensure_graph_built()
         if self._graph is None:
@@ -849,7 +851,7 @@ class MemoryManager:
         records: List[Dict[str, Any]] = []
         for item_id in sorted(self._graph.items):
             item = self._graph.items[item_id]
-            if item.superseded:
+            if item.superseded or item.file_path in ENTITY_EXCLUDED_FILES:
                 continue
             if item.reviewed and not item.pending_entities:
                 continue  # renders [judged] — nothing to do
@@ -993,6 +995,40 @@ class MemoryManager:
                 f"{len(accepted)} new entit{'y' if len(accepted) == 1 else 'ies'}"
             )
         return {"flipped": flipped, "entities_added": len(accepted)}
+
+    def remove_entity(self, name: str) -> bool:
+        """Delete one entity from the ``## Entities`` list in ENTITIES.md.
+
+        Removes every registry line that builds this entity's graph node
+        (the graph keys entities by stripped, lowercased name) and marks the
+        graph dirty: the next build drops the node and its links, and the
+        connection-record sync drops its marks. Memories are untouched.
+        Returns False when no ``## Entities`` line names it.
+        """
+        key = (name or "").strip().lower()
+        registry_path = self.agent_fs_path / ENTITY_REGISTRY_FILE
+        if not key or not registry_path.exists():
+            return False
+        current = registry_path.read_text(encoding="utf-8")
+
+        out: List[str] = []
+        removed = 0
+        in_entities_section = False
+        for line in current.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("#"):
+                in_entities_section = stripped.lstrip("#").strip().lower() == "entities"
+            elif in_entities_section and stripped.lower() == key:
+                removed += 1
+                continue
+            out.append(line)
+        if not removed:
+            return False
+
+        registry_path.write_text("\n".join(out).rstrip("\n") + "\n", encoding="utf-8")
+        self._graph_dirty = True
+        logger.info(f"[MEMORY] Entity deleted: {name}")
+        return True
 
     # ───────────────────────── Hybrid retrieval helpers ─────────────────────────
 
