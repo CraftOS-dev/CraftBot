@@ -226,8 +226,9 @@ def _render_config(config: Dict[str, Any], image_notes: List[str]) -> str:
 # never drift apart. Describes the framework host contract.
 _PLATFORM_REALITY = """PLATFORM REALITY:
 - Apps run locally inside CraftBot's embedded app view, using the existing
-Agent-App framework. Discover its supported blueprints and capabilities;
-do not assume a particular database, UI stack, port layout or toolkit.
+Agent-App framework. New apps are built on its PocketBase + React (Vite)
+blueprint; do not plan for another database, UI stack or toolkit, and do not
+assume a port layout.
 - Use the app's declared A2App operations and task contract. Apps can request
 work from CraftBot when the owner enables Allow requests to CraftBot.
 CraftBot routes accepted requests into the app's existing conversation.
@@ -829,9 +830,9 @@ async def start_framework_build(host, config, requirements, attachments=()):
             return {"sessionId": job["sessionId"], "path": job["result"]["dir"]}
         return await host.workflow("modify", requirements, job["result"]["dir"], job["result"]["id"])
     request = (
-        "Build from the accepted requirements below. After scaffolding, save them "
-        "in reference/requirements.md for independent verification. Use the framework's "
-        "supported blueprint and styling options. Copy the staged references into the app.\n"
+        "Build from the accepted requirements below. Save them in "
+        "reference/requirements.md for independent verification. Style the app with "
+        "the blueprint's design system. Copy the staged references into the app.\n"
         + json.dumps({"preferences": config, "attachments": list(attachments)}, ensure_ascii=False)
         + "\n\n" + requirements
     )
