@@ -16,10 +16,6 @@ from app.agent_app.framework_store import HostStore, app_key
 
 _host = None
 
-# Every new app starts from this complete upstream starter (PocketBase + React
-# View, spec skeletons, plan). The builder never chooses among toolkits.
-NEW_APP_BLUEPRINT = "blueprint-pocketbase-react"
-
 
 async def no_ui_change():
     """The framework host also runs without a browser client."""
@@ -527,8 +523,6 @@ class FrameworkHost:
             )
         if new_app:
             self.store.put("creation", session.id, {"path": path, **(creation or {}), "building": True})
-        if activity == "create":
-            app_id = await self._scaffold_new_app(session.id, path, creation)
         from app.triggers.service import TriggerSpec
         from app.triggers.sources import TriggerSource
 
@@ -536,11 +530,9 @@ class FrameworkHost:
             f"Use the unchanged framework-{activities[activity]} skill.\n{request}\n"
         )
         if activity == "create":
-            prompt += (
-                f"CraftBot already scaffolded this app from {NEW_APP_BLUEPRINT} with the user's "
-                "selected name and access mode. Do not scaffold again or choose another "
-                "blueprint. Read reference/blueprint.md first, then follow the creator workflow.\n"
-            )
+            prompt += "The destination below is allocated but DOES NOT EXIST yet. Discover the blueprints and scaffold it with the existing CLI before following the creator workflow.\n"
+            if creation:
+                prompt += "CraftBot binds the selected name and access mode to this destination's scaffold command. Use agent_app_command for scaffolding; do not replace the user's selections.\n"
         elif new_app:
             prompt += "The destination below is allocated but DOES NOT EXIST yet. Use it for adoption/conversion (or --into when installing) so this app keeps its current side chat. Follow the importer skill to choose the appropriate route with the user.\n"
         if path:
@@ -565,32 +557,6 @@ class FrameworkHost:
         )
         await self.changed()
         return {"sessionId": session.id, "path": path}
-
-    async def _scaffold_new_app(self, session_id, path, creation):
-        """Scaffold a new app before its build conversation starts.
-
-        The creation conversation is already recorded for this folder, so the
-        upstream identity binds to it as soon as the registry knows the app.
-        """
-        args = [path, "scaffold", "--blueprint", NEW_APP_BLUEPRINT]
-        if creation:
-            args += ["--name", creation["name"], "--auth-mode", creation["authMode"]]
-        error = "The new app could not be scaffolded."
-        try:
-            result = await command("agent-app", args)
-            app_id = (result.get("data") or {}).get("id")
-            if result["status"] == "success" and app_id:
-                return app_id
-            error = (result.get("stderr") or "").strip() or error
-        except Exception as exc:
-            error = str(exc) or error
-        # Nothing was built: remove the empty build conversation rather than
-        # leave a pending app in the sidebar that can never finish.
-        self.store.delete("creation", session_id)
-        self.store.delete("conversation", session_id)
-        await self.agent.delete_session(session_id)
-        await self.changed()
-        raise RuntimeError(error)
 
     def scaffold_arguments(self, session_id, args):
         """Carry explicit form choices into the unchanged CLI's scaffold flags."""
@@ -655,10 +621,14 @@ class FrameworkHost:
 
     def require_verified(self, path):
         result = self.verification(path)
+        # Compare upstream's fingerprint, not the whole pass: validate rewrites
+        # the pass's timestamp even when the code is unchanged.
+        current = (self.gate_stamp(path) or {}).get("fingerprint")
         if (
             not result
             or result.get("verdict") != "pass"
-            or result["stamp"] != self.gate_stamp(path)
+            or not current
+            or result["stamp"].get("fingerprint") != current
         ):
             raise ValueError(
                 "Independent verification has not passed for this validation stamp. Run agent_app_framework_workflow(activity='verify') to await the independent verification subagent before promotion."

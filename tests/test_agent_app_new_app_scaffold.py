@@ -1,4 +1,4 @@
-"""New apps start from one upstream blueprint, never the bundled Kanban's toolkit."""
+"""New apps never see the bundled Kanban's toolkit."""
 
 import asyncio
 import sys
@@ -6,8 +6,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.agent_app import framework_host
-from app.agent_app.framework_store import HostStore
 from app.provision import default_agent_app as default
 
 
@@ -64,97 +62,3 @@ def test_listing_and_scaffolding_never_see_the_bundled_kanban_toolkit(
         with pytest.raises(Stop):
             asyncio.run(cli.run("agent-app", args, cwd=tmp_path))
     assert seen == [True, True, False, False, False]
-
-
-class _Agent:
-    def __init__(self):
-        self.calls = []
-        self.deleted = []
-        self.session_manager = SimpleNamespace(create_session=self._create)
-        self.trigger_service = SimpleNamespace(emit=self._emit)
-
-    def _create(self, **kwargs):
-        self.calls.append(("session", kwargs))
-        return SimpleNamespace(id="build-session")
-
-    async def _emit(self, spec):
-        self.calls.append(("trigger", spec.description))
-
-    async def delete_session(self, session_id):
-        self.deleted.append(session_id)
-        return True
-
-
-def _host(tmp_path, monkeypatch, result):
-    monkeypatch.setattr(framework_host, "_host", None)
-    monkeypatch.setattr(
-        framework_host.framework,
-        "configured_cli",
-        lambda: SimpleNamespace(home=tmp_path / "home"),
-    )
-    agent = _Agent()
-
-    async def command(surface, args):
-        agent.calls.append(("command", surface, args))
-        return result
-
-    monkeypatch.setattr(framework_host, "command", command)
-    host = framework_host.FrameworkHost(agent, store=HostStore(tmp_path / "host.sqlite3"))
-    return host, agent
-
-
-def test_create_scaffolds_the_starter_before_the_builder_runs(tmp_path, monkeypatch):
-    host, agent = _host(
-        tmp_path,
-        monkeypatch,
-        {"status": "success", "data": {"id": "1e60ba80f83f"}, "stderr": ""},
-    )
-    result = asyncio.run(
-        host.workflow(
-            "create",
-            "Build a clock",
-            creation={"name": "Clock app", "authMode": "multi-user"},
-        )
-    )
-
-    kinds = [call[0] for call in agent.calls]
-    assert kinds == ["session", "command", "trigger"]
-    _, surface, args = agent.calls[1]
-    assert surface == "agent-app"
-    assert args == [
-        result["path"],
-        "scaffold",
-        "--blueprint",
-        "blueprint-pocketbase-react",
-        "--name",
-        "Clock app",
-        "--auth-mode",
-        "multi-user",
-    ]
-    prompt = agent.calls[2][1]
-    assert "already scaffolded this app from blueprint-pocketbase-react" in prompt
-    assert "Do not scaffold again or choose another blueprint" in prompt
-    assert "1e60ba80f83f" in prompt
-    assert "Discover the blueprints" not in prompt
-    assert host.store.get("creation", "build-session")["building"] is True
-
-
-def test_failed_scaffold_removes_the_empty_build_conversation(tmp_path, monkeypatch):
-    host, agent = _host(
-        tmp_path,
-        monkeypatch,
-        {"status": "error", "data": None, "stderr": "scaffold refused\n"},
-    )
-    with pytest.raises(RuntimeError, match="scaffold refused"):
-        asyncio.run(
-            host.workflow(
-                "create",
-                "Build a clock",
-                creation={"name": "Clock app", "authMode": "none"},
-            )
-        )
-
-    assert "trigger" not in [call[0] for call in agent.calls]
-    assert agent.deleted == ["build-session"]
-    assert host.store.get("creation", "build-session") is None
-    assert host.store.get("conversation", "build-session") is None
