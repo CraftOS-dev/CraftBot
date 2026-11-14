@@ -8,6 +8,7 @@ Supported formats (recurring):
 - "every day at 7am"
 - "every day at 3:30pm"
 - "every monday at 9am"
+- "every month on day 1 at 8am" (29-31 fall back to the month's last day)
 - "every 3 hours"
 - "every 30 minutes"
 - "0 7 * * *" (cron expression)
@@ -18,6 +19,7 @@ Supported formats (one-time):
 - "in 2 hours" or "in 30 minutes"
 """
 
+import calendar
 import re
 from datetime import datetime, timedelta
 from typing import Optional
@@ -60,6 +62,12 @@ class ScheduleParser:
     # Pattern for "every WEEKDAY at TIME"
     WEEKLY_PATTERN = re.compile(
         r"^every\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s+at\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$",
+        re.IGNORECASE,
+    )
+
+    # Pattern for "every month on day N at TIME"
+    MONTHLY_PATTERN = re.compile(
+        r"^every\s+month\s+on\s+day\s+(\d{1,2})\s+at\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$",
         re.IGNORECASE,
     )
 
@@ -117,6 +125,10 @@ class ScheduleParser:
         if result:
             return result
 
+        result = cls._parse_monthly(expression)
+        if result:
+            return result
+
         result = cls._parse_interval(expression)
         if result:
             return result
@@ -134,6 +146,7 @@ class ScheduleParser:
         raise ScheduleParseError(
             f"Cannot parse schedule expression: '{expression}'. "
             f"Expected formats: 'every day at 7am', 'every monday at 9am', "
+            f"'every month on day 1 at 8am', "
             f"'every 3 hours', 'every 30 minutes', 'at 3pm', 'tomorrow at 9am', "
             f"'in 2 hours', or cron expression like '0 7 * * *'"
         )
@@ -179,6 +192,26 @@ class ScheduleParser:
             hour=hour,
             minute=minute,
             weekday=weekday,
+        )
+
+    @classmethod
+    def _parse_monthly(cls, expression: str) -> Optional[ScheduleExpression]:
+        """Parse 'every month on day N at TIME' expressions."""
+        match = cls.MONTHLY_PATTERN.match(expression)
+        if not match:
+            return None
+
+        day = int(match.group(1))
+        hour = int(match.group(2))
+        minute = int(match.group(3)) if match.group(3) else 0
+        hour = cls._convert_to_24h(hour, match.group(4))
+
+        return ScheduleExpression(
+            schedule_type="monthly",
+            raw_expression=expression,
+            hour=hour,
+            minute=minute,
+            day_of_month=day,
         )
 
     @classmethod
@@ -345,13 +378,21 @@ class ScheduleParser:
                 now, schedule.weekday, schedule.hour, schedule.minute
             )
 
+        elif schedule.schedule_type == "monthly":
+            return cls._next_monthly_fire(
+                now, schedule.day_of_month, schedule.hour, schedule.minute
+            )
+
         elif schedule.schedule_type == "interval":
             # For intervals, fire immediately + interval
             return from_time + schedule.interval_seconds
 
         elif schedule.schedule_type == "cron":
+            # Cron fields are local wall-clock time. get_next(float) would
+            # read the naive local datetime as UTC and shift every fire by the
+            # UTC offset, so take the next local datetime and convert it here.
             cron = croniter(schedule.cron_expression, now)
-            return cron.get_next(float)
+            return cron.get_next(datetime).timestamp()
 
         elif schedule.schedule_type == "once":
             # One-time schedules have a fixed fire_at time
@@ -388,6 +429,28 @@ class ScheduleParser:
         if scheduled <= now:
             scheduled += timedelta(weeks=1)
 
+        return scheduled.timestamp()
+
+    @classmethod
+    def _next_monthly_fire(
+        cls, now: datetime, day: int, hour: int, minute: int
+    ) -> float:
+        """Next fire time for a monthly schedule.
+
+        A day the month does not have (29-31) falls back to its last day, so
+        "day 31" fires every month instead of skipping short ones.
+        """
+
+        def slot(year: int, month: int) -> datetime:
+            last = calendar.monthrange(year, month)[1]
+            return datetime(year, month, min(day, last), hour, minute)
+
+        scheduled = slot(now.year, now.month)
+        if scheduled <= now:
+            year, month = (
+                (now.year + 1, 1) if now.month == 12 else (now.year, now.month + 1)
+            )
+            scheduled = slot(year, month)
         return scheduled.timestamp()
 
     @classmethod

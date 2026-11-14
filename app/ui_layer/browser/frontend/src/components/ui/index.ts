@@ -10,6 +10,9 @@ export type { BadgeVariant } from './Badge'
 
 export { StatusIndicator } from './StatusIndicator'
 
+export { InfoTip } from './InfoTip'
+export type { InfoTipProps } from './InfoTip'
+
 export { MarkdownContent } from './MarkdownContent'
 
 export { AttachmentDisplay } from './AttachmentDisplay'

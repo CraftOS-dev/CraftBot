@@ -88,6 +88,10 @@
     "supersededLabel": "Digantikan (disimpan sebagai riwayat, dikecualikan dari pemanggilan)",
     "contentPlaceholder": "mis. John lebih suka balasan yang ringkas"
   },
+  "entity": {
+    "deleteTitle": "Hapus entitas",
+    "deleteMessage": "Ini menghapus “{{name}}” beserta tautannya dari grafik. Memori itu sendiri tidak berubah."
+  },
   "files": {
     "title": "Berkas agen",
     "aboutAria": "Tentang pengindeksan berkas",
@@ -108,6 +112,7 @@
   },
   "toast": {
     "updateFailed": "Gagal memperbarui berkas terindeks",
-    "skipped": "Melewati {{path}}: {{reason}}"
+    "skipped": "Melewati {{path}}: {{reason}}",
+    "entityDeleteFailed": "Gagal menghapus entitas"
   }
 }
