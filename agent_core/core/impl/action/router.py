@@ -29,7 +29,8 @@ from agent_core.core.prompts import (
     SELECT_ACTION_PROMPT,
     decision_system_prompt,
 )
-from agent_core.core.impl.llm.interface import LLMContextOverflowError
+from agent_core.core.impl.llm.interface import LLMContextOverflowError, LLMReply
+from agent_core.core.event_stream.event import EventType
 from agent_core import get_event_stream_manager
 from agent_core.utils.logger import logger
 from agent_core.utils.token import count_tokens
@@ -187,7 +188,7 @@ class ActionRouter:
                 base_prompt, _ = self.context_engine.make_prompt(
                     user_flags={"query": False, "expected_output": False},
                     system_flags={"agent_info": True},
-                    )
+                )
                 system_prompt = decision_system_prompt(base_prompt, instructions)
                 # Only delivered events fold, and on the session path the
                 # session's history holds every one of them: the summary is
@@ -198,7 +199,7 @@ class ActionRouter:
                     self._history_instructions.get(
                         f"{session_id}:{call_type}", instructions
                     ),
-                    )
+                )
                 # The summary call blocks: off the event loop.
                 return await to_thread_with_usage(
                     self._fold,
@@ -250,9 +251,9 @@ class ActionRouter:
         """The user message of a decision call; without ``event_stream``, its
         static part."""
         return SELECT_ACTION_PROMPT.format(
-                session_state=session_state,
-                event_stream=event_stream,
-                query=query,
+            session_state=session_state,
+            event_stream=event_stream,
+            query=query,
         )
 
     async def _select_action(
@@ -764,6 +765,20 @@ class ActionRouter:
                     f"Failed to parse LLM decision on attempt {attempt + 1}: "
                     f"{raw_response} | error={feedback_error}"
                 )
+                if (
+                    isinstance(raw_response, LLMReply)
+                    and raw_response.cut_off
+                    and stream is not None
+                ):
+                    # The next attempt's request carries the warning.
+                    stream.log(
+                        "warning",
+                        "Your previous reply was cut off: it reached the output "
+                        "limit before it finished, so none of it was used. Keep "
+                        "each reply small: split large content across several "
+                        "actions, e.g. write a long file one section at a time.",
+                        event_type=EventType.INTERNAL,
+                    )
                 # A session history holding the reply gets the feedback as its
                 # next turn; anything else resends the prompt with it.
                 attempt_feedback = self._parse_error_feedback(
@@ -829,10 +844,10 @@ class ActionRouter:
                 # note about the failure in the prompt.
                 if not session_path:
                     attempt_feedback = self._parse_error_feedback(
-                    attempt + 1,
-                    f"[LLM ERROR] {error_msg}",
-                    "LLM provider failed - retrying",
-                )
+                        attempt + 1,
+                        f"[LLM ERROR] {error_msg}",
+                        "LLM provider failed - retrying",
+                    )
             except Exception as e:
                 # Unexpected error
                 logger.error(
@@ -846,10 +861,10 @@ class ActionRouter:
                     raise last_error
                 if not session_path:
                     attempt_feedback = self._parse_error_feedback(
-                    attempt + 1,
-                    f"[ERROR] {str(e)}",
-                    "An unexpected error occurred - retrying",
-                )
+                        attempt + 1,
+                        f"[ERROR] {str(e)}",
+                        "An unexpected error occurred - retrying",
+                    )
 
         if last_error:
             raise last_error
