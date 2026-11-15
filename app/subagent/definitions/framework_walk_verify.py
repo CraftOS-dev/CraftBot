@@ -5,6 +5,10 @@ import platform
 
 from app.subagent.registry import register_subagent
 
+# The verdicts of the walk-verify skill this verifier runs.
+PASS, DEFECTS, INCOMPLETE, BLOCKED = "pass", "defects", "incomplete", "blocked"
+VERDICTS = (PASS, DEFECTS, INCOMPLETE, BLOCKED)
+
 
 def _valid_result(sub, parameters):
     # This checks transport shape only. The upstream skill owns what to verify.
@@ -12,7 +16,7 @@ def _valid_result(sub, parameters):
         result = json.loads(parameters.get("result", ""))
         if (
             isinstance(result, dict)
-            and result.get("verdict") in {"pass", "defects", "incomplete", "blocked"}
+            and result.get("verdict") in VERDICTS
             and isinstance(result.get("evidence"), str)
             and result["evidence"].strip()
         ):
