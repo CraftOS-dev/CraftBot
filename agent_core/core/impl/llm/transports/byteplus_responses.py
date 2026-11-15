@@ -74,6 +74,7 @@ def generate_with_prefix_cache(
     cached_tokens = 0
     status = "failed"
     content: Optional[str] = None
+    cut_off = False
     exc_obj: Optional[Exception] = None
 
     try:
@@ -89,6 +90,7 @@ def generate_with_prefix_cache(
 
         # Parse response (Responses API format)
         content = iface._parse_responses_api_content(result)
+        cut_off = _byteplus_cut_off(result)
 
         if not content:
             blocked_reason = _byteplus_blocked_reason(result)
@@ -140,6 +142,7 @@ def generate_with_prefix_cache(
                     max_tokens=iface.max_tokens,
                 )
                 content = iface._parse_responses_api_content(result)
+                cut_off = _byteplus_cut_off(result)
                 usage = result.get("usage") or {}
                 token_count_input = int(usage.get("input_tokens", 0))
                 token_count_output = int(usage.get("output_tokens", 0))
@@ -181,6 +184,7 @@ def generate_with_prefix_cache(
     result_out: Dict[str, Any] = {
         "tokens_used": total_tokens or 0,
         "cached_tokens": cached_tokens or 0,
+        "cut_off": cut_off,
     }
     if exc_obj:
         error_str = f"{type(exc_obj).__name__}: {str(exc_obj)}"
@@ -205,6 +209,7 @@ def generate_standard(
     total_tokens = 0
     status = "failed"
     content: Optional[str] = None
+    cut_off = False
     exc_obj: Optional[Exception] = None
 
     try:
@@ -247,6 +252,7 @@ def generate_standard(
         logger.info(f"[BYTEPLUS STANDARD RESPONSE] Body: {result}")
 
         # Non-streaming content location (OpenAI-compatible)
+        cut_off = _byteplus_cut_off(result)
         choices = result.get("choices", [])
         if choices:
             # choices[0].message.content is the OpenAI-compatible field
@@ -294,7 +300,7 @@ def generate_standard(
         0,
     )
 
-    result = {"tokens_used": total_tokens or 0}
+    result = {"tokens_used": total_tokens or 0, "cut_off": cut_off}
     if exc_obj:
         error_str = f"{type(exc_obj).__name__}: {str(exc_obj)}"
         result["error"] = error_str
@@ -337,6 +343,7 @@ def generate_with_session(
     total_tokens = 0
     status = "failed"
     content: Optional[str] = None
+    cut_off = False
     exc_obj: Optional[Exception] = None
     cached_tokens = 0
     session_key = f"{task_id}:{call_type}"
@@ -377,6 +384,7 @@ def generate_with_session(
 
         # Parse response (Responses API format)
         content = iface._parse_responses_api_content(result)
+        cut_off = _byteplus_cut_off(result)
 
         # Token usage from Responses API
         usage = result.get("usage") or {}
@@ -443,6 +451,7 @@ def generate_with_session(
 
                 # Parse response
                 content = iface._parse_responses_api_content(result)
+                cut_off = _byteplus_cut_off(result)
 
                 # Token usage
                 usage = result.get("usage") or {}
@@ -505,7 +514,20 @@ def generate_with_session(
         "tokens_used": total_tokens or 0,
         "content": content or "",
         "cached_tokens": cached_tokens or 0,
+        "cut_off": cut_off,
     }
+
+
+def _byteplus_cut_off(result: Dict[str, Any]) -> bool:
+    """Whether BytePlus stopped the reply at the output limit: a Responses
+    API result left incomplete for max_output_tokens, or a chat completion
+    that finished for length."""
+    if result.get("status") == "incomplete":
+        return (result.get("incomplete_details") or {}).get(
+            "reason"
+        ) == "max_output_tokens"
+    choices = result.get("choices") or []
+    return bool(choices) and choices[0].get("finish_reason") == "length"
 
 
 def _byteplus_blocked_reason(result: Dict[str, Any]) -> Optional[str]:

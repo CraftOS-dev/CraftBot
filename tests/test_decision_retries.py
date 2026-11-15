@@ -25,6 +25,7 @@ import pytest
 from agent_core.core.impl.action import router as router_module
 from agent_core.core.impl.event_stream.event_stream import EventStream
 from agent_core.core.impl.llm import LLMCallType
+from agent_core.core.impl.llm.interface import LLMReply
 
 ACTION = LLMCallType.ACTION_SELECTION
 END_TURN = (
@@ -402,3 +403,33 @@ def test_the_stream_renders_and_syncs_up_to_a_point():
     stream.mark_session_synced(ACTION, up_to=point)
     delta, has_delta = stream.get_delta_events(ACTION)
     assert has_delta and "event 3" in delta and "event 2" not in delta
+
+
+# ── a reply cut off at the output limit ─────────────────────────────────────
+#
+# The provider stopped the reply before it finished, so it does not parse.
+# The router warns the agent through its event stream, so the retry knows
+# why and splits its work instead of resending the same oversized reply.
+
+CUT_OFF_WARNING = "Your previous reply was cut off"
+
+
+@pytest.mark.parametrize("sessions", [True, False])
+def test_a_cut_off_reply_puts_a_warning_in_the_event_stream(monkeypatch, sessions):
+    stream = EventStream(llm=None, temp_dir=None)
+    stream.log("action_end", "before the request")
+    cut_off = LLMReply('{"reasoning": "r", "actions": [{"action_name": "wri', True)
+    llm = _LLM([cut_off, END_TURN], sessions=sessions)
+    _decide_on(_real_router(monkeypatch, llm, stream), stream)
+
+    assert CUT_OFF_WARNING not in llm.sent[0]["user"]
+    assert CUT_OFF_WARNING in llm.sent[1]["user"]
+
+
+def test_a_reply_that_was_not_cut_off_gets_no_warning(monkeypatch):
+    stream = EventStream(llm=None, temp_dir=None)
+    stream.log("action_end", "before the request")
+    llm = _LLM([LLMReply("not json"), END_TURN])
+    _decide_on(_real_router(monkeypatch, llm, stream), stream)
+
+    assert CUT_OFF_WARNING not in llm.sent[1]["user"]

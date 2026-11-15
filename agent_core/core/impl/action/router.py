@@ -29,7 +29,8 @@ from agent_core.core.prompts import (
     SELECT_ACTION_PROMPT,
     decision_system_prompt,
 )
-from agent_core.core.impl.llm.interface import LLMContextOverflowError
+from agent_core.core.impl.llm.interface import LLMContextOverflowError, LLMReply
+from agent_core.core.event_stream.event import EventType
 from agent_core import get_event_stream_manager
 from agent_core.utils.logger import logger
 from agent_core.utils.token import count_tokens
@@ -764,6 +765,20 @@ class ActionRouter:
                     f"Failed to parse LLM decision on attempt {attempt + 1}: "
                     f"{raw_response} | error={feedback_error}"
                 )
+                if (
+                    isinstance(raw_response, LLMReply)
+                    and raw_response.cut_off
+                    and stream is not None
+                ):
+                    # The next attempt's request carries the warning.
+                    stream.log(
+                        "warning",
+                        "Your previous reply was cut off: it reached the output "
+                        "limit before it finished, so none of it was used. Keep "
+                        "each reply small: split large content across several "
+                        "actions, e.g. write a long file one section at a time.",
+                        event_type=EventType.INTERNAL,
+                    )
                 # A session history holding the reply gets the feedback as its
                 # next turn; anything else resends the prompt with it.
                 attempt_feedback = self._parse_error_feedback(
