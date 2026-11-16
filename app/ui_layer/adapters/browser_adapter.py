@@ -195,11 +195,32 @@ def _with_request_id(message: Dict[str, Any]) -> Dict[str, Any]:
     return {**message, "data": {**data, "requestId": request_id}}
 
 
-def _make_static_or_spa(dist: Path):
+def _index_response(index_path: Path, backend_port: Optional[int]):
+    """index.html, told which backend port this run uses (app/instance.py)."""
+    from aiohttp import web
+
+    if backend_port is None:
+        return web.FileResponse(index_path)
+    from app.instance import inject_runtime_config
+
+    try:
+        html = index_path.read_bytes()
+    except OSError:
+        raise web.HTTPNotFound()
+    return web.Response(
+        body=inject_runtime_config(html, backend_port),
+        content_type="text/html",
+        charset="utf-8",
+        headers={"Cache-Control": "no-cache"},
+    )
+
+
+def _make_static_or_spa(dist: Path, backend_port: Optional[int] = None):
     """Build the catch-all handler: serve a file from dist/, else index.html.
 
     Every request path is resolved and must land inside the resolved dist/
     (symlinks included); anything else is a 404, never a file from elsewhere.
+    With ``backend_port``, index.html carries that port for the UI to use.
     """
     from aiohttp import web
 
@@ -209,7 +230,7 @@ def _make_static_or_spa(dist: Path):
     async def _static_or_spa(request: web.Request) -> web.StreamResponse:
         req_path = request.match_info.get("path", "")
         if not req_path:
-            return web.FileResponse(index_path)
+            return _index_response(index_path, backend_port)
         # Refuse drive/root/UNC paths before touching the filesystem: joining
         # an absolute path replaces dist/ outright, and resolving //host/share
         # makes Windows authenticate to that host.
@@ -221,9 +242,9 @@ def _make_static_or_spa(dist: Path):
             raise web.HTTPNotFound()
         if not file_path.is_relative_to(dist_root):
             raise web.HTTPNotFound()
-        if file_path.is_file():
+        if file_path.is_file() and file_path != index_path:
             return web.FileResponse(file_path)
-        return web.FileResponse(index_path)
+        return _index_response(index_path, backend_port)
 
     return _static_or_spa
 
@@ -922,11 +943,15 @@ class BrowserAdapter(InterfaceAdapter):
     def __init__(
         self,
         controller: "UIController",
-        host: str = "localhost",
+        host: Optional[str] = None,
         port: int = 7926,
     ) -> None:
         super().__init__(controller, "browser")
-        self._host = host
+        # CRAFTBOT_BIND_HOST (app/instance.py): loopback unless set, e.g. to
+        # 0.0.0.0 in Docker. The Host/Origin guard stays loopback-only.
+        from app.instance import bind_host
+
+        self._host = host or bind_host()
         self._port = int(os.environ.get("BROWSER_PORT", port))
         # Origin allowlist + per-process session token for /ws (ws_auth.py).
         self._ws_auth = WsAuth(self._port)
@@ -1249,7 +1274,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             # Serve static files from dist/ (public/ files copied by Vite build)
             # This must come before the SPA catch-all so images, fonts, etc. are served directly
             self._app.router.add_get("/", self._spa_handler)
-            self._app.router.add_get("/{path:.*}", _make_static_or_spa(frontend_dist))
+            self._app.router.add_get(
+                "/{path:.*}", _make_static_or_spa(frontend_dist, self._port)
+            )
         else:
             # Fallback to inline HTML for development without build
             self._app.router.add_get("/", self._index_handler)
@@ -1277,11 +1304,11 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             self._change_detection = None
             logger.warning(f"[BROWSER ADAPTER] change detection unavailable: {e}")
 
+        from app.instance import display_url
+
         # Only print URL info if not using browser startup UI (run.py handles it)
         if os.getenv("BROWSER_STARTUP_UI", "0") != "1":
-            print(
-                f"\nCraftBot Browser Interface running at http://{self._host}:{self._port}"
-            )
+            print(f"\nCraftBot Browser Interface running at {display_url(self._port)}")
             print("Open this URL in your browser to interact with CraftBot.\n")
 
         # Emit ready event
@@ -1290,7 +1317,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 type=UIEventType.INTERFACE_READY,
                 data={
                     "adapter": "browser",
-                    "url": f"http://{self._host}:{self._port}",
+                    "url": display_url(self._port),
                 },
                 source_adapter=self._adapter_id,
             )
@@ -5605,7 +5632,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     "priority": job.get("priority"),
                     "permissionTier": job.get("permission_tier"),
                     "sessionId": job.get("session_id"),
-                    "sessionTitle": getattr(_chat(job.get("session_id")), "title", None),
+                    "sessionTitle": getattr(
+                        _chat(job.get("session_id")), "title", None
+                    ),
                     "available": _chat(job.get("session_id")) is not None,
                     "time": job.get("time"),
                     "day": job.get("day"),
@@ -6035,9 +6064,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         """
         try:
             agent = self._controller.agent
-            removed = await asyncio.to_thread(
-                agent.memory_manager.remove_entity, name
-            )
+            removed = await asyncio.to_thread(agent.memory_manager.remove_entity, name)
             data: Dict[str, Any] = {"success": removed, "name": name}
             if removed:
                 data["graph"] = await self._memory_graph_snapshot()
@@ -10602,7 +10629,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         index_path = frontend_dist / "index.html"
 
         if index_path.exists():
-            return web.FileResponse(index_path)
+            return _index_response(index_path, self._port)
         else:
             # Fallback to inline HTML
             return web.Response(text=self._get_index_html(), content_type="text/html")

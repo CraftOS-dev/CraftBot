@@ -10,13 +10,20 @@
 #
 # The bundle is ONE process. That is the whole reason the launcher exists on
 # macOS: the previous PyInstaller onefile bundle was a bootloader plus a child
-# process, and the child — the one with the window — was never the process
+# process, and the child (the one with the window) was never the process
 # macOS had activated, so Tk dropped its mouse presses.
 #
-# Signing: ad-hoc (`-s -`). Apple Silicon refuses to run an arm64 binary with
-# no signature at all; an ad-hoc one runs after the user's right-click → Open.
-# Replace `-s -` with a Developer ID identity (and add notarization) when one
-# is available — nothing else here changes.
+# Signing:
+#   MACOS_SIGN_IDENTITY set (a "Developer ID Application: ..." identity in an
+#   unlocked keychain): signed with the hardened runtime and a secure
+#   timestamp, ready for `xcrun notarytool`. release.yml notarizes and
+#   staples it afterwards.
+#   Unset: ad-hoc signed (`--sign -`). Apple Silicon refuses to run an arm64
+#   binary with no signature at all; an ad-hoc one runs once the user allows
+#   it in System Settings > Privacy & Security.
+#
+# LSMinimumSystemVersion comes from MIN_MACOS in src/preflight.rs, the same
+# constant the launcher checks before it downloads anything.
 set -euo pipefail
 
 binary="${1:?path to the CraftBotInstaller binary}"
@@ -27,6 +34,12 @@ version="${version#v}"
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo="$(cd "$here/../../.." && pwd)"
 app="$out/CraftBotInstaller.app"
+
+min_macos="$(sed -n 's/^pub const MIN_MACOS: &str = "\(.*\)";/\1/p' "$repo/launcher/src/preflight.rs")"
+if [ -z "$min_macos" ]; then
+    echo "error: MIN_MACOS not found in launcher/src/preflight.rs" >&2
+    exit 1
+fi
 
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
@@ -65,7 +78,7 @@ cat > "$app/Contents/Info.plist" <<PLIST
     <key>CFBundleVersion</key>
     <string>${version}</string>
     <key>LSMinimumSystemVersion</key>
-    <string>11.0</string>
+    <string>${min_macos}</string>
     <key>LSApplicationCategoryType</key>
     <string>public.app-category.developer-tools</string>
     <key>NSHighResolutionCapable</key>
@@ -79,6 +92,14 @@ PLIST
 
 echo 'APPL????' > "$app/Contents/PkgInfo"
 
-codesign --force --sign - --timestamp=none "$app"
-codesign --verify --verbose=2 "$app"
-echo "built $app"
+if [ -n "${MACOS_SIGN_IDENTITY:-}" ]; then
+    codesign --force --options runtime --timestamp \
+        --sign "$MACOS_SIGN_IDENTITY" "$app"
+    codesign --verify --strict --verbose=2 "$app"
+    codesign --display --verbose=2 "$app" 2>&1 | grep -E "^(Authority|TeamIdentifier|Runtime)" || true
+    echo "built $app (Developer ID, hardened runtime, minimum macOS $min_macos)"
+else
+    codesign --force --sign - --timestamp=none "$app"
+    codesign --verify --verbose=2 "$app"
+    echo "built $app (ad-hoc signed, minimum macOS $min_macos)"
+fi
