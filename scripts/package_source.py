@@ -152,6 +152,7 @@ def build(output: Path) -> int:
             "agent-app/tools/src/cli.ts",
             "agent-app/spec/pocketbase.version",
             "agent-app/spec/pocketbase-checksums.json",
+            "app/provision/python_downloads.json",
             "app/provision/default_agent_app.py",
             "app/data/default_agent_app/kanban-board.zip",
             "app/data/default_agent_app/source.json",
@@ -162,6 +163,7 @@ def build(output: Path) -> int:
             "installer/helpers.py",
             "installer/metadata.py",
             "installer/payload.py",
+        "installer/startup.py",
         ]
     )
     with zipfile.ZipFile(output) as zf:
