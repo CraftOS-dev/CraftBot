@@ -109,7 +109,9 @@ register_subagent(
     ],
     # Externalized outputs turn "read whole page inline" into
     # "pointer → grep → (maybe) read_file", costing 1-2 extra turns per
-    # large source — budgets sized accordingly.
+    # large source — budgets sized accordingly. The time cap cancels a call
+    # in flight, and writing the final brief alone took ~150 s (2026-11-16),
+    # so it leaves room for that last turn.
     max_iterations=30,
-    max_wall_seconds=450,
+    max_wall_seconds=900,
 )
