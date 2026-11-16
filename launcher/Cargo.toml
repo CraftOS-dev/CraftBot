@@ -2,7 +2,7 @@
 name = "craftbot-launcher"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.85"
+rust-version = "1.87"
 description = "CraftBot setup window: a native launcher that installs and runs CraftBot on Windows, macOS and Linux"
 license = "MIT"
 publish = false
@@ -30,9 +30,14 @@ slint = { version = "1.17", default-features = false, features = [
 # client is the simplest correct choice. Unix uses rustls with the OS trust
 # store; Windows selects Schannel below, including its automatic root updates.
 # Both honor installed corporate CAs and require no bundled OpenSSL library.
+# ureq only reads proxy variables; src/proxy.rs adds NO_PROXY and the OS
+# proxy setting (Windows registry, macOS scutil, GNOME gsettings).
 ureq = { version = "2.12", default-features = false, features = ["tls", "native-certs", "json"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# SHA-256 of CraftBot-src.zip, checked against the digest the release
+# publishes beside it before anything is extracted.
+sha2 = "0.10"
 
 # Archives. The source payload is a zip; python-build-standalone is .tar.gz.
 zip = { version = "2.4", default-features = false, features = ["deflate"] }
@@ -50,11 +55,22 @@ native-tls = "0.2"
 ureq = { version = "2.12", default-features = false, features = ["native-tls"] }
 windows-sys = { version = "0.59", features = [
     "Win32_Foundation",
+    "Win32_System_Registry",
     "Win32_System_Threading",
 ] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# Slint finds fonts through fontique, which links libfontconfig unless told
+# to load it with dlopen. Linked, the binary does not even start on a minimal
+# system without fontconfig, so `--headless` fails there and
+# packaging/linux/check_binary.sh rejects the build.
+fontique = { version = "0.10", default-features = false, features = ["fontconfig-dlopen"] }
+
+[dev-dependencies]
+tempfile = "3"
 
 [build-dependencies]
 slint-build = "1.17"

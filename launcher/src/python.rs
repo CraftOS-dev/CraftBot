@@ -141,7 +141,7 @@ pub fn ensure(
 
 /// Run the interpreter and read back its (major, minor).
 pub fn probe(exe: &std::path::Path) -> Option<(u32, u32)> {
-    let out = crate::craftbot::quiet_command(exe)
+    let out = crate::craftbot::child_command(exe)
         .args([
             "-c",
             "import sys; print(sys.version_info[0], sys.version_info[1])",
