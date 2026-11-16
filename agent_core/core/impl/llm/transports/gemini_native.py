@@ -78,6 +78,7 @@ def generate(
     total_tokens = 0
     status = "failed"
     content: Optional[str] = None
+    cut_off = False
     exc_obj: Optional[Exception] = None
     config = get_cache_config()
     cache_type = "implicit"  # Default cache type for metrics
@@ -149,6 +150,7 @@ def generate(
 
         # Extract response data
         content = result.get("content", "")
+        cut_off = result.get("cut_off", False)
         total_tokens = result.get("tokens_used", 0)
         token_count_input = result.get("prompt_tokens", 0)
         token_count_output = result.get("completion_tokens", 0)
@@ -199,7 +201,11 @@ def generate(
         cached_tokens,
     )
 
-    result = {"tokens_used": total_tokens or 0, "cached_tokens": cached_tokens}
+    result = {
+        "tokens_used": total_tokens or 0,
+        "cached_tokens": cached_tokens,
+        "cut_off": cut_off,
+    }
     if exc_obj:
         error_str = f"{type(exc_obj).__name__}: {str(exc_obj)}"
         result["error"] = error_str

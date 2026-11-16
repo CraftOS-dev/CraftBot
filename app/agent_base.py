@@ -33,6 +33,7 @@ from dataclasses import dataclass
 from typing import Awaitable, Callable, Dict, Iterable, Optional
 
 from agent_core import ActionLibrary, ActionManager, ActionRouter
+from agent_core.core.impl.action import AgentStep
 from agent_core import settings_manager, config_watcher
 
 from app.config import (
@@ -371,6 +372,11 @@ class AgentBase:
             self.context_engine,
             prompt_filter=self._filter_action_prompt,
         )
+        # Decide and prepare a turn's actions: the same step every sub-agent
+        # runs (app.subagent.runner).
+        self.agent_step = AgentStep(
+            self.action_router, self.action_library, self.event_stream_manager
+        )
         # Session caches register the system prompt decisions send, which
         # ends with the session's decision instructions. Set before any
         # session is created or restored below.
@@ -456,6 +462,9 @@ class AgentBase:
         self.subagent_manager = SubAgentManager(
             event_stream_manager=self.event_stream_manager,
             llm_interface=self.llm,
+            action_library=self.action_library,
+            action_manager=self.action_manager,
+            session_manager=self.session_manager,
         )
         # A stream is removed when a sub-agent finishes (its Mini Browser tabs
         # close) or a session is deleted (its browser and profile go).
@@ -471,9 +480,6 @@ class AgentBase:
             memory_manager=self.memory_manager,
             context_engine=self.context_engine,
             subagent_manager=self.subagent_manager,
-            action_manager=self.action_manager,
-            action_library=self.action_library,
-            event_stream_manager=self.event_stream_manager,
         )
 
         # ── misc ──
@@ -768,9 +774,7 @@ class AgentBase:
             # ----- The one turn pipeline -----
             action_decisions, reasoning = await self._select_action(trigger_data)
 
-            prepared_actions = await self._retrieve_and_prepare_actions(
-                action_decisions
-            )
+            prepared_actions = self.agent_step.prepare(action_decisions, session_id)
 
             action_output = await self._execute_actions(
                 prepared_actions, trigger_data, reasoning, session_id
@@ -1185,8 +1189,8 @@ class AgentBase:
         """Event-stream removal listener: a sub-agent finished (its Mini
         Browser tabs close) or a session was deleted (every path that deletes
         a session removes its stream: its browser closes for good and its
-        profile is deleted). Runs on the remover's thread (a sub-agent's pool
-        thread), so it only hands work off."""
+        profile is deleted). Runs on the remover's thread, so it only hands
+        work off."""
         self._notify_mini_browser("stream_removed", session_id)
 
     async def _shutdown_mini_browser(self) -> None:
@@ -1270,78 +1274,19 @@ class AgentBase:
         Reasoning is integrated into the action selection prompt, so this
         is a single LLM call.
         """
-        action_decisions = await self.action_router.select_action_in_session(
-            query=trigger_data.query,
-            session_id=trigger_data.session_id,
+        action_decisions, reasoning = await self.agent_step.decide(
+            trigger_data.query, trigger_data.session_id
         )
         # The decision request's context size and cache use are recorded on
         # the LLM interface now; send them to the chat input's reasoning menu.
         if self.ui_controller:
             await self.ui_controller.notify_session_updated(trigger_data.session_id)
-
-        if not action_decisions:
-            raise ValueError("Action router returned no decision.")
-
-        reasoning = action_decisions[0].get("reasoning", "") if action_decisions else ""
-        logger.debug(f"[AGENT REASONING] {reasoning}")
-
-        if self.event_stream_manager and reasoning:
-            self.event_stream_manager.log(
-                "agent reasoning",
-                reasoning,
-                severity="DEBUG",
-                event_type=EventType.REASONING,
-                display_message=None,
-                task_id=trigger_data.session_id,
-            )
+        if reasoning:
             self.state_manager.bump_event_stream()
 
         return action_decisions, reasoning
 
     # ----- Action Execution -----
-
-    async def _retrieve_and_prepare_actions(self, action_decisions: list) -> list:
-        """
-        Retrieve actions from library for a list of action decisions.
-
-        Args:
-            action_decisions: List of action decision dicts from router.
-
-        Returns:
-            List of Tuple (action, action_params)
-        """
-        prepared = []
-        for decision in action_decisions:
-            action_name = decision.get("action_name")
-            action_params = decision.get("parameters", {})
-
-            # Check if action was marked as error (e.g., dropped due to parallel constraints)
-            if "_error" in decision:
-                error_msg = decision.get("_error")
-                logger.warning(f"Action '{action_name}' has error: {error_msg}")
-                # Log to event stream so agent sees the error
-                if self.event_stream_manager:
-                    self.event_stream_manager.log(
-                        kind="action_error",
-                        message=f"Action {action_name} failed: {error_msg}",
-                        event_type=EventType.ACTION_END,
-                        display_message=f"{action_name} → failed",
-                        action_name=action_name,
-                        action_output={"status": "error", "error": error_msg},
-                    )
-                continue
-
-            if not action_name:
-                continue
-
-            action = self.action_library.retrieve_action(action_name)
-            if action is None:
-                logger.warning(f"Action '{action_name}' not found, skipping")
-                continue
-
-            prepared.append((action, action_params))
-
-        return prepared
 
     @profile("agent_execute_actions", OperationCategory.AGENT_LOOP)
     async def _execute_actions(
@@ -1683,8 +1628,8 @@ class AgentBase:
                     )
         self._emit_run_state(session_id, "stopping")
         # Stop the session's browser work first: in-flight Mini Browser ops
-        # are cancelled and its sub-agents (which a turn cancel never reaches,
-        # they run on their own threads) lose browser access for good.
+        # are cancelled and its sub-agents lose browser access for good (the
+        # turn cancel below also cancels a sub-agent the turn is running).
         self._notify_mini_browser("cancel_owner", session_id, include_children=True)
         try:
             stopped = await self.session_runtime.request_stop(

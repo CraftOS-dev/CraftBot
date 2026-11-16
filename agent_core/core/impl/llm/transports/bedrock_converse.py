@@ -59,6 +59,7 @@ def generate(
     cached_tokens = 0
     status = "failed"
     content: Optional[str] = None
+    cut_off = False
     exc_obj: Optional[Exception] = None
     config = get_cache_config()
     cache_type = f"cachepoint_{call_type}" if call_type else "cachepoint"
@@ -124,6 +125,7 @@ def generate(
         content = "".join(
             block.get("text", "") for block in content_blocks if "text" in block
         ).strip()
+        cut_off = response.get("stopReason") == "max_tokens"
 
         usage = response.get("usage", {}) or {}
         token_count_input = int(usage.get("inputTokens", 0) or 0)
@@ -207,6 +209,7 @@ def generate(
     result = {
         "tokens_used": total_tokens or 0,
         "cached_tokens": cached_tokens,
+        "cut_off": cut_off,
     }
     if exc_obj:
         error_str = f"{type(exc_obj).__name__}: {str(exc_obj)}"

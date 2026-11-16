@@ -13,6 +13,7 @@ from agent_core.core.session import MAIN_SESSION_ID, SessionType
 from app.agent_app import framework
 from app.agent_app.framework_commands import command, context_note
 from app.agent_app.framework_store import HostStore, app_key
+from app.subagent.definitions.framework_walk_verify import PASS, VERDICTS
 
 _host = None
 
@@ -188,7 +189,7 @@ class FrameworkHost:
             running = any(row["path"] == path and row.get("status") == "running" for row in rows)
             if "building" in creation and not running:
                 continue
-            promoted = (self.verification(path) or {}).get("verdict") == "pass" and not self.gate_stamp(path)
+            promoted = (self.verification(path) or {}).get("verdict") == PASS and not self.gate_stamp(path)
             creation["building"] = not (running or promoted)
             self.store.put("creation", note["sessionId"], creation)
         registered = {
@@ -597,13 +598,13 @@ class FrameworkHost:
         if assignment.get("mode") == "subagent" and assignment.get("status") != "running":
             raise PermissionError("This verification subagent has already ended.")
         if (
-            verdict not in {"pass", "defects", "incomplete", "blocked"}
+            verdict not in VERDICTS
             or not isinstance(evidence, str)
             or not evidence.strip()
         ):
             raise ValueError("A verifier verdict and supporting evidence are required.")
         if (
-            verdict == "pass"
+            verdict == PASS
             and self.gate_stamp(assignment["path"]) != assignment["stamp"]
         ):
             raise ValueError(
@@ -621,10 +622,14 @@ class FrameworkHost:
 
     def require_verified(self, path):
         result = self.verification(path)
+        # Compare upstream's fingerprint, not the whole pass: validate rewrites
+        # the pass's timestamp even when the code is unchanged.
+        current = (self.gate_stamp(path) or {}).get("fingerprint")
         if (
             not result
-            or result.get("verdict") != "pass"
-            or result["stamp"] != self.gate_stamp(path)
+            or result.get("verdict") != PASS
+            or not current
+            or result["stamp"].get("fingerprint") != current
         ):
             raise ValueError(
                 "Independent verification has not passed for this validation stamp. Run agent_app_framework_workflow(activity='verify') to await the independent verification subagent before promotion."

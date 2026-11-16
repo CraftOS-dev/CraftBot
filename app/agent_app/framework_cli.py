@@ -86,7 +86,9 @@ class AgentAppCLI:
         self.package_dir = Path(package_dir).resolve()
         self.home = Path(home).resolve()
 
-    def _prepare(self, surface: Surface, env_extra: Mapping[str, str]):
+    def _prepare(
+        self, surface: Surface, env_extra: Mapping[str, str], new_app: bool = False
+    ):
         entry = self.package_dir / "bin" / f"{surface}.js"
         if not entry.is_file():
             raise FrameworkCLIUnavailable(
@@ -117,12 +119,16 @@ class AgentAppCLI:
         if not (
             env_extra.get("A2APP_TOOLKITS_DIR") or env.get("A2APP_TOOLKITS_DIR", "")
         ).strip():
-            if not toolkits:
+            # The bundled Kanban's toolkit only runs apps already built on it.
+            # A new app starts from the framework's own blueprints, so listing
+            # and scaffolding never see it.
+            if not toolkits and not new_app:
                 from app import paths
                 from app.provision.default_agent_app import bundled_toolkits
 
                 toolkits = str(bundled_toolkits(paths.CODE_ROOT, paths.STATE_ROOT))
-            env["A2APP_TOOLKITS_DIR"] = toolkits
+            if toolkits:
+                env["A2APP_TOOLKITS_DIR"] = toolkits
         # A delegated run must not inherit another run's ambient credential.
         env.pop("A2APP_TOKEN", None)
         env.update(env_extra)
@@ -170,8 +176,11 @@ class AgentAppCLI:
                 extra["A2APP_MARKETPLACE_REF"] = await asyncio.to_thread(
                     _import_default_ref, argv[source_index]
                 )
+        new_app = surface == "agent-app" and (
+            argv[:1] == ["blueprints"] or argv[1:2] == ["scaffold"]
+        )
         # Resolution can probe Node synchronously; keep it off the UI event loop.
-        command, env = await asyncio.to_thread(self._prepare, surface, extra)
+        command, env = await asyncio.to_thread(self._prepare, surface, extra, new_app)
         flags = (
             {"creationflags": subprocess.CREATE_NO_WINDOW}
             if sys.platform == "win32"
