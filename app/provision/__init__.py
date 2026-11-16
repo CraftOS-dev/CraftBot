@@ -15,8 +15,9 @@ Order matters and is expressed once, here:
   python      → the interpreter everything else installs into
   pip         → the package installer compatible with the locks
   python-deps → the locked package set
-  native      → prove the embedding stack loads (not merely installed)
+  native      → prove the native runtime (onnxruntime, chromadb) loads
   smoke       → prove what actions import is importable
+  embedding-model → the memory embedder's ONNX model, SHA-256 pinned
   node        → the one Node runtime
   agent-app-tools → CLI dependencies, including the ZIP reader
   pocketbase  → the pinned executable used by Agent Apps
@@ -32,7 +33,6 @@ the Agent App tooling and PocketBase are required for a complete installation.
 
 from __future__ import annotations
 
-import sys
 from typing import List, Optional
 
 from app import paths
@@ -56,7 +56,13 @@ from app.provision.types import (
     StageResult,
     Status,
 )
-from app.provision.verify import DiskSpaceStage, NativeRuntimeStage, SmokeStage
+from app.provision.verify import (
+    DiskSpaceStage,
+    EmbeddingModelStage,
+    NativeRuntimeStage,
+    PathLengthStage,
+    SmokeStage,
+)
 
 __all__ = [
     "Context",
@@ -77,6 +83,9 @@ def default_stages() -> List[Stage]:
         # First: a precondition, not a provisioning step. Cheap, and failing
         # here beats failing three downloads later with an ENOSPC.
         DiskSpaceStage(),
+        # Windows' 260-character limit: a long clone path otherwise
+        # fails mid-extraction with an unrelated-looking error.
+        PathLengthStage(),
         PythonStage(),
         # Between the interpreter and the locks, deliberately: it pins the
         # pip that decides what the locks mean. See PipStage.
@@ -84,6 +93,9 @@ def default_stages() -> List[Stage]:
         PythonDepsStage(),
         NativeRuntimeStage(),
         SmokeStage(),
+        # The memory embedder's model, fetched now so the first start
+        # never waits on (or dies without) huggingface.co.
+        EmbeddingModelStage(),
         NodeStage(),
         AgentAppToolsStage(),
         PocketBaseStage(),
@@ -105,7 +117,10 @@ def default_context(
         code_root=str(paths.CODE_ROOT),
         state_root=str(paths.STATE_ROOT),
         conda_env=conda_env,
-        service_python=list(service_python) if service_python else [sys.executable],
+        # None means "let the python stage provision the private one";
+        # pinning sys.executable here made every caller install into
+        # whatever Python happened to launch it.
+        service_python=list(service_python) if service_python else None,
         offline=offline,
         new_install=new_install,
     )

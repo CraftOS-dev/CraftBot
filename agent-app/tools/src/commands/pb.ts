@@ -13,6 +13,22 @@ import { pinnedPbVersion, workspaceRoot } from '../lib/paths.ts';
 
 const RELEASE_BASE = 'https://github.com/pocketbase/pocketbase/releases/download';
 
+/**
+ * The URL to fetch after the user's CRAFTBOT_MIRRORS rewrites
+ * (";"-separated "prefix=replacement" pairs, first match wins), the same
+ * setting app/downloads.py applies to the Python, Node and model downloads.
+ */
+export function mirrorUrl(url: string, rules = process.env.CRAFTBOT_MIRRORS ?? ''): string {
+  for (const pair of rules.split(';')) {
+    const at = pair.indexOf('=');
+    if (at <= 0) continue;
+    const prefix = pair.slice(0, at).trim();
+    const replacement = pair.slice(at + 1).trim();
+    if (prefix && replacement && url.startsWith(prefix)) return replacement + url.slice(prefix.length);
+  }
+  return url;
+}
+
 export function binaryReady(bin: string, version: string): boolean {
   try {
     if (!existsSync(bin) || statSync(bin).size === 0) return false;
@@ -61,7 +77,7 @@ export async function downloadArchive(url: string, dest: string, expectedHash: s
     const controller = new AbortController();
     let idle = setTimeout(() => controller.abort(), 120000);
     try {
-      const res = await fetch(url, { redirect: 'follow', signal: controller.signal });
+      const res = await fetch(mirrorUrl(url), { redirect: 'follow', signal: controller.signal });
       if (!res.ok || res.body === null) {
         throw new Error(`PocketBase download failed (HTTP ${res.status}): ${url}`);
       }
