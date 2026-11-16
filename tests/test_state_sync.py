@@ -20,7 +20,13 @@ from types import SimpleNamespace
 import pytest
 
 from app import state_sync
-from app.state_sync import MANIFEST_RELPATH, SKILLS_CONFIG_RELPATH, sync_shipped_files
+from app.state_sync import (
+    MANIFEST_RELPATH,
+    SKILLS_CONFIG_DEFAULT_RELPATH,
+    SKILLS_CONFIG_RELPATH,
+    seed_runtime_files,
+    sync_shipped_files,
+)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -68,14 +74,16 @@ def _make_code(root: Path, *, release: int = 2) -> Path:
         _write(root / "skills/mini-browser/reference/logins.md", "logins\n")
         _write(root / "skills/new-skill/SKILL.md", "---\nname: new-skill\n---\n")
         enabled = enabled + ["new-skill"]
-    _write(root / SKILLS_CONFIG_RELPATH, _skills_config(enabled, ["slack"]))
+    _write(root / SKILLS_CONFIG_DEFAULT_RELPATH, _skills_config(enabled, ["slack"]))
     return root
 
 
 def _seed_state(code: Path, state: Path) -> Path:
-    """What run.py's first-run bootstrap leaves behind: whole-tree copies."""
+    """What run.py's first-run bootstrap leaves behind: whole-tree copies,
+    plus the runtime files created from their shipped defaults."""
     for rel in ("app/data", "app/config", "skills"):
         shutil.copytree(code / rel, state / rel)
+    seed_runtime_files(code, state, log=lambda m: None)
     return state
 
 
@@ -373,7 +381,9 @@ def test_the_real_shipped_tree_includes_the_mini_browser_without_caches():
     assert "app/data/action/mini_browser_actions.py" in shipped
     assert "skills/mini-browser/SKILL.md" in shipped
     assert not [p for p in shipped if "__pycache__" in p or p.endswith(".pyc")]
-    shipped_config = json.loads((REPO_ROOT / SKILLS_CONFIG_RELPATH).read_text("utf-8"))
+    shipped_config = json.loads(
+        (REPO_ROOT / SKILLS_CONFIG_DEFAULT_RELPATH).read_text("utf-8")
+    )
     assert "mini-browser" in shipped_config["enabled_skills"]
 
 
@@ -418,3 +428,65 @@ def test_run_py_bootstrap_syncs_an_upgraded_install(
     assert (state / "app/data/action/mini_browser_actions.py").is_file()
     assert "mini-browser" in _enabled(state)[0]
     assert (state / MANIFEST_RELPATH).is_file()
+
+
+# ── seed_runtime_files: runtime files come from shipped defaults ───────
+
+
+def test_seed_creates_missing_runtime_files_from_their_defaults(tmp_path):
+    code = tmp_path / "code"
+    state = tmp_path / "state"
+    _write(code / "app/config/settings.default.json", '{"version": "9.9.9"}')
+    _write(code / "app/config/mcp_config.default.json", "{}")
+    _write(code / "app/data/agent_file_system_template/AGENT.md", "agent")
+    _write(code / "app/data/agent_file_system_template/SOUL.md", "soul")
+    # Created on demand by its owner (onboarding), never seeded.
+    _write(code / "app/data/agent_file_system_template/USER.md", "user")
+
+    created = seed_runtime_files(code, state, log=lambda m: None)
+
+    assert sorted(created) == [
+        "agent_file_system/AGENT.md",
+        "agent_file_system/SOUL.md",
+        "app/config/mcp_config.json",
+        "app/config/settings.json",
+    ]
+    assert (state / "app/config/settings.json").read_text(
+        encoding="utf-8"
+    ) == '{"version": "9.9.9"}'
+    assert not (state / "agent_file_system/USER.md").exists()
+
+
+def test_seed_never_overwrites_a_users_file(tmp_path):
+    code = tmp_path / "code"
+    state = tmp_path / "state"
+    _write(code / "app/config/settings.default.json", '{"version": "2"}')
+    _write(code / "app/data/agent_file_system_template/MEMORY.md", "template")
+    _write(state / "app/config/settings.json", "{ my edited, even broken, file")
+    _write(state / "agent_file_system/MEMORY.md", "my memories")
+
+    assert seed_runtime_files(code, state, log=lambda m: None) == []
+    assert (state / "app/config/settings.json").read_text(
+        encoding="utf-8"
+    ) == "{ my edited, even broken, file"
+    assert (state / "agent_file_system/MEMORY.md").read_text(
+        encoding="utf-8"
+    ) == "my memories"
+
+
+def test_seed_runs_in_a_checkout_where_code_and_state_are_one_tree(tmp_path):
+    repo = tmp_path / "repo"
+    _write(repo / "app/config/scheduler_config.default.json", '{"enabled": true}')
+
+    assert seed_runtime_files(repo, repo, log=lambda m: None) == [
+        "app/config/scheduler_config.json"
+    ]
+    assert (repo / "app/config/scheduler_config.json").is_file()
+
+
+def test_every_runtime_file_has_a_shipped_default():
+    for name in ("settings", "mcp_config", "scheduler_config", "skills_config"):
+        default = REPO_ROOT / "app/config" / f"{name}.default.json"
+        assert isinstance(json.loads(default.read_text(encoding="utf-8")), dict)
+    for name in state_sync.SEEDED_AGENT_FILES:
+        assert (REPO_ROOT / state_sync.AGENT_FILE_TEMPLATE_RELDIR / name).is_file()

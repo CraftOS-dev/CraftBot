@@ -366,6 +366,7 @@ def test_real_run_service_entry_from_unrelated_working_directory(
         "app/__init__.py",
         "app/paths.py",
         "app/console.py",
+        "app/instance.py",
         "app/python_runtime.py",
         "app/runtime_preflight.py",
         "app/node_runtime.py",
@@ -383,8 +384,11 @@ def test_real_run_service_entry_from_unrelated_working_directory(
     (tree / "requirements.txt").touch()
     pythonw = Path(sys.executable).with_name("pythonw.exe")
     (tree / "config.json").write_text(json.dumps({"python_executable": str(pythonw)}))
-    (tree / "craftbot.pid").write_text('{"pid": 2147483647, "started": 1}')
     state = tmp_path / "relocated user data" if relocated_state else tree
+    # A stale record of a CraftBot that is gone. The pid file and the log
+    # live in STATE_ROOT (app/instance.py), next to the user's data.
+    state.mkdir(parents=True, exist_ok=True)
+    (state / "craftbot.pid").write_text('{"pid": 2147483647, "started": 1}')
     monkeypatch.setattr(craftbot.paths, "STATE_ROOT", state)
     monkeypatch.setattr(craftbot, "RUN_SCRIPT", str(tree / "run.py"))
     monkeypatch.setattr(craftbot, "_python_exe", lambda: str(pythonw))
@@ -426,7 +430,7 @@ def test_real_run_service_entry_from_unrelated_working_directory(
         creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NO_WINDOW,
         timeout=30,
     )
-    assert child.returncode == 0, (tree / "craftbot.log").read_text(encoding="utf-8")
+    assert child.returncode == 0, (state / "craftbot.log").read_text(encoding="utf-8")
     assert (tree / "preflight-reached").exists()
-    assert not (tree / "craftbot.pid").exists()
-    assert "SERVICE ENTRY OK" in (tree / "craftbot.log").read_text(encoding="utf-8")
+    assert not (state / "craftbot.pid").exists()
+    assert "SERVICE ENTRY OK" in (state / "craftbot.log").read_text(encoding="utf-8")
