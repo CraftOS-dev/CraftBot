@@ -22,7 +22,7 @@
       "description": "只要點按一下，即可從社群市集安裝現成的應用程式。"
     },
     "agent-app-custom": {
-      "title": "自訂建立",
+      "title": "建置",
       "description": "描述你想要的內容，代理就會為你打造：設定一些基本項目、回答簡短訪談，接著它會撰寫規格並建置應用程式。"
     },
     "agent-app-import": {
