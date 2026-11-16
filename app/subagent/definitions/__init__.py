@@ -10,7 +10,9 @@ To add a new sub-agent type:
 
 1. Create ``app/subagent/definitions/your_agent.py`` modeled on the
    existing files (system prompt, actions list, caps, single
-   :func:`register_subagent` call at module level).
+   :func:`register_subagent` call at module level). The prompt is the
+   type's role, workflow, rules and ending only: the runtime appends the
+   decision instructions (batching rules, reply format, <actions>).
 2. Add ``from app.subagent.definitions import your_agent`` to the
    imports below so it loads on package import.
 
@@ -25,4 +27,3 @@ from app.subagent.definitions import research_agent  # noqa: F401
 from app.subagent.definitions import general_agent  # noqa: F401
 from app.subagent.definitions import framework_walk_verify  # noqa: F401
 from app.subagent.definitions import browser_agent  # noqa: F401
-# from app.subagent.definitions import validation_agent  # noqa: F401

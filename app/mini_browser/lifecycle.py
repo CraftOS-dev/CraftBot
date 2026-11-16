@@ -1,8 +1,7 @@
 """Hooks the agent runtime calls into the Mini Browser.
 
 Called by ``AgentBase`` (run state changes, Stop, deleted sessions, finished
-sub-agents, settings changes, shutdown), possibly from other threads (a
-sub-agent finishing on its worker thread). Every hook is thread-safe, returns
+sub-agents, settings changes, shutdown), possibly from other threads. Every hook is thread-safe, returns
 immediately, never starts a browser and never raises: when a session's
 browser was never used there is nothing to do. Every session has a browser
 of its own (``fleet.py``); a hook about a sub-agent goes to its parent
@@ -80,9 +79,12 @@ def release_owner(owner: str) -> None:
     if not _valid(owner):
         return
     forget_owner(owner)
+    # Resolved now: the sub-agent's record is dropped right after this hook,
+    # before the browser thread runs ``apply``.
+    key = config.browser_key(owner)
 
     async def apply(fleet: Any) -> None:
-        core = fleet.existing(config.browser_key(owner))
+        core = fleet.existing(key)
         if core is not None:
             core.release_owner(owner, close_tabs=True)
 

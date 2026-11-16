@@ -262,12 +262,14 @@ def test_a_full_request_carries_the_reason_of_its_reset(monkeypatch, reason):
     assert llm.sent[1]["metadata"] == {"request": "full", "reason": reason}
 
 
-def test_no_new_events_starts_a_new_history_labeled_no_delta(monkeypatch):
+def test_no_new_events_continue_the_history(monkeypatch):
     stream, llm = _Stream(), _LLM([END_TURN, END_TURN])
     router = _router(monkeypatch, llm, stream)
     _decide(router)
     _decide(router)  # nothing new since the last request
-    assert llm.sent[1]["metadata"] == {"request": "full", "reason": "no_delta"}
+    assert llm.resets == 1  # the first request only
+    assert llm.sent[1]["metadata"] == {"request": "delta"}
+    assert llm.sent[1]["user"] == router_module.NO_NEW_EVENTS_PROMPT
 
 
 # ── the event stream's reasons ───────────────────────────────────────────────

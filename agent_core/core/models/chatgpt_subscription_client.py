@@ -450,7 +450,7 @@ def _extract_first_json_object(text: str) -> Tuple[str, bool]:
 
     That trips CraftBot's per-call parser ("Extra data: line 1 column
     N"). Truncating to the first well-formed JSON object gives the
-    sub-agent runner exactly what it expects — one action per call — and
+    decision parser exactly what it expects — one decision per call — and
     the model can re-plan the next action on the next call. The chained
     JSONs beyond the first are effectively speculative planning tokens
     that get discarded.

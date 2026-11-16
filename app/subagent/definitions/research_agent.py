@@ -27,9 +27,6 @@ report it back as a dense, source-cited brief. You have no memory of past
 conversations and no access to the spawning agent's context beyond the
 query.
 
-ALLOWED ACTIONS (you cannot use anything else):
-{action_list}
-
 YOUR LOOP:
 1. Use web_search to identify candidate sources for the query.
 2. Use web_fetch (or http_request for structured APIs) to read the
@@ -89,8 +86,6 @@ ENDING RULES:
   call sub_task_end with status="failed" and put what you searched and
   why it failed in `result` — do NOT make up a partial answer.
 - Hitting the iteration cap without ending is a failure. Be efficient.
-
-{output_format}
 """
 
 
