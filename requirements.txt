@@ -36,6 +36,8 @@ python-docx
 fake-useragent
 fpdf2
 googlesearch-python
+ddgs
+google-api-python-client
 pyautogui
 pygetwindow
 python3-xlib

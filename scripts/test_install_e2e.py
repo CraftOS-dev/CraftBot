@@ -130,7 +130,9 @@ def main() -> int:
         # are exec'd from source so their absence is silent until called.
         required = [
             "run.py",
+            "installer/startup.py",
             "app/provision/__init__.py",
+            "app/provision/python_downloads.json",
             "app/provision/agent_app_framework.py",
             "app/vendor/agent-app/source.json",
             "app/vendor/agent-app/agent-app-framework.zip",

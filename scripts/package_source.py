@@ -59,6 +59,8 @@ EXCLUDE_PREFIXES = (
 
 EXCLUDE_SUFFIXES = (".md",)
 
+# Kept despite the rules above — README is the one doc worth shipping, and
+# the i18n README variants are not.
 KEEP_EXACT = {"README.md", "LICENSE"}
 
 
@@ -157,8 +159,7 @@ def build(output: Path) -> int:
             "app/data/action/agent_app_framework_actions.py",
             "app/provision/agent_app_framework.py",
             "app/provision/__init__.py",
-            "app/runtime-manifest.json",
-            "app/runtime_manifest.py",
+            "app/provision/python_downloads.json",
             "app/provision/default_agent_app.py",
             "app/data/default_agent_app/kanban-board.zip",
             "app/data/default_agent_app/source.json",
@@ -169,6 +170,7 @@ def build(output: Path) -> int:
             "installer/helpers.py",
             "installer/metadata.py",
             "installer/payload.py",
+            "installer/startup.py",
         ]
     )
     with zipfile.ZipFile(output) as zf:
