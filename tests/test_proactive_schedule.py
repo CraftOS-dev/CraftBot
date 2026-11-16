@@ -104,9 +104,9 @@ class TestMonthlySchedule:
 
     def test_shipped_planners_parse(self):
         config = json.loads(
-            (TEMPLATE.parents[2] / "config" / "scheduler_config.json").read_text(
-                encoding="utf-8"
-            )
+            (
+                TEMPLATE.parents[2] / "config" / "scheduler_config.default.json"
+            ).read_text(encoding="utf-8")
         )
         types_by_id = {
             s["id"]: ScheduleParser.parse(s["schedule"]).schedule_type
