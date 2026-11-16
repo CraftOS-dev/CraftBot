@@ -25,6 +25,13 @@ load from STATE, and a non-empty ``enabled_skills`` list is a whitelist.
   user already lists them as enabled or disabled; the names already offered
   are remembered, so a skill the user turned off is never turned back on.
 
+:func:`seed_runtime_files` covers the files CraftBot rewrites while it runs
+(``app/config/*.json`` and the agent's markdown files). They are not shipped
+as such, so ``git pull`` never collides with a user's edits; each has a
+shipped default instead (``app/config/<name>.default.json``,
+``app/data/agent_file_system_template/<name>.md``), copied into STATE only
+when the file is missing. This runs for every layout, a checkout included.
+
 Stdlib only (run.py calls it before dependencies are installed), and it never
 raises: every problem is reported through ``log`` and retried at the next
 start where that makes sense.
@@ -39,9 +46,16 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Set, Tuple
 
 __all__ = [
+    "AGENT_FILE_SYSTEM_RELDIR",
+    "AGENT_FILE_TEMPLATE_RELDIR",
+    "CONFIG_DEFAULT_SUFFIX",
+    "CONFIG_RELDIR",
     "MANIFEST_RELPATH",
+    "SEEDED_AGENT_FILES",
+    "SKILLS_CONFIG_DEFAULT_RELPATH",
     "SKILLS_CONFIG_RELPATH",
     "SYNC_ROOTS",
+    "seed_runtime_files",
     "sync_shipped_files",
 ]
 
@@ -50,6 +64,28 @@ SYNC_ROOTS: Tuple[str, ...] = ("app/data/action", "skills")
 #: Where the record of handled shipped files and offered skills lives.
 MANIFEST_RELPATH = "app/data/.shipped_manifest.json"
 SKILLS_CONFIG_RELPATH = "app/config/skills_config.json"
+#: The shipped default of skills_config.json: what a release enables.
+SKILLS_CONFIG_DEFAULT_RELPATH = "app/config/skills_config.default.json"
+
+#: Runtime config files: STATE/app/config/<name>.json is created from the
+#: shipped CODE/app/config/<name>.default.json when missing.
+CONFIG_RELDIR = "app/config"
+CONFIG_DEFAULT_SUFFIX = ".default.json"
+#: The agent's own markdown files: STATE/agent_file_system/<name> is created
+#: from CODE/app/data/agent_file_system_template/<name> when missing. Other
+#: template files (USER.md, the history files) are created on demand by the
+#: code that owns them.
+AGENT_FILE_TEMPLATE_RELDIR = "app/data/agent_file_system_template"
+AGENT_FILE_SYSTEM_RELDIR = "agent_file_system"
+SEEDED_AGENT_FILES: Tuple[str, ...] = (
+    "AGENT.md",
+    "SOUL.md",
+    "FORMAT.md",
+    "GLOBAL_AGENT_APP.md",
+    "MEMORY.md",
+    "ENTITIES.md",
+    "PROACTIVE.md",
+)
 
 _MANIFEST_VERSION = 1
 # Never shipped content: caches and VCS/OS clutter.
@@ -71,6 +107,56 @@ _MAX_LISTED = 8  # copied paths named in the log line
 
 def _default_log(message: str) -> None:
     print(message)
+
+
+def seed_runtime_files(
+    code_root: Any,
+    state_root: Any,
+    log: Callable[[str], None] = _default_log,
+) -> List[str]:
+    """Create each missing runtime file from its shipped default.
+
+    Never overwrites: a file that exists in STATE is the user's, whatever it
+    contains. Returns the STATE-relative paths created. Never raises.
+    """
+    created: List[str] = []
+    try:
+        code = Path(code_root)
+        state = Path(state_root)
+        pairs: List[Tuple[Path, str]] = []
+        config_dir = code / CONFIG_RELDIR
+        if config_dir.is_dir():
+            for default in sorted(config_dir.glob("*" + CONFIG_DEFAULT_SUFFIX)):
+                name = default.name[: -len(CONFIG_DEFAULT_SUFFIX)] + ".json"
+                pairs.append((default, f"{CONFIG_RELDIR}/{name}"))
+        template_dir = code / AGENT_FILE_TEMPLATE_RELDIR
+        for name in SEEDED_AGENT_FILES:
+            template = template_dir / name
+            if template.is_file():
+                pairs.append((template, f"{AGENT_FILE_SYSTEM_RELDIR}/{name}"))
+
+        for source, rel in pairs:
+            dest = state / rel
+            if _exists(dest):
+                continue
+            try:
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, dest)
+            except OSError as exc:
+                _safe_log(log, f"  Warning: could not create {rel}: {_describe(exc)}")
+                continue
+            created.append(rel)
+    except Exception as exc:  # startup must go on
+        _safe_log(log, f"  Warning: could not create default files: {_describe(exc)}")
+    if created:
+        shown = ", ".join(created[:_MAX_LISTED])
+        more = (
+            f" (+{len(created) - _MAX_LISTED} more)"
+            if len(created) > _MAX_LISTED
+            else ""
+        )
+        _safe_log(log, f"  Created {len(created)} file(s) from defaults: {shown}{more}")
+    return created
 
 
 def sync_shipped_files(
@@ -229,7 +315,7 @@ def _enable_new_skills(
     the user's config could not be read, so the names are offered again at
     the next start instead of being recorded as handled.
     """
-    shipped_config = _read_json(code_root / SKILLS_CONFIG_RELPATH)
+    shipped_config = _read_json(code_root / SKILLS_CONFIG_DEFAULT_RELPATH)
     shipped = _names(
         shipped_config.get("enabled_skills")
         if isinstance(shipped_config, dict)

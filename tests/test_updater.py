@@ -15,7 +15,7 @@ HEAD = ("git", "rev-parse", "HEAD")
 ORIGIN_MAIN = ("git", "rev-parse", "origin/main")
 COUNT_MAIN = ("git", "rev-list", "--left-right", "--count", "HEAD...origin/main")
 SHOW_VERSION_FILE = ("git", "show", "origin/main:VERSION")
-SHOW_SETTINGS_FILE = ("git", "show", "origin/main:app/config/settings.json")
+SHOW_SETTINGS_FILE = ("git", "show", "origin/main:app/config/settings.default.json")
 
 LOCAL_REVISION = b"1111111111111111111111111111111111111111\n"
 REMOTE_REVISION = b"2222222222222222222222222222222222222222\n"
@@ -62,10 +62,10 @@ def test_source_update_reports_remote_version_when_behind(monkeypatch, tmp_path)
     assert FETCH_MAIN in calls
 
 
-def test_source_update_falls_back_to_settings_json_for_remote_version(
+def test_source_update_falls_back_to_settings_default_for_remote_version(
     monkeypatch, tmp_path
 ):
-    """No VERSION file on main — read the version out of settings.json."""
+    """No VERSION file on main: read the version out of settings.default.json."""
 
     async def fake_run_git(cmd, cwd):
         key = tuple(cmd)
@@ -199,6 +199,8 @@ def test_check_for_update_reports_source_checkout_update(monkeypatch):
     async def unused_release_check(current):
         raise AssertionError("release check should not run for a git checkout")
 
+    # A git checkout, whatever the folder the tests run from is.
+    monkeypatch.setattr(updater, "can_self_update", lambda root: True)
     monkeypatch.setattr("app.config.get_app_version", lambda: "1.3.4")
     monkeypatch.setattr(updater, "_check_source_update", fake_source_update)
     monkeypatch.setattr(updater, "_check_release_update", unused_release_check)
@@ -217,6 +219,8 @@ def test_check_for_update_falls_back_to_release_tags(monkeypatch):
     async def fake_release_check(current):
         return updater.UpdateStatus(True, current, "1.3.5")
 
+    # A git checkout, whatever the folder the tests run from is.
+    monkeypatch.setattr(updater, "can_self_update", lambda root: True)
     monkeypatch.setattr("app.config.get_app_version", lambda: "1.3.4")
     monkeypatch.setattr(updater, "_check_source_update", no_source_update)
     monkeypatch.setattr(updater, "_check_release_update", fake_release_check)
@@ -247,6 +251,8 @@ def test_perform_update_launches_posix_script_with_current_python(monkeypatch):
     project_root = Path(__file__).resolve().parent.parent
     updater_script = project_root / "scripts" / "updater.sh"
 
+    # A git checkout, whatever the folder the tests run from is.
+    monkeypatch.setattr(updater, "can_self_update", lambda root: True)
     monkeypatch.setattr(updater.sys, "platform", "linux")
     # _updater_script_path binds its `platform` default at import time, so
     # patching sys.platform alone is not enough on a win32 test host.
@@ -279,3 +285,40 @@ def test_updater_script_path_is_platform_specific(platform, expected):
 
 def test_posix_updater_script_is_versioned():
     assert (Path(__file__).resolve().parent.parent / "scripts" / "updater.sh").is_file()
+
+
+def test_no_update_is_offered_where_git_cannot_apply_it(monkeypatch):
+    """Docker images, ZIP downloads and managed installs have no .git."""
+
+    async def must_not_probe(*args, **kwargs):
+        raise AssertionError("no update check for an install without git")
+
+    monkeypatch.setattr("app.config.get_app_version", lambda: "1.3.4")
+    monkeypatch.setattr(updater, "can_self_update", lambda root: False)
+    monkeypatch.setattr(updater, "_check_source_update", must_not_probe)
+    monkeypatch.setattr(updater, "_check_release_update", must_not_probe)
+
+    assert run(updater.check_for_update()) == updater.UpdateStatus(
+        False, "1.3.4", "1.3.4", None
+    )
+
+
+def test_perform_update_refuses_without_git_and_keeps_running(monkeypatch):
+    monkeypatch.setattr(updater, "can_self_update", lambda root: False)
+    monkeypatch.setattr(
+        updater.subprocess,
+        "Popen",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("launched updater")),
+    )
+    monkeypatch.setattr(
+        updater.os,
+        "_exit",
+        lambda code: (_ for _ in ()).throw(AssertionError("shut down")),
+    )
+
+    with pytest.raises(RuntimeError, match="cannot update itself"):
+        run(updater.perform_update())
+
+
+def test_can_self_update_needs_a_git_work_tree(tmp_path):
+    assert updater.can_self_update(tmp_path) is False

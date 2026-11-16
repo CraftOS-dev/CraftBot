@@ -4302,10 +4302,12 @@ class AgentBase:
         self._usage_reporter = get_usage_reporter()
         self._usage_reporter.start_background_flush()
 
-        # Pre-warm the find_files index for all local drives (background,
-        # non-blocking) so the first real search doesn't pay a cold-crawl cost.
-        if is_prewarm_all_drives_enabled():
-            self._start_index_prewarm()
+        # Pre-warm the find_files index (background, non-blocking) so the
+        # first real search doesn't pay a cold-crawl cost. By default only
+        # the agent workspace: crawling and watching every drive slowed the
+        # first start and made macOS ask for Desktop/Documents/Downloads
+        # access. settings.json file_index.prewarm_all_drives opts back in.
+        self._start_index_prewarm(all_drives=is_prewarm_all_drives_enabled())
 
         # Configure integrations + start external comms manager
         step(6, 7, "Initializing integrations")
@@ -4422,8 +4424,9 @@ class AgentBase:
         except Exception as e:
             logger.warning(f"[BOOT] Could not write the ready marker: {e}")
 
-    def _start_index_prewarm(self) -> None:
-        """Warm the find_files index for every local drive in a background thread.
+    def _start_index_prewarm(self, all_drives: bool = False) -> None:
+        """Warm the find_files index in a background thread: the agent
+        workspace, or every local drive when ``all_drives`` is set.
 
         Runs one drive at a time rather than one thread per drive: concurrent
         full-drive crawls were observed contending with each other for the
@@ -4432,14 +4435,21 @@ class AgentBase:
         """
         import threading
 
+        from app.config import AGENT_WORKSPACE_ROOT
         from app.utils import file_index
 
         def _prewarm() -> None:
-            try:
-                drives = file_index.list_local_drives()
-            except Exception as e:
-                logger.warning(f"[FILE_INDEX] Could not enumerate local drives: {e}")
-                return
+            if all_drives:
+                try:
+                    drives = file_index.list_local_drives()
+                except Exception as e:
+                    logger.warning(
+                        f"[FILE_INDEX] Could not enumerate local drives: {e}"
+                    )
+                    return
+            else:
+                AGENT_WORKSPACE_ROOT.mkdir(parents=True, exist_ok=True)
+                drives = [str(AGENT_WORKSPACE_ROOT)]
 
             for drive in drives:
                 try:

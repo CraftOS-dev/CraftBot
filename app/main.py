@@ -133,6 +133,15 @@ def _install_ssl_windows_store_shim() -> None:
 _install_ssl_windows_store_shim()
 # ============================================================================
 
+# Runtime files CraftBot rewrites (app/config/*.json, the agent's markdown
+# files) are created from their shipped defaults when missing. run.py does
+# this too; repeated here for entry points that start app.main directly
+# (Docker, the e2e harness). Stdlib only, never raises, never overwrites.
+from app import paths as _paths  # noqa: E402
+from app.state_sync import seed_runtime_files as _seed_runtime_files  # noqa: E402
+
+_seed_runtime_files(_paths.CODE_ROOT, _paths.STATE_ROOT)
+
 import argparse
 import asyncio
 
