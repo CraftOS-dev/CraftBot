@@ -167,6 +167,12 @@ def _embedding_model() -> Dict[str, Any]:
         "configured": configured,
         "onnx_runtime_loadable": runtime_loadable,
         "model_files_present": files_present,
+        # What compare() checks: the model this install's packages can run.
+        # File presence is install state (the model is fetched by its own
+        # stage), not a pip-vs-conda difference, so it is reported only.
+        "effective": configured
+        if (runtime_loadable or configured == "default")
+        else "default",
     }
 
 
