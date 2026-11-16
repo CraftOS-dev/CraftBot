@@ -21,11 +21,12 @@ import os
 import subprocess
 import sys
 import tempfile
+import threading
 import uuid
 import venv
 from pathlib import Path
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from agent_core.utils.logger import logger
 from agent_core.utils.windows_process import hidden_console_kwargs
@@ -46,6 +47,13 @@ _PERSISTENT_VENV_DIR: Optional[Path] = None
 
 # Base packages that must be installed in the sandbox venv (empty - venv isolation is the sandbox)
 _SANDBOX_BASE_PACKAGES = []
+
+# Requirements settled in this process, as (python_bin, entry): confirmed
+# installed, or not a pip package at all. Installed packages stay installed,
+# so each is checked once instead of on every call (a ``pip show`` costs
+# ~1.5 s). The lock makes concurrent first calls wait for one check.
+_SETTLED_REQUIREMENTS: Set[Tuple[Optional[str], str]] = set()
+_REQUIREMENTS_LOCK = threading.Lock()
 
 
 class _HiddenEnvBuilder(venv.EnvBuilder):
@@ -203,69 +211,78 @@ def _ensure_requirements(
     if not requirements:
         return
 
-    pip_python = python_bin or _find_system_python()
-    if not pip_python:
-        logger.warning(
-            "[REQUIREMENTS] No Python interpreter found on PATH; cannot install packages."
-        )
-        return
+    with _REQUIREMENTS_LOCK:
+        pending = [
+            pkg
+            for pkg in (entry.strip() for entry in requirements)
+            if pkg and (python_bin, pkg) not in _SETTLED_REQUIREMENTS
+        ]
+        if not pending:
+            return
 
-    installed_any = False
-    for pkg in requirements:
-        pkg = pkg.strip()
-        if not pkg:
-            continue
+        pip_python = python_bin or _find_system_python()
+        if not pip_python:
+            logger.warning(
+                "[REQUIREMENTS] No Python interpreter found on PATH; cannot install packages."
+            )
+            return
 
-        # Heuristic: skip entries that look like class names
-        # (e.g. "DDGS", "ClientSession", "build") rather than pip
-        # packages. Pip packages are lowercase and may contain
-        # hyphens/underscores/dots.
-        if not pkg[0].islower() and "-" not in pkg:
-            continue
+        installed_any = False
+        for pkg in pending:
+            # Heuristic: skip entries that look like class names
+            # (e.g. "DDGS", "ClientSession", "build") rather than pip
+            # packages. Pip packages are lowercase and may contain
+            # hyphens/underscores/dots.
+            if not pkg[0].islower() and "-" not in pkg:
+                _SETTLED_REQUIREMENTS.add((python_bin, pkg))
+                continue
 
-        # Derive the importable module name for the quick check.
-        # Only useful when NOT frozen (in-process imports work).
-        import_name = pkg.replace("-", "_").split("[")[0]
+            # Derive the importable module name for the quick check.
+            # Only useful when NOT frozen (in-process imports work).
+            import_name = pkg.replace("-", "_").split("[")[0]
 
-        # First try a fast import check (works for most packages)
-        if not getattr(sys, "frozen", False):
+            # First try a fast import check (works for most packages)
+            if not getattr(sys, "frozen", False):
+                try:
+                    importlib.import_module(import_name)
+                    _SETTLED_REQUIREMENTS.add((python_bin, pkg))
+                    continue  # already installed
+                except ImportError:
+                    pass
+
+            # If import failed (or frozen), use pip show to check.
+            # This handles packages where pip name != import name
+            # (e.g., beautifulsoup4 -> bs4, Pillow -> PIL)
             try:
-                importlib.import_module(import_name)
+                subprocess.check_call(
+                    [str(pip_python), "-m", "pip", "show", "--quiet", pkg],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=15,
+                    **hidden_console_kwargs(),
+                )
+                _SETTLED_REQUIREMENTS.add((python_bin, pkg))
                 continue  # already installed
-            except ImportError:
+            except Exception:
                 pass
 
-        # If import failed (or frozen), use pip show to check.
-        # This handles packages where pip name != import name
-        # (e.g., beautifulsoup4 -> bs4, Pillow -> PIL)
-        try:
-            subprocess.check_call(
-                [str(pip_python), "-m", "pip", "show", "--quiet", pkg],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=15,
-                **hidden_console_kwargs(),
-            )
-            continue  # already installed
-        except Exception:
-            pass
+            try:
+                subprocess.check_call(
+                    [str(pip_python), "-m", "pip", "install", "--quiet", pkg],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=120,
+                    **hidden_console_kwargs(),
+                )
+                installed_any = True
+                _SETTLED_REQUIREMENTS.add((python_bin, pkg))
+                logger.info(f"[REQUIREMENTS] Installed '{pkg}'")
+            except Exception as e:
+                logger.warning(f"[REQUIREMENTS] Failed to install '{pkg}': {e}")
 
-        try:
-            subprocess.check_call(
-                [str(pip_python), "-m", "pip", "install", "--quiet", pkg],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=120,
-                **hidden_console_kwargs(),
-            )
-            installed_any = True
-            logger.info(f"[REQUIREMENTS] Installed '{pkg}'")
-        except Exception as e:
-            logger.warning(f"[REQUIREMENTS] Failed to install '{pkg}': {e}")
-
-    # Refresh import caches so in-process exec() can find new packages.
-    if installed_any:
-        importlib.invalidate_caches()
+        # Refresh import caches so in-process exec() can find new packages.
+        if installed_any:
+            importlib.invalidate_caches()
 
 
 def _suppress_worker_stdio():
@@ -558,7 +575,7 @@ def _atomic_action_internal(
 ) -> dict:
     """
     Executes an internal action in-process (sync version).
-    Requirements are pre-installed at startup via install_all_action_requirements().
+    Requirements are ensured before the call (ActionExecutor.execute_atomic_action).
     """
     try:
         import inspect
@@ -730,10 +747,11 @@ class ActionExecutor:
         )
         logger.debug(f"[EXECUTION CODE] {action.code}")
 
-        # Pre-install declared pip requirements
+        # Pre-install declared pip requirements, off the event loop: a first
+        # check runs pip (seconds; an install, up to minutes).
         requirements = getattr(action, "requirements", [])
         if requirements and execution_mode == "internal":
-            _ensure_requirements(requirements)
+            await asyncio.to_thread(_ensure_requirements, requirements)
 
         if execution_mode == "internal":
             # Use async executor which handles both sync and async action functions
