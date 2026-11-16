@@ -156,7 +156,7 @@
     "addTitle": "Agent App 추가",
     "setupQuestions": "{{name}} — 설정 질문",
     "tabMarketplace": "마켓플레이스",
-    "tabCustom": "사용자 지정 만들기",
+    "tabCustom": "빌드",
     "tabImport": "가져오기",
     "searchPlaceholder": "앱 검색...",
     "tagsLabel": "태그:",

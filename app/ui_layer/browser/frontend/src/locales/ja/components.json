@@ -156,7 +156,7 @@
     "addTitle": "Agent App を追加",
     "setupQuestions": "{{name}} — セットアップの質問",
     "tabMarketplace": "マーケットプレイス",
-    "tabCustom": "カスタム作成",
+    "tabCustom": "ビルド",
     "tabImport": "インポート",
     "searchPlaceholder": "アプリを検索...",
     "tagsLabel": "タグ:",

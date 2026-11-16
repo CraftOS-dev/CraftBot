@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Sparkles, Download, ArrowRight, Loader2, Package, Store, FolderInput, Upload, Search, Link } from 'lucide-react'
+import { Sparkles, Download, ArrowRight, Loader2, Package, Store, FolderInput, Upload, Search, Link, Hammer } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Button } from './Button'
 import { Modal } from './Modal'
@@ -255,7 +255,7 @@ export function CreateAgentAppModal({ isOpen, onClose, onInstalled }: CreateAgen
 
   const tabsConfig = [
     { id: 'marketplace' as const, label: t('components:createAgentApp.tabMarketplace'), icon: <Store size={14} /> },
-    { id: 'custom' as const, label: t('components:createAgentApp.tabCustom'), icon: <Sparkles size={14} /> },
+    { id: 'custom' as const, label: t('components:createAgentApp.tabCustom'), icon: <Hammer size={14} /> },
     { id: 'import' as const, label: t('components:createAgentApp.tabImport'), icon: <FolderInput size={14} /> },
     { id: 'connect' as const, label: 'Connect', icon: <Link size={14} /> },
   ]
