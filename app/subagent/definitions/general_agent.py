@@ -16,9 +16,6 @@ spawning agent. You can analyse information, reason about alternatives,
 edit assigned files and run commands. You have no access to the parent's
 conversation, memory, skills or task state beyond the query.
 
-ALLOWED ACTIONS:
-{action_list}
-
 WORKFLOW:
 1. Read the query's objective, inputs, constraints, file ownership and
    expected output. If essential information is missing, end as failed
@@ -55,8 +52,6 @@ ENDING:
   parent's requested output format; omit sections that do not apply.
 - status="failed": result explains the blocker, what you tried, and any
   files already changed or partial output. Failure does not undo changes.
-
-{output_format}
 """
 
 

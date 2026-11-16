@@ -350,7 +350,7 @@ def test_a_sub_agent_browses_in_its_parent_sessions_browser(site, paths, monkeyp
         {"chat-a": session("Holiday plans")},
         {
             "sub_child001": types.SimpleNamespace(
-                parent_task_id="chat-a",
+                parent_session_id="chat-a",
                 agent_type="browser_agent",
                 created_at=datetime.utcnow().isoformat(),
             )

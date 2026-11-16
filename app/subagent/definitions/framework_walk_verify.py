@@ -35,9 +35,6 @@ includes the installed, unchanged framework walk-verify skill and its source pat
 Follow that skill and its referenced quality standard; do not replace them with
 CraftBot's legacy app checklist.
 
-ALLOWED ACTIONS:
-{action_list}
-
 Use your own Mini Browser tabs for the real UI walk, and describe_image for
 screenshots. Use the assigned app directory with a2app_command for operation
 discovery and API tests on the DEV instance.
@@ -54,8 +51,6 @@ verdict (pass, defects, incomplete or blocked) and evidence (a self-contained re
 with actual checks, findings and evidence paths). Only claim pass when every
 required check passed. CraftBot records this result against the assigned validation
 stamp and returns it to the builder; do not call the verdict-reporting action.
-
-{output_format}
 """,
     actions=[
         "mini_browser_navigate",
@@ -82,12 +77,4 @@ stamp and returns it to the builder; do not call the verdict-reporting action.
     max_iterations=100,
     max_wall_seconds=1800,
     early_end_guard=_valid_result,
-    compact_actions=(
-        "mini_browser_read",
-        "mini_browser_navigate",
-        "mini_browser_click",
-        "mini_browser_screenshot",
-    ),
-    compact_keep=3,
-    session_reset_every=10,
 )

@@ -96,21 +96,13 @@ def baseline(host, path):
 
 async def run_verification(host, row, stamp, request, parent_session_id):
     from app.internal_action_interface import InternalActionInterface as I
-    from app.logger import logger, add_subagent_log_sink, remove_subagent_log_sink
-    from app.subagent import SubAgentRunner
+    from app.logger import logger
 
-    parts = (
-        I.subagent_manager,
-        I.action_manager,
-        I.action_library,
-        I.event_stream_manager,
-        I.llm_interface,
-    )
-    if any(part is None for part in parts):
+    manager = I.subagent_manager
+    if manager is None:
         raise RuntimeError(
             "CraftBot's subagent runtime is unavailable; verification was not started."
         )
-    manager, actions, library, events, llm = parts
     parent = host.agent.session_manager.get(parent_session_id)
     if parent is None or getattr(parent, "isolated_app_task", False):
         raise ValueError("Verification needs an existing owner conversation.")
@@ -140,12 +132,7 @@ async def run_verification(host, row, stamp, request, parent_session_id):
         f"Installed skill source: {source}\nResolve relative references from: {source.parent}\n"
         f"--- BEGIN UNCHANGED FRAMEWORK SKILL ---\n{skill}\n--- END FRAMEWORK SKILL ---"
     )
-    sub = manager.spawn(
-        "framework_walk_verify",
-        query,
-        parent_task_id=parent.id,
-        parent_temp_dir=parent.workspace_dir,
-    )
+    sub = manager.spawn("framework_walk_verify", query, parent_session_id=parent.id)
     assignment = {
         "path": row["path"],
         "appId": row["id"],
@@ -156,8 +143,6 @@ async def run_verification(host, row, stamp, request, parent_session_id):
         "status": "running",
     }
     token = verification_target.set(target)
-    agent_tag = f"sub:{sub.agent_type}:{sub.id.removeprefix('sub_')}"
-    sink = None
 
     def record(verdict, evidence):
         report = host.report_verification(sub.id, verdict, evidence)
@@ -172,10 +157,7 @@ async def run_verification(host, row, stamp, request, parent_session_id):
             sub.id, INCOMPLETE, "Independent verification is running."
         )
         await host.changed()
-        runner = SubAgentRunner(manager, actions, library, events, llm)
-        sink = add_subagent_log_sink(agent_tag, parent.id)
-        with logger.contextualize(agent=agent_tag, session=parent.id):
-            await runner.run_to_completion(sub)
+        await manager.run(sub)
         try:
             result = json.loads(sub.result or "")
             verdict, evidence = result["verdict"], result["evidence"]
@@ -214,14 +196,11 @@ async def run_verification(host, row, stamp, request, parent_session_id):
     finally:
         target.active = False
         verification_target.reset(token)
-        if sink is not None:
-            remove_subagent_log_sink(sink)
-        # Also covers setup failures before the runner enters its own finally.
-        if events.has_stream(sub.id):
-            try:
-                manager.release(sub.id)
-            except Exception as error:
-                logger.warning(f"Verifier cleanup failed for {sub.id}: {error}")
+        # Covers setup failures before the run, which releases it itself.
+        try:
+            manager.release(sub.id)
+        except Exception as error:
+            logger.warning(f"Verifier cleanup failed for {sub.id}: {error}")
         host.store.put(
             "verification_session", sub.id, {**assignment, "status": sub.status}
         )

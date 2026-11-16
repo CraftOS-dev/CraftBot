@@ -25,6 +25,7 @@ from agent_core.core.impl.llm.errors import LLMConsecutiveFailureError
 from agent_core.core.errors import ClassifiedError, ErrorCategory, ErrorInfo
 from agent_core.core.prompts import (
     EVENT_STREAM_SUMMARY_ON_HISTORY_PROMPT,
+    NO_NEW_EVENTS_PROMPT,
     SELECT_ACTION_INSTRUCTIONS,
     SELECT_ACTION_PROMPT,
     decision_system_prompt,
@@ -63,6 +64,39 @@ def _summary_from_reply(raw: Optional[str]) -> Optional[str]:
     return summary.strip()
 
 
+def _first_json_object(text: str) -> Optional[Dict[str, Any]]:
+    """The first balanced ``{...}`` in ``text`` that parses as a JSON object,
+    scanning with string awareness so braces inside JSON strings don't
+    confuse the match. None when none parses."""
+    start = text.find("{")
+    while start != -1:
+        depth, in_str, esc = 0, False, False
+        for i in range(start, len(text)):
+            ch = text[i]
+            if in_str:
+                if esc:
+                    esc = False
+                elif ch == "\\":
+                    esc = True
+                elif ch == '"':
+                    in_str = False
+                continue
+            if ch == '"':
+                in_str = True
+            elif ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    try:
+                        obj = json.loads(text[start : i + 1])
+                    except json.JSONDecodeError:
+                        break  # try the next '{'
+                    return obj if isinstance(obj, dict) else None
+        start = text.find("{", start + 1)
+    return None
+
+
 def _is_visible_in_mode(action, GUI_mode: bool) -> bool:
     """
     Returns True if the action should be visible under the given GUI_mode.
@@ -87,6 +121,12 @@ class ActionRouter:
     """
     Selects actions based on user queries, with an LLM verifying correctness
     or creating new actions on the fly.
+
+    The one decision loop of every agent: the main agent's sessions and each
+    sub-agent. What differs between them is their context (the context
+    engine: system prompt, session state, actions, event stream) and the two
+    prompt templates; the requests, retries, folds and session caching are
+    the same.
     """
 
     def __init__(
@@ -95,6 +135,10 @@ class ActionRouter:
         llm_interface: LLMInterfaceProtocol,
         context_engine: ContextEngineProtocol,
         prompt_filter: Optional[Callable[[str], str]] = None,
+        *,
+        instructions: str = SELECT_ACTION_INSTRUCTIONS,
+        user_prompt: str = SELECT_ACTION_PROMPT,
+        prompt_name: str = "SELECT_ACTION",
     ):
         """
         Initialize the router responsible for selecting or creating actions.
@@ -106,11 +150,19 @@ class ActionRouter:
             prompt_filter: Optional host hook applied to every rendered set of
                 decision instructions, e.g. to drop a capability rule while
                 that capability is unavailable. A failing filter is skipped.
+            instructions: Template of the decision instructions that end the
+                system prompt ({action_candidates}).
+            user_prompt: Template of a decision's user message
+                ({session_state}, {event_stream}, {query}).
+            prompt_name: Name the decision calls are captured under.
         """
         self.action_library = action_library
         self.llm_interface = llm_interface
         self.context_engine = context_engine
         self.prompt_filter = prompt_filter
+        self.instructions = instructions
+        self.user_prompt = user_prompt
+        self.prompt_name = prompt_name
         # Per session: held while a decision is made, so a fold the user asks
         # for (fold_session) never lands while a request is in flight.
         self._decision_locks: Dict[str, asyncio.Lock] = {}
@@ -215,11 +267,11 @@ class ActionRouter:
 
     def decision_instructions(self, session_id: Optional[str] = None) -> str:
         """The decision instructions of ``session_id`` as they render now:
-        SELECT_ACTION_INSTRUCTIONS with the session's <actions> list, through
+        the instructions template with the session's <actions> list, through
         the host's prompt_filter. They end the system prompt of the session's
         action-selection calls (ContextEngine.make_decision_system_prompt)."""
         # The session's <actions> list (fixed by its type)
-        compiled_actions = self._get_session_compiled_actions(session_id=session_id)
+        compiled_actions = self.context_engine.get_compiled_actions(session_id)
 
         # Use static compiled list - NO RAG SEARCH
         action_candidates = self._build_candidates_from_compiled_list(
@@ -229,7 +281,7 @@ class ActionRouter:
             f"ActionRouter using compiled action list: {len(action_candidates)} actions"
         )
         return self._filter_prompt(
-            SELECT_ACTION_INSTRUCTIONS.format(
+            self.instructions.format(
                 action_candidates=self._format_candidates(action_candidates)
             )
         )
@@ -250,7 +302,7 @@ class ActionRouter:
     ) -> str:
         """The user message of a decision call; without ``event_stream``, its
         static part."""
-        return SELECT_ACTION_PROMPT.format(
+        return self.user_prompt.format(
             session_state=session_state,
             event_stream=event_stream,
             query=query,
@@ -263,7 +315,7 @@ class ActionRouter:
         # Build the instruction prompt for the LLM
         session_state, instructions = self._decision_inputs(session_id)
 
-        decision_prompt_name = "SELECT_ACTION"
+        decision_prompt_name = self.prompt_name
         static_prompt = self._decision_prompt(session_state, query)
 
         def render_prompt(up_to: Optional[int] = None) -> str:
@@ -595,10 +647,14 @@ class ActionRouter:
                                 )
                                 has_delta = True
                                 request_kind = "correction"
+                            if not has_delta:
+                                # Nothing logged since the last request: the
+                                # history still holds everything, so the turn
+                                # says so (a reset would resend it all uncached).
+                                delta_events = NO_NEW_EVENTS_PROMPT
 
                             if (
-                                has_delta
-                                and not folded
+                                not folded
                                 and render_prompt is not None
                                 and not self.llm_interface.fits_context(
                                     current_task_id,
@@ -615,7 +671,9 @@ class ActionRouter:
                                 )
                                 # The history in progress holds every event
                                 # being folded: the summary is written on it.
-                                self._fold(
+                                # The summary call blocks: off the event loop.
+                                await to_thread_with_usage(
+                                    self._fold,
                                     stream,
                                     system_prompt,
                                     static_prompt,
@@ -635,7 +693,7 @@ class ActionRouter:
                                     reason="fold",
                                 )
                                 has_synced_before = False
-                            elif has_delta:
+                            else:
                                 # Send only the new events
                                 logger.info(
                                     f"[SESSION CACHE] Sending delta events for {call_type}"
@@ -656,21 +714,6 @@ class ActionRouter:
                                     effective_session_id,
                                     point,
                                 )
-                            else:
-                                # No new events - this could mean summarization happened
-                                logger.info(
-                                    f"[SESSION CACHE] No delta events, resetting cache for {call_type}"
-                                )
-                                self.llm_interface.reset_session_history(
-                                    current_task_id, call_type
-                                )
-                                self.context_engine.reset_event_stream_sync(
-                                    call_type,
-                                    session_id=effective_session_id,
-                                    reason="no_delta",
-                                )
-                                # Fall through to first-call path
-                                has_synced_before = False
 
                         if not has_synced_before:
                             # First call with session - send full prompt to establish session.
@@ -802,7 +845,9 @@ class ActionRouter:
                         f"[SESSION CACHE] Request exceeded the context budget; folding "
                         f"the event stream and retrying once for {call_type}"
                     )
-                    self._fold(stream, system_prompt, static_prompt)
+                    await to_thread_with_usage(
+                        self._fold, stream, system_prompt, static_prompt
+                    )
                     folded = True
                 elif not stream.collapse_undelivered_oversize():
                     # Folded, and the new events have nothing left to shrink.
@@ -913,11 +958,18 @@ class ActionRouter:
             try:
                 parsed = ast.literal_eval(normalized)
             except Exception as eval_error:
-                logger.error(f"Unable to parse action decision: {repr(normalized)}")
-                return (
-                    None,
-                    f"json error: {json_error}; literal_eval error: {eval_error}",
-                )
+                # Models often wrap the object in prose or a code fence
+                # ("I'll click the pill next. {...}"); the object itself is
+                # the decision, so take it instead of spending a retry.
+                parsed = _first_json_object(normalized)
+                if parsed is None:
+                    logger.error(
+                        f"Unable to parse action decision: {repr(normalized)}"
+                    )
+                    return (
+                        None,
+                        f"json error: {json_error}; literal_eval error: {eval_error}",
+                    )
 
         if not isinstance(parsed, dict):
             logger.error(f"Parsed action decision is not a dict: {repr(normalized)}")
@@ -1286,35 +1338,3 @@ class ActionRouter:
             )
 
         return candidates
-
-    def _get_session_compiled_actions(
-        self, session_id: Optional[str] = None
-    ) -> List[str]:
-        """
-        Get the compiled action list from a session.
-
-        Args:
-            session_id: Optional session ID for session-specific state lookup.
-        """
-        # Try session-specific state first
-        state_session = get_session_or_none(session_id)
-        if state_session and state_session.current_session:
-            session = state_session.current_session
-        else:
-            # CRITICAL: Log warning when falling back to global state
-            # This could indicate a race condition in concurrent execution
-            if session_id:
-                logger.warning(
-                    f"[ACTION_ROUTER] Session not found for session_id={session_id!r}, "
-                    f"falling back to global STATE. This may cause context leakage "
-                    f"across concurrent sessions!"
-                )
-            session = get_state().current_session
-
-        if (
-            session
-            and hasattr(session, "compiled_actions")
-            and session.compiled_actions
-        ):
-            return session.compiled_actions
-        return []
