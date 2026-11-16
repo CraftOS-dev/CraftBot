@@ -1,7 +1,7 @@
 {
   "repository": "https://github.com/CraftOS-dev/Agent-App",
-  "revision": "06622d24ca9d4c579230977774b3a9dbbb40dcdf",
-  "version": "0.2.0",
+  "revision": "49650d3ad24d0ae1985cbcefb8124e5408a47e34",
+  "version": "0.2.1",
   "packageManager": "pnpm@9.15.0",
-  "sha256": "b00b7605097a34d61fd83959f58724183ce7937302bbec8c7eaac56d168570d3"
+  "sha256": "56552779e8b201f435b711e02dc1c0d6a2007b5b742f044724a265a70927a0f5"
 }
