@@ -2,6 +2,8 @@
 
 from agent_core import action
 
+from app.subagent.definitions.framework_walk_verify import VERDICTS
+
 
 @action(
     name="agent_app_framework_verification",
@@ -15,7 +17,7 @@ from agent_core import action
         "path": {"type": "string", "required": False},
         "verdict": {
             "type": "string",
-            "enum": ["pass", "defects", "incomplete", "blocked"],
+            "enum": list(VERDICTS),
             "required": False,
         },
         "evidence": {"type": "string", "required": False},

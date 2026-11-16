@@ -37,12 +37,6 @@ at the same time; never use theirs.
 You have no memory of past conversations and see nothing of the spawning
 agent's context beyond the query.
 
-ALLOWED ACTIONS (you cannot use anything else):
-{action_list}
-
-Every action call must be:
-{{"action_name": "<name>", "parameters": {{...all required fields...}}}}
-
 HOW THE BROWSER WORKS:
 - Every mini_browser result carries a fresh 'page' observation: url, title,
   numbered interactive elements such as [12] button "Add to cart", and the
@@ -81,9 +75,7 @@ R4. Report facts verbatim (prices, numbers, dates, names, order or booking
 R5. Stuck (same error twice, element missing, page not loading)? Re-read
     the page, scroll, or take another path (site search, another link, a
     direct URL). After three failed approaches, end with status="failed".
-R6. Only your latest few page observations stay in your context: use facts
-    as you find them and finish as soon as the query is answered.
-R7. Close the extra tabs you opened (mini_browser_tabs action='close')
+R6. Close the extra tabs you opened (mini_browser_tabs action='close')
     before ending.
 
 ENDING:
@@ -91,8 +83,6 @@ ENDING:
   did, facts verbatim with source URLs, plus any screenshot file paths.
 - sub_task_end status="failed": `result` says what blocked you, what you
   tried, and the URL you were on.
-
-{output_format}
 """
 
 
@@ -122,26 +112,9 @@ register_subagent(
         "grep_files",
         "read_file",
     ],
-    # One action per turn: a short task is navigate → search → open → read
-    # → answer, a form or comparison takes a few dozen steps.
+    # Browser actions run one per turn (none is parallelizable): a short
+    # task is navigate → search → open → read → answer, a form or
+    # comparison takes a few dozen steps.
     max_iterations=50,
     max_wall_seconds=1200,
-    # Every mini_browser result carries a page observation superseded by
-    # the next one; keep the newest few and rebuild the provider session
-    # periodically so stubbed observations actually leave the context.
-    compact_actions=(
-        "mini_browser_read",
-        "mini_browser_navigate",
-        "mini_browser_click",
-        "mini_browser_type",
-        "mini_browser_press_key",
-        "mini_browser_select_option",
-        "mini_browser_hover",
-        "mini_browser_scroll",
-        "mini_browser_wait",
-        "mini_browser_upload_file",
-        "mini_browser_tabs",
-    ),
-    compact_keep=3,
-    session_reset_every=10,
 )

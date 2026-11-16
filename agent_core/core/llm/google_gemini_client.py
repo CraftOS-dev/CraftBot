@@ -194,6 +194,7 @@ class GeminiClient:
             "prompt_tokens": prompt_tokens,
             "completion_tokens": completion_tokens,
             "cached_tokens": cached_tokens,
+            "cut_off": self._cut_off(response),
         }
 
     def generate_text_multiturn(
@@ -270,6 +271,7 @@ class GeminiClient:
             "prompt_tokens": prompt_tokens,
             "completion_tokens": completion_tokens,
             "cached_tokens": cached_tokens,
+            "cut_off": self._cut_off(response),
         }
 
     def generate_multimodal(
@@ -525,6 +527,7 @@ class GeminiClient:
             "prompt_tokens": prompt_tokens,
             "completion_tokens": completion_tokens,
             "cached_tokens": cached_tokens,
+            "cut_off": self._cut_off(response),
         }
 
     def generate_multimodal_with_cache(
@@ -861,6 +864,14 @@ class GeminiClient:
 
         response.raise_for_status()
         return response.json()
+
+    @staticmethod
+    def _cut_off(response: Dict[str, Any]) -> bool:
+        """Whether Gemini stopped the reply at the output limit."""
+        return any(
+            candidate.get("finishReason") == "MAX_TOKENS"
+            for candidate in response.get("candidates", []) or []
+        )
 
     @staticmethod
     def _extract_text(response: Dict[str, Any]) -> str:

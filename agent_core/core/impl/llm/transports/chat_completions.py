@@ -86,6 +86,7 @@ def generate_openai(
     cached_tokens = 0
     status = "failed"
     content: Optional[str] = None
+    cut_off = False
     exc_obj: Optional[Exception] = None
     config = get_cache_config()
     cache_type = f"automatic_{call_type}" if call_type else "automatic"
@@ -224,6 +225,7 @@ def generate_openai(
         if not response.choices:
             raise ValueError(f"Provider returned no choices (model={iface.model!r})")
         content = _strip_reasoning_tags(response.choices[0].message.content)
+        cut_off = getattr(response.choices[0], "finish_reason", None) == "length"
         token_count_input = response.usage.prompt_tokens
         token_count_output = response.usage.completion_tokens
 
@@ -304,6 +306,7 @@ def generate_openai(
     result = {
         "tokens_used": total_tokens or 0,
         "cached_tokens": cached_tokens,
+        "cut_off": cut_off,
     }
 
     if exc_obj:
@@ -348,6 +351,7 @@ def generate_ollama(
     total_tokens = 0
     status = "failed"
     content: Optional[str] = None
+    cut_off = False
     exc_obj: Optional[Exception] = None
 
     try:
@@ -372,6 +376,7 @@ def generate_ollama(
         result = response.json()
 
         content = result.get("response", "").strip()
+        cut_off = result.get("done_reason") == "length"
         token_count_input = result.get("prompt_eval_count", 0)
         token_count_output = result.get("eval_count", 0)
         total_tokens = token_count_input + token_count_output
@@ -394,7 +399,7 @@ def generate_ollama(
         "llm_ollama", "remote", iface.model, token_count_input, token_count_output, 0
     )
 
-    result = {"tokens_used": total_tokens or 0}
+    result = {"tokens_used": total_tokens or 0, "cut_off": cut_off}
     if exc_obj:
         error_str = f"{type(exc_obj).__name__}: {str(exc_obj)}"
         result["error"] = error_str
