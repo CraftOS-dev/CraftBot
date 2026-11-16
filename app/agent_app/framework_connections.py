@@ -5,8 +5,11 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import re
 import uuid
 from urllib.parse import urlsplit
+
+from aiohttp import ClientSession, ClientTimeout
 
 
 def is_connection(target: str) -> bool:
@@ -24,6 +27,67 @@ def connection_url(value: str) -> str:
         host = f"[{host}]"
     suffix = f":{port}" if port and port != (443 if parsed.scheme == "https" else 80) else ""
     return f"{parsed.scheme}://{host}{suffix}"
+
+
+_SOURCE = re.compile(r"(?:([a-z][a-z0-9+.-]*)://)?(\*|(?:\*\.)?[a-z0-9.-]+)(?::(\*|\d+))?(/\S*)?")
+
+
+def _source_allows(source: str, page_origin: str, embedder: str) -> bool:
+    """One CSP source expression against the origin of the page that frames."""
+    source = source.lower()
+    frame = urlsplit(embedder)
+    if source == "'self'":
+        return embedder == page_origin
+    if source == "*":
+        return frame.scheme in {"http", "https"}
+    if re.fullmatch(r"[a-z][a-z0-9+.-]*:", source):  # a scheme source, e.g. https:
+        return frame.scheme == source[:-1] or (source == "http:" and frame.scheme == "https")
+    match = _SOURCE.fullmatch(source)
+    if not match:
+        return False  # 'none', nonces and hashes name no origin
+    scheme, host, port, path = match.groups()
+    scheme = scheme or urlsplit(page_origin).scheme
+    if frame.scheme != scheme and not (scheme == "http" and frame.scheme == "https"):
+        return False
+    hostname = frame.hostname or ""
+    if host != "*" and not (hostname.endswith(host[1:]) if host.startswith("*.") else hostname == host):
+        return False
+    if port != "*":
+        defaults = {"http": 80, "https": 443}
+        wanted = int(port) if port else defaults.get(scheme)
+        actual = frame.port or defaults.get(frame.scheme)
+        if wanted != actual and not (wanted == 80 and actual == 443):
+            return False
+    return path in (None, "/")
+
+
+def frame_ancestors_allow(headers, page_origin: str, embedder: str) -> bool:
+    """Whether a page served with these headers lets `embedder` frame it: every
+    CSP `frame-ancestors` must allow it; without one, X-Frame-Options decides."""
+    ancestors = []
+    for value in headers.getall("Content-Security-Policy", []):
+        for policy in value.split(","):
+            for directive in policy.split(";"):
+                name, *sources = directive.split() or [""]
+                if name.lower() == "frame-ancestors":
+                    ancestors.append(sources)
+                    break
+    if not ancestors:
+        option = headers.get("X-Frame-Options", "").strip().lower()
+        return option not in {"deny", "sameorigin"} or (option == "sameorigin" and embedder == page_origin)
+    return all(any(_source_allows(source, page_origin, embedder) for source in sources) for sources in ancestors)
+
+
+async def frame_allowed(url: str, embedder: str) -> bool:
+    """Whether CraftBot's page at `embedder` may show `url` in a frame. Unknown is no."""
+    try:
+        embedder = connection_url(embedder)
+        async with ClientSession(timeout=ClientTimeout(total=5)) as session:
+            async with session.get(url.split("#")[0]) as response:
+                return response.ok and frame_ancestors_allow(
+                    response.headers, connection_url(str(response.url)), embedder)
+    except Exception:
+        return False
 
 
 def connection_rows(connected: list[dict]) -> list[dict]:
@@ -61,7 +125,7 @@ class FrameworkConnections:
         self.pumps = {}
         self.lock = asyncio.Lock()
 
-    async def start(self, url):
+    async def start(self, url, embedder=""):
         from app.agent_app import framework
 
         origin = connection_url(url)
@@ -95,9 +159,15 @@ class FrameworkConnections:
         except asyncio.TimeoutError:
             await self.cancel(attempt["id"])
             raise ValueError("The app did not respond. Check its URL and try again.") from None
+        if attempt.get("approvalUrl"):
+            # Approve inside CraftBot's page when the app lets it frame its
+            # approval page; otherwise the person approves in a tab.
+            attempt["embeddable"] = await frame_allowed(attempt["approvalUrl"], embedder)
         return attempt
 
     async def _login(self, cli, attempt, ready):
+        outcome = {}
+
         def event(line):
             try:
                 value = json.loads(line)
@@ -109,12 +179,21 @@ class FrameworkConnections:
                 if url and connection_url(url) == attempt["origin"]:
                     attempt["approvalUrl"] = url
                     ready.set()
+            elif value.get("event") == "result":
+                if value.get("ok"):
+                    attempt["finishing"] = True  # signed in; adding the app takes a moment
+                else:
+                    outcome["error"] = value.get("error")
 
         try:
             result = await cli.run("a2app", [attempt["origin"], "login", "--print-only", "--events", "--name", "CraftBot"],
                                    cwd=cli.package_dir, timeout=650, on_stdout_line=event)
             if not result.ok:
-                raise RuntimeError(result.stderr.strip() or "The app did not approve access. Try connecting again.")
+                # The sign-in's own reason; before it starts there is none, only
+                # the CLI's error lines (its info lines repeat the link and code).
+                errors = [line.removeprefix("✗ ") for line in result.stderr.strip().splitlines() if not line.startswith("ℹ")]
+                raise RuntimeError(outcome.get("error") or "\n".join(errors).strip()
+                                   or "The app did not approve access. Try connecting again.")
             from app.agent_app import framework
             snapshot = await framework._list_apps(cli)
             row = next((r for r in snapshot.get("data", {}).get("apps", []) if r.get("url") == attempt["origin"]), None)
@@ -129,6 +208,7 @@ class FrameworkConnections:
         finally:
             if attempt["status"] != "pending":
                 attempt.pop("approvalUrl", None)
+                attempt.pop("finishing", None)
             ready.set()
             self.tasks.pop(attempt["id"], None)
             await self.host.changed()

@@ -289,6 +289,31 @@
   animation: spin 1s linear infinite;
 }
 
+/* Connect: the app's approval page fills the dialog body, edge to edge, in
+   place of a new tab. */
+.approvalFrame {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+.approvalFrame iframe {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+.approvalCover {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  background: var(--bg-primary);
+}
+
 @keyframes spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
