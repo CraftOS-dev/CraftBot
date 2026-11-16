@@ -142,7 +142,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          # Keep the installer compatible with glibc 2.35 (Ubuntu 22.04+).
+          - os: ubuntu-22.04
             os_label: linux
           - os: windows-latest
             os_label: windows
@@ -170,6 +171,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: launcher
+          prefix-key: native-${{ matrix.os }}
 
       # Slint's Linux backend loads these at runtime through dlopen, and its
       # build has no C dependencies — this is insurance for the few crates

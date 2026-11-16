@@ -130,3 +130,6 @@ agent_file_system/*.local-backup
 /research/
 /research_notes/
 /workspace/
+
+# Per-install automatic startup preference (managed installs keep it in user data).
+/startup.json

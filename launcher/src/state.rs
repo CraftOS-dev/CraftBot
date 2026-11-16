@@ -76,23 +76,6 @@ fn parse_pid(raw: &str) -> Option<u32> {
     raw.parse().ok()
 }
 
-#[cfg(test)]
-mod tests {
-    use super::parse_pid;
-
-    #[test]
-    fn reads_json_and_legacy_pid_files() {
-        assert_eq!(
-            parse_pid(r#"{"pid": 2244, "started": 1790000000.5}"#),
-            Some(2244)
-        );
-        assert_eq!(parse_pid(r#"{"pid": 2244, "started": null}"#), Some(2244));
-        assert_eq!(parse_pid("2244\n"), Some(2244));
-        assert_eq!(parse_pid(r#"{"started": 1.0}"#), None);
-        assert_eq!(parse_pid("garbage"), None);
-    }
-}
-
 #[cfg(unix)]
 pub fn pid_alive(pid: u32) -> bool {
     // kill(pid, 0): no signal is sent, but the permission and existence
@@ -119,5 +102,22 @@ pub fn pid_alive(pid: u32) -> bool {
         let ok = GetExitCodeProcess(handle, &mut code);
         CloseHandle(handle);
         ok != 0 && code == STILL_ACTIVE as u32
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_pid;
+
+    #[test]
+    fn reads_json_and_legacy_pid_files() {
+        assert_eq!(
+            parse_pid(r#"{"pid": 2244, "started": 1790000000.5}"#),
+            Some(2244)
+        );
+        assert_eq!(parse_pid(r#"{"pid": 2244, "started": null}"#), Some(2244));
+        assert_eq!(parse_pid("2244\n"), Some(2244));
+        assert_eq!(parse_pid(r#"{"started": 1.0}"#), None);
+        assert_eq!(parse_pid("garbage"), None);
     }
 }

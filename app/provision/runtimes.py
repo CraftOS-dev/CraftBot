@@ -23,16 +23,9 @@ from app.provision.types import Context, LogFn, StageResult, Status
 # pip. python.org's embeddable package is Windows-only and ships without pip,
 # so it cannot serve the same role.
 #
-# The release tag and patch version are RESOLVED FROM THE API, never
-# hardcoded. Hardcoding them was tried and produced a silent 404: the guessed
-# tag, patch version and platform triple were all wrong, so the download
-# failed and the install aborted at the first stage. The asset name embeds
-# all three (cpython-3.10.21+20260825-x86_64-pc-windows-msvc-install_only),
-# so any one being stale breaks it. Same approach as node_runtime, which
-# reads nodejs.org/dist/index.json rather than pinning a version.
-PBS_API = (
-    "https://api.github.com/repos/astral-sh/python-build-standalone/releases/latest"
-)
+# The native launcher embeds this same file. Keep download locations and
+# the compatible fallback release together so the two install paths agree.
+PBS_CONFIG_PATH = Path(__file__).with_name("python_downloads.json")
 
 # The version the locks are generated for. NOT a minimum: a lock is valid
 # for exactly one (platform, python) pair, so accepting "3.10 or newer" would
@@ -175,8 +168,8 @@ def _pbs_triple() -> Optional[str]:
 def _pbs_download_url(log: LogFn) -> Optional[str]:
     """Resolve the download URL for a TARGET_PYTHON build, or None.
 
-    Asks the API for the newest release and picks the asset matching this
-    machine's triple. `install_only` is the variant that extracts to a
+    Tries the newest release, then the configured compatible fallback release,
+    and picks the asset matching this machine's triple. `install_only` extracts to a
     ready-to-run tree; the full builds carry object files and headers nobody
     here needs.
     """
@@ -189,27 +182,55 @@ def _pbs_download_url(log: LogFn) -> Optional[str]:
         return None
 
     try:
+        config = json.loads(PBS_CONFIG_PATH.read_text(encoding="utf-8"))
+        api = f"{config['api_base'].rstrip('/')}/repos/{config['repository']}/releases"
+        release = config["fallback_release"]
+        version = config["fallback_version"]
+        compatible = version.startswith(f"{TARGET_PYTHON[0]}.{TARGET_PYTHON[1]}.")
+        archive = (
+            f"{config['download_base'].rstrip('/')}/{config['repository']}"
+            f"/releases/download/{release}/cpython-{version}%2B{release}"
+            f"-{triple}-install_only.tar.gz"
+            if compatible and triple in config["fallback_platforms"]
+            else None
+        )
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
+        log(f"    invalid Python download configuration: {error}")
+        return None
+
+    try:
         import certifi
 
         ctx = ssl.create_default_context(cafile=certifi.where())
     except ImportError:
         ctx = ssl.create_default_context()
 
-    try:
-        req = urllib.request.Request(PBS_API, headers={"User-Agent": "CraftBot"})
-        data = json.loads(urllib.request.urlopen(req, timeout=60, context=ctx).read())
-    except Exception as e:
-        log(f"    could not reach the Python download index: {str(e)[:160]}")
-        return None
-
     prefix = f"cpython-{TARGET_PYTHON[0]}.{TARGET_PYTHON[1]}."
     suffix = f"-{triple}-install_only.tar.gz"
-    for asset in data.get("assets", []):
-        name = asset.get("name") or ""
-        if name.startswith(prefix) and name.endswith(suffix):
-            return asset.get("browser_download_url")
-
-    log(f"    no {prefix}*{suffix} in release {data.get('tag_name')}")
+    indexes = [f"{api}/latest"]
+    if compatible:
+        indexes.append(f"{api}/tags/{release}")
+    for index in indexes:
+        try:
+            req = urllib.request.Request(index, headers={"User-Agent": "CraftBot"})
+            with urllib.request.urlopen(req, timeout=60, context=ctx) as response:
+                data = json.load(response)
+        except Exception as e:
+            log(f"    could not reach the Python download index: {str(e)[:160]}")
+            # Shared/public IPs can exhaust GitHub's unauthenticated API quota.
+            # Release assets have a separate download endpoint. Keep the known
+            # compatible build available even when metadata cannot be queried.
+            if archive:
+                log(f"    using the archived Python {version} release download")
+                return archive
+            return None
+        for asset in data.get("assets", []):
+            name = asset.get("name") or ""
+            if name.startswith(prefix) and name.endswith(suffix):
+                url = asset.get("browser_download_url")
+                if url:
+                    return url
+        log(f"    no {prefix}*{suffix} in release {data.get('tag_name')}")
     return None
 
 
