@@ -131,6 +131,7 @@ def main() -> int:
             "run.py",
             "installer/startup.py",
             "app/provision/__init__.py",
+            "app/provision/python_downloads.json",
             "app/data/action/read_pdf.py",
             "craftos_integrations/providers/whatsapp_web/bridge.js",
             "craftos_integrations/providers/gmail/INTEGRATION.md",

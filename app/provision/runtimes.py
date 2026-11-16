@@ -23,21 +23,9 @@ from app.provision.types import Context, LogFn, StageResult, Status
 # pip. python.org's embeddable package is Windows-only and ships without pip,
 # so it cannot serve the same role.
 #
-# Resolve actual asset URLs from release metadata instead of constructing
-# filenames. New releases stopped including Python 3.10 after its EOL, so
-# retain the last published 3.10 release while these dependency locks need it.
-PBS_API = (
-    "https://api.github.com/repos/astral-sh/python-build-standalone/releases/latest"
-)
-PBS_310_API = "https://api.github.com/repos/astral-sh/python-build-standalone/releases/tags/20261009"
-PBS_310_ARCHIVE = "https://github.com/astral-sh/python-build-standalone/releases/download/20261009/cpython-3.10.22%2B20261009"
-PBS_310_TRIPLES = {
-    "x86_64-pc-windows-msvc",
-    "x86_64-unknown-linux-gnu",
-    "aarch64-unknown-linux-gnu",
-    "x86_64-apple-darwin",
-    "aarch64-apple-darwin",
-}
+# The native launcher embeds this same file. Keep download locations and
+# the compatible fallback release together so the two install paths agree.
+PBS_CONFIG_PATH = Path(__file__).with_name("python_downloads.json")
 
 # The version the locks are generated for. NOT a minimum: a lock is valid
 # for exactly one (platform, python) pair, so accepting "3.10 or newer" would
@@ -180,7 +168,7 @@ def _pbs_triple() -> Optional[str]:
 def _pbs_download_url(log: LogFn) -> Optional[str]:
     """Resolve the download URL for a TARGET_PYTHON build, or None.
 
-    Tries the newest release, then the last release containing Python 3.10,
+    Tries the newest release, then the configured compatible fallback release,
     and picks the asset matching this machine's triple. `install_only` extracts to a
     ready-to-run tree; the full builds carry object files and headers nobody
     here needs.
@@ -194,6 +182,23 @@ def _pbs_download_url(log: LogFn) -> Optional[str]:
         return None
 
     try:
+        config = json.loads(PBS_CONFIG_PATH.read_text(encoding="utf-8"))
+        api = f"{config['api_base'].rstrip('/')}/repos/{config['repository']}/releases"
+        release = config["fallback_release"]
+        version = config["fallback_version"]
+        compatible = version.startswith(f"{TARGET_PYTHON[0]}.{TARGET_PYTHON[1]}.")
+        archive = (
+            f"{config['download_base'].rstrip('/')}/{config['repository']}"
+            f"/releases/download/{release}/cpython-{version}%2B{release}"
+            f"-{triple}-install_only.tar.gz"
+            if compatible and triple in config["fallback_platforms"]
+            else None
+        )
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
+        log(f"    invalid Python download configuration: {error}")
+        return None
+
+    try:
         import certifi
 
         ctx = ssl.create_default_context(cafile=certifi.where())
@@ -202,7 +207,9 @@ def _pbs_download_url(log: LogFn) -> Optional[str]:
 
     prefix = f"cpython-{TARGET_PYTHON[0]}.{TARGET_PYTHON[1]}."
     suffix = f"-{triple}-install_only.tar.gz"
-    indexes = [PBS_API] + ([PBS_310_API] if TARGET_PYTHON == (3, 10) else [])
+    indexes = [f"{api}/latest"]
+    if compatible:
+        indexes.append(f"{api}/tags/{release}")
     for index in indexes:
         try:
             req = urllib.request.Request(index, headers={"User-Agent": "CraftBot"})
@@ -212,10 +219,10 @@ def _pbs_download_url(log: LogFn) -> Optional[str]:
             log(f"    could not reach the Python download index: {str(e)[:160]}")
             # Shared/public IPs can exhaust GitHub's unauthenticated API quota.
             # Release assets have a separate download endpoint. Keep the known
-            # final 3.10 build available even when metadata cannot be queried.
-            if TARGET_PYTHON == (3, 10) and triple in PBS_310_TRIPLES:
-                log("    using the archived Python 3.10.22 release download")
-                return f"{PBS_310_ARCHIVE}-{triple}-install_only.tar.gz"
+            # compatible build available even when metadata cannot be queried.
+            if archive:
+                log(f"    using the archived Python {version} release download")
+                return archive
             return None
         for asset in data.get("assets", []):
             name = asset.get("name") or ""

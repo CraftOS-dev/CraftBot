@@ -8,10 +8,12 @@ on:
   push:
     paths:
       - "launcher/**"
+      - "app/provision/python_downloads.json"
       - ".github/workflows/launcher.yml"
   pull_request:
     paths:
       - "launcher/**"
+      - "app/provision/python_downloads.json"
       - ".github/workflows/launcher.yml"
 
 env:

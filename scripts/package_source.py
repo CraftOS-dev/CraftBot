@@ -137,6 +137,7 @@ def build(output: Path) -> int:
         "requirements.txt",
         "app/paths.py",
         "app/provision/__init__.py",
+        "app/provision/python_downloads.json",
         "app/provision/default_agent_app.py",
         "app/data/default_agent_app/kanban-board.zip",
         "app/data/default_agent_app/source.json",

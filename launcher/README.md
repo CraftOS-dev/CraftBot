@@ -34,6 +34,16 @@ two things onto the disk that Python cannot fetch for itself:
    matching the launcher's version, extracted into the install directory and
    stamped with `.craftbot-managed` (see `app/paths.py`).
 
+Python download locations and the fallback release are maintained in
+`app/provision/python_downloads.json`. It defines the API/download hosts,
+repository, release tag, Python patch version, and published platforms.
+The Rust launcher embeds this file at build time; the Python provisioner
+reads the copy shipped in `CraftBot-src.zip`. Update the file and rebuild
+both artifacts when the upstream location or compatible fallback changes.
+The fallback must match the Python major/minor required by the dependency
+locks; changing this file alone does not upgrade CraftBot to another Python
+version. Release metadata is still preferred over the direct archive URL.
+
 Everything after that is `craftbot.py` in the installed tree, run with
 `CRAFTBOT_PYTHON` pointing at the sidecar:
 
