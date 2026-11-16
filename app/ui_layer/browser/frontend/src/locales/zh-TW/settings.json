@@ -246,84 +246,99 @@
   },
   "proactive": {
     "title": "主動行為",
-    "subtitle": "設定代理何時自主行動並管理排程任務",
+    "subtitle": "設定代理在無指令時執行的工作：定期任務、監控與規劃",
     "enableLabel": "啟用主動模式",
-    "enableDesc": "允許代理自動執行排程任務與主動行為",
-    "heartbeatTitle": "心跳排程",
-    "heartbeatDesc": "心跳會依頻率定期檢查並執行主動任務",
+    "enableDesc": "允許代理自動執行定期任務、心跳與規劃器。結果以及需要你處理的事項會發布到聊天中。",
+    "cronJobs": {
+      "title": "定期任務",
+      "desc": "代理依固定排程執行的任務，例如每天 09:00 或每週五。每個任務在建立它的聊天中執行；在此新增的任務在主聊天中執行。",
+      "add": "新增定期任務",
+      "search": "搜尋定期任務...",
+      "loading": "正在載入定期任務...",
+      "empty": "目前沒有定期任務。",
+      "createFirst": "建立定期任務",
+      "deleteTitle": "刪除定期任務",
+      "deleteMessage": "此定期任務將被永久刪除。",
+      "searchCount": "{{shown}} / {{total}}",
+      "tip": {
+        "aria": "關於定期任務",
+        "title": "定期任務如何運作",
+        "line1": "每個定期任務（也稱為 Cron 任務）由一條指令和一個排程組成：每小時、每天、每週或每月。如果排程時間時代理未在執行，任務會在重新啟動時執行一次，除非已不再適用。",
+        "line2": "到達排程時間時，代理會在建立該任務的聊天中執行任務，並在其中回報結果。如果該聊天被刪除，任務會保留，但在你將其移至主聊天之前不會執行。",
+        "line3": "你也可以在聊天中請代理建立任務，例如：「每週五 17:00 總結我的一週。」任務儲存在代理檔案中的 PROACTIVE.md 裡。"
+      },
+      "count_one": "{{count}} 個任務",
+      "count_other": "{{count}} 個任務",
+      "dayTime": "{{day}} {{time}}",
+      "lastRun": "上次執行：{{date}}",
+      "neverRun": "尚未執行",
+      "runs_one": "已執行 {{count}} 次",
+      "runs_other": "已執行 {{count}} 次",
+      "priority": {
+        "high": "高優先順序",
+        "medium": "中優先順序",
+        "low": "低優先順序"
+      },
+      "mainChat": "主聊天",
+      "untitledChat": "未命名聊天",
+      "runsIn": "在{{chat}}中執行",
+      "unavailable": "無法使用：執行此任務的聊天已被刪除。",
+      "moveToMain": "移至主聊天"
+    },
     "heartbeat": {
+      "title": "心跳",
+      "desc": "代理會依固定間隔檢查下方的檢查清單，僅在有事項需要你處理時才採取行動。",
       "label": "心跳",
-      "desc": "每 30 分鐘執行一次，檢查並執行所有到期的主動任務"
+      "rowDesc": "僅在檢查清單包含事項時執行",
+      "interval": "間隔",
+      "everyMinutes_one": "每 {{count}} 分鐘",
+      "everyMinutes_other": "每 {{count}} 分鐘",
+      "everyHours_one": "每小時",
+      "everyHours_other": "每 {{count}} 小時",
+      "checklistLabel": "檢查清單",
+      "checklistPlaceholder": "- 檢查收件匣是否有客戶的緊急郵件\n- 夜間建置失敗時回報",
+      "checklistHint": "每行一項。代理每次心跳都會讀取它；留空則心跳不會執行。",
+      "idle": "未啟用：檢查清單為空",
+      "tip": {
+        "aria": "關於心跳",
+        "title": "心跳如何運作",
+        "line1": "每到一個間隔，代理都會檢查清單中的每一項，並在需要時使用你已連接的應用程式。",
+        "line2": "如果沒有需要你處理的事項，本次執行將結束且不傳送訊息。否則，代理會處理該事項並在主聊天中回報結果。",
+        "line3": "檢查清單儲存在代理檔案中 PROACTIVE.md 的 Heartbeat 區段。代理也可以依你的要求更新它。"
+      }
     },
     "plannersTitle": "規劃器",
-    "plannersDesc": "規劃器會檢視近期互動並規劃主動活動",
+    "plannersDesc": "定期回顧：代理查看你的目標和接下來的安排，提前規劃，並在主聊天中傳給你一份簡短摘要。",
     "planners": {
       "dayLabel": "每日規劃器",
-      "dayDesc": "規劃每日的活動與優先事項",
+      "dayDesc": "規劃你的一天並傳送晨間簡報",
       "weekLabel": "每週規劃器",
-      "weekDesc": "規劃每週的目標與任務",
+      "weekDesc": "回顧本週並規劃下週",
       "monthLabel": "每月規劃器",
-      "monthDesc": "規劃每月的目標與檢討"
+      "monthDesc": "回顧本月與長期目標",
+      "runsOn": "執行日",
+      "time": "時間",
+      "everyDay": "每天",
+      "monthDay": "{{day}} 日",
+      "monthDayHint": "在較短的月份中，29 至 31 日會在當月最後一天執行",
+      "tip": {
+        "aria": "關於規劃器",
+        "title": "規劃器的作用",
+        "line1": "每日規劃器決定當天的優先事項。每週規劃器回顧上一週並規劃下一週。每月規劃器追蹤長期目標的進展。",
+        "line2": "每個規劃器都會查看你最近的聊天和已連接的應用程式（例如行事曆），並更新儲存在 PROACTIVE.md（Goals, Plan, and Status 區段）中的計畫。",
+        "line3": "這些計畫層層銜接：每月目標引導每週計畫，每週計畫再引導每一天。"
+      }
     },
-    "tasksTitle": "主動任務",
-    "tasksDesc": "在 PROACTIVE.md 中定義、代理會於心跳期間執行的任務",
-    "addTask": "新增任務",
-    "searchTasks": "搜尋任務…",
-    "searchCount": "{{shown}} / {{total}}",
-    "loadingTasks": "正在載入任務…",
-    "noTasks": "尚未定義任何主動任務。",
-    "createFirst": "建立你的第一個任務",
-    "taskCount_one": "{{count}} 個任務",
-    "taskCount_other": "{{count}} 個任務",
-    "active": "啟用中",
-    "disabled": "已停用",
-    "meta": {
-      "time": "時間：{{time}}",
-      "day": "日期：{{day}}",
-      "runs": "執行次數：{{value}}",
-      "last": "上次：{{date}}"
-    },
-    "resetTitle": "重設主動任務",
-    "resetDesc": "這會移除所有主動任務，並從預設範本還原 PROACTIVE.md。此操作無法復原。",
-    "resetButton": "重設所有任務",
-    "resetting": "重設中…",
     "priority": {
       "high": "高",
       "medium": "中",
       "low": "低"
-    },
-    "notify": {
-      "notifies": "會通知",
-      "silent": "靜默"
     },
     "frequency": {
       "hourly": "每小時",
       "daily": "每天",
       "weekly": "每週",
       "monthly": "每月"
-    },
-    "deleteConfirmTitle": "刪除任務",
-    "deleteConfirmMessage": "確定要刪除此任務嗎？",
-    "resetConfirmTitle": "重設任務",
-    "resetConfirmMessage": "確定要重設所有主動任務嗎？這會從範本還原預設的 PROACTIVE.md。",
-    "taskForm": {
-      "editTitle": "編輯任務",
-      "addTitle": "新增主動任務",
-      "name": "任務名稱",
-      "namePlaceholder": "例如：檢查電子郵件",
-      "frequency": "頻率",
-      "priority": "優先順序",
-      "priorityHint": "（愈高愈先執行）",
-      "time": "時間（HH:MM）",
-      "dayOfWeek": "星期幾",
-      "selectDay": "選取日期",
-      "notifyLabel": "執行前先通知我",
-      "notifyDesc": "啟用後，代理在執行此任務前會先通知你。停用後，任務會靜默執行。",
-      "instruction": "指示",
-      "instructionPlaceholder": "描述代理應執行的內容…",
-      "instructionHint": "請具體且可執行。代理會在執行期間依循這些指示。",
-      "enabledLabel": "已啟用",
-      "enabledDesc": "任務會在心跳期間執行"
     },
     "weekdays": {
       "monday": "星期一",
@@ -334,22 +349,46 @@
       "saturday": "星期六",
       "sunday": "星期日"
     },
-    "cron": {
-      "twiceHourly": "每小時兩次",
-      "hourly": "每小時的 :{{minute}} 分",
-      "daily": "每天 {{time}}",
-      "weekly": "每週{{day}} {{time}}",
-      "monthly": "每月 {{day}} 日 {{time}}",
-      "raw": "Cron：{{cron}}",
-      "days": {
-        "sun": "星期日",
-        "mon": "星期一",
-        "tue": "星期二",
-        "wed": "星期三",
-        "thu": "星期四",
-        "fri": "星期五",
-        "sat": "星期六"
+    "toast": {
+      "scheduleFailed": "更新排程失敗",
+      "checklistFailed": "儲存檢查清單失敗"
+    },
+    "cronJobForm": {
+      "editTitle": "編輯定期任務",
+      "addTitle": "新增定期任務",
+      "name": "任務名稱",
+      "namePlaceholder": "例如：檢查電子郵件",
+      "frequency": "頻率",
+      "priority": "優先順序",
+      "priorityHint": "（愈高愈先執行）",
+      "time": "時間（HH:MM）",
+      "dayOfWeek": "星期幾",
+      "selectDay": "選取日期",
+      "notifyLabel": "每次回報結果",
+      "notifyDesc": "開啟後，代理會回報每次執行的結果。關閉後，任務將靜默執行，僅回報需要你處理的事項。",
+      "instruction": "指示",
+      "instructionPlaceholder": "描述代理應執行的內容…",
+      "instructionHint": "請具體且可執行。代理每次執行時都會依循這些指示。",
+      "enabledLabel": "已啟用",
+      "enabledDesc": "任務會在排程時間執行"
+    },
+    "reset": {
+      "title": "還原預設",
+      "desc": "刪除所有定期任務，清空心跳檢查清單，並刪除規劃器的計畫。此動作無法復原。",
+      "button": "還原預設",
+      "confirmTitle": "還原預設？",
+      "confirmMessage": "所有定期任務都將被刪除，心跳檢查清單將被清空，規劃器的計畫也將被刪除。此動作無法復原。",
+      "resetting": "重設中…",
+      "tip": {
+        "aria": "關於還原預設",
+        "title": "還原預設的作用",
+        "line1": "定期任務、心跳檢查清單和規劃器的計畫都儲存在代理檔案中的同一個檔案 PROACTIVE.md 裡。",
+        "line2": "還原預設會將該檔案還原為初始版本。規劃器時間、心跳間隔、你的記憶和聊天都不受影響。"
       }
+    },
+    "notify": {
+      "notifies": "回報結果",
+      "silent": "靜默"
     }
   },
   "memory": {

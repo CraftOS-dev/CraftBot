@@ -157,6 +157,15 @@
   color: #1e3a8a;
 }
 
+/* The global selection tint is near-transparent with theme text (white in
+   dark mode), which vanishes on the green bubble. One opaque highlight with
+   fixed dark text reads on every bubble kind in both themes. */
+.message::selection,
+.message ::selection {
+  background: #A5C8F5;
+  color: var(--color-black);
+}
+
 .message.agent {
   background: var(--bg-tertiary);
   border: 1px solid var(--border-primary);

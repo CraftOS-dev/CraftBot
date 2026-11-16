@@ -24,7 +24,9 @@ keeps the edge count low and the visualisation readable.
 CONNECTIONS ARE ESTABLISHED IN EXACTLY ONE PLACE: the graph build. For
 every memory, the deterministic matcher connects it to each known entity
 whose name appears in its text. Nothing else creates a connection — not
-the entity-indexer, not any record.
+the entity-indexer, not any record. Chunks of the default documentation
+files (ENTITY_EXCLUDED_FILES) stay outside the entity layer: no
+connections, no record, never read by the entity judge.
 
 CONNECTIONS ARE RECORDED IN ENTITIES.md BY THE SYSTEM: after every build,
 the ``## Connections`` section is re-synced to one line per memory —
@@ -99,6 +101,13 @@ ENTITIES_FIELD_RE = re.compile(r"\{entities:([^{}]*)\}")
 # - "## Connections": one record per memory, WRITTEN AND RE-SYNCED BY THE
 #   SYSTEM after every graph build. The entity judge only flips marks.
 ENTITY_REGISTRY_FILE = "ENTITIES.md"
+
+# The default documentation files (the same ones the Memory panel hides by
+# default). Their chunks remain memories, retrievable and grouped under
+# their file node, but never generate entities: the matcher does not
+# connect them, they get no ## Connections record, and the entity judge
+# never reads their text.
+ENTITY_EXCLUDED_FILES = frozenset({"AGENT.md", "PROACTIVE.md"})
 
 # A connection record line under "## Connections":
 #   [<chunk-id>] [pending|judged] Name1, !Name2, ?Name3 :: <text preview>
@@ -523,6 +532,8 @@ class MemoryGraph:
             return
 
         for item in self.items.values():
+            if item.file_path in ENTITY_EXCLUDED_FILES:
+                continue
             record = self._records.get(item.item_id) or {}
             confirmed = {n.lower() for n in record.get("confirmed", [])}
             rejected = {n.lower() for n in record.get("rejected", [])}
@@ -566,6 +577,8 @@ class MemoryGraph:
         lines: List[str] = []
         for item_id in sorted(self.items):
             item = self.items[item_id]
+            if item.file_path in ENTITY_EXCLUDED_FILES:
+                continue
             parts: List[str] = []
             for key in sorted(item.entities):
                 entity = self.entities.get(key)

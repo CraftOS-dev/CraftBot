@@ -16,7 +16,8 @@ from agent_core import action
     name="schedule_task",
     description=(
         "Schedule a task for execution. Supports immediate, one-time, and recurring schedules. "
-        "One-time tasks are auto-removed after firing.\n"
+        "One-time tasks are auto-removed after firing. Every fire runs in this chat, the one "
+        "scheduling it; if this chat is deleted, the task is kept but does not run.\n"
         "IMPORTANT: The 'schedule' field must use one of the EXACT patterns listed "
         "in its description; no other freeform text is supported."
     ),
@@ -45,6 +46,8 @@ from agent_core import action
                 "- 'in <N> hours' or 'in <N> minutes' — e.g. 'in 2 hours', 'in 30 minutes'\n"
                 "- 'every day at <time>' — e.g. 'every day at 7am', 'every day at 3:30pm'\n"
                 "- 'every <weekday> at <time>' — e.g. 'every monday at 9am'\n"
+                "- 'every month on day <N> at <time>' — e.g. 'every month on day 1 at 9am' "
+                "(29-31 fall back to the month's last day)\n"
                 "- 'every <N> hours' or 'every <N> minutes' — e.g. 'every 3 hours', 'every 30 minutes'\n"
                 "- Cron expression — e.g. '0 7 * * *' (5-field cron)\n"
                 "Times must include am/pm (e.g. '9am', '3:30pm'). "
@@ -94,7 +97,7 @@ from agent_core import action
     output_schema={
         "schedule_id": {
             "type": "string",
-            "description": "The ID of the created schedule (for immediate tasks, this is the session_id)",
+            "description": "The ID of the created schedule (for immediate tasks, an immediate_xxxx fire id)",
         },
         "status": {
             "type": "string",
@@ -128,6 +131,8 @@ async def schedule_task(input_data: dict) -> dict:
         action_sets = input_data.get("action_sets", [])
         skills = input_data.get("skills", [])
         payload = input_data.get("payload", {})
+        # Every fire runs in the chat that schedules it.
+        session_id = input_data.get("_session_id") or "main"
 
         if not name:
             return {"status": "error", "error": "name is required"}
@@ -163,6 +168,7 @@ async def schedule_task(input_data: dict) -> dict:
                 action_sets=action_sets,
                 skills=skills,
                 payload=payload,
+                session_id=session_id,
             )
 
         # Parse schedule to determine if it's recurring or one-time
@@ -182,6 +188,7 @@ async def schedule_task(input_data: dict) -> dict:
             action_sets=action_sets,
             skills=skills,
             payload=payload,
+            session_id=session_id,
         )
 
         # Get next fire time

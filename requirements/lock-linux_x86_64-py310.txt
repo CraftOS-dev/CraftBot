@@ -5,8 +5,8 @@
 # Locks are per platform+python: torch means CPU wheels on Windows and
 # CUDA libraries on Linux, so one lock cannot serve every runner.
 #
-# Source: requirements.txt (sha256:276192760ff67fa2)
-# Packages: 256
+# Source: requirements.txt (sha256:c373fda60709584a)
+# Packages: 265
 
 --require-hashes
 
@@ -76,6 +76,8 @@ cuda-toolkit==13.0.3.0 \
     --hash=sha256:d693caaa261214ddd7dbb60d68e71cbed884e68c2be7509778f3051da0b91c3f
 dateparser==1.4.2 \
     --hash=sha256:752f3d49d477cf7f60a7a9c8bcb19c882496ede0e377d5a3d80014cdfeca7050
+ddgs==9.16.1 \
+    --hash=sha256:9ac0b3c19d865a9bfbf7bc7cc8090bd43d1e7adfb083a017bbece360a22e21b6
 defusedxml==0.7.1 \
     --hash=sha256:a352e7e428770286cc899e2542b6cdaedb2b4953ff269a210103ec58f6198a61
 dill==0.4.1 \
@@ -122,6 +124,12 @@ frozenlist==1.8.0 \
     --hash=sha256:f57fb59d9f385710aa7060e89410aeb5058b99e62f4d16b08b91986b9a2140c2
 fsspec==2026.7.0 \
     --hash=sha256:b57ddbafedfaef7018c1ecab32aa200a9d7ca26b77965f64e48b70061249d279
+google-api-core==2.44.0 \
+    --hash=sha256:8cb9ad8af28de9bc75121686d69b697ce0937e21fad2ad80c9a7e89f22b26e1f
+google-api-python-client==2.201.0 \
+    --hash=sha256:2d9bf1ba3f12eee8ed3d0f1791ce0605d163432f496baa72d3677faa2cf097d6
+google-auth-httplib2==0.4.4 \
+    --hash=sha256:bbe5d7b2401bb3a4017f4720e1e91bd273ab9a2bb60b84e65edbc0de127852da
 google-auth==2.57.0 \
     --hash=sha256:180dafe015cfb62193bea26b677500fab5b9fd51a1e825ebf3ad9b182047ae59
 google-genai==2.20.0 \
@@ -146,6 +154,8 @@ httpcore2==2.12.0 \
     --hash=sha256:7e04258ce01013d7d615e5b910a3b27fac937d7a95038227e79652b4ba3b4ceb
 httpcore==1.0.9 \
     --hash=sha256:2d400746a40668fc9dec9810239072b40b4484b640a8c38fd654a024c7a1bf55
+httplib2==0.32.1 \
+    --hash=sha256:82e7a6ab08fcb27879864ddf63dbb529fb032ca336c331cb1597d6dd8b47c92e
 httptools==0.8.0 \
     --hash=sha256:a6f21e2a3b0067bbe7f67e34cfd16276af556e5e52f4c7503be0cb5f90e905e4
 httpx-sse==0.4.3 \
@@ -322,8 +332,12 @@ pluggy==1.6.0 \
     --hash=sha256:e920276dd6813095e9377c0bc5566d94c932c33b27a3e3945d8389c374dd4746
 polyfactory==3.3.0 \
     --hash=sha256:686abcaa761930d3df87b91e95b26b8d8cb9fdbbbe0b03d5f918acff5c72606e
+primp==2.0.1 \
+    --hash=sha256:9a7be373adfded677a9092ae2743873d5c8a9573148d617a189d26715f7d8ea5
 propcache==0.5.2 \
     --hash=sha256:b96db7141a592cbc968daf1feea83a118e6ab378af4abbc72b248c895414c22d
+proto-plus==1.29.0 \
+    --hash=sha256:8acd070469a7aaf43f440b022ef9757c8cac1a9f866e933f59ae98669ddc6c8b
 protobuf==7.36.0 \
     --hash=sha256:70f5ec8eb0da81a44360c0dc0beac99a0d78071d21956a7076bae8bd2051841b
 psutil==7.2.2 \
@@ -364,6 +378,8 @@ PyMsgBox==2.0.1 \
     --hash=sha256:5de8ec19bca2ca7e6c09d39c817c83f17c75cee80275235f43a9931db699f73b
 pymupdf==1.28.2 \
     --hash=sha256:397d6715c1f0df7548a92d0afd8ce370fc48fa47aeefac16be2bc04a16a8227f
+pyparsing==3.3.3 \
+    --hash=sha256:ece8c00a69cf01b45d0b1dedabb469c90d8caf996d4fda40f147627a122849a4
 pypdf==6.16.2 \
     --hash=sha256:c8b09a59399062fb45a1b8156c18a787a10a3dae03ac9674397a226712c94604
 pypdfium2==5.13.0 \
@@ -498,6 +514,8 @@ tzdata==2026.3 \
     --hash=sha256:dc096730c87af6cab1b171c9d532be840741ff5d459015e7f6947bd7d7e54931
 tzlocal==5.4.4 \
     --hash=sha256:aae09f0126a8a86fa736be266eb4a471380d26a0de3bc14844e7821fee3e2a15
+uritemplate==4.2.0 \
+    --hash=sha256:962201ba1c4edcab02e60f9a0d3821e82dfc5d2d6662a21abd533879bdb8a686
 urllib3==2.7.0 \
     --hash=sha256:9fb4c81ebbb1ce9531cce37674bbc6f1360472bc18ca9a553ede278ef7276897
 uuid_utils==0.17.0 \
