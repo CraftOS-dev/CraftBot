@@ -153,6 +153,11 @@ def build(output: Path) -> int:
             "agent-app/spec/pocketbase.version",
             "agent-app/spec/pocketbase-checksums.json",
             "app/provision/python_downloads.json",
+        # The memory embedder: without these the backend cannot build its
+        # memory index (torch is deliberately no longer installed).
+        "app/provision/embedding_model.json",
+        "app/embedding_model.py",
+        "agent_core/core/impl/memory/onnx_embedder.py",
             "app/provision/default_agent_app.py",
             "app/data/default_agent_app/kanban-board.zip",
             "app/data/default_agent_app/source.json",

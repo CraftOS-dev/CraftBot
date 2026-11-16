@@ -108,10 +108,9 @@ def _is_embedding_function_conflict(err: Exception) -> bool:
 # matches, ~0.75 on topical, and drops below 0.50 for unrelated content.
 # That's the dynamic range hybrid scoring actually needs.
 #
-# Override via the MEMORY_EMBEDDING_MODEL env var if you want to try
-# bge-base-en-v1.5 (better, slower), e5-small-v2, or any other
-# sentence-transformers model. Set to "default" to use ChromaDB's
-# bundled ONNX MiniLM.
+# It runs on ONNX Runtime (onnx_embedder.py), from model files provisioned at
+# install time. Set MEMORY_EMBEDDING_MODEL=default to use ChromaDB's own
+# MiniLM instead; no other model is supported.
 MEMORY_EMBEDDING_MODEL = _os.environ.get(
     "MEMORY_EMBEDDING_MODEL", "BAAI/bge-small-en-v1.5"
 )
@@ -274,7 +273,7 @@ class MemoryManager:
 
         # Build the embedding function. Default ChromaDB uses MiniLM-L6-v2
         # (weak — ~0.65 verbatim self-similarity). MEMORY_EMBEDDING_MODEL
-        # points to a stronger sentence-transformers model by default; if it
+        # points to a stronger model (bge-small on ONNX Runtime); if it
         # can't load, construction fails — retrieval thresholds are calibrated
         # for the configured model, so running with a substitute is worse than
         # not starting.
@@ -338,7 +337,8 @@ class MemoryManager:
 
         ChromaDB persists the embedding-function name in the collection config
         and refuses get_or_create with a different one — happens when the
-        collection was first created without sentence-transformers loadable
+        collection was first created with a different embedder (the old
+        sentence-transformers one, or ChromaDB's default)
         and is reopened later with a real model. The index is a derived cache
         (source of truth is the markdown files), so dropping and rebuilding
         is safe; update() repopulates from disk on next call.
@@ -374,38 +374,33 @@ class MemoryManager:
         """
         if MEMORY_EMBEDDING_MODEL == "default":
             return None  # ChromaDB applies its bundled default
-        try:
-            from chromadb.utils.embedding_functions import (
-                SentenceTransformerEmbeddingFunction,
-            )
-        except ImportError as e:
+        if MEMORY_EMBEDDING_MODEL != "BAAI/bge-small-en-v1.5":
             raise RuntimeError(
-                "[MEMORY] sentence-transformers is required for the configured "
-                f"embedding model '{MEMORY_EMBEDDING_MODEL}'. Install with: "
-                "conda install -c conda-forge sentence-transformers"
-            ) from e
+                f"[MEMORY] MEMORY_EMBEDDING_MODEL={MEMORY_EMBEDDING_MODEL!r} is not "
+                "supported. Use the built-in BAAI/bge-small-en-v1.5 (unset the "
+                "variable) or 'default' for ChromaDB's MiniLM."
+            )
 
         try:
-            return SentenceTransformerEmbeddingFunction(
-                model_name=MEMORY_EMBEDDING_MODEL
+            from agent_core.core.impl.memory.onnx_embedder import (
+                OnnxBgeSmallEmbeddingFunction,
             )
+
+            return OnnxBgeSmallEmbeddingFunction()
         except (OSError, ImportError) as e:
-            # The constructor imports sentence-transformers → transformers →
-            # torch; a native-DLL failure (Windows without the VC++
-            # Redistributable: WinError 126 on torch_python.dll; Linux
-            # without libgomp) lands here as a 40-line torch traceback.
-            # Still fatal by design (thresholds are calibrated to this
-            # model) — but say what to do.
+            # onnxruntime and chromadb's native module link the Visual C++
+            # runtime on Windows; without it the import dies with a bare
+            # "DLL load failed". Fatal by design (thresholds are calibrated
+            # to this model), but say what to do.
             fix = (
                 "install the Visual C++ Redistributable "
                 "(https://aka.ms/vs/17/release/vc_redist.x64.exe)"
                 if sys.platform == "win32"
-                else "install libgomp1/libstdc++6 (apt-get install -y libgomp1 libstdc++6)"
+                else "run `python craftbot.py install` again (or Repair in the installer)"
             )
             raise RuntimeError(
-                f"[MEMORY] The embedding stack for '{MEMORY_EMBEDDING_MODEL}' is "
-                f"installed but cannot load: {e}. Usual fix: {fix}, or re-run "
-                "`python install.py` (it checks this). Escape hatch: "
+                f"[MEMORY] The embedding model '{MEMORY_EMBEDDING_MODEL}' cannot "
+                f"load: {e}. Usual fix: {fix}. Escape hatch: "
                 "MEMORY_EMBEDDING_MODEL=default (lower retrieval quality)."
             ) from e
 

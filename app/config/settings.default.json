@@ -81,20 +81,9 @@
     "startup_ui": false
   },
   "file_index": {
-    "prewarm_all_drives": true
-  },
-  "api_keys_configured": {
-    "openai": false,
-    "anthropic": false,
-    "google": true,
-    "byteplus": true,
-    "openrouter": false
+    "prewarm_all_drives": false
   },
   "aws_credentials": {},
-  "auth_mode": {
-    "grok": "subscription",
-    "openai": "subscription"
-  },
   "agent_app": {
     "marketplace_ref": ""
   }

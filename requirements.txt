@@ -22,7 +22,12 @@ openai>=2.0.0
 google-genai>=1.0.0
 anthropic>=0.97.0
 chromadb
+# The memory embedder (BAAI/bge-small-en-v1.5) runs on ONNX Runtime with the
+# HF tokenizer. torch/sentence-transformers are deliberately NOT here: they were
+# 0.5 GB on Windows/macOS, 2.6 GB of CUDA on Linux, need the VC++ runtime and
+# have no Intel-Mac wheels. See agent_core/core/impl/memory/onnx_embedder.py.
 onnxruntime
+tokenizers
 tiktoken
 langgraph
 neo4j
@@ -42,7 +47,9 @@ pyautogui
 pygetwindow
 python3-xlib
 tenacity
-docling
+# OCR for scanned PDFs (read_pdf), ONNX-based like the embedder. Replaces
+# docling, which pulled in torch for this one fallback.
+rapidocr
 pyperclip
 gradio_client
 python-dotenv
@@ -61,4 +68,8 @@ pdfminer.six
 pymupdf
 pypdf
 rank_bm25
-sentence-transformers
+# Spreadsheet support: convert_to_pdf imports openpyxl and the xlsx skill uses
+# pandas. Both used to arrive only as docling dependencies, so they are
+# declared now that docling is gone.
+openpyxl
+pandas

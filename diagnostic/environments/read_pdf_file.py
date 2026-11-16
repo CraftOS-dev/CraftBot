@@ -44,58 +44,20 @@ def prepare_read_pdf(tmp_path: Path, action: Mapping[str, Any]) -> PreparedEnv: 
     _create_sample_pdf(pdf_path)
     modules: Dict[str, types.ModuleType] = {}
 
-    docling_pkg = types.ModuleType("docling")
-    docling_pkg.__path__ = []  # type: ignore[attr-defined]
-    document_converter_mod = types.ModuleType("docling.document_converter")
+    # The scanned-PDF fallback runs RapidOCR; stub it so the diagnostic
+    # never needs the real models.
+    rapidocr_mod = types.ModuleType("rapidocr")
 
-    class _DummyDocument:
-        def __init__(self, source: str) -> None:
-            self._source = source
+    class RapidOCR:
+        def __call__(self, image):  # noqa: D401, ARG002
+            return types.SimpleNamespace(
+                boxes=[[[0, 0], [200, 0], [200, 20], [0, 20]]],
+                txts=["Hello diagnostic PDF"],
+                scores=[0.99],
+            )
 
-        def export_to_dict(self) -> Mapping[str, Any]:
-            return {
-                "origin": {
-                    "filename": Path(self._source).name,
-                    "mimetype": "application/pdf",
-                },
-                "version": "diagnostic-1.0",
-                "pages": [
-                    {
-                        "page_no": 1,
-                        "size": {"width": 200.0, "height": 200.0},
-                    }
-                ],
-                "texts": [
-                    {
-                        "text": "Hello diagnostic PDF",
-                        "label": "text",
-                        "prov": [
-                            {
-                                "page_no": 1,
-                                "bbox": {
-                                    "l": 0,
-                                    "t": 200,
-                                    "r": 200,
-                                    "b": 0,
-                                    "coord_origin": "BOTTOMLEFT",
-                                },
-                            }
-                        ],
-                    }
-                ],
-            }
-
-    class DocumentConverter:
-        def convert(self, source: str):  # noqa: D401
-            if not Path(source).exists():
-                raise FileNotFoundError(source)
-            return types.SimpleNamespace(document=_DummyDocument(source))
-
-    document_converter_mod.DocumentConverter = DocumentConverter  # type: ignore[attr-defined]
-    docling_pkg.document_converter = document_converter_mod  # type: ignore[attr-defined]
-
-    modules["docling"] = docling_pkg
-    modules["docling.document_converter"] = document_converter_mod
+    rapidocr_mod.RapidOCR = RapidOCR  # type: ignore[attr-defined]
+    modules["rapidocr"] = rapidocr_mod
 
     return PreparedEnv(
         input_overrides={"file_path": str(pdf_path)},

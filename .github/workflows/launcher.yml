@@ -2,7 +2,13 @@ name: Launcher
 
 # CI for the native launcher in launcher/ (Rust + Slint). The Release
 # workflow builds and ships it; this one catches breakage on the way there,
-# on every platform the launcher is shipped for.
+# on every platform and architecture the launcher is shipped for.
+#
+# Linux binaries are built inside manylinux_2_28 (AlmaLinux 8, glibc 2.28),
+# never on the runner's own Ubuntu: a binary links against the glibc it is
+# built with, and one built on a current Ubuntu refuses to start on Ubuntu
+# 20.04/22.04, Debian 11/12, RHEL 8/9 and most WSL installs. The binary is
+# then started on those distributions, so the promise is tested, not assumed.
 
 on:
   push:
@@ -19,11 +25,127 @@ on:
       - "app/runtime-manifest.json"
       - "app/provision/python_downloads.json"
       - ".github/workflows/launcher.yml"
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  linux:
+    name: Linux ${{ matrix.arch }} (glibc 2.28)
+    runs-on: ${{ matrix.runner }}
+    container: quay.io/pypa/manylinux_2_28_${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+
+    defaults:
+      run:
+        shell: bash
+        working-directory: launcher
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        working-directory: .
+        run: |
+          curl --proto '=https' --tlsv1.2 --retry 5 -sSf https://sh.rustup.rs \
+            | sh -s -- -y --profile minimal --default-toolchain stable --component rustfmt,clippy
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      # Nothing here is linked: Slint loads X11, Wayland, OpenGL and
+      # fontconfig with dlopen. The headers let the build scripts that probe
+      # with pkg-config find what they look for. binutils is for the check.
+      - name: Build prerequisites
+        working-directory: .
+        run: dnf install -y fontconfig-devel libxkbcommon-devel libX11-devel binutils
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: launcher
+          prefix-key: native-manylinux_2_28-${{ matrix.arch }}
+
+      - name: Format
+        if: matrix.arch == 'x86_64'
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        if: matrix.arch == 'x86_64'
+        run: cargo clippy --release --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test --release
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Check the glibc floor and linked libraries
+        run: bash packaging/linux/check_binary.sh target/release/CraftBotInstaller 2.28
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: launcher-linux-${{ matrix.arch }}
+          path: launcher/target/release/CraftBotInstaller
+          retention-days: 7
+
+  # The binary from the job above, started on the oldest and newest releases
+  # of the distributions users actually run, with no desktop, no developer
+  # packages and no network. `--headless status` exercises startup, path
+  # resolution and the state poll without needing a display.
+  linux-distros:
+    name: Starts on Linux distributions (${{ matrix.arch }})
+    needs: linux
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    steps:
+      - name: Download binary
+        uses: actions/download-artifact@v4
+        with:
+          name: launcher-linux-${{ matrix.arch }}
+          path: bin
+
+      - name: Start on each distribution
+        shell: bash
+        run: |
+          set -uo pipefail
+          chmod +x bin/CraftBotInstaller
+          failed=""
+          for image in ubuntu:20.04 ubuntu:22.04 ubuntu:24.04 \
+                       debian:11 debian:12 debian:13 \
+                       almalinux:8 almalinux:9; do
+            echo "::group::$image"
+            out=$(docker run --rm --network none \
+                    --volume "$PWD/bin/CraftBotInstaller:/installer:ro" \
+                    "$image" /installer --headless status 2>&1)
+            code=$?
+            echo "$out"
+            echo "::endgroup::"
+            if [ "$code" -ne 0 ] || ! grep -q NotInstalled <<<"$out"; then
+              echo "::error::the launcher did not start on $image (exit $code)"
+              failed="$failed $image"
+            fi
+          done
+          if [ -n "$failed" ]; then
+            echo "failed on:$failed"
+            exit 1
+          fi
+
   test:
     name: Test (${{ matrix.os_label }})
     runs-on: ${{ matrix.os }}
@@ -31,14 +153,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Build against the oldest supported glibc, not the moving latest
-          # runner (whose binaries cannot launch on older Ubuntu releases).
-          - os: ubuntu-22.04
-            os_label: linux
           - os: windows-latest
             os_label: windows
-          - os: macos-latest
-            os_label: macos
+          - os: macos-15
+            os_label: macos-arm64
+          - os: macos-15-intel
+            os_label: macos-x86_64
 
     defaults:
       run:
@@ -50,30 +170,12 @@ jobs:
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: launcher
           prefix-key: native-${{ matrix.os }}
-
-      # Same insurance as the Release workflow: Slint has no C build deps,
-      # but a few crates probe for these headers.
-      - name: Linux build prerequisites
-        if: matrix.os_label == 'linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libxkbcommon-dev libgl1-mesa-dev libfontconfig1-dev
-
-      - name: Format
-        if: matrix.os_label == 'linux'
-        run: cargo fmt --all -- --check
-
-      - name: Clippy
-        if: matrix.os_label == 'linux'
-        run: cargo clippy --release -- -D warnings
 
       - name: Test
         run: cargo test --release
@@ -84,10 +186,10 @@ jobs:
       - name: Build
         run: cargo build --release
 
-      - name: Start on minimal Linux without desktop or developer packages
-        if: matrix.os_label == 'linux'
+      - name: Start headless
+        shell: bash
         run: |
-          . /etc/os-release
-          docker run --rm --network none \
-            --volume "$PWD/target/release/CraftBotInstaller:/installer:ro" \
-            "ubuntu:$VERSION_ID" /installer --headless status
+          set -euo pipefail
+          export CRAFTBOT_HOME="$RUNNER_TEMP/launcher-home"
+          ./target/release/CraftBotInstaller --headless status | tee status.txt
+          grep -q NotInstalled status.txt
