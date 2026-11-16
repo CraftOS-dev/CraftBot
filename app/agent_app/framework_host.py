@@ -787,7 +787,7 @@ class FrameworkHost:
         if operation == "connect":
             if self.resetting:
                 raise RuntimeError("Wait for the Agent Apps reset to finish.")
-            return await self.connections.start(data.get("url", ""))
+            return await self.connections.start(data.get("url", ""), data.get("embedder", ""))
         if operation == "connect_status":
             return self.connections.attempts.get(data.get("id"), {"status": "error", "error": "This connection attempt has ended. Try again."})
         if operation == "connect_cancel":
