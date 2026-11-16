@@ -42,11 +42,12 @@ def _vcredist_url() -> str:
 
 
 def vcredist_installed() -> bool:
-    """Whether the Visual C++ runtime torch needs is present.
+    """Whether the Visual C++ runtime the native wheels need is present.
 
-    torch's DLLs link against msvcp140.dll and friends, which ship in the
-    redistributable rather than with Windows. Without it, importing torch
-    fails with "WinError 126: The specified module could not be found",
+    onnxruntime's and chromadb's native modules link msvcp140.dll, which
+    ships in the redistributable rather than with Windows or with the
+    standalone Python (that carries vcruntime140 only). Without it, the import
+    fails with "DLL load failed: The specified module could not be found",
     naming a DLL that IS on disk — because what is missing is a DEPENDENCY of
     that DLL. Deeply unobvious from the error alone.
 
@@ -77,14 +78,14 @@ def vcredist_installed() -> bool:
 
 def ensure_native_runtime(log: Optional[LogFn] = None) -> None:
     """OS prerequisites that pip cannot provide for the native wheels
-    (torch, onnxruntime, ...) the memory stack imports at boot.
+    (onnxruntime, chromadb) the agent imports at boot.
 
-    Windows: the Visual C++ 2015-2022 Redistributable — torch's DLLs link
+    Windows: the Visual C++ 2015-2022 Redistributable — their DLLs link
     against it and a fresh Windows (observed: Windows Sandbox, 2026-08-25)
-    lacks it, dying at first boot with WinError 126 on torch_python.dll.
+    lacks it, dying at first boot with "DLL load failed".
     Installed silently when missing (one-time, machine-wide, UAC prompt).
-    Linux: libgomp/libstdc++ (missing on minimal images) — sudo territory,
-    so only a hint. macOS: torch wheels are self-contained.
+    Linux: libstdc++ (missing on minimal images) — sudo territory, so only a
+    hint. macOS: the wheels are self-contained.
 
     Lived in install.py, which the installer never runs — so an
     installer-based machine hit exactly the WinError 126 this exists to
@@ -101,7 +102,9 @@ def ensure_native_runtime(log: Optional[LogFn] = None) -> None:
 
         url = _vcredist_url()
         dest = os.path.join(tempfile.gettempdir(), os.path.basename(url))
-        say("  Visual C++ Redistributable missing — installing (torch needs it)")
+        say(
+            "  Visual C++ Redistributable missing — installing (the native modules need it)"
+        )
         say("    a UAC prompt may appear")
         try:
             downloads.download(url, dest, log=say, label="Visual C++ runtime")
@@ -131,45 +134,40 @@ def ensure_native_runtime(log: Optional[LogFn] = None) -> None:
     elif sys.platform.startswith("linux"):
         import ctypes.util
 
-        missing = [
-            name
-            for name, lib in (("libgomp1", "gomp"), ("libstdc++6", "stdc++"))
-            if ctypes.util.find_library(lib) is None
-        ]
-        if missing:
-            say(f"  Missing system libraries torch needs: {', '.join(missing)}")
-            say(f"    Debian/Ubuntu/Kali:  sudo apt-get install -y {' '.join(missing)}")
-            say("    Fedora/RHEL:         sudo dnf install -y libgomp libstdc++")
+        if ctypes.util.find_library("stdc++") is None:
+            say("  Missing system library the native modules need: libstdc++")
+            say("    Debian/Ubuntu/Kali:  sudo apt-get install -y libstdc++6")
+            say("    Fedora/RHEL:         sudo dnf install -y libstdc++")
 
 
 class NativeRuntimeStage:
-    """The memory embedding stack must LOAD, not merely be installed.
+    """The native modules the agent imports at boot must LOAD, not merely be
+    installed.
 
-    This is the #439 failure class: `sentence_transformers` present on disk,
-    `transformers` absent, so the import raises and the agent dies at startup
-    with a traceback rather than a message. Catching it here turns a dead
-    launch into an install-time error naming the fix.
+    This is the #439 failure class: a package present on disk whose native
+    library cannot load, so the agent dies at startup with a traceback rather
+    than a message. Catching it here turns a dead launch into an install-time
+    error naming the fix.
     """
 
     name = "native-runtime"
-    description = "Embedding stack loads"
+    description = "Native runtime loads"
     optional = False
 
     def check(self, ctx: Context) -> StageResult:
-        model = os.environ.get("MEMORY_EMBEDDING_MODEL", "BAAI/bge-small-en-v1.5")
-        if model == "default":
-            return StageResult(Status.SKIPPED, "using ChromaDB's bundled embedder")
-
-        res = proc.python(ctx.python(), "import torch, sentence_transformers")
+        res = proc.python(
+            ctx.python(),
+            "import onnxruntime, tokenizers, chromadb; import chromadb_rust_bindings",
+        )
         if res.returncode == 0:
-            return StageResult(Status.SATISFIED, "torch + sentence-transformers load")
+            return StageResult(Status.SATISFIED, "onnxruntime + chromadb load")
 
         tail = (res.stderr or "").strip().splitlines()[-1:] or ["(no output)"]
         fix = (
             "install the Visual C++ Redistributable "
             "(https://aka.ms/vs/17/release/vc_redist.x64.exe)"
             if sys.platform == "win32"
-            else "apt-get install -y libgomp1 libstdc++6"
+            else "run `python craftbot.py install` again (or Repair in the installer)"
         )
         return StageResult(
             Status.DEGRADED,
@@ -275,12 +273,107 @@ class SmokeStage:
         return res
 
 
+class EmbeddingModelStage:
+    """The memory embedder's model files (bge-small-en-v1.5, ONNX).
+
+    Fetched here rather than at first boot: the backend constructs the
+    memory manager while it starts, so a model download at that point made
+    every first start slow and, wherever huggingface.co is unreachable, made
+    the backend die at every boot with advice that had nothing to do with
+    the network.
+    """
+
+    name = "embedding-model"
+    description = "Memory embedding model"
+    optional = False
+
+    def check(self, ctx: Context) -> StageResult:
+        if os.environ.get("MEMORY_EMBEDDING_MODEL", "") == "default":
+            return StageResult(Status.SKIPPED, "using ChromaDB's bundled embedder")
+        from app import embedding_model
+
+        gone = embedding_model.missing()
+        if gone:
+            return StageResult(Status.MISSING, f"not downloaded: {', '.join(gone)}")
+        return StageResult(
+            Status.SATISFIED,
+            "bge-small-en-v1.5 (ONNX)",
+            {"dir": str(embedding_model.model_dir())},
+        )
+
+    def apply(self, ctx: Context, log: LogFn) -> StageResult:
+        from app import embedding_model
+
+        try:
+            embedding_model.ensure(log=log, offline=ctx.offline)
+        except Exception as exc:
+            return StageResult(Status.FAILED, str(exc)[:600])
+        return self.check(ctx)
+
+
+def windows_long_paths_enabled() -> bool:
+    """HKLM LongPathsEnabled: off by default, and changing it needs admin."""
+    if sys.platform != "win32":
+        return True
+    import winreg
+
+    try:
+        with winreg.OpenKey(
+            winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Control\FileSystem"
+        ) as key:
+            return bool(winreg.QueryValueEx(key, "LongPathsEnabled")[0])
+    except OSError:
+        return False
+
+
+class PathLengthStage:
+    """Windows' 260-character path limit, checked before anything downloads.
+
+    The private Python and its packages live under the state root, and the
+    deepest files are long: 117 characters inside the Python archive (it is
+    unpacked under a staging folder) and 125 inside site-packages (an
+    onnxruntime .pyc). Past the limit, extraction died with "WinError 206:
+    The filename or extension is too long" and pip with a bare "No such file
+    or directory", both after a download, neither naming the cause. A clone
+    under OneDrive or a deep Documents folder reaches it.
+    """
+
+    name = "path-length"
+    description = "Install folder path length"
+    optional = False
+
+    #: 259 (MAX_PATH less the terminator) - len(r"\runtime\python\python\Lib\site-packages\")
+    #: (40) - 125 (deepest installed file).
+    MAX_ROOT = 94
+
+    def check(self, ctx: Context) -> StageResult:
+        if sys.platform != "win32":
+            return StageResult(Status.SKIPPED, "no path limit on this OS")
+        if windows_long_paths_enabled():
+            return StageResult(Status.SATISFIED, "Windows long paths enabled")
+        root = os.path.abspath(ctx.state_root)
+        if len(root) <= self.MAX_ROOT:
+            return StageResult(Status.SATISFIED, f"{len(root)} characters")
+        return StageResult(
+            Status.FAILED,
+            f"the data folder path is {len(root)} characters ({root}); Windows "
+            f"limits paths to 260, so CraftBot needs at most {self.MAX_ROOT}. "
+            "Move the CraftBot folder somewhere shorter (for example "
+            "C:\\CraftBot), or set CRAFTBOT_HOME to a short folder such as "
+            "C:\\CraftBotData, then run the install again.",
+            {"length": len(root)},
+        )
+
+    def apply(self, ctx: Context, log: LogFn) -> StageResult:
+        return self.check(ctx)  # nothing to fix automatically
+
+
 class DiskSpaceStage:
     """Refuse to start an install that cannot possibly finish.
 
-    A full CraftBot install is roughly 2.5 GB once torch, the Playwright
-    browser and two node_modules trees have landed, and the downloads need
-    room on top. Running out halfway produces whatever error the unlucky
+    A full CraftBot install is roughly 1.5 GB once the Python packages, the
+    Playwright browser and two node_modules trees have landed, and the
+    downloads need room on top. Running out halfway produces whatever error the unlucky
     step happens to raise — a failed wheel build, a truncated archive, an
     npm ENOSPC — none of which say "you are out of disk".
 
@@ -293,9 +386,16 @@ class DiskSpaceStage:
     optional = False
 
     #: Installed footprint plus headroom for the archives being unpacked.
-    REQUIRED_GB = 5.0
+    REQUIRED_GB = 3.0
 
     def _free_gb(self, path: str) -> Optional[float]:
+        # The state root may not exist yet on a first install: measure
+        # the nearest existing parent, which is the drive it will land on.
+        while path and not os.path.exists(path):
+            parent = os.path.dirname(path)
+            if parent == path:
+                break
+            path = parent
         try:
             return shutil.disk_usage(path).free / (1024**3)
         except OSError:
@@ -312,8 +412,8 @@ class DiskSpaceStage:
         return StageResult(
             Status.FAILED,
             f"only {free:.1f} GB free at {ctx.state_root}; CraftBot needs about "
-            f"{self.REQUIRED_GB:.0f} GB (torch, the Playwright browser and the "
-            "npm trees). Free some space and re-run.",
+            f"{self.REQUIRED_GB:.0f} GB (Python packages, the Playwright browser "
+            "and the npm trees). Free some space and re-run.",
             {"free_gb": round(free, 1)},
         )
 
