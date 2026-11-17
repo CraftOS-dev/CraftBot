@@ -48,10 +48,14 @@ export function useFrameworkCreation(onClose: () => void) {
     return () => { active = false; clearTimeout(timer) }
   }, [connected, pending, navigate, requestAgentAppList, showToast])
 
-  const workflow = async (activity: string, request: string, creation?: { name: unknown; authMode: unknown; uiTheme: unknown }) => {
+  const start = async (activity: string, request: string, creation?: { name: unknown; authMode: unknown; uiTheme: unknown }) => {
     if (!connected) throw new Error('Reconnect to CraftBot before continuing.')
     const result = await frameworkRequest<{ sessionId: string }>({ operation: 'workflow', activity, request, ...(creation ? { creation } : {}) })
-    onClose(); navigate(`/session/${result.sessionId}`)
+    return result.sessionId
+  }
+  const workflow = async (activity: string, request: string) => {
+    const sessionId = await start(activity, request)
+    onClose(); navigate(`/session/${sessionId}`)
   }
   const install = async (source: { id: string } | { from: string }) => {
     if (!connected) throw new Error('Reconnect to CraftBot before continuing.')
@@ -69,7 +73,8 @@ export function useFrameworkCreation(onClose: () => void) {
     showToast('info', 'Installing app…', undefined, { key: `framework-install:${job.id}`, sticky: true })
     onClose()
   }
-  const create = async (config: Record<string, unknown>, files: File[], icon: File | null) => {
+  /** Start a build from the Build tab, which then shows its questions and requirements review: its session. */
+  const create = async (config: Record<string, unknown>, files: File[], icon: File | null): Promise<string> => {
     if (!connected) throw new Error('Reconnect to CraftBot before continuing.')
     const references: { name: string; path: string; kind: string }[] = []
     for (const file of [...files, ...(icon ? [icon] : [])]) {
@@ -79,7 +84,7 @@ export function useFrameworkCreation(onClose: () => void) {
       if (!response.ok || !result.path) throw new Error(result.error || `Could not upload ${file.name}`)
       references.push({ name: file.name, path: result.path, kind: file === icon ? 'icon' : 'reference' })
     }
-    await workflow('create', `Create an app using these preferences. Clarify any missing requirements in this conversation. Use the framework's supported blueprint and styling options to match the requested design. Copy staged references into the app's reference directory.\n${JSON.stringify({ ...config, attachments: references }, null, 2)}`, { name: config.name, authMode: config.authMode, uiTheme: config.uiTheme })
+    return start('create', `Create an app using these preferences. Use the framework's supported blueprint and styling options to match the requested design. Copy staged references into the app's reference directory.\n${JSON.stringify({ ...config, attachments: references }, null, 2)}`, { name: config.name, authMode: config.authMode, uiTheme: config.uiTheme })
   }
   return { install, create }
 }

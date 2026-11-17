@@ -12,6 +12,7 @@ import { FrameworkRequestFeedback, useFrameworkRequests } from '../../features/a
 import { frameUrl, frameworkFrameId, removeIframe } from '../../features/agentApps/frameHost'
 import { usePersistentAppFrame } from '../../features/agentApps/useAgentAppFrame'
 import { frameworkRequest, type FrameworkAttachment } from '../../features/agentApps/frameworkApi'
+import { BuildCheckpoints, waitingForPerson } from '../../features/agentApps/BuildCheckpoints'
 import { AgentAppWorkspace } from './AgentAppWorkspace'
 import { ConstructionDock } from './ConstructionDock'
 import { frameworkSessionIdentity } from '../../features/agentApps/frameworkIdentity'
@@ -173,7 +174,10 @@ function FrameworkWorkspace({ path, appId, knownSessionId }: { path: string; app
     {error && <><p>{error}</p><Button variant="secondary" disabled={!connected} onClick={() => setAttempt(value => value + 1)}>{t('registry.view.retry')}</Button></>}
   </div> : undefined
   return <AgentAppWorkspace sessionId={sessionId} chatFallback={fallback}>
-    {moving => building ? <ConstructionDock project={{ name: app?.name || session?.title || t('registry.view.title'), status: 'creating' }}
+    {moving => building && sessionId && waitingForPerson(session?.agentAppBuild?.checkpoint)
+      // The build stopped for the person: its questions or the requirements, here.
+      ? <BuildCheckpoints sessionId={sessionId} />
+      : building ? <ConstructionDock project={{ name: app?.name || session?.title || t('registry.view.title'), status: 'creating' }}
       todos={todos} events={NO_BUILD_EVENTS} snapshot={null}
       activity={session?.agentAppBuild?.verifying ? t('registry.view.verifying') : undefined} />
       : <FrameworkView path={path} appId={appId} moving={moving} />}

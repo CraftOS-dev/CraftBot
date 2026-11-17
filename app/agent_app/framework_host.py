@@ -7,6 +7,7 @@ import json
 import time
 import uuid
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from agent_core.core.session import MAIN_SESSION_ID, SessionType
 
@@ -16,6 +17,9 @@ from app.agent_app.framework_store import HostStore, app_key
 from app.subagent.definitions.framework_walk_verify import PASS, VERDICTS
 
 _host = None
+
+# What a builder works with, from its first turn to every reply that resumes it.
+BUILD_ACTION_SETS = ("agent_app", "a2app", "file_operations", "shell", "mini_browser")
 
 
 async def no_ui_change():
@@ -358,7 +362,129 @@ class FrameworkHost:
             "building": True,
             "verifying": session.agent_app_framework_key in self.verification_runs,
             "todos": [todo.to_dict() for todo in session.todos],
+            # The checkpoint the build opened last: what the build view shows
+            # while it waits for the person, restored after a reload.
+            "checkpoint": self.store.get("checkpoint", session.id),
         }
+
+    def build_resume(self, session):
+        """A reply to a build in progress carries it on with its own skill and tools.
+
+        Run-scoped skills are unloaded when a run ends, and a build stops for
+        the person at each checkpoint, so the reply that resumes it brings
+        them back."""
+        creation = self.store.get("creation", session.id) or {}
+        activity = creation.get("activity")
+        if not creation.get("building") or activity not in {"creator", "importer"}:
+            return None
+        return {
+            "workflow_skills": [f"framework-{activity}"],
+            "workflow_action_sets": list(BUILD_ACTION_SETS),
+        }
+
+    async def checkpoint_seen(self, session_id, path, checkpoint, *, opened):
+        """Record a checkpoint the builder's command returned.
+
+        True when it was just opened for the build dialog, so the builder's
+        turn ends there: the person answers in CraftBot, and the answer comes
+        back as their message."""
+        creation = self.store.get("creation", session_id) or {}
+        if (
+            not creation.get("path")
+            or not isinstance(checkpoint, dict)
+            or Path(path).resolve() != Path(creation["path"]).resolve()
+        ):
+            return False
+        self._remember_checkpoint(session_id, checkpoint)
+        await self.changed()
+        return (
+            opened
+            and checkpoint.get("status") == "pending"
+            and checkpoint.get("shown") == "ui"
+        )
+
+    def _remember_checkpoint(self, session_id, checkpoint):
+        if isinstance(checkpoint, dict) and checkpoint.get("id"):
+            self.store.put("checkpoint", session_id, {
+                key: checkpoint.get(key)
+                for key in ("id", "kind", "round", "status", "shown", "createdAt")
+            })
+
+    def _build_path(self, session_id):
+        creation = self.store.get("creation", session_id) or {}
+        if not creation.get("building") or not creation.get("path"):
+            raise ValueError("This app is no longer being built.")
+        return creation["path"]
+
+    async def _checkpoint_cli(self, args):
+        cli = await asyncio.to_thread(framework.configured_cli)
+        result = await cli.run("agent-app", args, cwd=cli.package_dir, timeout=60)
+        doc = result.json()
+        return result, doc if isinstance(doc, dict) else {}
+
+    async def checkpoint(self, session_id):
+        """What the build is waiting for: the questions, or Part A as text."""
+        path = self._build_path(session_id)
+        result, doc = await self._checkpoint_cli([path, "checkpoint", "show"])
+        if not result.ok:
+            raise RuntimeError(doc.get("error") or result.stderr.strip() or "This step could not be read.")
+        before = self.store.get("checkpoint", session_id)
+        self._remember_checkpoint(session_id, doc.get("checkpoint"))
+        # The build moved on since the view last heard (the person answered
+        # in chat, say): the view shows what is waiting now.
+        if self.store.get("checkpoint", session_id) != before:
+            await self.changed()
+        return doc
+
+    async def checkpoint_reply(self, data):
+        """Record the person's reply through the CLI and give it to the builder as their message."""
+        session_id = data.get("sessionId")
+        path = self._build_path(session_id)
+        result, doc = await self._checkpoint_cli([path, "checkpoint", "show"])
+        current = doc.get("checkpoint") if result.ok else None
+        if (
+            not isinstance(current, dict)
+            or current.get("id") != data.get("id")
+            or current.get("status") != "pending"
+        ):
+            return {"ok": False, "reason": "moved", "error": "The build has moved past this step."}
+        part_a = data.get("partA")
+        changes = (data.get("changes") or "").strip() if isinstance(data.get("changes"), str) else ""
+        with TemporaryDirectory(prefix="craftbot-part-a-") as tmp:
+            edit = []
+            if isinstance(part_a, str) and part_a.strip():
+                # Part A travels as a file: it can be longer than a command line may be.
+                (Path(tmp) / "part-a.md").write_text(part_a, encoding="utf-8")
+                edit = ["--part-a", str(Path(tmp) / "part-a.md")]
+            if data.get("approve") is True:
+                args = [path, "checkpoint", "approve", "--by", "CraftBot", *edit]
+            elif changes:
+                args = [path, "checkpoint", "answer", "--changes", changes, *edit]
+            elif isinstance(data.get("answers"), list):
+                args = [path, "checkpoint", "answer", "--json", json.dumps({"answers": data["answers"]})]
+            else:
+                raise ValueError("Answer the questions, or say what to change.")
+            result, doc = await self._checkpoint_cli(args)
+        if not result.ok:
+            return {
+                "ok": False,
+                "reason": doc.get("reason"),
+                "error": doc.get("error") or result.stderr.strip() or "That did not go through.",
+                "problems": doc.get("problems") or [],
+            }
+        self._remember_checkpoint(session_id, doc.get("checkpoint"))
+        if isinstance(doc.get("message"), str):
+            ui = getattr(self.agent, "ui_controller", None)
+            if ui is not None:
+                await ui.submit_message(doc["message"], "framework", session_id=session_id)
+            else:
+                await self.agent._handle_chat_message({
+                    "text": doc["message"],
+                    "sender": {"id": "framework", "type": "user"},
+                    "session_id": session_id,
+                })
+        await self.changed()
+        return {"ok": True, "checkpoint": self.store.get("checkpoint", session_id)}
 
     def _can_bind_conversation(self, session, key, path, app_id, home):
         if (
@@ -523,7 +649,15 @@ class FrameworkHost:
                 },
             )
         if new_app:
-            self.store.put("creation", session.id, {"path": path, **(creation or {}), "building": True})
+            self.store.put("creation", session.id, {
+                "path": path,
+                **(creation or {}),
+                "building": True,
+                "activity": activities[activity],
+                # CraftBot's build view shows this build's questions and
+                # requirements review (the Build dialog, then the app's view).
+                "checkpoints": "ui",
+            })
         from app.triggers.service import TriggerSpec
         from app.triggers.sources import TriggerSource
 
@@ -534,6 +668,7 @@ class FrameworkHost:
             prompt += "The destination below is allocated but DOES NOT EXIST yet. Discover the blueprints and scaffold it with the existing CLI before following the creator workflow.\n"
             if creation:
                 prompt += "CraftBot binds the selected name and access mode to this destination's scaffold command. Use agent_app_command for scaffolding; do not replace the user's selections.\n"
+            prompt += "CraftBot's build view shows this build's checkpoints (your questions, then the requirements review): its scaffold command adds --checkpoints ui.\n"
         elif new_app:
             prompt += "The destination below is allocated but DOES NOT EXIST yet. Use it for adoption/conversion (or --into when installing) so this app keeps its current side chat. Follow the importer skill to choose the appropriate route with the user.\n"
         if path:
@@ -546,11 +681,8 @@ class FrameworkHost:
                 payload={
                     "workflow_skills": [f"framework-{activities[activity]}"],
                     "workflow_action_sets": [
-                        *(["agent_app"] if activity != "operate" else []),
-                        "a2app",
-                        "file_operations",
-                        "shell",
-                        "mini_browser",
+                        s for s in BUILD_ACTION_SETS
+                        if activity != "operate" or s != "agent_app"
                     ],
                     "run_source": "framework_workflow",
                 },
@@ -562,13 +694,16 @@ class FrameworkHost:
     def scaffold_arguments(self, session_id, args):
         """Carry explicit form choices into the unchanged CLI's scaffold flags."""
         creation = self.store.get("creation", session_id) if session_id else None
-        if not creation or "name" not in creation or "authMode" not in creation or Path(args[0]).resolve() != Path(creation["path"]).resolve():
+        if not creation or Path(args[0]).resolve() != Path(creation["path"]).resolve():
             return args
         result = list(args)
-        for flag, value in (
-            ("--name", creation["name"]),
-            ("--auth-mode", creation["authMode"]),
-        ):
+        bound = []
+        if "name" in creation and "authMode" in creation:
+            bound += [("--name", creation["name"]), ("--auth-mode", creation["authMode"])]
+        # CraftBot's build view is where this build stops for the person.
+        if creation.get("checkpoints") == "ui":
+            bound.append(("--checkpoints", "ui"))
+        for flag, value in bound:
             if flag in result:
                 at = result.index(flag)
                 if at + 1 >= len(result) or result[at + 1] != value:
@@ -794,6 +929,10 @@ class FrameworkHost:
             return await self.connections.cancel(data.get("id"))
         if operation == "disconnect":
             return await self.disconnect(data["path"], data["appId"])
+        if operation == "checkpoint":
+            return await self.checkpoint(data.get("sessionId"))
+        if operation == "checkpoint_reply":
+            return await self.checkpoint_reply(data)
         from app.agent_app.framework_connections import is_connection
         remote = is_connection(data.get("path", ""))
         if remote and operation in {"manage", "maintenance", "sharing", "backup_delete", "workflow"}:

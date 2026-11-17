@@ -288,14 +288,17 @@ def test_unknown_sets_are_reported(loader):
     assert mixed["actions"] == ["read_pdf"]
 
 
-def test_upgrade_retires_legacy_actions_and_rebinds_chat_wizard(tmp_path, monkeypatch):
+def test_upgrade_retires_legacy_actions_and_rebinds_framework_actions(tmp_path, monkeypatch):
     from agent_core.core.action_framework.registry import registry_instance
     from app.database_interface import DatabaseInterface, RETIRED_APP_ACTIONS
 
     monkeypatch.setattr(registry_instance, "_registry", {})
     actions_dir = tmp_path / "action"
     actions_dir.mkdir()
-    names = sorted(RETIRED_APP_ACTIONS | {"agent_app_scaffold", "my_custom_action"})
+    # An older copy of the creation action, saved before builds moved to the
+    # framework workflow, must not come back.
+    assert "agent_app_scaffold" in RETIRED_APP_ACTIONS
+    names = sorted(RETIRED_APP_ACTIONS | {"agent_app_framework_workflow", "my_custom_action"})
     source = "from agent_core import action\n" + "\n".join(
         f'@action(name="{name}", action_sets=["agent_app"])\n'
         f'async def {name}(input_data):\n    return {{"old": True}}\n'
@@ -306,6 +309,6 @@ def test_upgrade_retires_legacy_actions_and_rebinds_chat_wizard(tmp_path, monkey
     DatabaseInterface(data_dir=str(tmp_path))
     assert not RETIRED_APP_ACTIONS.intersection(registry_instance._registry)
     assert registry_instance.get_action_implementation("my_custom_action")
-    scaffold = registry_instance.get_action_implementation("agent_app_scaffold")
-    assert scaffold.handler.__module__ == "app.data.action.agent_app_actions"
+    workflow = registry_instance.get_action_implementation("agent_app_framework_workflow")
+    assert workflow.handler.__module__ == "app.data.action.agent_app_framework_actions"
     assert saved.read_text(encoding="utf-8") == source

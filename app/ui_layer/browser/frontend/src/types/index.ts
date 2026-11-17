@@ -117,6 +117,17 @@ export const REASONING_CHOICES: readonly ReasoningChoice[] = [
   'provider_default', 'off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max',
 ]
 
+/** Where an Agent App build last stopped for the person: its questions, or the requirements review. */
+export interface BuildCheckpoint {
+  id: string
+  kind: 'questions' | 'review'
+  round: number
+  status: 'pending' | 'answered' | 'approved' | 'changes' | 'cancelled'
+  /** `ui`: CraftBot shows it; `chat`: the builder asks in the conversation. */
+  shown: 'ui' | 'chat'
+  createdAt: string
+}
+
 export interface SessionInfo {
   id: string
   type: SessionType
@@ -126,7 +137,7 @@ export interface SessionInfo {
   agentAppProjectId?: string | null
   agentAppFrameworkKey?: string | null
   agentAppFrameworkPending?: boolean
-  agentAppBuild?: { building: boolean; verifying?: boolean; todos: { id: string; content?: string; active_form?: string; status: 'pending' | 'in_progress' | 'completed' }[] } | null
+  agentAppBuild?: { building: boolean; verifying?: boolean; todos: { id: string; content?: string; active_form?: string; status: 'pending' | 'in_progress' | 'completed' }[]; checkpoint?: BuildCheckpoint | null } | null
   /** Always set by the backend; null only on the client-side placeholder for
    *  the main session before the backend has sent it. */
   reasoningEffort: ReasoningChoice | null

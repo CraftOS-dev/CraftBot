@@ -1160,7 +1160,7 @@ DO NOT silently change FORMAT.md. The user owns their style guide.
 
 CraftBot hosts apps through the unchanged Agent-App framework. The framework owns scaffolding, installation, validation, runtime, operations and data; CraftBot supplies its familiar UI, app conversations, permissions, scheduling and sharing controls.
 
-- In an ordinary chat, call `agent_app_scaffold(name, description, features, chat_context)` to gather requirements through the existing setup wizard. It starts the build in the app's own conversation. Do not also build it in the requesting chat.
+- In an ordinary chat, start a new app with `agent_app_framework_workflow(activity='create', request)`, where the request is what the user asked for in their own words. It builds in the app's own conversation, and CraftBot shows the builder's questions and the requirements review in that app's view, where the user answers and approves. Do not also build it in the requesting chat.
 - Load `a2app` and discover installed apps with `agent_app_framework_list`. Use their exact registry paths and IDs.
 - Load the appropriate bundled skill: `framework-creator`, `framework-modify`, `framework-importer` or `framework-operator`. These are the existing framework skills, including their relative references.
 - Load `agent_app` for building, evolving and managing app lifecycle; use `agent_app_command(args)`. Load `a2app` for connecting, discovery and app-data operations; use `a2app_command(args)`. Pass literal argument arrays to either command; consult `--help` for upstream syntax instead of guessing it.
@@ -1283,7 +1283,7 @@ proactive / scheduler    schedule_task, scheduled_task_list, schedule_task_toggl
                          cron_job_update, cron_job_remove,
                          heartbeat_checklist_read, heartbeat_checklist_update
 
-agent_app                agent_app_scaffold, agent_app_command,
+agent_app                agent_app_command,
                          agent_app_framework_workflow, agent_app_framework_verification
 a2app                    agent_app_framework_list, a2app_command
 
@@ -1925,11 +1925,11 @@ Schedule formats (parser at app/scheduler/parser.py):
 
 Built-in schedules (do NOT remove; the times are defaults that Settings > Proactive
 and Settings > Memory rewrite):
-  memory-processing  every day at 3am   payload.type="memory_processing"
+  memory-processing  every day at 3am             payload.type="memory_processing"
   heartbeat          */30 * * * *                 payload.type="proactive_heartbeat"
-                                         skill: heartbeat-processor
-  day-planner        every day at 7am   payload.type="proactive_planner" scope=day
-  week-planner       every sunday at 5pm payload.type="proactive_planner" scope=week
+                                                  skill: heartbeat-processor
+  day-planner        every day at 7am             payload.type="proactive_planner" scope=day
+  week-planner       every sunday at 5pm          payload.type="proactive_planner" scope=week
   month-planner      every month on day 1 at 8am  payload.type="proactive_planner" scope=month
 
 Cron jobs from PROACTIVE.md are NOT entries here: the scheduler's internal
@@ -3480,12 +3480,12 @@ DO NOT auto-create a cron job or checklist item because it "sounds useful". Alwa
 These ship pre-configured in [app/config/scheduler_config.json](app/config/scheduler_config.json) and run the system itself:
 
 ```
-id                  schedule              purpose
+id                  schedule                       purpose
 ─────────────────   ───────────────────────────    ─────────────────────────────────────────────────
 heartbeat           */30 * * * *                   check the Heartbeat checklist (skipped when empty)
-memory-processing   every day at 3am      distill EVENT_UNPROCESSED.md into MEMORY.md (## Memory)
+memory-processing   every day at 3am               distill EVENT_UNPROCESSED.md into MEMORY.md (## Memory)
 day-planner         every day at 7am               review yesterday + plan today, post the morning brief
-week-planner        every sunday at 5pm   weekly review, update Goals/Plan/Status in PROACTIVE.md
+week-planner        every sunday at 5pm            weekly review, update Goals/Plan/Status in PROACTIVE.md
 month-planner       every month on day 1 at 8am    monthly review
 ```
 

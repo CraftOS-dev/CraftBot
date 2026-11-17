@@ -487,6 +487,57 @@
   flex: 1;
 }
 
+/* — requirements review — */
+
+.review {
+  max-width: 880px;
+  width: 100%;
+  margin: 0 auto;
+  padding: var(--space-5) var(--space-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.reviewHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.reviewDoc {
+  max-height: 52vh;
+  overflow-y: auto;
+  padding: var(--space-2) var(--space-4) var(--space-3);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  font-size: 13px;
+}
+
+.reviewEditor {
+  min-height: 52vh;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.reviewProblems {
+  margin: 0;
+  padding-left: var(--space-5);
+  font-size: 12px;
+  color: var(--color-warning, #d97706);
+}
+
+.reviewActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
 /* — full-screen states — */
 
 .stateScreen {

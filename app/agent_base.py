@@ -972,11 +972,23 @@ class AgentBase:
         SKILL.md declares, exactly like ``use_skill`` does.
         """
         skills = list(payload.get("workflow_skills") or [])
+        # A reply to an app still being built (its answers at a checkpoint)
+        # resumes the builder, with the skill and tools it was started with.
+        resume = None
+        if getattr(session, "type", None) == SessionType.AGENT_APP and not skills:
+            from app.agent_app.framework_host import get_host
+
+            host = get_host()
+            resume = host.build_resume(session) if host else None
+            if resume:
+                payload.update(resume)
+                skills = list(resume["workflow_skills"])
         # Registry app conversations use the upstream operating instructions on
         # every turn, including chats restored from before the framework binding.
         # Keep explicitly loaded skills persistent; only unload our run-scoped add.
         if (
             getattr(session, "type", None) == SessionType.AGENT_APP
+            and not resume
             and getattr(session, "agent_app_framework_key", None)
             and "framework-operator" not in getattr(session, "selected_skills", [])
             and "framework-operator" not in skills

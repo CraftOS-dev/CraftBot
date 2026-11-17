@@ -130,12 +130,17 @@ def build(source: Path, *, update_pin: bool = False) -> None:
         )
         run("--filter", "agent-app-framework...", "build")
         files = {}
+        # The CLI is the pinned release; each bundled dependency is the exact
+        # version that release depends on, as npm installs it. A release may
+        # carry dependencies from an earlier one when they did not change.
+        depends = {}
         for name, (relative, prefix) in PACKAGES.items():
             package = tree / relative
             metadata = json.loads(
                 (package / "package.json").read_text(encoding="utf-8")
             )
-            if metadata["name"] != name or metadata["version"] != pin["version"]:
+            expected = pin["version"] if name == "agent-app-framework" else depends.get(name)
+            if metadata["name"] != name or metadata["version"] != expected:
                 raise RuntimeError(f"Unexpected package identity/version: {relative}")
             if set(metadata.get("dependencies", {})) - PACKAGES.keys():
                 raise RuntimeError(f"Unbundled runtime dependency in {name}")
@@ -149,6 +154,9 @@ def build(source: Path, *, update_pin: bool = False) -> None:
                 if not entry.startswith("package/"):
                     raise RuntimeError(f"Unexpected npm archive entry: {entry}")
                 files[prefix + entry.removeprefix("package/")] = data
+            if name == "agent-app-framework":
+                # Packing replaced the workspace ranges with released versions.
+                depends = json.loads(files["package.json"]).get("dependencies", {})
         # Carry upstream's license even if a pack tool omitted the workspace copy.
         files.setdefault("LICENSE", (tree / "LICENSE").read_bytes())
         content = make_zip(files)

@@ -17,7 +17,7 @@ RETIRED_APP_ACTIONS = frozenset({
     "agent_app_http", "agent_app_usage", "agent_app_marketplace_list",
     "agent_app_approve_triggers", "agent_app_marketplace_install",
     "agent_app_import_zip", "agent_app_import", "agent_app_convert",
-    "walk_mark_feature",
+    "walk_mark_feature", "agent_app_scaffold",
 })
 
 
@@ -36,12 +36,12 @@ class DatabaseInterface(BaseDatabaseInterface):
 
         for name in RETIRED_APP_ACTIONS:
             registry_instance._registry.pop(name, None)
-        for name in ("app.data.action.agent_app_actions", "app.data.action.agent_app_framework_actions"):
-            if name in sys.modules:
-                module = importlib.reload(sys.modules[name])
-            else:
-                module = importlib.import_module(name)
-            logger.info(f"Native Agent-App actions loaded from {module.__file__}")
+        name = "app.data.action.agent_app_framework_actions"
+        if name in sys.modules:
+            module = importlib.reload(sys.modules[name])
+        else:
+            module = importlib.import_module(name)
+        logger.info(f"Native Agent-App actions loaded from {module.__file__}")
 
 
 __all__ = ["DatabaseInterface"]
