@@ -160,6 +160,11 @@ def build(output: Path) -> int:
             "app/provision/agent_app_framework.py",
             "app/provision/__init__.py",
             "app/provision/python_downloads.json",
+            # The memory embedder: without these the backend cannot build its
+            # memory index (torch is deliberately no longer installed).
+            "app/provision/embedding_model.json",
+            "app/embedding_model.py",
+            "agent_core/core/impl/memory/onnx_embedder.py",
             "app/provision/default_agent_app.py",
             "app/data/default_agent_app/kanban-board.zip",
             "app/data/default_agent_app/source.json",
@@ -171,6 +176,8 @@ def build(output: Path) -> int:
             "installer/metadata.py",
             "installer/payload.py",
             "installer/startup.py",
+            # The desktop icon's progress window (craftbot.py open).
+            "installer/open_window.py",
         ]
     )
     with zipfile.ZipFile(output) as zf:

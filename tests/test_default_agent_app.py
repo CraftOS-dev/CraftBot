@@ -533,12 +533,16 @@ def test_release_payload_includes_and_requires_app_bundles(
         "app/provision/agent_app_framework.py",
         "app/provision/__init__.py",
         "app/provision/python_downloads.json",
+        "app/provision/embedding_model.json",
+        "app/embedding_model.py",
+        "agent_core/core/impl/memory/onnx_embedder.py",
         "app/provision/default_agent_app.py",
         "craftos_integrations/providers/whatsapp_web/bridge.js",
         "installer/helpers.py",
         "installer/metadata.py",
         "installer/payload.py",
         "installer/startup.py",
+        "installer/open_window.py",
         "requirements/lock-test.txt",
     ]
     if missing != "default":

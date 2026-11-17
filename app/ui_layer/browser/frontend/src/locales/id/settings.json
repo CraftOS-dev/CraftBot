@@ -153,6 +153,13 @@
       "submitCode": "Kirim kode",
       "reopenSignIn": "Buka kembali halaman masuk",
       "openingBrowser": "Membuka peramban…",
+      "claudeCodeMissing": "Masuk dengan langganan memerlukan Claude Code.",
+      "claudeCodeOutdated": "Claude Code {{version}} tidak mendukung masuk dengan langganan.",
+      "claudeCodeOutdatedUnknown": "Claude Code yang terinstal tidak mendukung masuk dengan langganan.",
+      "installClaudeCode": "Instal Claude Code",
+      "updateClaudeCode": "Perbarui Claude Code",
+      "installingClaudeCode": "Menginstal Claude Code…",
+      "updatingClaudeCode": "Memperbarui Claude Code…",
       "signInWith": "Masuk dengan {{provider}}",
       "useApiKeyInstead": "Gunakan kunci API sebagai gantinya"
     },

@@ -13,6 +13,9 @@ def configure_console(*, log_file: str = None) -> None:
     # which used to hide this crash until the first login after installation.
     if sys.stdout is None or sys.stderr is None:
         try:
+            if log_file:
+                # STATE_ROOT/craftbot.log: a login start can come first.
+                os.makedirs(os.path.dirname(os.path.abspath(log_file)), exist_ok=True)
             output = open(
                 log_file or os.devnull, "a", encoding="utf-8", errors="replace"
             )

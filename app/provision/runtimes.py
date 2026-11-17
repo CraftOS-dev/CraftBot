@@ -11,13 +11,14 @@ from __future__ import annotations
 
 import os
 import platform
-import shutil
 import subprocess
 import sys
 from pathlib import Path
 from typing import Optional
 
 from app.provision.types import Context, LogFn, StageResult, Status
+
+from app import python_runtime
 
 # python-build-standalone: relocatable CPython for all three platforms, with
 # pip. python.org's embeddable package is Windows-only and ships without pip,
@@ -163,6 +164,7 @@ def _probe_python(exe: str) -> Optional[tuple]:
             capture_output=True,
             text=True,
             timeout=20,
+            env=python_runtime.isolated_env(),
             **kwargs,
         )
         if out.returncode != 0:
@@ -300,51 +302,42 @@ class PythonStage:
         if ctx.conda_env:
             return StageResult(Status.SKIPPED, f"conda env {ctx.conda_env}")
 
-        # 0. An interpreter the CALLER pinned wins over anything we would
-        #    resolve. Without this the stage silently redirected every later
-        #    stage at its own choice: an end-to-end test that provisioned into
-        #    a fresh venv had its dependencies installed into the developer's
-        #    site-packages instead, and then reported success because they
-        #    were already there.
+        # 0. An interpreter the CALLER pinned (CRAFTBOT_PYTHON, a test's
+        #    venv, Docker's image Python) wins over anything we would resolve,
+        #    and must be the right line: a pinned interpreter is a promise
+        #    that every later stage installs into it.
         pinned = list(ctx.service_python or [])
-        if len(pinned) == 1 and os.path.isfile(pinned[0]):
-            ver = _probe_python(pinned[0])
+        if pinned:
+            ver = _probe_python(pinned[0]) if len(pinned) == 1 else None
             if ver and ver[:2] == TARGET_PYTHON:
                 return self._accept(ctx, pinned[0], "provided", ver)
+            got = f"{ver[0]}.{ver[1]}" if ver else "not runnable"
+            return StageResult(
+                Status.FAILED,
+                f"the pinned interpreter {' '.join(pinned)} is {got}; CraftBot "
+                f"needs Python {want}. Unset CRAFTBOT_PYTHON to use a private copy.",
+            )
 
-        # 1. An already-downloaded sidecar wins: it is the one we control.
+        # 1. Otherwise ONLY the private interpreter. Never the one running
+        #    us or one found on PATH, even when it is the right version:
+        #    Ubuntu's system 3.10 has no pip or ensurepip, Homebrew's is
+        #    externally managed, an old build's SQLite cannot load chromadb,
+        #    and installing 200 pinned packages into a user's own Python
+        #    rewrites their other projects' dependencies.
         sidecar = self._sidecar_exe(ctx)
         if sidecar.is_file():
             ver = _probe_python(str(sidecar))
             if ver and ver[:2] == TARGET_PYTHON:
-                return self._accept(ctx, str(sidecar), "sidecar", ver)
+                return self._accept(ctx, str(sidecar), "private", ver)
 
-        # 2. The interpreter running us, when it is real and the right line.
-        if not getattr(sys, "frozen", False):
-            ver = sys.version_info[:2]
-            if ver == TARGET_PYTHON:
-                return self._accept(ctx, sys.executable, "current", ver)
-
-        # 3. Anything matching on PATH. python3 first on unix, python first on
-        #    Windows — there python3.exe is usually the Store redirect stub.
-        names = ("python", "python3") if os.name == "nt" else ("python3", "python")
-        for name in names:
-            found = shutil.which(name)
-            if not found:
-                continue
-            if os.name == "nt" and "WindowsApps" in found:
-                continue  # Store stub, exits 9009
-            ver = _probe_python(found)
-            if ver and ver[:2] == TARGET_PYTHON:
-                return self._accept(ctx, found, "path", ver)
-
-        running = ".".join(str(v) for v in sys.version_info[:2])
         return StageResult(
             Status.MISSING,
-            f"need Python {want} (this is {running}); will fetch a private copy",
+            f"private Python {want} not installed yet; will download it (~40 MB)",
         )
 
     def apply(self, ctx: Context, log: LogFn) -> StageResult:
+        if ctx.service_python and not ctx.conda_env:
+            return self.check(ctx)  # a wrong pinned interpreter: report it
         if ctx.offline:
             return StageResult(Status.FAILED, "offline: cannot download Python")
 
@@ -395,7 +388,7 @@ class PythonStage:
             # tar preserves the executable bit, which a zip would not — that
             # matters on macOS/Linux where the extracted python must be +x.
             with tarfile.open(archive, mode="r:*") as tf:
-                tf.extractall(dest)
+                downloads.safe_extract_tar(tf, str(dest))
         except Exception as e:
             return StageResult(Status.FAILED, f"download failed: {str(e)[:200]}")
         finally:
@@ -410,4 +403,4 @@ class PythonStage:
         ver = _probe_python(str(exe))
         if not ver or ver[:2] != TARGET_PYTHON:
             return StageResult(Status.FAILED, f"sidecar will not run ({ver})")
-        return self._accept(ctx, str(exe), "sidecar", ver)
+        return self._accept(ctx, str(exe), "private", ver)

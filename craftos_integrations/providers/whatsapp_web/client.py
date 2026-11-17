@@ -694,7 +694,9 @@ class WhatsAppWebClient(BasePlatformClient):
         # Self-chat messages arrive via _handle_sent_message (from_me=True),
         # so when self_messages_only is set we drop everything else here.
         cfg = (
-            load_config(_whatsapp_web_config_file(), WhatsAppWebConfig)
+            await asyncio.to_thread(
+                load_config, _whatsapp_web_config_file(), WhatsAppWebConfig
+            )
             or WhatsAppWebConfig()
         )
         if cfg.self_messages_only:

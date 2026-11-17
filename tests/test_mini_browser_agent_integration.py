@@ -372,7 +372,7 @@ def discovered_skills():
     from agent_core.core.impl.skill.config import SkillsConfig
     from agent_core.core.impl.skill.loader import SkillLoader
 
-    config = SkillsConfig.load(REPO_ROOT / "app/config/skills_config.json")
+    config = SkillsConfig.load(REPO_ROOT / "app/config/skills_config.default.json")
     skills = SkillLoader.discover_skills([REPO_ROOT / "skills"], config)
     return {s.name: s for s in skills}
 

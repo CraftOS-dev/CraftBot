@@ -762,7 +762,15 @@ class AgentBase:
             # for the model.
             self._log_trigger_claim(trigger, session_id)
 
-            self._log_deferred_user_messages(trigger, session_id)
+            # ----- Deferred user-message stream write -----
+            # User messages enter the event stream HERE — at the start of
+            # their own turn — not at arrival. This keeps the stream
+            # chronologically honest: a message that arrived mid-run can
+            # never appear above the previous run's final reply (which made
+            # the next turn dismiss it as already-handled input). Called for
+            # every trigger: aggregated batches may carry user messages even
+            # when the base trigger is a different source.
+            await self._log_deferred_user_messages(trigger, session_id)
 
             trigger_data = self._extract_trigger_data(trigger, session_id)
             from app.telegram_feedback import start_typing
@@ -1246,7 +1254,7 @@ class AgentBase:
                 return
             from app.usage.session_storage import get_session_storage
 
-            get_session_storage().persist_event_stream(
+            get_session_storage().persist_event_stream_later(
                 session_id, self.event_stream_manager.get_stream_by_id(session_id)
             )
         except Exception as e:
@@ -1257,11 +1265,12 @@ class AgentBase:
 
     def _persist_llm_session(self, session_id: str) -> None:
         """Save a session's LLM state (LLMInterface.export_session), so a
-        restart continues the session instead of starting a new prefix."""
+        restart continues the session instead of starting a new prefix.
+        Snapshotted now, written on the session storage's writer thread."""
         try:
             from app.usage.session_storage import get_session_storage
 
-            get_session_storage().persist_llm_session(
+            get_session_storage().persist_llm_session_later(
                 session_id, self.llm.export_session(session_id)
             )
         except Exception as e:
@@ -2309,14 +2318,15 @@ class AgentBase:
         if logged:
             self.state_manager.bump_event_stream()
 
-    def _log_deferred_user_messages(self, trigger, session_id: str) -> None:
+    async def _log_deferred_user_messages(self, trigger, session_id: str) -> None:
         """Write a user-message trigger's message(s) into the session stream.
 
         Called by react() when the trigger is claimed, so each message lands
         in the stream at the start of its OWN turn (aggregated batches log
         every message, in order). Also runs the memory injection that used
         to happen at arrival, so relevant memories still appear right after
-        the message(s) they relate to.
+        the message(s) they relate to. The memory search (embedding + vector
+        search) runs in a worker thread.
         """
         payload = trigger.payload or {}
         entries = payload.get("queued_user_messages")
@@ -2345,13 +2355,20 @@ class AgentBase:
             )
 
         try:
-            from agent_core.core.impl.memory.injector import inject_memory_event
+            from agent_core.core.impl.memory.injector import (
+                log_memory_event,
+                memory_event_message,
+            )
 
             query = "\n".join(
                 (e.get("display") or e.get("content") or "") for e in entries
             ).strip()
             if query:
-                inject_memory_event(query=query, session_id=session_id)
+                message = await asyncio.to_thread(
+                    memory_event_message, query, session_id
+                )
+                if message:
+                    log_memory_event(message, session_id)
         except Exception as e:
             logger.debug(f"[MEMORY] Deferred injection failed: {e}")
 
@@ -3695,7 +3712,10 @@ class AgentBase:
                             session_id,
                             self.event_stream_manager.get_stream_by_id(session_id),
                         )
-                    self._persist_llm_session(session_id)
+                    # Shutdown: wait for the write, not just queue it.
+                    storage.persist_llm_session(
+                        session_id, self.llm.export_session(session_id)
+                    )
                     count += 1
                 except Exception as e:
                     logger.warning(
@@ -4083,10 +4103,12 @@ class AgentBase:
         self._usage_reporter = get_usage_reporter()
         self._usage_reporter.start_background_flush()
 
-        # Pre-warm the find_files index for all local drives (background,
-        # non-blocking) so the first real search doesn't pay a cold-crawl cost.
-        if is_prewarm_all_drives_enabled():
-            self._start_index_prewarm()
+        # Pre-warm the find_files index (background, non-blocking) so the
+        # first real search doesn't pay a cold-crawl cost. By default only
+        # the agent workspace: crawling and watching every drive slowed the
+        # first start and made macOS ask for Desktop/Documents/Downloads
+        # access. settings.json file_index.prewarm_all_drives opts back in.
+        self._start_index_prewarm(all_drives=is_prewarm_all_drives_enabled())
 
         # Configure integrations + start external comms manager
         step(6, 7, "Initializing integrations")
@@ -4194,8 +4216,9 @@ class AgentBase:
         except Exception as e:
             logger.warning(f"[BOOT] Could not write the ready marker: {e}")
 
-    def _start_index_prewarm(self) -> None:
-        """Warm the find_files index for every local drive in a background thread.
+    def _start_index_prewarm(self, all_drives: bool = False) -> None:
+        """Warm the find_files index in a background thread: the agent
+        workspace, or every local drive when ``all_drives`` is set.
 
         Runs one drive at a time rather than one thread per drive: concurrent
         full-drive crawls were observed contending with each other for the
@@ -4204,14 +4227,21 @@ class AgentBase:
         """
         import threading
 
+        from app.config import AGENT_WORKSPACE_ROOT
         from app.utils import file_index
 
         def _prewarm() -> None:
-            try:
-                drives = file_index.list_local_drives()
-            except Exception as e:
-                logger.warning(f"[FILE_INDEX] Could not enumerate local drives: {e}")
-                return
+            if all_drives:
+                try:
+                    drives = file_index.list_local_drives()
+                except Exception as e:
+                    logger.warning(
+                        f"[FILE_INDEX] Could not enumerate local drives: {e}"
+                    )
+                    return
+            else:
+                AGENT_WORKSPACE_ROOT.mkdir(parents=True, exist_ok=True)
+                drives = [str(AGENT_WORKSPACE_ROOT)]
 
             for drive in drives:
                 try:

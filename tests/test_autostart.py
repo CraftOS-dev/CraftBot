@@ -317,13 +317,15 @@ def test_cold_pythonw_startup_logs_and_survives_interpreter_handoff(tmp_path):
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="requires Windows shortcuts")
-def test_real_windows_shortcut_refreshes_url_without_launching_agent(
-    tmp_path, monkeypatch
-):
+def test_real_windows_shortcut_runs_open_for_this_install(tmp_path, monkeypatch):
+    """The icon runs `craftbot.py open` (opens the browser, starting CraftBot
+    first when it is not running), with this install's state root and ports;
+    the link is rewritten when the ports change."""
     desktop = tmp_path / "Desktop O'Hare $literal"
     desktop.mkdir()
     monkeypatch.setattr(craftbot, "_find_desktop", lambda: str(desktop))
     monkeypatch.setattr(craftbot, "_ensure_ico", lambda: None)
+    monkeypatch.setattr(craftbot, "IS_FROZEN", False)
     craftbot._create_desktop_shortcut_windows([])
     craftbot._create_desktop_shortcut_windows(["--frontend-port", "8123"])
     link = desktop / "CraftBot.lnk"
@@ -348,8 +350,13 @@ def test_real_windows_shortcut_refreshes_url_without_launching_agent(
         check=True,
     )
     shortcut = json.loads(result.stdout)
-    assert Path(shortcut["TargetPath"]).name.lower() == "cmd.exe"
-    assert shortcut["Arguments"] == '/c start "" http://localhost:8123'
+    assert Path(shortcut["TargetPath"]).name.lower() in ("pythonw.exe", "python.exe")
+    arguments = shortcut["Arguments"]
+    assert "craftbot.py" in arguments
+    assert " open " in arguments
+    assert "--state-root=" in arguments
+    assert "--frontend-port 8123" in arguments
+    assert "cmd.exe" not in shortcut["TargetPath"].lower()
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="requires pythonw.exe")
@@ -366,6 +373,7 @@ def test_real_run_service_entry_from_unrelated_working_directory(
         "app/__init__.py",
         "app/paths.py",
         "app/console.py",
+        "app/instance.py",
         "app/python_runtime.py",
         "app/runtime_preflight.py",
         "app/node_runtime.py",
@@ -383,8 +391,11 @@ def test_real_run_service_entry_from_unrelated_working_directory(
     (tree / "requirements.txt").touch()
     pythonw = Path(sys.executable).with_name("pythonw.exe")
     (tree / "config.json").write_text(json.dumps({"python_executable": str(pythonw)}))
-    (tree / "craftbot.pid").write_text('{"pid": 2147483647, "started": 1}')
     state = tmp_path / "relocated user data" if relocated_state else tree
+    # A stale record of a CraftBot that is gone. The pid file and the log
+    # live in STATE_ROOT (app/instance.py), next to the user's data.
+    state.mkdir(parents=True, exist_ok=True)
+    (state / "craftbot.pid").write_text('{"pid": 2147483647, "started": 1}')
     monkeypatch.setattr(craftbot.paths, "STATE_ROOT", state)
     monkeypatch.setattr(craftbot, "RUN_SCRIPT", str(tree / "run.py"))
     monkeypatch.setattr(craftbot, "_python_exe", lambda: str(pythonw))
@@ -426,7 +437,7 @@ def test_real_run_service_entry_from_unrelated_working_directory(
         creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NO_WINDOW,
         timeout=30,
     )
-    assert child.returncode == 0, (tree / "craftbot.log").read_text(encoding="utf-8")
+    assert child.returncode == 0, (state / "craftbot.log").read_text(encoding="utf-8")
     assert (tree / "preflight-reached").exists()
-    assert not (tree / "craftbot.pid").exists()
-    assert "SERVICE ENTRY OK" in (tree / "craftbot.log").read_text(encoding="utf-8")
+    assert not (state / "craftbot.pid").exists()
+    assert "SERVICE ENTRY OK" in (state / "craftbot.log").read_text(encoding="utf-8")

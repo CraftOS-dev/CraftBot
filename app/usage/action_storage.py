@@ -16,9 +16,10 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 try:
     from app.logger import logger
@@ -84,6 +85,11 @@ class ActionStorage:
 
     Every item belongs to a session; reads are grouped per session.
     Items are stored in a SQLite database in app/data/.usage.
+
+    Every write runs on one writer thread, in call order. The ``*_later``
+    methods are for the live feed on the event loop: they return at once (a
+    SQLite write and commit can stall for seconds, and on the loop that froze
+    every session and the UI). The other write methods wait for their write.
     """
 
     def __init__(self, db_path: Optional[str] = None):
@@ -95,8 +101,18 @@ class ActionStorage:
             db_path = str(usage_dir / "actions.db")
 
         self._db_path = db_path
+        self._writer = ThreadPoolExecutor(max_workers=1, thread_name_prefix="action-db")
         self._init_db()
         logger.info(f"[ActionStorage] Initialized at {self._db_path}")
+
+    def _submit_later(self, what: str, write: Callable[..., Any], *args: Any) -> None:
+        def run() -> None:
+            try:
+                write(*args)
+            except Exception as e:
+                logger.warning(f"[ActionStorage] Failed to {what}: {e}")
+
+        self._writer.submit(run)
 
     # Columns every query in this module relies on. A table missing any of
     # them is from an earlier feed generation and cannot be column-patched
@@ -169,6 +185,31 @@ class ActionStorage:
 
     def save_item(self, item: StoredActionItem) -> None:
         """Upsert an activity item (full row — used for insert and update)."""
+        self._writer.submit(self._write_item, self._item_row(item)).result()
+
+    def save_item_later(self, item: StoredActionItem) -> None:
+        """save_item without waiting for the write. The row (payloads
+        included) is encoded now, so later changes to the item are not."""
+        self._submit_later(
+            f"persist item {item.id}", self._write_item, self._item_row(item)
+        )
+
+    @staticmethod
+    def _item_row(item: StoredActionItem) -> Tuple[Any, ...]:
+        return (
+            item.id,
+            item.name,
+            item.status,
+            item.item_type,
+            item.session_id,
+            item.created_at,
+            item.completed_at,
+            _encode(item.input_data),
+            _encode(item.output_data),
+            item.error_message,
+        )
+
+    def _write_item(self, row: Tuple[Any, ...]) -> None:
         with sqlite3.connect(self._db_path) as conn:
             conn.execute(
                 """
@@ -177,18 +218,7 @@ class ActionStorage:
                  completed_at, input_json, output_json, error_message)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (
-                    item.id,
-                    item.name,
-                    item.status,
-                    item.item_type,
-                    item.session_id,
-                    item.created_at,
-                    item.completed_at,
-                    _encode(item.input_data),
-                    _encode(item.output_data),
-                    item.error_message,
-                ),
+                row,
             )
             conn.commit()
 
@@ -255,6 +285,16 @@ class ActionStorage:
         Returns:
             Number of items deleted.
         """
+        return self._writer.submit(self._delete_items, session_id).result()
+
+    def clear_items_later(self, session_id: Optional[str] = None) -> None:
+        """clear_items without waiting. Queued after every earlier write, so
+        no item saved before the clear resurfaces after it."""
+        self._submit_later(
+            f"clear items of {session_id}", self._delete_items, session_id
+        )
+
+    def _delete_items(self, session_id: Optional[str]) -> int:
         with sqlite3.connect(self._db_path) as conn:
             cursor = conn.cursor()
             if session_id:
@@ -280,6 +320,13 @@ class ActionStorage:
         Returns:
             True if the item was deleted, False if not found.
         """
+        return self._writer.submit(self._delete_item, item_id).result()
+
+    def delete_item_later(self, item_id: str) -> None:
+        """delete_item without waiting for the write."""
+        self._submit_later(f"delete item {item_id}", self._delete_item, item_id)
+
+    def _delete_item(self, item_id: str) -> bool:
         with sqlite3.connect(self._db_path) as conn:
             cursor = conn.cursor()
             cursor.execute("DELETE FROM action_items WHERE id = ?", (item_id,))

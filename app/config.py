@@ -133,8 +133,11 @@ def _get_default_settings() -> Dict[str, Any]:
             "use_omniparser": False,
             "omniparser_url": "http://127.0.0.1:7861",
         },
+        # False: only the agent workspace is indexed at startup. True also
+        # crawls and watches every local drive (slow on a first start, and
+        # macOS asks for Desktop/Documents/Downloads access).
         "file_index": {
-            "prewarm_all_drives": True,
+            "prewarm_all_drives": False,
         },
         # Read through get_mini_browser_settings(), which validates each value.
         "mini_browser": {
@@ -201,9 +204,10 @@ def get_app_version() -> str:
       1. <code root>/VERSION — written by the release workflow from the git
          tag and shipped in the install payload
       2. <repo>/VERSION — a dev who wrote one locally
-      3. settings.json["version"] — legacy fallback so existing installs
-         and dev environments without a VERSION file still report something
-         meaningful instead of "0.0.0"
+      3. the shipped app/config/settings.default.json["version"], so a
+         checkout without a VERSION file reports the version of its code.
+         Not the user's settings.json: that is a copy made when it was first
+         seeded and keeps the version of that day.
       4. "0.0.0" — final fallback so the updater check fails gracefully
          (no bogus "update available" prompt).
     """
@@ -218,15 +222,16 @@ def get_app_version() -> str:
                 return v
         except OSError:
             continue
-    # Settings.json legacy fallback — was the source of truth before
-    # the VERSION-file scheme.
-    settings = get_settings()
-    v = (
-        settings.get("version", "").strip()
-        if isinstance(settings.get("version"), str)
-        else ""
-    )
-    return v or "0.0.0"
+    try:
+        shipped = json.loads(
+            (paths.CODE_ROOT / "app" / "config" / "settings.default.json").read_text(
+                encoding="utf-8"
+            )
+        )
+    except (OSError, ValueError):
+        shipped = None
+    v = shipped.get("version") if isinstance(shipped, dict) else None
+    return v.strip() if isinstance(v, str) and v.strip() else "0.0.0"
 
 
 def _setting(section: str, key: str) -> Any:
@@ -514,9 +519,13 @@ def get_web_search_cse_id() -> str:
 
 
 def is_prewarm_all_drives_enabled() -> bool:
-    """Whether to pre-warm the find_files index for all local drives at startup."""
+    """Whether to pre-warm the find_files index for every local drive at
+    startup. Off by default: then only the agent workspace is pre-warmed."""
     settings = get_settings()
-    return settings.get("file_index", {}).get("prewarm_all_drives", True)
+    section = settings.get("file_index")
+    if not isinstance(section, dict):
+        return False
+    return section.get("prewarm_all_drives", False) is True
 
 
 # ─────────────────────────────────────────────────────────────────────────────

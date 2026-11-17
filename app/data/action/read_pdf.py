@@ -13,7 +13,7 @@ from agent_core import action
         "mode='layout': returns per-word bounding boxes (BOTTOMLEFT origin) — use when "
         "edit_pdf or form-filling needs spatial coordinates (always includes metadata). "
         "page_range limits which pages are read (e.g. '1', '1-3', '2,4'). "
-        "Digital PDFs use pdfplumber. Scanned/image PDFs fall back to Docling automatically. "
+        "Digital PDFs use pdfplumber. Scanned/image PDFs fall back to OCR automatically. "
         "NOTE: this returns text/coordinates only, NOT the visual layout — to EDIT a PDF while "
         "preserving its look, use convert_from_pdf (html target) instead of rebuilding from this text."
     ),
@@ -82,7 +82,7 @@ from agent_core import action
             "description": "Human-readable error detail. Only present on error.",
         },
     },
-    requirement=["pdfplumber", "pypdfium2", "docling", "pdfminer.six"],
+    requirement=["pdfplumber", "pypdfium2", "rapidocr", "pdfminer.six"],
     test_payload={
         "file_path": "C:/path/to/form.pdf",
         "simulated_mode": True,
@@ -91,9 +91,6 @@ from agent_core import action
 def read_pdf_file(input_data: dict) -> dict:
     import os
     import re
-    import sys
-    import subprocess
-    import importlib
 
     # ── Helpers ───────────────────────────────────────────────────────────
     def _json(status, message="", content=None):
@@ -138,7 +135,7 @@ def read_pdf_file(input_data: dict) -> dict:
         Convert pdfplumber word list to v1-compatible element format.
         pdfplumber uses TOPLEFT origin (top = distance from page top).
         We convert to BOTTOMLEFT so edit_pdf coordinates stay consistent
-        with what v1 and docling always produced.
+        with what v1 always produced.
         """
         out = []
         for w in words:
@@ -171,53 +168,68 @@ def read_pdf_file(input_data: dict) -> dict:
             )
         return out
 
-    def _docling_to_elements(raw, page_dims):
+    def _ocr_page(engine, pdf, idx, scale=2.0):
+        """OCR one rendered page. Returns (lines, elements, width, height).
+
+        Boxes come back in rendered pixels, top-left origin; they are mapped
+        to PDF points with a BOTTOMLEFT origin so layout-mode coordinates
+        match the pdfplumber path and edit_pdf.
         """
-        Convert docling export_to_dict() output to v1-compatible element list.
-        Preserves the exact parsing logic from v1 for the fallback path.
-        """
-        out = []
-        texts = raw.get("texts") if raw else []
-        for t in texts:
-            text_val = t.get("text") or t.get("orig")
-            label = t.get("label") or t.get("type") or "text"
-            prov = t.get("prov")
-            if not (isinstance(prov, list) and prov):
+        page = pdf[idx]
+        pw, ph = (float(v) for v in page.get_size())
+        image = page.render(scale=scale).to_numpy()
+        result = engine(image)
+        boxes = getattr(result, "boxes", None)
+        txts = getattr(result, "txts", None)
+        if boxes is None or txts is None:
+            return [], [], pw, ph
+
+        items = []
+        for box, text in zip(boxes, txts):
+            if not text or not str(text).strip():
                 continue
-            p0 = prov[0]
-            page_no = p0.get("page_no")
-            bbox = p0.get("bbox")
-            if page_no is None or not isinstance(bbox, dict):
-                continue
-            pn = int(page_no)
-            if pn not in page_dims:
-                continue
-            d = page_dims[pn]
-            pw, ph = d["w"], d["h"]
+            xs = [float(pt[0]) / scale for pt in box]
+            ys = [float(pt[1]) / scale for pt in box]
+            items.append((min(xs), min(ys), max(xs), max(ys), str(text)))
+        # Reading order: rows by vertical centre, then left to right.
+        items.sort(key=lambda it: (round((it[1] + it[3]) / 2 / 8), it[0]))
+
+        lines, row, row_key = [], [], None
+        for x0, y0, x1, y1, text in items:
+            key = round((y0 + y1) / 2 / 8)
+            if row_key is not None and key != row_key:
+                lines.append(" ".join(row))
+                row = []
+            row.append(text)
+            row_key = key
+        if row:
+            lines.append(" ".join(row))
+
+        elements = []
+        for x0, y0, x1, y1, text in items:
             abs_bbox = {
-                "x0": float(bbox.get("l", 0)),
-                "y0": float(bbox.get("b", 0)),
-                "x1": float(bbox.get("r", 0)),
-                "y1": float(bbox.get("t", 0)),
-                "coord_origin": str(bbox.get("coord_origin") or "BOTTOMLEFT"),
+                "x0": round(x0, 2),
+                "y0": round(ph - y1, 2),
+                "x1": round(x1, 2),
+                "y1": round(ph - y0, 2),
+                "coord_origin": "BOTTOMLEFT",
             }
-            norm_bbox = {
-                "x0": round(max(0.0, min(1.0, abs_bbox["x0"] / pw)), 4),
-                "y0": round(max(0.0, min(1.0, abs_bbox["y0"] / ph)), 4),
-                "x1": round(max(0.0, min(1.0, abs_bbox["x1"] / pw)), 4),
-                "y1": round(max(0.0, min(1.0, abs_bbox["y1"] / ph)), 4),
-            }
-            out.append(
+            elements.append(
                 {
-                    "page_number": pn,
-                    "element_type": label,
-                    "text": text_val,
+                    "page_number": idx + 1,
+                    "element_type": "text",
+                    "text": text,
                     "bbox_abs": abs_bbox,
-                    "bbox_norm": norm_bbox,
-                    "is_form_field_candidate": _is_form_blank(text_val),
+                    "bbox_norm": {
+                        "x0": round(max(0.0, min(1.0, abs_bbox["x0"] / pw)), 4),
+                        "y0": round(max(0.0, min(1.0, abs_bbox["y0"] / ph)), 4),
+                        "x1": round(max(0.0, min(1.0, abs_bbox["x1"] / pw)), 4),
+                        "y1": round(max(0.0, min(1.0, abs_bbox["y1"] / ph)), 4),
+                    },
+                    "is_form_field_candidate": _is_form_blank(text),
                 }
             )
-        return out
+        return lines, elements, pw, ph
 
     # ── Input extraction ──────────────────────────────────────────────────
     simulated_mode = bool(input_data.get("simulated_mode", False))
@@ -265,24 +277,6 @@ def read_pdf_file(input_data: dict) -> dict:
             if not include_metadata:
                 base_content = {"text": base_content["text"]}
         return _json("success", "", base_content)
-
-    # ── Dependency bootstrap (executor pre-installs via requirement=) ─────
-    def _ensure(pkg, import_as=None):
-        try:
-            importlib.import_module(import_as or pkg)
-        except ImportError:
-            try:
-                subprocess.check_call(
-                    [sys.executable, "-m", "pip", "install", pkg, "--quiet"],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
-            except Exception:
-                pass  # executor pre-installs via requirement=; failure here is non-fatal
-
-    _ensure("pdfplumber")
-    _ensure("pypdfium2")
-    _ensure("docling")
 
     import pdfplumber
     import pypdfium2
@@ -356,91 +350,52 @@ def read_pdf_file(input_data: dict) -> dict:
                         all_elements.extend(_words_to_elements(words, pn, pw, ph))
                 else:
                     # No extractable text on this page — could be blank or scanned.
-                    # We record it but only trigger the docling fallback if EVERY
+                    # We record it but only trigger the OCR fallback if EVERY
                     # target page is empty. A single blank page in a digital PDF
-                    # should not cause a full docling run.
+                    # should not cause a full OCR run.
                     scanned_page_nums.append(pn)
 
         engine = "pdfplumber"
         engine_warning = ""
 
-        # ── Fallback: docling for scanned pages ───────────────────────────
+        # ── Fallback: OCR for scanned pages ───────────────────────────────
         # Only triggered when ALL target pages have no extractable text,
         # which reliably signals a scanned or image-only PDF.
         # A digital PDF with occasional blank pages will have text_parts
-        # populated and will NOT reach this block.
+        # populated and will NOT reach this block. RapidOCR runs on ONNX
+        # Runtime with its models bundled in the wheel: no torch, no
+        # download at first use.
         all_text_empty = not text_parts and not all_elements
         if scanned_page_nums and all_text_empty:
             try:
-                from docling.document_converter import DocumentConverter
-                from docling.datamodel.base_models import ConversionStatus
+                from rapidocr import RapidOCR
 
-                conv = DocumentConverter()
-                result = conv.convert(file_path)
+                engine_ocr = RapidOCR()
+                pdf2 = pypdfium2.PdfDocument(file_path)
+                pages_out = []
+                ocr_text = []
+                for pn in target_pages:
+                    lines, elements, w, h = _ocr_page(engine_ocr, pdf2, pn - 1)
+                    pages_out.append(
+                        {"page_number": pn, "width": round(w, 2), "height": round(h, 2)}
+                    )
+                    if lines:
+                        ocr_text.append("\n".join(lines))
+                    all_elements.extend(elements)
 
-                if result.status in (
-                    ConversionStatus.SUCCESS,
-                    ConversionStatus.PARTIAL_SUCCESS,
-                ):
-                    engine = "docling"
-
+                if ocr_text or all_elements:
+                    engine = "rapidocr"
                     if mode == "text":
-                        # export_to_markdown gives clean, LLM-ready text
-                        fallback_text = result.document.export_to_markdown() or ""
-                        if fallback_text.strip():
-                            text_parts.append(fallback_text)
+                        text_parts.append("\n\n".join(ocr_text))
                     else:
-                        # layout mode: use docling's bbox data
-                        raw = result.document.export_to_dict()
-
-                        # Rebuild page dims map from the pages we extracted
-                        page_dims = {
-                            p["page_number"]: {"w": p["width"], "h": p["height"]}
-                            for p in pages_out
-                        }
-
-                        # If pages_out is empty (fully scanned, pdfplumber got nothing)
-                        # pull page dimensions from pypdfium2
-                        if not pages_out:
-                            pdf2 = pypdfium2.PdfDocument(file_path)
-                            target_pages_set = set(
-                                _parse_page_range(page_range, len(pdf2))
-                                or range(1, len(pdf2) + 1)
-                            )
-                            for idx in range(len(pdf2)):
-                                pn = idx + 1
-                                if pn not in target_pages_set:
-                                    continue
-                                pg = pdf2.get_page(idx)
-                                w, h = pg.get_size()
-                                pages_out.append(
-                                    {
-                                        "page_number": pn,
-                                        "width": round(float(w), 2),
-                                        "height": round(float(h), 2),
-                                    }
-                                )
-                                page_dims[pn] = {"w": float(w), "h": float(h)}
-
-                        docling_elements = _docling_to_elements(raw, page_dims)
-                        # Filter to target pages only — use the set already computed
-                        # at extraction time, which holds original 1-based page numbers.
-                        # Do NOT re-parse against len(pages_out): that would be the
-                        # count of target pages, not total_pages, and would clip the
-                        # range for any page_range that doesn't start at 1.
-                        target_set = set(target_pages)
-                        all_elements.extend(
-                            e
-                            for e in docling_elements
-                            if e["page_number"] in target_set
-                        )
+                        text_parts = []
                 else:
                     engine_warning = (
                         "Scanned pages detected but OCR extraction returned no content."
                     )
 
             except Exception as exc:
-                # docling unavailable or failed — surface what pdfplumber got
+                # OCR unavailable or failed: surface what pdfplumber got
                 # (empty for scanned PDFs) and warn via metadata.
                 engine_warning = f"Scanned pages detected but OCR fallback failed: {type(exc).__name__}."
 

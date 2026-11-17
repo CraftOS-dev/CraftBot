@@ -153,6 +153,13 @@
       "submitCode": "提交验证码",
       "reopenSignIn": "重新打开登录页面",
       "openingBrowser": "正在打开浏览器…",
+      "claudeCodeMissing": "订阅登录需要 Claude Code。",
+      "claudeCodeOutdated": "Claude Code {{version}} 不支持订阅登录。",
+      "claudeCodeOutdatedUnknown": "已安装的 Claude Code 不支持订阅登录。",
+      "installClaudeCode": "安装 Claude Code",
+      "updateClaudeCode": "更新 Claude Code",
+      "installingClaudeCode": "正在安装 Claude Code…",
+      "updatingClaudeCode": "正在更新 Claude Code…",
       "signInWith": "使用 {{provider}} 登录",
       "useApiKeyInstead": "改用 API 密钥"
     },

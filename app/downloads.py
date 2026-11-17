@@ -16,6 +16,7 @@ certifi is used only when it happens to be importable.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import shutil
 import ssl
@@ -37,18 +38,133 @@ _CHUNK = 256 * 1024
 
 
 def ssl_context() -> ssl.SSLContext:
-    """A verified SSL context, using certifi's roots when available.
+    """A verified SSL context trusting certifi's roots AND the OS store.
 
-    Windows' own store has repeatedly failed to load under some OpenSSL
-    builds (see the openssl pin in environment.yml), so prefer certifi and
-    fall back rather than assuming either works.
+    certifi alone broke every download behind a TLS-inspecting corporate
+    proxy: the proxy's root CA lives in the OS store, never in certifi. The OS
+    store alone is not enough either: Windows' store has failed to load under
+    some OpenSSL builds (see the openssl pin in environment.yml), and the
+    standalone Python's OpenSSL may not know where a Linux distro keeps its
+    bundle. So load both, and let either one fail without taking the other
+    down.
     """
+    ctx = ssl.create_default_context()  # OS store (Windows: ROOT + CA)
     try:
         import certifi
 
-        return ssl.create_default_context(cafile=certifi.where())
+        ctx.load_verify_locations(cafile=certifi.where())
     except Exception:
-        return ssl.create_default_context()
+        pass
+    for bundle in (
+        "/etc/ssl/certs/ca-certificates.crt",  # Debian/Ubuntu/Arch
+        "/etc/pki/tls/certs/ca-bundle.crt",  # Fedora/RHEL
+        "/etc/ssl/cert.pem",  # macOS, Alpine
+    ):
+        if os.path.isfile(bundle):
+            try:
+                ctx.load_verify_locations(cafile=bundle)
+            except Exception:
+                pass
+            break
+    return ctx
+
+
+def mirror_url(url: str) -> str:
+    """The URL to actually fetch, after the user's mirror settings.
+
+    Mirrors are the only way some networks (mainland China, locked-down
+    offices) reach GitHub, nodejs.org or huggingface.co. Downloads that
+    carry a SHA-256 (the embedding model) are still verified after a
+    mirror serves them.
+
+      HF_ENDPOINT        the standard Hugging Face override, e.g.
+                         https://hf-mirror.com
+      CRAFTBOT_MIRRORS   ";"-separated "prefix=replacement" rewrites, e.g.
+                         https://nodejs.org/dist/=https://npmmirror.com/mirrors/node/
+                         The first matching prefix wins.
+    """
+    # Same parsing as the launcher (download::mirror) and the Agent App CLI
+    # (pb.ts mirrorUrl): split on ";", split each pair at the first "=",
+    # trim, first listed match wins. Explicit rules beat HF_ENDPOINT.
+    rules = []
+    for pair in os.environ.get("CRAFTBOT_MIRRORS", "").split(";"):
+        prefix, sep, replacement = pair.partition("=")
+        prefix, replacement = prefix.strip(), replacement.strip()
+        if sep and prefix and replacement:
+            rules.append((prefix, replacement))
+    hf = os.environ.get("HF_ENDPOINT", "").strip().rstrip("/")
+    if hf:
+        rules.append(("https://huggingface.co/", hf + "/"))
+    for prefix, replacement in rules:
+        if url.startswith(prefix):
+            return replacement + url[len(prefix) :]
+    return url
+
+
+def system_proxy_env() -> dict:
+    """HTTP(S)_PROXY taken from the OS settings, for children that only read
+    environment variables (npm, Node, uv).
+
+    urllib already honours the Windows registry / macOS proxy settings for
+    CraftBot's own downloads, but npm, Node's fetch and uv do not, so behind
+    a proxy configured only in Windows Settings the Python runtime downloaded
+    and every npm install failed. Explicit environment variables always win.
+    """
+    if any(
+        os.environ.get(name)
+        for name in ("HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy")
+    ):
+        return {}
+    try:
+        proxies = urllib.request.getproxies()
+    except Exception:
+        return {}
+    env = {}
+    for scheme in ("http", "https"):
+        value = proxies.get(scheme)
+        if value:
+            env[f"{scheme.upper()}_PROXY"] = value
+            env[f"{scheme}_proxy"] = value
+    return env
+
+
+def safe_extract_tar(tf, dest: str) -> None:
+    """Extract a tar archive, refusing members that escape `dest`.
+
+    Validated here rather than with tarfile's filter="data", for two reasons
+    found on real machines. The argument only exists from Python 3.10.12 /
+    3.11.4 / 3.12: macOS's built-in 3.9.6 and python.org's last 3.10
+    installer (3.10.11) raised "unexpected keyword argument 'filter'". And
+    the first backports resolved HARD links against the member's own folder
+    instead of the archive root (CPython gh-107845, fixed in 3.10.13 /
+    3.11.5): Ubuntu 22.04's 3.10.12 rejected the standalone Python's
+    terminfo hard links as "outside the destination". One implementation
+    behaves the same on every interpreter.
+    """
+    import tarfile
+
+    root = os.path.realpath(dest)
+    members = []
+    for member in tf.getmembers():
+        target = os.path.realpath(os.path.join(root, member.name))
+        if member.name.startswith(("/", "\\")) or not (
+            target == root or target.startswith(root + os.sep)
+        ):
+            raise ValueError(f"Refusing to extract outside {dest}: {member.name}")
+        if member.issym() or member.islnk():
+            link_base = root if member.islnk() else os.path.dirname(target)
+            link = os.path.realpath(os.path.join(link_base, member.linkname))
+            if not (link == root or link.startswith(root + os.sep)):
+                raise ValueError(f"Refusing link outside {dest}: {member.name}")
+        elif not (member.isfile() or member.isdir()):
+            continue  # devices, fifos: never part of a runtime archive
+        members.append(member)
+    if hasattr(tarfile, "fully_trusted_filter"):
+        # Already validated above; say so explicitly, because Python 3.14
+        # applies the (stricter) data filter by default.
+        tf.extractall(dest, members=members, filter="fully_trusted")
+    else:
+        tf.extractall(dest, members=members)
 
 
 def _human(n: float) -> str:
@@ -118,8 +234,13 @@ def download(
     label: str = "",
     timeout: int = 600,
     progress_cb: Optional[Callable[[int, Optional[int]], None]] = None,
+    expected_sha256: Optional[str] = None,
 ) -> str:
     """Stream url to dest, reporting progress. Returns dest.
+
+    With expected_sha256, a download (or cached copy) whose digest differs
+    is deleted and raises ValueError, so a bad mirror or a truncated file is
+    never used.
 
     Streams to disk rather than holding the archive in memory: these are
     tens of megabytes and a low-memory machine should not need twice that
@@ -133,7 +254,7 @@ def download(
     cache = cache_dir()
     cached = os.path.join(cache, cache_name(url)) if cache else None
 
-    if cached and os.path.isfile(cached):
+    if cached and os.path.isfile(cached) and _digest_ok(cached, expected_sha256):
         size = os.path.getsize(cached)
         say(f"    using cached {what} ({_human(size)})")
         shutil.copyfile(cached, dest)
@@ -144,7 +265,10 @@ def download(
                 pass
         return dest
 
-    req = urllib.request.Request(url, headers={"User-Agent": "CraftBot"})
+    fetched = mirror_url(url)
+    if fetched != url:
+        say(f"    via mirror: {fetched}")
+    req = urllib.request.Request(fetched, headers={"User-Agent": "CraftBot"})
     with urllib.request.urlopen(req, timeout=timeout, context=ssl_context()) as resp:
         header = resp.getheader("Content-Length")
         total = int(header) if header and header.isdigit() else None
@@ -183,6 +307,13 @@ def download(
 
     say(f"    downloaded {_human(read)}")
 
+    if not _digest_ok(dest, expected_sha256):
+        try:
+            os.remove(dest)
+        except OSError:
+            pass
+        raise ValueError(f"SHA-256 verification failed for {cache_name(url)}")
+
     # Populate the cache so the next install on this machine - or the next
     # test run against a mapped cache - does not fetch it again. Skipped when
     # the download already went straight into the cache (the prefetch script
@@ -195,3 +326,14 @@ def download(
             say(f"    (could not cache: {str(e)[:120]})")
 
     return dest
+
+
+def _digest_ok(path: str, expected: Optional[str]) -> bool:
+    """True when no digest is expected, or the file's SHA-256 matches."""
+    if not expected:
+        return True
+    digest = hashlib.sha256()
+    with open(path, "rb") as source:
+        for chunk in iter(lambda: source.read(_CHUNK), b""):
+            digest.update(chunk)
+    return digest.hexdigest() == expected

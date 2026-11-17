@@ -52,8 +52,20 @@ def inject_memory_event(query: str, session_id: Optional[str] = None) -> None:
         session_id: Target task/event-stream id. When None, the main
             (conversation) stream is used.
     """
+    message = memory_event_message(query, session_id)
+    if message:
+        log_memory_event(message, session_id)
+
+
+def memory_event_message(query: str, session_id: Optional[str] = None) -> Optional[str]:
+    """The `relevant_memories` event text for `query`, or None when memory is
+    off, `session_id` is an isolated app task, or nothing passes the threshold.
+
+    Blocking (embedding + vector search): callers on the event loop run it in
+    a worker thread and log the result with log_memory_event.
+    """
     if not query or not query.strip():
-        return
+        return None
 
     from agent_core.core.state import get_session_or_none
 
@@ -63,15 +75,14 @@ def inject_memory_event(query: str, session_id: Optional[str] = None) -> None:
         and state.current_session
         and getattr(state.current_session, "isolated_app_task", False)
     ):
-        return
+        return None
 
     if not _is_memory_enabled():
-        return
+        return None
 
     memory_manager = get_memory_manager_or_none()
-    event_stream_manager = get_event_stream_manager_or_none()
-    if memory_manager is None or event_stream_manager is None:
-        return
+    if memory_manager is None or get_event_stream_manager_or_none() is None:
+        return None
 
     try:
         pointers = memory_manager.retrieve(
@@ -79,10 +90,10 @@ def inject_memory_event(query: str, session_id: Optional[str] = None) -> None:
         )
     except Exception as e:
         logger.warning(f"[MEMORY] inject_memory_event retrieval failed: {e}")
-        return
+        return None
 
     if not pointers:
-        return
+        return None
 
     # These are TRUNCATED previews (pointers), not full memories: each line is
     # a snippet centred on the query match, and a leading/trailing "..." marks
@@ -102,7 +113,14 @@ def inject_memory_event(query: str, session_id: Optional[str] = None) -> None:
             f"- [{ptr.file_path}] {ptr.section_path}: {ptr.summary} "
             f"(relevance: {ptr.relevance_score:.2f})"
         )
-    message = header + "\n" + "\n".join(lines)
+    return header + "\n" + "\n".join(lines)
+
+
+def log_memory_event(message: str, session_id: Optional[str] = None) -> None:
+    """Log a `relevant_memories` event built by memory_event_message."""
+    event_stream_manager = get_event_stream_manager_or_none()
+    if event_stream_manager is None:
+        return
 
     # session_id=None means "no task context" — log directly to the main
     # stream rather than going through .log(task_id=None), which would fall

@@ -91,22 +91,36 @@ class IntegrationSystem:
         )
         if operation is None:
             raise LookupError(f"{provider_id} has no operation '{op_name}'")
-        identity = self.accounts.resolve(provider_id, account)
-        client = self._client_for(provider, identity)
+        # Account resolution and client construction read the credential
+        # store from disk: a worker thread keeps them off the event loop.
+        client = await asyncio.to_thread(self._resolve_client, provider, account)
         return await operation.fn(client, input_data)
 
+    def _resolve_client(self, provider: Provider, account: Optional[str]) -> Any:
+        identity = self.accounts.resolve(provider.id, account)
+        return self._client_for(provider, identity)
+
     def _client_for(self, provider: Provider, identity: str) -> Any:
-        cached = self.registry.get_cached_client(provider.id, identity)
-        if cached is not None:
-            return cached
-        credential = self.accounts.credential_for(provider.id, identity)
+        """Cached-or-built client. Runs in worker threads as well as on the
+        loop: a build that an invalidation (credential change) overtook is
+        redone from the new credential instead of caching the stale one."""
 
         def persist(updated: Dict[str, Any]) -> None:
             self.accounts.update_credential(provider.id, identity, updated)
 
-        client = provider.build_client(credential, persist)
-        self.registry.cache_client(provider.id, identity, client)
-        return client
+        while True:
+            cached, generation = self.registry.cached_client(provider.id, identity)
+            if cached is not None:
+                return cached
+            credential = self.accounts.credential_for(provider.id, identity)
+            client = self.registry.cache_built_client(
+                provider.id,
+                identity,
+                provider.build_client(credential, persist),
+                generation,
+            )
+            if client is not None:
+                return client
 
     def client_for(self, provider_id: str, identity: str) -> Any:
         """Public client path for core plumbing (e.g. ListenerManager):
