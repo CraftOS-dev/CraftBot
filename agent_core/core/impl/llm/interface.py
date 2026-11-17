@@ -158,6 +158,16 @@ class _SessionCheckpoint:
     input_tokens: Optional[int]
 
 
+class LLMReply(str):
+    """A reply's text. ``cut_off``: the provider stopped it at the output
+    limit before it finished."""
+
+    def __new__(cls, text: str, cut_off: bool = False) -> "LLMReply":
+        reply = super().__new__(cls, text)
+        reply.cut_off = cut_off
+        return reply
+
+
 class LLMContextOverflowError(RuntimeError):
     """The assembled request does not fit the configured context window.
 
@@ -1229,7 +1239,7 @@ class LLMInterface:
 
             if log_response:
                 logger.info(f"[LLM RECV] {cleaned}")
-            return cleaned
+            return LLMReply(cleaned, bool(response.get("cut_off")))
 
         except LLMConsecutiveFailureError:
             # Re-raise consecutive failure errors without incrementing counter
@@ -1775,7 +1785,7 @@ class LLMInterface:
         self._set_token_count(current_count + billable_tokens(response))
         if log_response:
             logger.info(f"[LLM RECV] {cleaned}")
-        return cleaned
+        return LLMReply(cleaned, bool(response.get("cut_off")))
 
     def _generate_response_with_session_sync(
         self,

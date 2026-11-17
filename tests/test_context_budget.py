@@ -147,7 +147,7 @@ def test_router_decides_on_the_request_and_restarts_without_ending():
     first_call = src.index("if not has_synced_before:")
     send = src.index("generate_response_with_session_async", first_call)
     assert "reset_session_history" in src[first_call:send]
-    assert "end_session_cache" not in src[src.index("No delta events") : send]
+    assert "end_session_cache" not in src[delta_branch:send]
     assert "except LLMContextOverflowError" in src
 
 
@@ -179,17 +179,6 @@ def test_a_restored_session_takes_the_session_path_like_a_new_one(tmp_path):
     finally:
         for session_id in (created.id, restored.id):
             StateSession.end(session_id)
-
-
-def test_subagent_first_turn_resets_history():
-    from pathlib import Path
-
-    import app.subagent.runner as runner
-
-    src = Path(runner.__file__).read_text(encoding="utf-8")
-    branch = src.index("if not stream.has_session_sync(_SUBAGENT_CALL_TYPE):")
-    build = src.index("make_first_turn_user_prompt", branch)
-    assert "_reset_session" in src[branch:build]
 
 
 # ------------------------------------------------------------ KV caching

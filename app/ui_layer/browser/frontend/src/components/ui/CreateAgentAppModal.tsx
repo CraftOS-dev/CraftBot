@@ -1,13 +1,18 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
-import { Sparkles, Download, Loader2, Package, Store, FolderInput, Upload, Check, Search } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { Sparkles, Download, ArrowRight, Loader2, Package, Store, FolderInput, Upload, Search, Link, Hammer } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Button } from './Button'
 import { Modal } from './Modal'
 import { AgentAppIcon } from './AgentAppIcon'
 import { CreateCustomWizard } from './CreateCustomWizard'
-import { useSettingsWebSocket } from '../../pages/Settings/useSettingsWebSocket'
 import { tourAnchorProps, useTourEnvAction, type TourAnchorId } from '../../tour'
 import styles from './CreateAgentAppModal.module.css'
+import { frameworkRequest } from '../../features/agentApps/frameworkApi'
+import { useFrameworkCreation } from '../../features/agentApps/useFrameworkCreation'
+import { frameworkRoute } from '../../features/agentApps/frameworkIdentity'
+import { useAppSelector } from '../../store/hooks'
+import { ConnectAgentApp } from '../../features/agentApps/ConnectAgentApp'
 
 // The modal's tabs, in the order the guided tour walks them.
 const TAB_TOUR_ANCHORS: Record<'marketplace' | 'custom' | 'import', TourAnchorId> = {
@@ -16,21 +21,9 @@ const TAB_TOUR_ANCHORS: Record<'marketplace' | 'custom' | 'import', TourAnchorId
   import: 'agentapp-tab-import',
 }
 
-// Must match THUMBNAIL_WIDTHS in app/agent_app/marketplace_source.py.
-const THUMBNAIL_WIDTHS = [480, 720, 960, 1440]
-
 export interface CreateAgentAppModalProps {
   isOpen: boolean
   onClose: () => void
-  onInstalled?: (projectId: string) => void
-}
-
-interface CustomField {
-  key: string
-  label: string
-  type: string
-  default: string
-  placeholder?: string
 }
 
 interface MarketplaceApp {
@@ -38,19 +31,30 @@ interface MarketplaceApp {
   name: string
   description: string
   preview?: string
-  // Backend-resized copy of `preview`; append ?w=<width>.
-  thumbnail?: string
   // "lucide:<Name>" like a project's icon; none yet → the default cube.
   icon?: string
-  folder: string
   tags?: string[]
   version?: string
-  customizable?: CustomField[]
 }
 
-export function CreateAgentAppModal({ isOpen, onClose, onInstalled }: CreateAgentAppModalProps) {
+export function CreateAgentAppModal({ isOpen, onClose }: CreateAgentAppModalProps) {
   const { t } = useTranslation(['components', 'common'])
-  const [activeTab, setActiveTab] = useState<'marketplace' | 'custom' | 'import'>('marketplace')
+  const [activeTab, setActiveTab] = useState<'marketplace' | 'custom' | 'import' | 'connect'>('marketplace')
+  const native = useFrameworkCreation(onClose)
+  const navigate = useNavigate()
+  const registryApps = useAppSelector(state => state.agentApp.framework.apps)
+  const [catalogueSource, setCatalogueSource] = useState<{ location: string; ref?: string }>()
+  const installedApps = useMemo(() => {
+    const result = new Map<string, typeof registryApps[number]>()
+    for (const app of registryApps) {
+      const source = app.marketplace
+      if (!source || !catalogueSource || app.status === 'missing') continue
+      const location = source.ref ? `${source.location}@${source.ref}` : source.location
+      if ((location === catalogueSource.location || source.location === catalogueSource.location)
+        && source.ref === catalogueSource.ref && !result.has(source.id)) result.set(source.id, app)
+    }
+    return result
+  }, [registryApps, catalogueSource])
 
   // Import tab state
   const [importSource, setImportSource] = useState('')
@@ -58,28 +62,18 @@ export function CreateAgentAppModal({ isOpen, onClose, onInstalled }: CreateAgen
   const [importError, setImportError] = useState<string | null>(null)
   const [dropActive, setDropActive] = useState(false)
 
+  const isConnected = useAppSelector(state => state.connection.connected)
+
   // Marketplace state
-  const { send, onMessage, isConnected } = useSettingsWebSocket()
   const [apps, setApps] = useState<MarketplaceApp[]>([])
   const [marketplaceLoading, setMarketplaceLoading] = useState(false)
   const [marketplaceError, setMarketplaceError] = useState<string | null>(null)
   const [installingIds, setInstallingIds] = useState<Set<string>>(new Set())
-  const [installCounts, setInstallCounts] = useState<Map<string, number>>(new Map())
-  const [configuringApp, setConfiguringApp] = useState<MarketplaceApp | null>(null)
-  const installTimeoutsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
-  const marketplaceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const [customValues, setCustomValues] = useState<Record<string, string>>({})
 
   // Marketplace filter state
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set())
   const [thumbFailures, setThumbFailures] = useState<Set<string>>(new Set())
-
-  const onCloseRef = useRef(onClose)
-  const onInstalledRef = useRef(onInstalled)
-  useEffect(() => { onCloseRef.current = onClose }, [onClose])
-  useEffect(() => { onInstalledRef.current = onInstalled }, [onInstalled])
-  useEffect(() => () => { installTimeoutsRef.current.forEach(t => clearTimeout(t)) }, [])
 
   // Let the guided tour switch the modal's tab so each creation method is shown.
   useTourEnvAction('openAgentAppTab', (arg) => {
@@ -88,31 +82,15 @@ export function CreateAgentAppModal({ isOpen, onClose, onInstalled }: CreateAgen
     }
   })
 
-  // Chat-path requirements phase: agent_app_scaffold generated setup
-  // questions (creating nothing yet) and the backend summons the SAME
-  // Create Custom wizard, pre-seeded and opened at the interview step
-  // (agent_app_wizard_open); its finalize creates the project as usual.
-  const [chatWizard, setChatWizard] = useState<{
-    wizardId: string
-    config: Record<string, any>
-    questions: any[]
-    originSessionId?: string
-  } | null>(null)
-  useEffect(
-    () =>
-      onMessage('agent_app_wizard_open', (data: any) => {
-        if (data?.wizardId && Array.isArray(data.questions) && data.questions.length > 0) {
-          setChatWizard(data)
-        }
-      }),
-    [onMessage]
-  )
-  // Accumulate projectIds from completed installs — navigate only when all installs finish
-  const pendingNavigationsRef = useRef<string[]>([])
-
-  // Upload ZIP → stage on server → send to agent via WebSocket
+  // Upload ZIP, then install the staged package through Agent-App.
   const handleZipUpload = async (file: File) => {
+    if (!isConnected || importing) return
+    if (file.size > 512 * 1024 * 1024) {
+      setImportError('Agent-App packages must be 512 MiB or smaller. Export the app without dependencies, build output or local data, then upload it again.')
+      return
+    }
     setImporting(true)
+    setImportError(null)
     try {
       const formData = new FormData()
       formData.append('file', file)
@@ -121,18 +99,15 @@ export function CreateAgentAppModal({ isOpen, onClose, onInstalled }: CreateAgen
       const resp = await fetch('/api/agent-app/import', { method: 'POST', body: formData })
       const result = await resp.json()
       if (result.success && result.path) {
-        // Handed off to AgentAppImportToast (see the URL import button).
-        setImportError(null)
-        send('agent_app_import', { source: result.path, name: result.name || zipName })
-        setImporting(false)
-        onCloseRef.current()
+        await native.install({ from: result.path })
         return
       }
       setImportError(result.error || t('components:createAgentApp.uploadFailed'))
     } catch (err) {
       setImportError(t('components:createAgentApp.uploadFailedDetail', { message: err instanceof Error ? err.message : String(err) }))
+    } finally {
+      setImporting(false)
     }
-    setImporting(false)
   }
 
   // The catalog is cached for the modal's lifetime, but a disconnect (e.g. a
@@ -147,12 +122,9 @@ export function CreateAgentAppModal({ isOpen, onClose, onInstalled }: CreateAgen
     fetchMarketplace()
   }
 
-  // Reset form fields on open — intentionally NOT resetting installingIds/completedIds
-  // so ongoing installs remain visible when user closes and reopens the modal
+  // Reset filters on open; preserve pending installs when the modal is reopened.
   useEffect(() => {
     if (isOpen) {
-      setConfiguringApp(null)
-      setCustomValues({})
       setSearchQuery('')
       setSelectedTags(new Set())
       // isConnected matters: opening straight onto the marketplace tab before
@@ -171,102 +143,16 @@ export function CreateAgentAppModal({ isOpen, onClose, onInstalled }: CreateAgen
     }
   }, [activeTab, isConnected])
 
-  // Listen for marketplace responses
-  useEffect(() => {
-    const cleanups = [
-      onMessage('agent_app_marketplace_list', (data: any) => {
-        if (marketplaceTimeoutRef.current) {
-          clearTimeout(marketplaceTimeoutRef.current)
-          marketplaceTimeoutRef.current = null
-        }
-        setMarketplaceLoading(false)
-        if (data.success) {
-          setApps(data.apps || [])
-          setMarketplaceError(null)
-        } else {
-          setMarketplaceError(data.error || t('components:createAgentApp.marketplaceFailed'))
-        }
-      }),
-      onMessage('agent_app_import_result', (data: any) => {
-        // The modal has usually closed by now — AgentAppImportToast owns
-        // telling the user how it went. All that is left here is the
-        // navigation on success, and restoring the inline error for the
-        // case where the modal is somehow still open.
-        setImporting(false)
-        if (data.success) {
-          setImportSource('')
-          setImportError(null)
-          if (data.projectId && onInstalledRef.current) {
-            onInstalledRef.current(data.projectId)
-          }
-          onCloseRef.current()
-        } else {
-          setImportError(data.error || t('components:createAgentApp.importFailed'))
-        }
-      }),
-      onMessage('agent_app_marketplace_install', (data: any) => {
-        console.log('[CreateAgentAppModal] received agent_app_marketplace_install:', data)
-        const finishedId = data.appId as string | undefined
-        if (data.status === 'success') {
-          const projectId = data.project?.id
-          if (projectId) pendingNavigationsRef.current.push(projectId)
-
-          if (finishedId) {
-            const t = installTimeoutsRef.current.get(finishedId)
-            if (t) { clearTimeout(t); installTimeoutsRef.current.delete(finishedId) }
-            setInstallCounts(prev => {
-              const next = new Map(prev)
-              next.set(finishedId, (next.get(finishedId) || 0) + 1)
-              return next
-            })
-          }
-
-          setInstallingIds(prev => {
-            const next = new Set(prev)
-            if (finishedId) next.delete(finishedId)
-            else next.clear()
-            if (next.size === 0) {
-              const lastProjectId = pendingNavigationsRef.current[pendingNavigationsRef.current.length - 1]
-              pendingNavigationsRef.current = []
-              if (lastProjectId && onInstalledRef.current) {
-                onInstalledRef.current(lastProjectId)
-              }
-              setTimeout(() => onCloseRef.current(), 800)
-            }
-            return next
-          })
-        } else {
-          if (finishedId) {
-            const t = installTimeoutsRef.current.get(finishedId)
-            if (t) { clearTimeout(t); installTimeoutsRef.current.delete(finishedId) }
-            setInstallingIds(prev => { const n = new Set(prev); n.delete(finishedId); return n })
-          } else {
-            installTimeoutsRef.current.forEach(t => clearTimeout(t))
-            installTimeoutsRef.current.clear()
-            setInstallingIds(new Set())
-          }
-          setMarketplaceError(data.error || t('components:createAgentApp.installFailed'))
-        }
-      }),
-    ]
-    return () => cleanups.forEach(c => c())
-  }, [onMessage])
-
   const fetchMarketplace = useCallback(() => {
     setMarketplaceLoading(true)
     setMarketplaceError(null)
-    // The backend always answers — but only if the socket actually delivered
-    // the request. Without this, a request sent into a closing or not-yet-open
-    // connection leaves the spinner up for ever with nothing to explain it,
-    // which is exactly how this looked when the marketplace "kept loading".
-    if (marketplaceTimeoutRef.current) clearTimeout(marketplaceTimeoutRef.current)
-    marketplaceTimeoutRef.current = setTimeout(() => {
-      marketplaceTimeoutRef.current = null
-      setMarketplaceLoading(false)
-      setMarketplaceError(t('components:createAgentApp.marketplaceFailed'))
-    }, 45000)
-    send('agent_app_marketplace_list')
-  }, [send, t])
+    void frameworkRequest<{ status: string; data?: { apps: MarketplaceApp[]; source?: { location: string; ref?: string } }; stderr?: string }>({ operation: 'catalogue' })
+      .then(result => {
+        if (result.status !== 'success' || !result.data) throw new Error(result.stderr || 'The marketplace could not be loaded.')
+        setApps(result.data.apps)
+        setCatalogueSource(result.data.source)
+      }).catch(error => setMarketplaceError(String(error))).finally(() => setMarketplaceLoading(false))
+  }, [])
 
   // Derive [tag, app count] list from catalogue, sorted by frequency (popular first)
   const allTags = useMemo(() => {
@@ -300,82 +186,23 @@ export function CreateAgentAppModal({ isOpen, onClose, onInstalled }: CreateAgen
     })
   }
 
-  const handleAddClick = (app: MarketplaceApp) => {
-    if (app.customizable && app.customizable.length > 0) {
-      setConfiguringApp(app)
-      const defaults: Record<string, string> = {}
-      app.customizable.forEach(f => { defaults[f.key] = f.default })
-      setCustomValues(defaults)
-    } else {
-      doInstall(app, {})
-    }
-  }
-
-  const doInstall = (app: MarketplaceApp, fields: Record<string, string>) => {
-    const appKey = app.folder || app.id
-    setConfiguringApp(null)
-    setInstallingIds(prev => new Set([...prev, appKey]))
+  const installApp = (app: MarketplaceApp) => {
+    setInstallingIds(prev => new Set([...prev, app.id]))
     setMarketplaceError(null)
-
-    // Stuck-install timeout: clear installing state after 3 minutes
-    const timeout = setTimeout(() => {
-      setInstallingIds(prev => { const n = new Set(prev); n.delete(appKey); return n })
-      setMarketplaceError(t('components:createAgentApp.installTimeout', { name: app.name }))
-      installTimeoutsRef.current.delete(appKey)
-    }, 3 * 60 * 1000)
-    installTimeoutsRef.current.set(appKey, timeout)
-
-    send('agent_app_marketplace_install', {
-      appId: appKey,
-      appName: fields.APP_TITLE || app.name,
-      appDescription: app.description,
-      customFields: fields,
-    })
+    void native.install({ id: app.id }).catch(error => setMarketplaceError(String(error)))
+      .finally(() => setInstallingIds(previous => { const next = new Set(previous); next.delete(app.id); return next }))
   }
 
   // Escape key intentionally does NOT close this modal — user must use the X button
 
-  // Chat-summoned wizard: same component, entered at the interview step.
-  // Renders regardless of isOpen — the summons comes from the backend, not
-  // the "+" button. Closing it mid-interview leaves nothing behind (no
-  // project exists until finalize), same as cancelling the modal wizard.
-  if (chatWizard && !isOpen) {
-    return (
-      <Modal
-        isOpen={true}
-        onClose={() => setChatWizard(null)}
-        size="full"
-        closeOnOverlayClick={false}
-        closeOnEsc={false}
-        title={
-          <>
-            <Sparkles size={20} className={styles.headerIcon} />
-            {t('components:createAgentApp.setupQuestions', { name: String(chatWizard.config?.name || 'Agent App') })}
-          </>
-        }
-      >
-        <CreateCustomWizard
-          send={send}
-          onMessage={onMessage}
-          initial={chatWizard}
-          onClose={() => setChatWizard(null)}
-          onCreated={(projectId: string) => {
-            setChatWizard(null)
-            onInstalledRef.current?.(projectId)
-          }}
-        />
-      </Modal>
-    )
-  }
-
-  // Fully unmount when closed and no installs pending; stay mounted (invisible) while installs run
-  if (!isOpen && installingIds.size === 0 && !chatWizard) return null
-  if (!isOpen) return <></> // mounted but invisible — keeps onMessage listeners alive
+  // Hide the UI while keeping install tracking mounted.
+  if (!isOpen) return null
 
   const tabsConfig = [
     { id: 'marketplace' as const, label: t('components:createAgentApp.tabMarketplace'), icon: <Store size={14} /> },
-    { id: 'custom' as const, label: t('components:createAgentApp.tabCustom'), icon: <Sparkles size={14} /> },
+    { id: 'custom' as const, label: t('components:createAgentApp.tabCustom'), icon: <Hammer size={14} /> },
     { id: 'import' as const, label: t('components:createAgentApp.tabImport'), icon: <FolderInput size={14} /> },
+    { id: 'connect' as const, label: 'Connect', icon: <Link size={14} /> },
   ]
 
   return (
@@ -398,7 +225,7 @@ export function CreateAgentAppModal({ isOpen, onClose, onInstalled }: CreateAgen
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
               className={`${styles.tab} ${activeTab === tab.id ? styles.tabActive : ''}`}
-              {...tourAnchorProps(TAB_TOUR_ANCHORS[tab.id])}
+              {...(tab.id === 'connect' ? {} : tourAnchorProps(TAB_TOUR_ANCHORS[tab.id]))}
             >
               {tab.icon}
               {tab.label}
@@ -407,7 +234,7 @@ export function CreateAgentAppModal({ isOpen, onClose, onInstalled }: CreateAgen
         </div>
 
         {/* Marketplace Tab */}
-        {activeTab === 'marketplace' && !configuringApp && (
+        {activeTab === 'marketplace' && (
           <div className={styles.marketplaceBody}>
             <div className={styles.toolbar}>
               <div className={styles.searchWrapper}>
@@ -445,11 +272,12 @@ export function CreateAgentAppModal({ isOpen, onClose, onInstalled }: CreateAgen
               )}
 
               <div className={styles.marketplaceContent}>
+                {marketplaceError && apps.length > 0 && <p role="alert" className={styles.stateText}>{marketplaceError}</p>}
                 {marketplaceLoading ? (
                   <div className={styles.stateCenter}>
                     <Loader2 size={24} className={styles.spinner} />
                   </div>
-                ) : marketplaceError ? (
+                ) : marketplaceError && apps.length === 0 ? (
                   <div className={styles.stateCenter}>
                     <p className={styles.stateText}>{marketplaceError}</p>
                     <Button size="sm" variant="secondary" onClick={fetchMarketplace}>{t('common:actions.retry')}</Button>
@@ -467,23 +295,17 @@ export function CreateAgentAppModal({ isOpen, onClose, onInstalled }: CreateAgen
                 ) : (
                   <div className={styles.appsGrid}>
                     {filteredApps.map(app => {
-                      const appKey = app.folder || app.id
+                      const appKey = app.id
                       const installing = installingIds.has(appKey)
-                      const installedCount = installCounts.get(appKey) || 0
+                      const installed = installedApps.get(appKey)
                       const addLabel = installing
                         ? t('common:status.installing')
-                        : installedCount > 0
-                          ? t('components:createAgentApp.installedBadge', { count: installedCount })
-                          : t('common:actions.add')
+                        : t(installed ? 'common:actions.open' : 'common:actions.add')
                       return (
                         <div key={app.id} className={styles.appCard}>
                           {app.preview && !thumbFailures.has(appKey) ? (
                             <img
-                              src={app.thumbnail ? `${app.thumbnail}?w=720` : app.preview}
-                              srcSet={app.thumbnail
-                                ? THUMBNAIL_WIDTHS.map(w => `${app.thumbnail}?w=${w} ${w}w`).join(', ')
-                                : undefined}
-                              sizes="(max-width: 768px) 100vw, 300px"
+                              src={app.preview}
                               alt={app.name}
                               referrerPolicy="no-referrer"
                               className={styles.appCardThumb}
@@ -499,7 +321,6 @@ export function CreateAgentAppModal({ isOpen, onClose, onInstalled }: CreateAgen
                               <AgentAppIcon
                                 // file: icons belong to installed projects; a catalogue entry has none
                                 icon={app.icon?.startsWith('lucide:') ? app.icon : undefined}
-                                projectId={appKey}
                                 size={14}
                                 className={styles.appCardIcon}
                               />
@@ -508,16 +329,18 @@ export function CreateAgentAppModal({ isOpen, onClose, onInstalled }: CreateAgen
                             <button
                               type="button"
                               className={styles.appCardAdd}
-                              onClick={() => !installing && handleAddClick(app)}
-                              disabled={installing}
+                              onClick={() => {
+                                if (installing) return
+                                if (installed) { onClose(); navigate(frameworkRoute(installed.path, installed.id)) }
+                                else installApp(app)
+                              }}
+                              disabled={installing || !isConnected}
                               aria-label={addLabel}
                               title={addLabel}
                             >
                               {installing
                                 ? <Loader2 size={14} className={styles.spinner} />
-                                : installedCount > 0
-                                  ? <Check size={14} />
-                                  : <Download size={14} />}
+                                : installed ? <ArrowRight size={14} /> : <Download size={14} />}
                             </button>
                           </div>
                         </div>
@@ -530,45 +353,16 @@ export function CreateAgentAppModal({ isOpen, onClose, onInstalled }: CreateAgen
           </div>
         )}
 
-        {/* Marketplace Config Form (shown when app has customizable fields) */}
-        {configuringApp && (
-          <div className={styles.configBody}>
-            <div className={styles.configCard}>
-              <div className={styles.configHeader}>
-                <h4>{t('components:createAgentApp.configureApp', { name: configuringApp.name })}</h4>
-                <p>{t('components:createAgentApp.configureSubtitle')}</p>
-              </div>
-              {configuringApp.customizable?.map(field => (
-                <div key={field.key} className={styles.formGroup} style={{ marginBottom: 'var(--space-3)' }}>
-                  <label className={styles.label}>{field.label}</label>
-                  <input
-                    type={field.type || 'text'}
-                    className={styles.input}
-                    value={customValues[field.key] || ''}
-                    onChange={(e) => setCustomValues(prev => ({ ...prev, [field.key]: e.target.value }))}
-                    placeholder={field.placeholder || field.default}
-                  />
-                </div>
-              ))}
-              <div className={styles.configActions}>
-                <Button variant="secondary" onClick={() => setConfiguringApp(null)}>{t('common:actions.back')}</Button>
-                <Button variant="primary" icon={<Download size={14} />} onClick={() => doInstall(configuringApp, customValues)}>
-                  {t('common:actions.install')}
-                </Button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Custom Tab — three-step wizard (configure → interview → creating) */}
+        {/* Custom Tab — collect requirements for Agent-App creation. */}
         {activeTab === 'custom' && (
           <CreateCustomWizard
-            send={send}
-            onMessage={onMessage}
             onClose={onClose}
-            onCreated={onInstalled}
+            onConfigure={native.create}
+            disabled={!isConnected}
           />
         )}
+
+        {activeTab === 'connect' && <ConnectAgentApp onClose={onClose} />}
 
         {/* Import Tab — URL/path + ZIP upload */}
         {activeTab === 'import' && (
@@ -576,10 +370,11 @@ export function CreateAgentAppModal({ isOpen, onClose, onInstalled }: CreateAgen
             <div className={styles.modalBody}>
               <div className={styles.centeredForm}>
                 <div className={styles.formGroup}>
-                  <label className={styles.label}>
+                  <label className={styles.label} htmlFor="agent-app-import-source">
                     {t('components:createAgentApp.importUrlLabel')}
                   </label>
                   <input
+                    id="agent-app-import-source"
                     type="text"
                     className={styles.input}
                     placeholder={t('components:createAgentApp.importUrlPlaceholder')}
@@ -590,7 +385,7 @@ export function CreateAgentAppModal({ isOpen, onClose, onInstalled }: CreateAgen
                     {t('components:createAgentApp.importHint')}
                   </span>
                   {importError && (
-                    <span className={styles.hint} style={{ color: 'var(--color-error, #e5484d)' }}>
+                    <span role="alert" className={styles.hint} style={{ color: 'var(--color-error, #e5484d)' }}>
                       {importError}
                     </span>
                   )}
@@ -648,22 +443,11 @@ export function CreateAgentAppModal({ isOpen, onClose, onInstalled }: CreateAgen
               <Button
                 variant="primary"
                 icon={importing ? <Loader2 size={16} className={styles.spinner} /> : <FolderInput size={16} />}
-                disabled={!importSource.trim() || importing}
+                disabled={!importSource.trim() || importing || !isConnected}
                 onClick={() => {
-                  // Close NOW and let AgentAppImportToast carry it. Holding
-                  // this modal open until agent_app_import_result was the old
-                  // way of not hiding failures, but an import can run for
-                  // minutes (odoo/odoo: ~300MB, ~58k files) and a modal
-                  // parked over the whole app for that long is its own bug.
-                  // The root-level toast reports progress AND the failure,
-                  // so nothing is hidden by closing.
+                  setImporting(true)
                   setImportError(null)
-                  send('agent_app_import', {
-                    source: importSource.trim(),
-                    name: importSource.trim().split('/').pop()?.replace('.git', '') || t('components:createAgentApp.externalAppName'),
-                  })
-                  setImportSource('')
-                  onCloseRef.current()
+                  void native.install({ from: importSource.trim() }).catch(error => setImportError(String(error))).finally(() => setImporting(false))
                 }}
               >
                 {importing ? t('common:status.importing') : t('components:createAgentApp.importButton')}

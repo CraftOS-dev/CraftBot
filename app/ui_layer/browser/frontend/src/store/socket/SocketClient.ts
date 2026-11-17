@@ -212,6 +212,14 @@ export class SocketClient {
     this.enqueue(payload)
   }
 
+  // Explicit mutations must not enter the reconnect outbox: the user's intent
+  // may no longer apply when the connection returns.
+  sendNow(type: string, data: Record<string, unknown> = {}): boolean {
+    if (this.ws?.readyState !== WebSocket.OPEN) return false
+    try { this.ws.send(JSON.stringify({ type, ...data })); return true }
+    catch { return false }
+  }
+
   // Internal: send or requeue, keeping the payload's original queue time.
   private rawSend(payload: string, queuedAt = Date.now()): void {
     if (this.ws?.readyState === WebSocket.OPEN) {

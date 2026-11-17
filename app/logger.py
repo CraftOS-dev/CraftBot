@@ -78,8 +78,9 @@ def define_log_level(print_level="ERROR", logfile_level="DEBUG", name: str = Non
     # ("main") and the main agent ("main"). Each session's consumer loop wraps
     # its turns in ``logger.contextualize(session=<id>)`` so every line emitted
     # during a turn — including downstream ActionManager / LLM / action-code
-    # logs — is tagged with the session that produced it. The sub-agent runner
-    # additionally wraps its run in ``logger.contextualize(agent="sub:...")``.
+    # logs — is tagged with the session that produced it. A sub-agent's run
+    # additionally runs in ``logger.contextualize(agent="sub:...")``
+    # (SubAgentManager.run).
     _logger.configure(extra={"agent": "main", "session": _MAIN_SESSION_ID})
 
     # all.log — the full interleaved timeline across every session and every

@@ -36,10 +36,22 @@
     "preparingWorkspace": "Preparando tu espacio de trabajo…",
     "componentCount_one": "{{count}} componente",
     "componentCount_other": "{{count}} componentes",
-    "collectionCount_one": "{{count}} colección",
-    "collectionCount_other": "{{count}} colecciones",
-    "routeCount_one": "{{count}} ruta",
-    "routeCount_other": "{{count}} rutas"
+    "taskCount": "{{done}} de {{total}} tareas",
+    "fileCount_one": "{{count}} archivo",
+    "fileCount_other": "{{count}} archivos",
+    "fixing": "Corrigiendo lo que encontraron las comprobaciones",
+    "stage": {
+      "setup": "Preparando el proyecto",
+      "questions": "Esperando tus respuestas",
+      "requirements": "Escribiendo los requisitos",
+      "review": "Esperando tu revisión",
+      "planning": "Planificando la construcción",
+      "building": "Construyendo la app",
+      "buildingTask": "Construyendo: {{task}}",
+      "checking": "Ejecutando las comprobaciones",
+      "verifying": "Verificando la app en un navegador",
+      "launching": "Iniciando"
+    }
   },
   "themeModal": {
     "title": "Elegir tema",

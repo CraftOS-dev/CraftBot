@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from agent_core.utils.logger import logger
+from agent_core.utils.windows_process import hidden_console_kwargs
 from agent_core.core.impl.mcp.config import MCPServerConfig
 
 # Default client info - can be overridden
@@ -225,6 +226,7 @@ class StdioTransport(MCPTransport):
                     stderr=asyncio.subprocess.PIPE,
                     env=full_env,
                     cwd=cwd,
+                    **hidden_console_kwargs(),
                     limit=10
                     * 1024
                     * 1024,  # 10MB limit for large MCP responses (e.g., screenshots)

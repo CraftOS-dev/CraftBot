@@ -104,8 +104,8 @@ class Stage(Protocol):
     name: str
     #: Human-readable one-liner shown in progress output.
     description: str
-    #: When False, a FAILED result stops the pipeline. Node is not required
-    #: for core chat, so it is optional; Python dependencies are not.
+    #: When False, an unsatisfied result stops installation. Core runtimes
+    #: and Agent-App are required; optional integrations can degrade gracefully.
     optional: bool
 
     def check(self, ctx: Context) -> StageResult: ...
@@ -116,6 +116,7 @@ class Stage(Protocol):
 @dataclass
 class PipelineReport:
     results: List[tuple] = field(default_factory=list)  # (stage_name, StageResult)
+    required_stages: set[str] = field(default_factory=set)
 
     @property
     def ok(self) -> bool:
@@ -124,6 +125,10 @@ class PipelineReport:
     @property
     def failures(self) -> List[tuple]:
         return [(n, r) for n, r in self.results if not r.ok]
+
+    @property
+    def required_failures(self) -> List[tuple]:
+        return [(n, r) for n, r in self.failures if n in self.required_stages]
 
     def to_dict(self) -> Dict[str, Any]:
         return {

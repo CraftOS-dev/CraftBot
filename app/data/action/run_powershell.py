@@ -3,7 +3,7 @@ from agent_core import action
 
 @action(
     name="run_powershell",
-    description="Runs a PowerShell script with Windows PowerShell, capturing stdout, stderr, and exit code. Stdin is closed (EOF) by default. IMPORTANT: For long-running scripts that don't terminate (e.g., dev servers, watch processes), you MUST set background=true. Otherwise, the script will block the entire task until timeout and may not capture any output.",
+    description="Runs a PowerShell script with Windows PowerShell, capturing stdout, stderr, and exit code. Stdin is closed (EOF) by default. IMPORTANT: For long-running scripts that don't terminate (e.g., dev servers, watch processes), you MUST set background=true. Otherwise, the script will block the entire task until timeout and may not capture any output. Keep helper processes hidden: use -WindowStyle Hidden with Start-Process. Open a visible interactive window only when the user explicitly requests it.",
     platforms=["windows"],
     default=True,
     action_sets=["core"],
@@ -128,12 +128,13 @@ def powershell_exec_windows(input_data: dict) -> dict:
     ]
 
     creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    from agent_core.utils.windows_process import hidden_console_kwargs
+
+    process_options = hidden_console_kwargs(new_process_group=True)
 
     # Background mode: start process and return immediately
     if background:
         try:
-            # Use CREATE_NEW_PROCESS_GROUP to detach from parent
-            bg_flags = creation_flags | subprocess.CREATE_NEW_PROCESS_GROUP
             process = subprocess.Popen(
                 args,
                 stdout=subprocess.DEVNULL,
@@ -141,7 +142,7 @@ def powershell_exec_windows(input_data: dict) -> dict:
                 stdin=subprocess.DEVNULL,
                 cwd=cwd if cwd else None,
                 env=env,
-                creationflags=bg_flags,
+                **process_options,
             )
             return {
                 "status": "background",
@@ -173,8 +174,6 @@ def powershell_exec_windows(input_data: dict) -> dict:
 
         run_session_id = input_data.get("_session_id") or ""
 
-        # Use CREATE_NEW_PROCESS_GROUP so we can kill the entire process tree
-        fg_flags = creation_flags | subprocess.CREATE_NEW_PROCESS_GROUP
         process = subprocess.Popen(
             args,
             stdout=subprocess.PIPE,
@@ -184,7 +183,7 @@ def powershell_exec_windows(input_data: dict) -> dict:
             env=env,
             text=True,
             errors="replace",
-            creationflags=fg_flags,
+            **process_options,
         )
         register_process(run_session_id, process)
 

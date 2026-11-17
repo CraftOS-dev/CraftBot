@@ -73,6 +73,7 @@ def generate(
     cache_read = 0
     status = "failed"
     content: Optional[str] = None
+    cut_off = False
     exc_obj: Optional[Exception] = None
     config = get_cache_config()
     cache_type = f"ephemeral_{call_type}" if call_type else "ephemeral"
@@ -138,6 +139,7 @@ def generate(
             if block.type == "text":
                 content += block.text
         content = content.strip()
+        cut_off = getattr(response, "stop_reason", None) == "max_tokens"
 
         # Token usage from Anthropic response
         # Anthropic reports input_tokens as non-cached input only.
@@ -201,7 +203,11 @@ def generate(
         cached_tokens,
     )
 
-    result = {"tokens_used": total_tokens or 0, "cached_tokens": cached_tokens}
+    result = {
+        "tokens_used": total_tokens or 0,
+        "cached_tokens": cached_tokens,
+        "cut_off": cut_off,
+    }
     if exc_obj:
         error_str = f"{type(exc_obj).__name__}: {str(exc_obj)}"
         result["error"] = error_str

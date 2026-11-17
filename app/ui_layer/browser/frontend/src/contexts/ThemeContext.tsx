@@ -1,32 +1,12 @@
 import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react'
-import { broadcastThemeToIframes } from '../features/agentApps/frameHost'
 import { usePersistedState } from '../hooks/usePersistedState'
 import { UI_STATE, type ThemePreference } from '../store/uiState'
+import { useAppSelector } from '../store/hooks'
+import { syncFrameworkThemes } from '../features/agentApps/frameHost'
 
 type Theme = 'dark' | 'light'
 
 const DARK_SCHEME_QUERY = '(prefers-color-scheme: dark)'
-
-// Collect resolved CSS variable values from the main document
-function collectCSSVars(): Record<string, string> {
-  const style = getComputedStyle(document.documentElement)
-  const names = [
-    '--bg-primary', '--bg-secondary', '--bg-tertiary', '--bg-elevated', '--bg-hover',
-    '--text-primary', '--text-secondary', '--text-tertiary', '--text-muted',
-    '--border-primary', '--border-secondary', '--border-hover',
-    '--color-primary', '--color-primary-hover', '--color-primary-light', '--color-primary-subtle',
-    '--color-success', '--color-warning', '--color-error', '--color-info',
-    '--shadow-sm', '--shadow-md', '--shadow-lg',
-    '--font-sans', '--font-mono',
-    '--radius-sm', '--radius-md', '--radius-lg', '--radius-xl',
-  ]
-  const vars: Record<string, string> = {}
-  names.forEach(n => {
-    const v = style.getPropertyValue(n).trim()
-    if (v) vars[n] = v
-  })
-  return vars
-}
 
 interface ThemeContextType {
   /** The theme actually applied: 'system' resolved against the OS setting. */
@@ -60,30 +40,13 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const [preference, setPreference] = usePersistedState(UI_STATE.theme)
   const systemTheme = useSystemTheme()
   const theme: Theme = preference === 'system' ? systemTheme : preference
+  const apps = useAppSelector(state => state.agentApp.framework.apps)
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme)
-    // Give browser one frame to resolve CSS variables, then broadcast to iframes
-    requestAnimationFrame(() => {
-      broadcastThemeToIframes(theme, collectCSSVars())
-    })
   }, [theme])
 
-  // Respond to theme-request messages from iframe children on load
-  useEffect(() => {
-    const handleMessage = (e: MessageEvent) => {
-      if (e.data?.type === 'craftbot-theme-request' && e.source) {
-        try {
-          ;(e.source as WindowProxy).postMessage(
-            { type: 'craftbot-theme', theme, cssVars: collectCSSVars() },
-            '*'
-          )
-        } catch (_) {}
-      }
-    }
-    window.addEventListener('message', handleMessage)
-    return () => window.removeEventListener('message', handleMessage)
-  }, [theme])
+  useEffect(() => { syncFrameworkThemes(theme, apps) }, [theme, apps])
 
   // Toggling picks the opposite of what is on screen, leaving 'system' behind.
   const toggleTheme = useCallback(() => {

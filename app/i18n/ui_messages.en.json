@@ -6,7 +6,6 @@
   "model_test_failed": "Test failed",
   "model_api_key_in_use": "This key is the only credential for {provider}, your active model provider. Choose another provider before removing it.",
 
-  "agentapp_name_desc_required": "Name and description are required",
   "agentapp_project_created": "Project created, starting development...",
   "agentapp_dev_run_failed": "Failed to start development run",
   "agentapp_launch_failed": "Failed to launch Agent App server",

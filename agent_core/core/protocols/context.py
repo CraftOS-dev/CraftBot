@@ -6,7 +6,7 @@ This module defines the ContextEngineProtocol that specifies the
 interface for prompt construction.
 """
 
-from typing import Dict, Optional, Protocol, Tuple
+from typing import Dict, List, Optional, Protocol, Tuple
 
 
 class ContextEngineProtocol(Protocol):
@@ -47,6 +47,30 @@ class ContextEngineProtocol(Protocol):
 
         Returns:
             The system prompt string.
+        """
+        ...
+
+    def get_session_state(self, session_id: Optional[str] = None) -> str:
+        """
+        Get the state block of a session's decision prompt.
+
+        Args:
+            session_id: The session whose state to render.
+
+        Returns:
+            Formatted session state string.
+        """
+        ...
+
+    def get_compiled_actions(self, session_id: Optional[str] = None) -> List[str]:
+        """
+        Get the actions a session's decision prompt lists in <actions>.
+
+        Args:
+            session_id: The session whose actions to list.
+
+        Returns:
+            Action names.
         """
         ...
 

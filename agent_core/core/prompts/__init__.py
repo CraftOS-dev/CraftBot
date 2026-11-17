@@ -96,6 +96,10 @@ Return ONLY a JSON object: {{"summary": "<the NEW_HEAD_SUMMARY as plain text>"}}
 </output_format>
 """
 
+# A session turn when nothing was logged since the last request: the history
+# still holds everything, so the turn says so instead of resending it.
+NO_NEW_EVENTS_PROMPT = "(no new events since your last turn)"
+
 # Action selection prompts
 from agent_core.core.prompts.action import (
     SELECT_ACTION_INSTRUCTIONS,
@@ -138,6 +142,7 @@ __all__ = [
     # Event stream
     "EVENT_STREAM_SUMMARIZATION_PROMPT",
     "EVENT_STREAM_SUMMARY_ON_HISTORY_PROMPT",
+    "NO_NEW_EVENTS_PROMPT",
     # Action prompts
     "SELECT_ACTION_INSTRUCTIONS",
     "SELECT_ACTION_PROMPT",
