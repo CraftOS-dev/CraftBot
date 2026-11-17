@@ -36,10 +36,22 @@
     "preparingWorkspace": "Menyiapkan ruang kerja Anda…",
     "componentCount_one": "{{count}} komponen",
     "componentCount_other": "{{count}} komponen",
-    "collectionCount_one": "{{count}} koleksi",
-    "collectionCount_other": "{{count}} koleksi",
-    "routeCount_one": "{{count}} rute",
-    "routeCount_other": "{{count}} rute"
+    "taskCount": "{{done}} dari {{total}} tugas",
+    "fileCount_one": "{{count}} file",
+    "fileCount_other": "{{count}} file",
+    "fixing": "Memperbaiki temuan pemeriksaan",
+    "stage": {
+      "setup": "Menyiapkan proyek",
+      "questions": "Menunggu jawaban Anda",
+      "requirements": "Menulis kebutuhan",
+      "review": "Menunggu tinjauan Anda",
+      "planning": "Merencanakan pembangunan",
+      "building": "Membangun aplikasi",
+      "buildingTask": "Membangun: {{task}}",
+      "checking": "Menjalankan pemeriksaan",
+      "verifying": "Memverifikasi aplikasi di browser",
+      "launching": "Meluncurkan"
+    }
   },
   "themeModal": {
     "title": "Pilih Tema",

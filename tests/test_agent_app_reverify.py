@@ -2,7 +2,8 @@
 
 The walk-verify skill re-verifies only what changed since the commit the last
 walk verified. CraftBot records that commit with each walk, and hands the
-next walk the last finished one (pass or defects) as its baseline.
+next walk the last finished one (pass, defects, or incomplete for the checks
+the verifier did not reach) as its baseline.
 """
 
 import subprocess
@@ -68,9 +69,11 @@ class _Host:
         return self.stored
 
 
-@pytest.mark.parametrize("verdict", ["pass", "defects"])
+@pytest.mark.parametrize("verdict", ["pass", "defects", "incomplete"])
 def test_a_finished_walk_of_a_commit_is_the_baseline(verdict):
-    record = {"verdict": verdict, "commit": "abc", "evidence": "report", "stamp": {}}
+    # An incomplete walk the verifier finished itself names what it did not
+    # reach, which the next walk checks; the rest it passed stays passed.
+    record = {"verdict": verdict, "commit": "abc", "evidence": "report", "stamp": {}, "walked": True}
     assert baseline(_Host(record), "app") == {
         "verdict": verdict,
         "commit": "abc",
@@ -81,6 +84,7 @@ def test_a_finished_walk_of_a_commit_is_the_baseline(verdict):
 @pytest.mark.parametrize(
     "record",
     [
+        # Recorded by CraftBot for a crash, a cancel or an unreadable result: no walk.
         {"verdict": "incomplete", "commit": "def", "evidence": "cut short"},
         {"verdict": "blocked", "commit": "def", "evidence": "no browser"},
         {"verdict": "pass", "commit": None, "evidence": "uncommitted code"},

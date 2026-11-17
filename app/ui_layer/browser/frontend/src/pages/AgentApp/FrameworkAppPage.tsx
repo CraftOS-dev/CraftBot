@@ -6,7 +6,7 @@ import { CraftBotMascot } from '@mascot'
 import { Button } from '../../components/ui/Button'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { getSocketClient } from '../../store/socket/socketInstance'
-import { cancelFrameworkOpen, frameworkAppKey, invalidateFrameworkView, receiveFrameworkAttachment, receiveFrameworkOpen, requestFrameworkOpen } from '../../store/slices/agentAppSlice'
+import { cancelFrameworkOpen, frameworkAppKey, invalidateFrameworkView, receiveBuildFeed, receiveFrameworkAttachment, receiveFrameworkOpen, requestFrameworkOpen } from '../../store/slices/agentAppSlice'
 import { FrameworkAppControls } from '../../features/agentApps/FrameworkAppControls'
 import { FrameworkRequestFeedback, useFrameworkRequests } from '../../features/agentApps/FrameworkRequestFeedback'
 import { frameUrl, frameworkFrameId, removeIframe } from '../../features/agentApps/frameHost'
@@ -16,7 +16,7 @@ import { BuildCheckpoints, waitingForPerson } from '../../features/agentApps/Bui
 import { AgentAppWorkspace } from './AgentAppWorkspace'
 import { ConstructionDock } from './ConstructionDock'
 import { frameworkSessionIdentity } from '../../features/agentApps/frameworkIdentity'
-import type { AgentAppBuildEvent, FrameworkAppView } from '../../types'
+import type { AgentAppBuildEvent, BuildSnapshot, FrameworkAppView } from '../../types'
 import surface from '../../features/agentApps/AgentAppSurface.module.css'
 import styles from './FrameworkAppPage.module.css'
 
@@ -150,8 +150,20 @@ function FrameworkWorkspace({ path, appId, knownSessionId }: { path: string; app
   const app = useAppSelector(state => state.agentApp.framework.apps.find(item => item.path === path && item.id === appId))
   const todos = useAppSelector(state => state.agentApp.todos[`framework-build:${sessionId}`]) ?? session?.agentAppBuild?.todos
   const building = session?.agentAppFrameworkPending || session?.agentAppBuild?.building
+  const feed = useAppSelector(state => state.agentApp.buildFeeds[`framework-build:${sessionId}`])
   const [error, setError] = useState('')
   const [attempt, setAttempt] = useState(0)
+
+  // The build so far, on opening it and after a reconnect (rows sent while
+  // disconnected are not replayed by the socket); new rows arrive live.
+  useEffect(() => {
+    if (!building || !sessionId || !connected) return
+    let active = true
+    void frameworkRequest<{ events: AgentAppBuildEvent[]; snapshot: BuildSnapshot | null }>({ operation: 'build_feed', sessionId })
+      .then(value => { if (active) dispatch(receiveBuildFeed({ projectId: `framework-build:${sessionId}`, ...value })) })
+      .catch(() => { /* the live rows still arrive; the replay is best effort */ })
+    return () => { active = false }
+  }, [building, sessionId, connected, dispatch])
 
   useEffect(() => {
     if (knownSessionId || attachedSessionId || !connected || !path || !appId) return
@@ -178,7 +190,7 @@ function FrameworkWorkspace({ path, appId, knownSessionId }: { path: string; app
       // The build stopped for the person: its questions or the requirements, here.
       ? <BuildCheckpoints sessionId={sessionId} />
       : building ? <ConstructionDock project={{ name: app?.name || session?.title || t('registry.view.title'), status: 'creating' }}
-      todos={todos} events={NO_BUILD_EVENTS} snapshot={null}
+      todos={todos} events={feed?.events ?? NO_BUILD_EVENTS} snapshot={feed?.snapshot ?? null}
       activity={session?.agentAppBuild?.verifying ? t('registry.view.verifying') : undefined} />
       : <FrameworkView path={path} appId={appId} moving={moving} />}
   </AgentAppWorkspace>

@@ -1,7 +1,7 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit'
 import { reconcileFrameworkIframes, frameworkFrameId, removeIframe } from '../../features/agentApps/frameHost'
 import { setConnected } from './connectionSlice'
-import type { FrameworkRegistryApp, FrameworkConnectedApp, FrameworkRegistryResponse, FrameworkAppView, FrameworkOpenResponse, FrameworkLifecycleResult } from '../../types'
+import type { AgentAppBuildEvent, BuildSnapshot, FrameworkRegistryApp, FrameworkConnectedApp, FrameworkRegistryResponse, FrameworkAppView, FrameworkOpenResponse, FrameworkLifecycleResult } from '../../types'
 import { register } from '../socket/messageRegistry'
 
 // Local types — these aren't in src/types but the backend sends them.
@@ -14,14 +14,14 @@ export interface AgentAppTodo {
   status: 'pending' | 'in_progress' | 'completed'
 }
 
-// Authoritative "built so far" counts for the summary chips. Persisted
-// separately from the (capped, paced) event feed so a flood of read/search
-// events can never evict the writes that carried the snapshot.
-export interface AgentAppSnapshot {
-  collections: number
-  components: number
-  routes: number
+// A build's feed for the construction dock: what the builder did, each row
+// carrying the picture of the build at that moment.
+export interface BuildFeed {
+  events: AgentAppBuildEvent[]
+  snapshot: BuildSnapshot | null
 }
+
+const FEED_KEPT = 200
 
 interface AgentAppState {
   frameworkResolvedViews: Record<string, FrameworkAppView>
@@ -47,6 +47,7 @@ interface AgentAppState {
     warning: string | null
   }
   todos: Record<string, AgentAppTodo[]>
+  buildFeeds: Record<string, BuildFeed>
 }
 
 const initialState: AgentAppState = {
@@ -57,6 +58,7 @@ const initialState: AgentAppState = {
   frameworkView: { requestId: null, path: '', appId: '', status: 'idle', data: null, code: null, message: null },
   framework: { apps: [], aliases: {}, connected: [], status: 'idle', error: null, warning: null, hasSnapshot: false },
   todos: {},
+  buildFeeds: {},
 }
 
 const agentAppSlice = createSlice({
@@ -156,6 +158,21 @@ const agentAppSlice = createSlice({
     setTodos(state, action: PayloadAction<{ projectId: string; todos: AgentAppTodo[] }>) {
       state.todos[action.payload.projectId] = action.payload.todos
     },
+    receiveBuildEvent(state, action: PayloadAction<{ projectId: string; event: AgentAppBuildEvent }>) {
+      const { projectId, event } = action.payload
+      const feed = state.buildFeeds[projectId] ?? (state.buildFeeds[projectId] = { events: [], snapshot: null })
+      if (feed.events.some(e => e.id === event.id)) return
+      feed.events = [...feed.events, event].slice(-FEED_KEPT)
+      if (event.snapshot) feed.snapshot = event.snapshot
+    },
+    /** The whole feed so far, on opening a build or reconnecting. */
+    receiveBuildFeed(state, action: PayloadAction<{ projectId: string; events: AgentAppBuildEvent[]; snapshot: BuildSnapshot | null }>) {
+      const { projectId, events, snapshot } = action.payload
+      const seen = new Set(events.map(e => e.id))
+      // Keep rows that arrived while the replay was on its way.
+      const later = (state.buildFeeds[projectId]?.events ?? []).filter(e => !seen.has(e.id))
+      state.buildFeeds[projectId] = { events: [...events, ...later].slice(-FEED_KEPT), snapshot: later[later.length - 1]?.snapshot ?? snapshot }
+    },
   },
   extraReducers: (builder) => {
     // Events may be missed while disconnected; trust the next list fully.
@@ -174,7 +191,7 @@ const agentAppSlice = createSlice({
     })
   },
 })
-export const { receiveFrameworkTheme, receiveFrameworkAttachment, invalidateFrameworkView, receiveFrameworkLifecycle, requestFrameworkOpen, cancelFrameworkOpen, receiveFrameworkOpen, receiveFrameworkList, setTodos } = agentAppSlice.actions
+export const { receiveFrameworkTheme, receiveFrameworkAttachment, invalidateFrameworkView, receiveFrameworkLifecycle, requestFrameworkOpen, cancelFrameworkOpen, receiveFrameworkOpen, receiveFrameworkList, setTodos, receiveBuildEvent, receiveBuildFeed } = agentAppSlice.actions
 
 export default agentAppSlice.reducer
 
@@ -192,6 +209,10 @@ register('agent_app_framework_open', (data, dispatch) => {
 
 register('agent_app_framework_list', (data, dispatch) => {
   dispatch(receiveFrameworkList(data as FrameworkRegistryResponse))
+})
+
+register('agent_app_build_event', (data, dispatch) => {
+  dispatch(receiveBuildEvent(data as { projectId: string; event: AgentAppBuildEvent }))
 })
 
 register('agent_app_todos', (data, dispatch) => {

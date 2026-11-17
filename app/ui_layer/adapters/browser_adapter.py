@@ -1101,6 +1101,18 @@ class BrowserAdapter(InterfaceAdapter):
     async def _on_start(self) -> None:
         """Start the browser interface."""
         self._controller.agent.session_manager.add_post_update_todos_hook(make_todo_broadcast_hook(self._broadcast))
+        # The construction dock follows each build from the builder's own actions.
+        feed = self._framework_host.feed
+        feed.broadcast = self._broadcast
+        from app.agent_app.framework_build_feed import BuildFeed
+
+        manager = getattr(self._controller.agent, "action_manager", None)
+        # Take the hooks when free, or from a previous host's feed; never another observer's.
+        if manager is not None and all(
+            hook is None or isinstance(getattr(hook, "__self__", None), BuildFeed)
+            for hook in (manager._on_action_start, manager._on_action_end)
+        ):
+            manager._on_action_start, manager._on_action_end = feed.on_start, feed.on_end
         from aiohttp import web
         from app.onboarding import onboarding_manager
         import uuid

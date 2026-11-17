@@ -85,11 +85,15 @@ def verified_commit(path):
 
 def baseline(host, path):
     """What a walk of the app at ``path`` re-verifies from: the last finished
-    walk (pass or defects) of a commit, or else the baseline that walk started
-    from. Kept apart from the verification record, which the builder reads."""
+    walk of a commit — pass, defects, or incomplete for the checks it did not
+    reach — or else the baseline that walk started from. Kept apart from the
+    verification record, which the builder reads."""
     key = str(Path(path).resolve())
     previous = host.verification(path) or {}
-    if previous.get("verdict") in (PASS, DEFECTS) and previous.get("commit"):
+    finished = previous.get("verdict") in (PASS, DEFECTS) or (
+        previous.get("verdict") == INCOMPLETE and previous.get("walked")
+    )
+    if finished and previous.get("commit"):
         return {name: previous[name] for name in ("verdict", "commit", "evidence")}
     return host.store.get("verification_baseline", key)
 
@@ -144,9 +148,13 @@ async def run_verification(host, row, stamp, request, parent_session_id):
     }
     token = verification_target.set(target)
 
-    def record(verdict, evidence):
+    def record(verdict, evidence, walked=False):
         report = host.report_verification(sub.id, verdict, evidence)
         report["status"] = sub.status
+        # The verifier's own verdict on a walk it finished, unreached checks
+        # and all — not one CraftBot recorded for a crash or a cancel.
+        if walked:
+            report["walked"] = True
         host.store.put("verification", str(Path(row["path"]).resolve()), report)
         return report
 
@@ -167,7 +175,7 @@ async def run_verification(host, row, stamp, request, parent_session_id):
                     f"Verifier ended as {sub.status}; no pass recorded.\n{evidence}"
                 )
             target.check()
-            report = record(verdict, evidence)
+            report = record(verdict, evidence, walked=sub.status == "completed")
         except (ValueError, TypeError, KeyError, PermissionError) as error:
             report = record(
                 INCOMPLETE,
