@@ -59,13 +59,9 @@ EXCLUDE_PREFIXES = (
 
 EXCLUDE_SUFFIXES = (".md",)
 
-# These Markdown files are runtime inputs, not just repository documentation:
-# create.ts substitutes the blueprint, and the creator skill reads the guide.
-AGENT_APP_RUNTIME_DOCS = {
-    "agent-app/blueprint/AGENT_APP.md",
-    "agent-app/docs/agent-guide.md",
-}
-KEEP_EXACT = {"README.md", "LICENSE"} | AGENT_APP_RUNTIME_DOCS
+# Kept despite the rules above — README is the one doc worth shipping, and
+# the i18n README variants are not.
+KEEP_EXACT = {"README.md", "LICENSE"}
 
 
 def tracked_files() -> List[str]:
@@ -93,6 +89,15 @@ def wanted(rel: str) -> bool:
 
 
 def build(output: Path) -> int:
+    from app import agent_app_package
+
+    # A source payload must carry exactly the reviewed distribution, including
+    # its runtime dependencies and knowledge bundle. Verify before publishing.
+    try:
+        agent_app_package.read_bundle(REPO_ROOT)
+    except (OSError, ValueError, zipfile.BadZipFile) as exc:
+        print(f"error: Agent-App distribution: {exc}", file=sys.stderr)
+        return 1
     files = [f for f in tracked_files() if wanted(f)]
     if not files:
         print("error: git ls-files returned nothing — not a checkout?", file=sys.stderr)
@@ -137,21 +142,23 @@ def build(output: Path) -> int:
     # ways that surface far from the cause. Fail the build instead.
     required = (
         ripgrep_runtime.bundled_files()
-        + sorted(AGENT_APP_RUNTIME_DOCS)
+        + agent_app_package.bundled_files()
         + [
             "run.py",
             "main.py",
             "requirements.txt",
             "app/paths.py",
+            "app/agent_app_package.py",
+            "app/agent_app/framework.py",
+            "app/agent_app/framework_cli.py",
+            "app/agent_app/framework_connections.py",
+            "app/agent_app/framework_connections.mjs",
+            "app/agent_app/framework_maintenance.py",
+            "app/agent_app/framework_maintenance.mjs",
+            "app/agent_app/framework_sharing.py",
+            "app/data/action/agent_app_framework_actions.py",
+            "app/provision/agent_app_framework.py",
             "app/provision/__init__.py",
-            "app/runtime-manifest.json",
-            "app/runtime_manifest.py",
-            "agent-app/package.json",
-            "agent-app/package-lock.json",
-            "agent-app/tools/package.json",
-            "agent-app/tools/src/cli.ts",
-            "agent-app/spec/pocketbase.version",
-            "agent-app/spec/pocketbase-checksums.json",
             "app/provision/python_downloads.json",
         # The memory embedder: without these the backend cannot build its
         # memory index (torch is deliberately no longer installed).
@@ -168,7 +175,7 @@ def build(output: Path) -> int:
             "installer/helpers.py",
             "installer/metadata.py",
             "installer/payload.py",
-        "installer/startup.py",
+            "installer/startup.py",
         # The desktop icon's progress window (craftbot.py open).
         "installer/open_window.py",
         ]

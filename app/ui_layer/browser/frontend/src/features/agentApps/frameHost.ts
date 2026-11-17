@@ -6,14 +6,39 @@
  */
 
 import i18n from '../../i18n/config'
+import { buildThemeMessage, DEFAULT_CUSTOM_COLORS, type AgentAppTheme, type LegacyThemeSupport } from '../../pages/AgentApp/themeCatalog'
 
 const MAX_POOL_SIZE = 5
+export const APP_FRAME_PERMISSIONS = 'microphone; camera; display-capture; clipboard-read; clipboard-write; fullscreen'
 
 const pool = new Map<string, HTMLIFrameElement>()
+export const frameworkFrameId = (path: string, appId: string) => `framework:${JSON.stringify([path, appId])}`
 // Track access order for LRU eviction
 const accessOrder: string[] = []
 const owners = new Map<string, symbol>()
 const listeners = new Set<() => void>()
+let themeMode: 'light' | 'dark' = 'dark'
+let themes = new Map<string, AgentAppTheme>()
+let legacyThemes = new Map<string, LegacyThemeSupport | undefined>()
+
+function sendTheme(id: string) {
+  const frame = pool.get(id)
+  const theme = themes.get(id)
+  if (!frame?.contentWindow || !theme) return
+  // Target the embedded app's exact origin, never a wildcard or another tab.
+  const legacy = legacyThemes.get(id)
+  const origin = new URL(frame.src).origin
+  if (legacy) frame.contentWindow.postMessage({ type: 'craftbot-theme', theme: themeMode }, origin)
+  frame.contentWindow.postMessage(buildThemeMessage(theme.themeId, themeMode, theme.customColors || DEFAULT_CUSTOM_COLORS, legacy), origin)
+}
+
+/** Also updates parked frames: switching apps must not restore an old mode. */
+export function syncFrameworkThemes(mode: 'light' | 'dark', apps: { path: string; id: string; uiTheme?: AgentAppTheme | null; themeSupport?: LegacyThemeSupport }[]) {
+  themeMode = mode
+  themes = new Map(apps.map(app => [frameworkFrameId(app.path, app.id), app.uiTheme || { themeId: 'craftbot' }]))
+  legacyThemes = new Map(apps.map(app => [frameworkFrameId(app.path, app.id), app.themeSupport]))
+  for (const id of pool.keys()) sendTheme(id)
+}
 
 export function subscribeFrameHost(listener: () => void) {
   listeners.add(listener)
@@ -31,6 +56,15 @@ function getContainer(): HTMLDivElement {
     container.style.cssText =
       'position:fixed;top:0;left:0;width:0;height:0;overflow:visible;z-index:0;pointer-events:none;'
     document.body.appendChild(container)
+    window.addEventListener('message', event => {
+      if (event.data?.type !== 'craftbot-theme-request') return
+      for (const [id, frame] of pool) {
+        if (event.source === frame.contentWindow && event.origin === new URL(frame.src).origin) {
+          sendTheme(id)
+          break
+        }
+      }
+    })
   }
   return container
 }
@@ -83,7 +117,7 @@ export function getOrCreateIframe(id: string, src: string): HTMLIFrameElement {
     // policy before the user was ever asked, and clipboard writes failed:
     // Audio Notes saved 26 minutes of nothing. Delegating only lets the app
     // ASK; the browser still prompts the user. Must precede navigation.
-    iframe.allow = 'microphone; camera; display-capture; clipboard-read; clipboard-write; fullscreen'
+    iframe.allow = APP_FRAME_PERMISSIONS
     iframe.src = src
     // The requested src is remembered separately: reading iframe.src back
     // returns the browser-normalized absolute URL, so comparing against it
@@ -95,7 +129,10 @@ export function getOrCreateIframe(id: string, src: string): HTMLIFrameElement {
     // Recorded here, not by a surface: a frame can finish loading while no
     // surface holds it (its tab is in the background), and must not then be
     // reported as still loading when it is shown again.
-    iframe.addEventListener('load', function () { this.dataset.loadedSrc = this.dataset.requestedSrc })
+    iframe.addEventListener('load', function () {
+      this.dataset.loadedSrc = this.dataset.requestedSrc
+      sendTheme(id)
+    })
     getContainer().appendChild(iframe)
     pool.set(id, iframe)
   } else if (iframe.dataset.requestedSrc !== src) {
@@ -159,6 +196,9 @@ export function acquireIframe(id: string, src: string) {
   let frame: HTMLIFrameElement
   try { frame = getOrCreateIframe(id, src) }
   catch (error) { owners.delete(id); throw error }
+  frame.dataset.framework = id
+  frame.style.background = 'white'
+
   return {
     frame,
     update(rect: DOMRect, visible: boolean, interactive: boolean) {
@@ -180,56 +220,7 @@ export function acquireIframe(id: string, src: string) {
 }
 
 /** Dispose stopped/deleted frames even when their React surface is absent. */
-export function reconcileIframes(projects: { id: string; status: string }[]) {
-  const running = new Set(projects.filter(p => p.status === 'running').map(p => p.id))
+export function reconcileFrameworkIframes(apps: { path: string; id: string; status: string }[]) {
+  const running = new Set(apps.filter(a => a.status === 'running').map(a => frameworkFrameId(a.path, a.id)))
   for (const id of pool.keys()) if (!running.has(id)) removeIframe(id)
-}
-
-// The host does NOT refresh an app's data view — an app owns its own live
-// data (the kit's realtime hooks refetch in place, keeping the open view and
-// any modal intact). The host only navigates the frame on a new DEPLOY, via
-// getOrCreateIframe's version-stamped src.
-
-export function hasIframe(id: string): boolean {
-  return pool.has(id)
-}
-
-export function getIframeWindow(id: string): Window | null {
-  return pool.get(id)?.contentWindow ?? null
-}
-
-/** True if `win` belongs to this project's iframe. */
-export function ownsProjectWindow(id: string, win: unknown): boolean {
-  if (win == null) return false
-  return win === pool.get(id)?.contentWindow
-}
-
-export function broadcastThemeToIframes(theme: string, cssVars: Record<string, string>) {
-  const message = { type: 'craftbot-theme', theme, cssVars }
-  pool.forEach(iframe => {
-    try {
-      iframe.contentWindow?.postMessage(message, new URL(iframe.src).origin)
-    } catch (e) {}
-  })
-}
-
-export function sendThemeToIframe(id: string, theme: string, cssVars: Record<string, string>) {
-  const iframe = pool.get(id)
-  if (!iframe) return
-  try {
-    iframe.contentWindow?.postMessage({ type: 'craftbot-theme', theme, cssVars }, new URL(iframe.src).origin)
-  } catch (e) {}
-}
-
-export function postMessageToIframe(id: string, data: unknown) {
-  const iframe = pool.get(id)
-  if (!iframe) return
-  try {
-    iframe.contentWindow?.postMessage(data, new URL(iframe.src).origin)
-  } catch (e) {}
-}
-
-export function acceptsFrameMessage(id: string, event: MessageEvent): boolean {
-  const frame = pool.get(id)
-  return !!frame && ownsProjectWindow(id, event.source) && event.origin === new URL(frame.src).origin
 }

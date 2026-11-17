@@ -22,7 +22,7 @@
       "description": "Install a ready-made app from the community marketplace with a single click."
     },
     "agent-app-custom": {
-      "title": "Create Custom",
+      "title": "Build",
       "description": "Describe what you want and the agent builds it: configure a few basics, answer a short interview, then it writes the spec and builds the app."
     },
     "agent-app-import": {

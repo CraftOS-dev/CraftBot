@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { useStore } from 'react-redux'
 import type {
   ChatMessage, SessionInfo, WSMessage, MetricsTimePeriod,
-  AgentAppCreateRequest, ReasoningChoice,
+  ReasoningChoice,
 } from '../types'
 import { QUESTION_DISMISSED } from '../types'
 import i18n from '../i18n/config'
@@ -34,11 +34,7 @@ import {
   markStarting as localLlmMarkStarting,
   markPullingModel as localLlmMarkPullingModel,
 } from '../store/slices/localLlmSlice'
-import {
-  setActiveId as agentAppSetActiveId,
-  markLaunching as agentAppMarkLaunching,
-  markStopping as agentAppMarkStopping,
-} from '../store/slices/agentAppSlice'
+
 import { setStatus, setSessionRunState } from '../store/slices/agentSlice'
 import { upsertSession } from '../store/slices/sessionsSlice'
 import { selectSessionRunState } from '../store/selectors/agent'
@@ -167,19 +163,8 @@ interface WebSocketContextType extends WebSocketState {
   uploadAgentProfilePicture: (name: string, mimeType: string, contentBase64: string) => void
   removeAgentProfilePicture: () => void
   // Agent App methods
-  createAgentApp: (data: AgentAppCreateRequest) => void
   requestAgentAppList: () => void
-  launchAgentApp: (projectId: string) => void
-  stopAgentApp: (projectId: string) => void
-  deleteAgentApp: (projectId: string) => void
-  setActiveAgentApp: (projectId: string | null) => void
-  updateAgentAppTheme: (
-    projectId: string,
-    theme: {
-      themeId: string
-      customColors?: { bg: string; surface: string; text: string; accent: string }
-    },
-  ) => void
+
 }
 
 const WebSocketContext = createContext<WebSocketContextType | undefined>(undefined)
@@ -704,65 +689,11 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
   }, [sendOrQueue, dispatch])
 
   // Agent App methods
-  const createAgentApp = useCallback((data: AgentAppCreateRequest) => {
-    sendOrQueue(JSON.stringify({
-      type: 'agent_app_create',
-      ...data,
-    }))
-  }, [sendOrQueue])
-
   const requestAgentAppList = useCallback(() => {
     if (client.isConnected) {
       client.sendString(JSON.stringify({ type: 'agent_app_list' }))
     }
   }, [])
-
-  const launchAgentApp = useCallback((projectId: string) => {
-    // Optimistically flip to 'launching' so the button shows a spinner and
-    // the content swaps to the launching screen immediately — launch can
-    // take many seconds (install/build/start). The backend response
-    // (agent_app_launch) resolves it to running or error.
-    dispatch(agentAppMarkLaunching({ projectId }))
-    sendOrQueue(JSON.stringify({
-      type: 'agent_app_launch',
-      projectId,
-    }))
-  }, [sendOrQueue, dispatch])
-
-  const stopAgentApp = useCallback((projectId: string) => {
-    // Optimistically flip to 'stopping' for immediate feedback; the backend
-    // response (agent_app_stop) resolves it to stopped (or reverts on error).
-    dispatch(agentAppMarkStopping({ projectId }))
-    sendOrQueue(JSON.stringify({
-      type: 'agent_app_stop',
-      projectId,
-    }))
-  }, [sendOrQueue, dispatch])
-
-  const deleteAgentApp = useCallback((projectId: string) => {
-    sendOrQueue(JSON.stringify({
-      type: 'agent_app_delete',
-      projectId,
-    }))
-  }, [sendOrQueue])
-
-  const setActiveAgentApp = useCallback((projectId: string | null) => {
-    dispatch(agentAppSetActiveId(projectId))
-  }, [dispatch])
-
-  const updateAgentAppTheme = useCallback((
-    projectId: string,
-    theme: {
-      themeId: string
-      customColors?: { bg: string; surface: string; text: string; accent: string }
-    },
-  ) => {
-    sendOrQueue(JSON.stringify({
-      type: 'agent_app_theme_update',
-      projectId,
-      theme,
-    }))
-  }, [sendOrQueue])
 
   const value = useMemo<WebSocketContextType>(() => ({
     ...state,
@@ -800,13 +731,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     sendQuestionAnswer,
     uploadAgentProfilePicture,
     removeAgentProfilePicture,
-    createAgentApp,
     requestAgentAppList,
-    launchAgentApp,
-    stopAgentApp,
-    deleteAgentApp,
-    setActiveAgentApp,
-    updateAgentAppTheme,
   }), [
     state, sendMessage, retryMessage, editMessage, sendCommand, stopSession, deleteSession, renameSession, clearSession, closeGenerativeUI,
     setSessionReasoning, foldSession, requestChatHistory, markSessionSeen, openFile, openFolder, requestFilteredMetrics,
@@ -814,8 +739,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     submitOnboardingStep, skipOnboardingStep, goBackOnboardingStep, checkLocalLLM,
     testLocalLLMConnection, installLocalLLM, startLocalLLM, requestSuggestedModels, pullOllamaModel,
     enhancePrompt, clearEnhancedPrompt, sendOptionClick, sendQuestionAnswer,
-    uploadAgentProfilePicture, removeAgentProfilePicture, createAgentApp, requestAgentAppList,
-    launchAgentApp, stopAgentApp, deleteAgentApp, setActiveAgentApp, updateAgentAppTheme,
+    uploadAgentProfilePicture, removeAgentProfilePicture, requestAgentAppList,
   ])
 
   return (

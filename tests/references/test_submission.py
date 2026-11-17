@@ -39,7 +39,6 @@ def adapter(tmp_path, monkeypatch):
         agent=agent, _agent=agent, _state_store=Mock(), _event_bus=Mock()
     )
     result._adapter_id = "browser"
-    result._agent_app_manager = SimpleNamespace(get_project=lambda key: None)
     result._answer_shown_question = AsyncMock(return_value=None)
     result._send_to = AsyncMock()
     result._broadcast = AsyncMock()

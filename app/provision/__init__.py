@@ -19,16 +19,15 @@ Order matters and is expressed once, here:
   smoke       → prove what actions import is importable
   embedding-model → the memory embedder's ONNX model, SHA-256 pinned
   node        → the one Node runtime
-  agent-app-tools → CLI dependencies, including the ZIP reader
-  pocketbase  → the pinned executable used by Agent Apps
+  framework   → unpack Agent-App, A2App and toolkits; verify both CLIs
   default-app → install the bundled Kanban Board on new installations only
   frontend    → browser UI's npm tree (default UI, so required)
   whatsapp    → bridge's npm tree
   ripgrep     → the bundled search binary grep_files runs, checked not fetched
   playwright  → chromium for browser-automation actions
 
-Node comes after Python deps because nothing before it needs Node. Node,
-the Agent App tooling and PocketBase are required for a complete installation.
+Node comes after Python deps because nothing before it needs Node. Both Node
+and the framework are required for a complete CraftBot installation.
 """
 
 from __future__ import annotations
@@ -36,14 +35,13 @@ from __future__ import annotations
 from typing import List, Optional
 
 from app import paths
+from app.provision.agent_app_framework import AgentAppFrameworkStage
 from app.provision.default_agent_app import DefaultAgentAppStage, prepare_install
 from app.provision.deps import (
-    AgentAppToolsStage,
     FrontendStage,
     PipStage,
     PlaywrightStage,
     PythonDepsStage,
-    PocketBaseStage,
     WhatsAppBridgeStage,
 )
 from app.provision.pipeline import format_report, run
@@ -97,8 +95,7 @@ def default_stages() -> List[Stage]:
         # never waits on (or dies without) huggingface.co.
         EmbeddingModelStage(),
         NodeStage(),
-        AgentAppToolsStage(),
-        PocketBaseStage(),
+        AgentAppFrameworkStage(),
         DefaultAgentAppStage(),
         FrontendStage(),
         WhatsAppBridgeStage(),

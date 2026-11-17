@@ -364,8 +364,8 @@ def test_playbooks_suggest_mini_browser_next_to_playwright():
 
 
 def test_agent_app_trigger_brief_mentions_the_mini_browser():
-    source = (REPO_ROOT / "app/agent_app/manager.py").read_text("utf-8")
-    assert 'add_action_sets(["mini_browser"])' in source
+    source = (REPO_ROOT / "app/agent_app/framework_host.py").read_text("utf-8")
+    assert '"mini_browser"' in source
 
 
 # ── skills ──────────────────────────────────────────────────────────────
@@ -1106,6 +1106,9 @@ def test_router_sends_the_filtered_prompt(monkeypatch):
         def get_session_state(self, session_id=None):
             return ""
 
+        def get_compiled_actions(self, session_id=None):
+            return []
+
         def get_event_stream(self, session_id=None, up_to=None):
             return ""
 
@@ -1115,7 +1118,6 @@ def test_router_sends_the_filtered_prompt(monkeypatch):
     def run_selection(prompt_filter):
         seen = {}
         router = ActionRouter(object(), object(), _Context(), prompt_filter)
-        monkeypatch.setattr(router, "_get_session_compiled_actions", lambda **k: [])
         monkeypatch.setattr(
             router, "_build_candidates_from_compiled_list", lambda *a, **k: []
         )
@@ -1298,14 +1300,11 @@ def test_browser_agent_is_registered_with_existing_actions(registry):
     registered = registry.list_all_actions()
     for name in actions:
         assert name in registered, f"browser_agent lists unknown action {name}"
-    assert set(definition.compact_actions) <= actions
     assert definition.max_iterations > 0 and definition.max_wall_seconds > 0
 
-    prompt = definition.system_prompt.format(
-        action_list="<ACTIONS>", output_format="<FORMAT>"
-    )
-    assert "<ACTIONS>" in prompt and "<FORMAT>" in prompt
-    assert '{"action_name": "<name>"' in prompt
+    # The type's own prompt only: the runtime appends <actions> and the
+    # reply format (SUBAGENT_DECISION_INSTRUCTIONS).
+    assert "{" not in definition.system_prompt
 
     spawn = registry.find_action_by_name("spawn_subagent")
     assert "browser_agent" in spawn["input_schema"]["agent_type"]["enum"]

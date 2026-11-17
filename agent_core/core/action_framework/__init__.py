@@ -20,7 +20,6 @@ from agent_core.core.action_framework.loader import (
 from agent_core.core.action_framework.formatting import (
     candidate_dict_from_action,
     format_action_candidates,
-    format_actions_by_name,
 )
 
 __all__ = [
@@ -44,5 +43,4 @@ __all__ = [
     # Formatting
     "candidate_dict_from_action",
     "format_action_candidates",
-    "format_actions_by_name",
 ]

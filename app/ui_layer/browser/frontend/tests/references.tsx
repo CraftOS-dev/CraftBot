@@ -40,11 +40,11 @@ dispatchInbound({ type: 'session_list', data: { sessions: [
   { id: 'weather-build', type: 'agent_app', title: 'Weather dashboard', createdAt: '2026-10-26', lastActiveAt: '2026-10-26' },
   { id: 'research', type: 'chat', title: 'Research notes', createdAt: '2026-10-24', lastActiveAt: '2026-10-24' },
 ] } }, store.dispatch, store.getState)
-dispatchInbound({ type: 'agent_app_list', data: { success: true, projects: [
-  { id: 'weather', name: 'Weather dashboard', description: 'Local forecasts', status: 'stopped', createdAt: 1 },
-] } }, store.dispatch, store.getState)
+dispatchInbound({ type: 'agent_app_framework_list', data: { status: 'success', data: { connected: [], apps: [
+  { id: 'weather', path: 'C:/test/weather', name: 'Weather dashboard', description: 'Local forecasts', status: 'stopped', createdAt: 1 },
+] } } }, store.dispatch, store.getState)
 dispatchInbound({ type: 'chat_history', data: { sessionId: 'dest', messages: JSON.parse(sessionStorage.getItem('reference-fixture-history') || '[]'), hasMore: false } }, store.dispatch, store.getState)
-Object.assign(window, { referenceRequests: requests })
+Object.assign(window, { referenceRequests: requests, referenceDispatch: (envelope: SocketEnvelope) => dispatchInbound(envelope, store.dispatch, store.getState) })
 window.addEventListener('fixture-response', event => receive((event as CustomEvent).detail))
 createRoot(document.getElementById('root')!).render(
   <Provider store={store}><MemoryRouter initialEntries={['/session/dest']}><ToastProvider><WebSocketProvider>

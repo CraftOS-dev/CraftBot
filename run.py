@@ -111,52 +111,52 @@ def _bootstrap_state():
         # Login tasks do not inherit the installer's working directory.
         os.chdir(_paths.STATE_ROOT)
     else:
-    import shutil as _shutil
+        import shutil as _shutil
 
-    user_data = str(_paths.STATE_ROOT)
-    os.makedirs(user_data, exist_ok=True)
+        user_data = str(_paths.STATE_ROOT)
+        os.makedirs(user_data, exist_ok=True)
 
         # Switch CWD so any code still using relative paths writes into the
         # state dir rather than the install dir.
-    os.chdir(user_data)
+        os.chdir(user_data)
 
-    src_root = str(_paths.CODE_ROOT)
+        src_root = str(_paths.CODE_ROOT)
 
-    dirs_to_copy = [
-        "app/config",
-        "app/data",
-        "agents",
-        "assets",
-        "skills",
-    ]
-    files_to_copy = [
-        "config.json",
-        ".env.example",
-    ]
+        dirs_to_copy = [
+            "app/config",
+            "app/data",
+            "agents",
+            "assets",
+            "skills",
+        ]
+        files_to_copy = [
+            "config.json",
+            ".env.example",
+        ]
 
-    for rel_dir in dirs_to_copy:
-        src = os.path.join(src_root, rel_dir)
-        dst = os.path.join(user_data, rel_dir)
-        if os.path.isdir(src) and not os.path.isdir(dst):
-            print(f"  Bootstrapping {rel_dir}/...")
-            os.makedirs(os.path.dirname(dst), exist_ok=True)
-            _shutil.copytree(src, dst)
+        for rel_dir in dirs_to_copy:
+            src = os.path.join(src_root, rel_dir)
+            dst = os.path.join(user_data, rel_dir)
+            if os.path.isdir(src) and not os.path.isdir(dst):
+                print(f"  Bootstrapping {rel_dir}/...")
+                os.makedirs(os.path.dirname(dst), exist_ok=True)
+                _shutil.copytree(src, dst)
 
-    for rel_file in files_to_copy:
-        src = os.path.join(src_root, rel_file)
-        dst = os.path.join(user_data, rel_file)
-        if os.path.isfile(src) and not os.path.isfile(dst):
-            print(f"  Bootstrapping {rel_file}...")
-            _shutil.copy2(src, dst)
+        for rel_file in files_to_copy:
+            src = os.path.join(src_root, rel_file)
+            dst = os.path.join(user_data, rel_file)
+            if os.path.isfile(src) and not os.path.isfile(dst):
+                print(f"  Bootstrapping {rel_file}...")
+                _shutil.copy2(src, dst)
 
-    # The trees above are copied once, so an upgrade would otherwise never
-    # deliver a new action file or skill (or enable a new default skill).
-    try:
-        from app.state_sync import sync_shipped_files
+        # The trees above are copied once, so an upgrade would otherwise never
+        # deliver a new action file or skill (or enable a new default skill).
+        try:
+            from app.state_sync import sync_shipped_files
 
-        sync_shipped_files(_paths.CODE_ROOT, _paths.STATE_ROOT)
-    except Exception as exc:  # never block startup over it
-        print(f"  Warning: could not sync newly shipped files: {exc}")
+            sync_shipped_files(_paths.CODE_ROOT, _paths.STATE_ROOT)
+        except Exception as exc:  # never block startup over it
+            print(f"  Warning: could not sync newly shipped files: {exc}")
 
     try:
         from app.state_sync import seed_runtime_files
@@ -348,8 +348,8 @@ def wait_for_server(url: str, timeout: int = 180) -> bool:
     while time.time() - start < timeout:
         # No proxy: a corporate HTTP(S)_PROXY cannot reach local servers.
         if _instance.http_answers(url, timeout=3):
-                    print(" Ready!")
-                    return True
+            print(" Ready!")
+            return True
         print(".", end="", flush=True)
         time.sleep(1)
     print(" Timeout!")
@@ -956,8 +956,8 @@ def wait_for_frontend(timeout: int = 30) -> bool:
     start = time.time()
     while time.time() - start < timeout:
         if _instance.http_answers(_local_url(FRONTEND_PORT)):
-                    print(" Ready!")
-                    return True
+            print(" Ready!")
+            return True
         print(".", end="", flush=True)
         time.sleep(0.5)
     print(" Timeout!")
@@ -1060,7 +1060,7 @@ def wait_for_backend_silent(timeout: int = 60) -> bool:
     start = time.time()
     while time.time() - start < timeout:
         if _instance.http_answers(_local_url(BACKEND_PORT)):
-                    return True
+            return True
         time.sleep(0.5)
     return False
 
@@ -1070,7 +1070,7 @@ def wait_for_frontend_silent(timeout: int = 30) -> bool:
     start = time.time()
     while time.time() - start < timeout:
         if _instance.http_answers(_local_url(FRONTEND_PORT)):
-                    return True
+            return True
         time.sleep(0.5)
     return False
 
@@ -1081,8 +1081,8 @@ def wait_for_backend(timeout: int = 60) -> bool:
     start = time.time()
     while time.time() - start < timeout:
         if _instance.http_answers(_local_url(BACKEND_PORT)):
-                    print(" Ready!")
-                    return True
+            print(" Ready!")
+            return True
         print(".", end="", flush=True)
         time.sleep(0.5)
     print(" Timeout!")
@@ -1131,15 +1131,10 @@ def launch_agent_background(
     # skips re-resolution and both processes agree on the same binary. Not
     # in conda mode: there the env's own node (>= 24 via environment.yml,
     # first on PATH under conda run) is the intended runtime.
-    if not use_conda:
-        # MCP servers invoke bare npx/node too. Passing only CRAFTBOT_NODE
-        # helps our wrappers but leaves those subprocesses unable to start
-        # on a machine without a system Node installation.
-        agent_env.update(node_runtime.path_env())
-        if "CRAFTBOT_NODE" not in agent_env:
-            _rt = node_runtime.resolve()
-            if _rt:
-                agent_env["CRAFTBOT_NODE"] = _rt.node
+    if not use_conda and "CRAFTBOT_NODE" not in agent_env:
+        _rt = node_runtime.resolve()
+        if _rt:
+            agent_env["CRAFTBOT_NODE"] = _rt.node
 
     # When running as a PyInstaller frozen binary, run main() in a thread
     # instead of spawning a subprocess (sys.executable is the binary itself)
@@ -1529,9 +1524,9 @@ def _fail_agent_exited(process, use_conda: bool, env_name: Optional[str]) -> Non
     print(f"   The agent process exited with code {code} before it was ready.")
     print("   The messages above show the cause.")
     if use_conda and env_name:
-    print(
+        print(
             f"   To run it directly: conda run -n {env_name} python main.py --browser"
-    )
+        )
     else:
         print("   To run it directly: python main.py --browser")
     print("=" * 52 + "\n", flush=True)
@@ -1827,17 +1822,17 @@ if __name__ == "__main__":
             # would report success for someone else's process: never start
             # on a port we could not take.
             if explicit_ports:
-            print("\n" + "=" * 52)
+                print("\n" + "=" * 52)
                 print("ERROR: CraftBot cannot start because its ports are in use.")
-            print("=" * 52)
-            for blocker in blockers:
-                print(f"   {blocker}")
-            print(
-                "\n   Close that program, or choose different ports:"
-                "\n     python run.py --frontend-port 8925 --backend-port 8926"
-            )
-            print("=" * 52 + "\n")
-            sys.exit(1)
+                print("=" * 52)
+                for blocker in blockers:
+                    print(f"   {blocker}")
+                print(
+                    "\n   Close that program, or choose different ports:"
+                    "\n     python run.py --frontend-port 8925 --backend-port 8926"
+                )
+                print("=" * 52 + "\n")
+                sys.exit(1)
             pair = _instance.find_free_port_pair(FRONTEND_PORT, BACKEND_PORT, BIND_HOST)
             if pair is None:
                 print("\n" + "=" * 52)
@@ -1912,7 +1907,7 @@ if __name__ == "__main__":
             sys.exit(1)
         print_step_done()
 
-            try:
+        try:
             # The agent prints steps 3-8 itself while these waits run.
             frontend_ready = wait_for_frontend_silent(30)
 
@@ -1937,18 +1932,18 @@ if __name__ == "__main__":
             # Record the listeners into the owned-process ledger: a port that
             # answered is a process we spawned, and recording it is what lets
             # the next run stop it if this one is killed.
-        _adopt_port_listeners(
-            *([FRONTEND_PORT] if frontend_ready else []),
+            _adopt_port_listeners(
+                *([FRONTEND_PORT] if frontend_ready else []),
                 BACKEND_PORT,
-        )
+            )
 
-        # Small delay to ensure agent's stdout is flushed before we print
-        # The agent prints steps 3-8, and we want them to appear before the ready banner
-        time.sleep(0.3)
+            # Small delay to ensure agent's stdout is flushed before we print
+            # The agent prints steps 3-8, and we want them to appear before the ready banner
+            time.sleep(0.3)
 
             if frontend_process.poll() is not None:
                 print("\nError: the frontend server stopped.")
-            print("   Try running: cd app/ui_layer/browser/frontend && npm run dev")
+                print("   Try running: cd app/ui_layer/browser/frontend && npm run dev")
                 sys.exit(1)
 
             # The UI answers: tell craftbot.py, the launcher and the desktop

@@ -14,14 +14,14 @@ available actions to the LLM. It is intentionally tight on tokens:
   ``account``).
 - No ``example`` fields, no nested type-definitions.
 
-Both ``ActionRouter`` (main agent) and ``SubAgentContextEngine`` (sub-agents)
-should call ``format_action_candidates`` so the format stays in sync.
+Every <actions> list (ActionRouter, for the main agent and sub-agents alike)
+and every action_schemas event renders through ``format_action_candidates``.
 """
 
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 
 def candidate_dict_from_action(action) -> Dict[str, Any]:
@@ -119,39 +119,7 @@ def _params_every_action_takes(compact: List[Dict[str, Any]]) -> Dict[str, str]:
     }
 
 
-def format_actions_by_name(
-    action_names: List[str],
-    action_library,
-    *,
-    on_missing: Optional[str] = None,
-) -> str:
-    """Convenience: look up actions by name and render them.
-
-    Args:
-        action_names: Ordered list of action names to include.
-        action_library: Anything with ``retrieve_action(name) -> Action | None``.
-        on_missing: Optional log-message prefix for actions that aren't found;
-            when None, missing actions are silently skipped.
-
-    Returns:
-        Compact JSON block (or ``"[]"`` if nothing resolved).
-    """
-    candidates: List[Dict[str, Any]] = []
-    for name in action_names:
-        act = action_library.retrieve_action(name)
-        if act is None:
-            if on_missing is not None:
-                # Use late import to avoid pulling logging deps at module load.
-                from agent_core.utils.logger import logger
-
-                logger.warning(f"{on_missing}: action {name!r} not found in library")
-            continue
-        candidates.append(candidate_dict_from_action(act))
-    return format_action_candidates(candidates)
-
-
 __all__ = [
     "candidate_dict_from_action",
     "format_action_candidates",
-    "format_actions_by_name",
 ]

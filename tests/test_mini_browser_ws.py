@@ -2176,6 +2176,8 @@ def _stub_ws_adapter(mini_browser) -> BrowserAdapter:
     adapter._get_initial_state = lambda *reads: {"stub": True}
     adapter._get_skill_meta = lambda: {}
     adapter._agent_app_manager = SimpleNamespace(list_projects=lambda: [])
+    # Mini Browser routing tests must not query the user's framework registry.
+    adapter._schedule_framework_app_list = lambda: None
     adapter._mini_browser_ws = mini_browser
     return adapter
 

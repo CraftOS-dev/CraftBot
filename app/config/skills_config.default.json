@@ -8,12 +8,8 @@
     "playwright-mcp",
     "pptx",
     "xlsx",
-    "agent-app-creator",
-    "agent-app-manager",
-    "agent-app-modify",
     "craftbot-skill-creator",
-    "craftbot-skill-improve",
-    "agent-app-importer"
+    "craftbot-skill-improve"
   ],
   "disabled_skills": [
     "cli-anything",

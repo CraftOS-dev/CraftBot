@@ -28,13 +28,6 @@ export const RESOURCES = {
     pushedOnConnect: true,
     request: (send) => send({ type: 'session_list' }),
   },
-  /** Settings → Agent App project list with per-project settings. */
-  agentAppSettings: {
-    key: 'agentAppSettings',
-    resource: 'agent_apps',
-    request: (send) => send({ type: 'agent_app_settings_get' }),
-  },
-
   // ── Proactive ──
   proactiveMode: {
     key: 'proactiveMode',

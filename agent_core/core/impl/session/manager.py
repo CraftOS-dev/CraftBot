@@ -19,6 +19,7 @@ Persistence hooks:
 - on_session_delete: called when a session is deleted
 """
 
+import json
 import re
 import shutil
 import uuid
@@ -137,6 +138,10 @@ class SessionManager:
         session_id: Optional[str] = None,
         selected_skills: Optional[List[str]] = None,
         agent_app_project_id: Optional[str] = None,
+        agent_app_framework_key: Optional[str] = None,
+        agent_app_framework_pending: bool = False,
+        isolated_app_task: bool = False,
+        app_task_actions: Optional[List[str]] = None,
         gui_mode: bool = False,
         reasoning_effort: Optional[ReasoningChoice] = None,
     ) -> Session:
@@ -173,6 +178,10 @@ class SessionManager:
             selected_skills=list(selected_skills or []),
             workspace_dir=str(workspace_dir),
             agent_app_project_id=agent_app_project_id,
+            agent_app_framework_key=agent_app_framework_key,
+            agent_app_framework_pending=agent_app_framework_pending,
+            isolated_app_task=isolated_app_task,
+            app_task_actions=list(app_task_actions or []),
             gui_mode=gui_mode,
             reasoning_effort=(
                 reasoning_effort.value if reasoning_effort is not None else None
@@ -292,6 +301,56 @@ class SessionManager:
         session.title = title.strip()
         self._persist(session)
         return True
+
+    def mark_framework_creation(self, session_id: str, title: str) -> Session:
+        """Keep an unregistered app's build conversation in the Agent App group."""
+        session = self.sessions[session_id]
+        if (
+            session.type == SessionType.MAIN
+            or session.agent_app_project_id
+            or session.agent_app_framework_key
+            or session.isolated_app_task
+        ):
+            raise ValueError("This session cannot become an app creation conversation.")
+        session.type = SessionType.AGENT_APP
+        session.agent_app_framework_pending = True
+        session.title = title
+        self._compile_actions(session)
+        self._persist(session)
+        return session
+
+    def bind_framework_app(self, session_id: str, key: str, *, previous_key: str | None = None) -> Session:
+        """Give an app's existing conversation its dedicated type, keeping history.
+
+        Main, legacy app sessions and delegated task sessions cannot be adopted.
+        The host must first verify that this conversation belongs to this app.
+        """
+        session = self.sessions[session_id]
+        replacing = False
+        if previous_key and session.agent_app_framework_key == previous_key:
+            old, new = json.loads(previous_key), json.loads(key)
+            # The host may continue an unfinished creation after re-scaffolding
+            # its allocated directory. Never move a chat across profiles/paths.
+            replacing = (
+                session.type == SessionType.AGENT_APP
+                and len(old) == len(new) == 3
+                and Path(old[0]).resolve() == Path(new[0]).resolve()
+                and Path(old[1]).resolve() == Path(new[1]).resolve()
+            )
+        if (
+            session.id == MAIN_SESSION_ID
+            or session.type == SessionType.MAIN
+            or session.agent_app_project_id
+            or session.isolated_app_task
+            or (session.agent_app_framework_key not in (None, key) and not replacing)
+        ):
+            raise ValueError("This session cannot become the app's conversation.")
+        session.type = SessionType.AGENT_APP
+        session.agent_app_framework_key = key
+        session.agent_app_framework_pending = False
+        self._compile_actions(session)
+        self._persist(session)
+        return session
 
     def set_reasoning_effort(self, session_id: str, choice: ReasoningChoice) -> bool:
         """Set a session's reasoning choice (the chat input's picker).
@@ -425,6 +484,13 @@ class SessionManager:
         session.compiled_actions = action_set_manager.compile_action_list(
             session.base_action_sets, mode="GUI" if session.gui_mode else "CLI"
         )
+        if session.isolated_app_task:
+            session.compiled_actions = [
+                "a2app_command",
+                "send_message",
+                "end_turn",
+            ]
+            session.compiled_actions.extend(name for name in session.app_task_actions if name not in session.compiled_actions)
 
     def add_skill(self, session_id: str, skill_name: str) -> bool:
         """Load a skill into a session (additive).
