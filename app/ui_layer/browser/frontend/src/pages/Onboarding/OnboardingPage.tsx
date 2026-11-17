@@ -661,9 +661,15 @@ export function OnboardingPage() {
         showToast('error', d.message || d.error || t('onboarding:sub.actionFailed'))
       }
     }
+    const handleSetup = (data: unknown) => {
+      const d = data as { provider?: string; success: boolean; message?: string; error?: string }
+      if (d.provider !== apiKeyProvider) return
+      showToast(d.success ? 'success' : 'error', d.message || d.error || t('onboarding:sub.actionFailed'))
+    }
     const cleanups = [
       socket.onMessage('model_subscription_connect', handleFailure),
       socket.onMessage('model_subscription_disconnect', handleFailure),
+      socket.onMessage('model_subscription_setup', handleSetup),
     ]
     return () => cleanups.forEach(cleanup => cleanup())
   }, [apiKeyProvider, socket, showToast, t])
@@ -983,6 +989,31 @@ export function OnboardingPage() {
               <div style={{ color: 'var(--error, #e5484d)', fontSize: '0.82rem', marginTop: 8 }}>{subPasteback.errorMessage}</div>
             )}
           </div>
+        ) : subStatus?.setup ? (
+          // Claude Code is missing or too old to sign in: offer to set it up
+          // instead of a sign-in that cannot open a browser.
+          <div>
+            <p className={styles.hint}>
+              {subStatus.setup.action === 'install'
+                ? t('onboarding:sub.claudeCodeMissing')
+                : subStatus.setup.version
+                  ? t('onboarding:sub.claudeCodeOutdated', { version: subStatus.setup.version })
+                  : t('onboarding:sub.claudeCodeOutdatedUnknown')}
+            </p>
+            <Button
+              variant="primary"
+              fullWidth
+              disabled={isSubPending}
+              onClick={() => {
+                dispatch(setSubscriptionPending({ provider: apiKeyProvider, pending: true }))
+                socket.send('model_subscription_setup', { provider: apiKeyProvider })
+              }}
+            >
+              {subStatus.setup.action === 'install'
+                ? (isSubPending ? t('onboarding:sub.installingClaudeCode') : t('onboarding:sub.installClaudeCode'))
+                : (isSubPending ? t('onboarding:sub.updatingClaudeCode') : t('onboarding:sub.updateClaudeCode'))}
+            </Button>
+          </div>
         ) : (
           <Button
             variant="primary"
@@ -1009,7 +1040,7 @@ export function OnboardingPage() {
             </Button>
           </>
         )}
-        {subStatus?.error && <p role="alert" className={styles.hint}>{subStatus.error}</p>}
+        {subStatus?.error && !subStatus.setup && <p role="alert" className={styles.hint}>{subStatus.error}</p>}
 
         {apiKeyProvider === 'anthropic' && (
           <p className={styles.hint}>{t('onboarding:sub.claudeProfileNote')}</p>

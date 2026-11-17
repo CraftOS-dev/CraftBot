@@ -153,6 +153,13 @@
       "submitCode": "送出驗證碼",
       "reopenSignIn": "重新開啟登入頁面",
       "openingBrowser": "正在開啟瀏覽器…",
+      "claudeCodeMissing": "訂閱登入需要 Claude Code。",
+      "claudeCodeOutdated": "Claude Code {{version}} 不支援訂閱登入。",
+      "claudeCodeOutdatedUnknown": "已安裝的 Claude Code 不支援訂閱登入。",
+      "installClaudeCode": "安裝 Claude Code",
+      "updateClaudeCode": "更新 Claude Code",
+      "installingClaudeCode": "正在安裝 Claude Code…",
+      "updatingClaudeCode": "正在更新 Claude Code…",
       "signInWith": "使用 {{provider}} 登入",
       "useApiKeyInstead": "改用 API 金鑰"
     },

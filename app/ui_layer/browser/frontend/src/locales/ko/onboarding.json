@@ -63,6 +63,13 @@
     "submitCode": "코드 제출",
     "reopen": "로그인 페이지 다시 열기",
     "openingBrowser": "브라우저 여는 중…",
+    "claudeCodeMissing": "구독 로그인을 사용하려면 Claude Code가 필요합니다.",
+    "claudeCodeOutdated": "Claude Code {{version}}은(는) 구독 로그인을 지원하지 않습니다.",
+    "claudeCodeOutdatedUnknown": "설치된 Claude Code는 구독 로그인을 지원하지 않습니다.",
+    "installClaudeCode": "Claude Code 설치",
+    "updateClaudeCode": "Claude Code 업데이트",
+    "installingClaudeCode": "Claude Code 설치 중…",
+    "updatingClaudeCode": "Claude Code 업데이트 중…",
     "signInWith": "{{provider}}(으)로 로그인",
     "useKeyInstead": "대신 API 키 사용"
   },

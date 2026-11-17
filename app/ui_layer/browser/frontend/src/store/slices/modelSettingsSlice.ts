@@ -41,6 +41,9 @@ export interface SubscriptionStatus {
   plan?: string
   expires_at?: number
   expires_in_seconds?: number
+  // Set when the local CLI the sign-in runs through (Claude Code) is missing
+  // or too old; the panel offers to install or update it before sign-in.
+  setup?: { action: 'install' | 'update'; version?: string }
 }
 
 export interface ApiKeyStatus {
@@ -342,6 +345,16 @@ register('model_subscription_connect', (data, dispatch) => {
 })
 
 register('model_subscription_disconnect', (data, dispatch) => {
+  const d = data as { success: boolean; provider?: string; status?: SubscriptionStatus }
+  if (d.provider) {
+    dispatch(setSubscriptionPending({ provider: d.provider, pending: false }))
+    if (d.status) dispatch(setSubscriptionStatus({ provider: d.provider, status: d.status }))
+  }
+})
+
+// Claude Code install/update. The refreshed status drops `setup` once the
+// CLI supports sign-in, which brings back the sign-in button.
+register('model_subscription_setup', (data, dispatch) => {
   const d = data as { success: boolean; provider?: string; status?: SubscriptionStatus }
   if (d.provider) {
     dispatch(setSubscriptionPending({ provider: d.provider, pending: false }))
