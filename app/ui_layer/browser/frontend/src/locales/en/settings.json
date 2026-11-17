@@ -157,6 +157,13 @@
       "submitCode": "Submit code",
       "reopenSignIn": "Reopen sign-in page",
       "openingBrowser": "Opening browser…",
+      "claudeCodeMissing": "Subscription sign-in requires Claude Code.",
+      "claudeCodeOutdated": "Claude Code {{version}} does not support subscription sign-in.",
+      "claudeCodeOutdatedUnknown": "The installed Claude Code does not support subscription sign-in.",
+      "installClaudeCode": "Install Claude Code",
+      "updateClaudeCode": "Update Claude Code",
+      "installingClaudeCode": "Installing Claude Code…",
+      "updatingClaudeCode": "Updating Claude Code…",
       "signInWith": "Sign in with {{provider}}",
       "useApiKeyInstead": "Use API key instead"
     },

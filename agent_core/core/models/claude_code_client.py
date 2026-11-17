@@ -19,17 +19,17 @@ from craftos_integrations.llm_oauth import claude_code
 
 
 def _content(messages: list[dict]) -> list[dict]:
-    blocks = []
-    if len(messages) > 1:
-        blocks.append(
-            {
-                "type": "text",
-                "text": "Continue this conversation by replying to its final user message.",
-            }
-        )
+    # A single message renders in the same labelled shape as a longer
+    # conversation, so each call's blocks are a prefix of the next call's
+    # and the CLI's prompt cache carries over from turn 1 to turn 2.
+    blocks = [
+        {
+            "type": "text",
+            "text": "Continue this conversation by replying to its final user message.",
+        }
+    ]
     for message in messages:
-        if len(messages) > 1:
-            blocks.append({"type": "text", "text": f"\n[{message['role']}]\n"})
+        blocks.append({"type": "text", "text": f"\n[{message['role']}]\n"})
         content = message.get("content", "")
         if isinstance(content, str):
             blocks.append({"type": "text", "text": content})

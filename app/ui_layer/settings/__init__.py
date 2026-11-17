@@ -140,6 +140,7 @@ from app.ui_layer.settings.provider_settings import (
     disconnect_subscription,
     get_subscription_status,
     prepare_subscription_async,
+    setup_subscription,
 )
 
 __all__ = [
@@ -250,4 +251,5 @@ __all__ = [
     "get_subscription_status",
     "prepare_subscription_async",
     "complete_subscription",
+    "setup_subscription",
 ]

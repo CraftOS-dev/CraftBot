@@ -94,6 +94,10 @@ class ProviderProfile:
     # providers that already receive it today (NFR-3: golden payloads
     # must not change).
     supports_prompt_cache_key: bool = False
+    # HTTP header that routes requests to the server holding their cache,
+    # sent with the same value as ``prompt_cache_key``. Set where the
+    # provider routes Chat Completions cache by a header, not the body key.
+    cache_routing_header: Optional[str] = None
     # Temperature policy for the chat_completions wire (Hermes-style):
     #   None            -> send the caller's temperature (default behavior)
     #   OMIT_TEMPERATURE -> do NOT send temperature (Kimi/Moonshot thinking
@@ -432,6 +436,9 @@ PROVIDER_CONFIG: Dict[str, ProviderProfile] = {
         subscription_label="Sign in with Grok",
         subscription_models=("grok-4.3", "grok-4.7"),
         supports_prompt_cache_key=True,
+        # xAI routes Chat Completions cache by this header; prompt_cache_key
+        # is its Responses API equivalent.
+        cache_routing_header="x-grok-conv-id",
         connection_test_model="grok-4.3",
         default_models={
             # grok-3 and grok-4-0709 were retired on 2026-05-15 and now

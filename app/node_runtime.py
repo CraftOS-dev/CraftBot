@@ -8,11 +8,20 @@ services while local apps use 24.x). CraftBot selects Node 24 consistently for
 its tooling; the packaged Agent-App CLI is compiled JavaScript and checks its
 own minimum version in the binding.
 
-Resolution is cached per process. An explicit valid CRAFTBOT_NODE override
-wins. Managed installs then use the release-pinned private Node/npm pair.
-Source/Conda installs may use a compatible complete runtime from PATH or nvm.
-Only CraftBot subprocess PATHs change; system installations are never modified.
-A present Node without a functioning npm is not a complete runtime.
+Resolution order (cached per process):
+  1. CRAFTBOT_NODE env var — explicit override (ignored with a warning when
+     the path doesn't exist).
+  2. PATH node when its major >= MIN_NODE_MAJOR.
+  3. Newest >= MIN_NODE_MAJOR among nvm/nvm-windows installs and the sidecar
+     install.py downloads into <repo>/runtime/node.
+  4. An unprobeable PATH node, as the last resort — a broken probe must
+     never block a good Node, but must not shadow a working install either.
+
+The system default Node is NEVER upgraded, replaced, or shadowed outside
+CraftBot's own subprocesses. When nothing >= MIN resolves, callers handle an
+unavailable runtime or validate the last-resort PATH binary against their own
+requirements. The Agent-App binding reports an actionable error if Node is
+missing or too old.
 
 Stdlib-only on purpose: install.py and run.py import this before any
 dependencies exist (app/__init__.py is empty).
@@ -29,6 +38,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+logger = logging.getLogger(__name__)
+
+MIN_NODE_MAJOR = 24  # keep the nodejs>=24 pin in environment.yml in sync
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
 # app.paths is the single answer to "where does state live" — in a dev
 # checkout that is the repo (so this is unchanged), and in an install it is
 # the per-user data dir. Before this, SIDECAR_DIR was derived from __file__
@@ -37,15 +52,7 @@ from typing import Optional
 # reachable Node at all, and Living UI could not start.
 # app.paths is stdlib-only, like this module, so the import is safe at the
 # point install.py and run.py import us — before dependencies exist.
-from app.paths import is_managed_install
-from app import runtime_manifest
-from app.paths import NODE_DIR as SIDECAR_DIR
-
-logger = logging.getLogger(__name__)
-
-MIN_NODE_MAJOR = 24  # keep the nodejs>=24 pin in environment.yml in sync
-
-REPO_ROOT = Path(__file__).resolve().parents[1]
+from app.paths import NODE_DIR as SIDECAR_DIR  # noqa: E402
 
 _NODE_VER_RE = re.compile(r"v?(\d+)\.(\d+)\.(\d+)")
 
@@ -159,22 +166,29 @@ def resolve(refresh: bool = False) -> Optional[NodeRuntime]:
                 version=probe_version(override),
                 source="override",
             )
-            if usable(_cached):
-                return _cached
-            _cached = None
+            return _cached
         # A typo'd override must not become a raw FileNotFoundError at the
         # first spawn — warn and resolve normally instead.
         logger.warning(
-            f"[NODE] CRAFTBOT_NODE is missing or lacks a usable Node/npm pair ({override}) — ignoring it"
+            f"[NODE] CRAFTBOT_NODE points at a missing file ({override}) — ignoring it"
         )
 
-    if is_managed_install():
-        candidate = _pinned_exe()
-        if candidate.is_file():
-            rt = _runtime(candidate)
-            if usable(rt):
-                _cached = rt
-        return _cached
+    # The Node install.py resolved, recorded as an absolute path. Services
+    # started by Task Scheduler, launchd or systemd get a minimal PATH that
+    # cannot see Homebrew's or nodejs.org's Node, so PATH lookup alone left
+    # auto-started CraftBot with no Node at all.
+    recorded = _recorded_node()
+    if recorded:
+        version = probe_version(recorded)
+        if (major_of(version) or 0) >= MIN_NODE_MAJOR:
+            _cached = NodeRuntime(
+                node=recorded,
+                npm=_sibling_npm(recorded),
+                bin_dir=os.path.dirname(recorded),
+                version=version,
+                source="recorded",
+            )
+            return _cached
 
     path_node = shutil.which("node")
     path_version = probe_version(path_node) if path_node else None
@@ -193,14 +207,10 @@ def resolve(refresh: bool = False) -> Optional[NodeRuntime]:
             version=path_version,
             source="path",
         )
-        if usable(_cached):
-            return _cached
-        _cached = None
+        return _cached
 
-    # A broken higher-version nvm installation must not shadow our repaired copy.
-    for discovered in (discover_node(), str(_pinned_exe())):
-        if not discovered or not os.path.isfile(discovered):
-            continue
+    discovered = discover_node()
+    if discovered:
         _cached = NodeRuntime(
             node=discovered,
             npm=_sibling_npm(discovered),
@@ -211,11 +221,36 @@ def resolve(refresh: bool = False) -> Optional[NodeRuntime]:
         logger.info(
             f"[NODE] PATH node unsuitable — using {discovered} for all components"
         )
-        if usable(_cached):
-            return _cached
-        _cached = None
+        return _cached
+
+    # Fail open on a broken probe, but only as the LAST resort: an
+    # unprobeable PATH node (hanging shim, corrupted binary) must never
+    # block a launch — yet must not shadow a working discovered install.
+    if path_node and path_major is None:
+        _cached = NodeRuntime(
+            node=path_node,
+            npm=_sibling_npm(path_node) or shutil.which("npm"),
+            bin_dir=os.path.dirname(path_node),
+            version=path_version,
+            source="path",
+        )
+        return _cached
 
     return None
+
+
+def _recorded_node() -> Optional[str]:
+    """config.json `node_executable` (written by install.py), if it exists."""
+    try:
+        import json
+
+        from app.python_runtime import CONFIG_FILE
+
+        with open(CONFIG_FILE, encoding="utf-8") as fh:
+            path = json.load(fh).get("node_executable")
+        return path if path and os.path.isfile(path) else None
+    except Exception:
+        return None
 
 
 def path_env() -> dict:
@@ -230,14 +265,35 @@ def path_env() -> dict:
 
 
 def child_env(extra: Optional[dict] = None) -> dict:
-    """os.environ copy with the runtime's bin dir first on PATH."""
-    env = {**os.environ, **path_env()}
+    """os.environ copy with the runtime's bin dir first on PATH, set up to
+    work on corporate networks.
+
+    Node's fetch() ignores HTTP(S)_PROXY unless NODE_USE_ENV_PROXY is set,
+    and Node trusts only its bundled CA list unless told to use the OS store,
+    so behind a TLS-inspecting proxy every Node download (PocketBase, npm)
+    failed while the browser on the same machine worked. A proxy set only in
+    the OS settings is passed on too, since npm and Node read only variables.
+    Loopback is always exempt from the proxy.
+    """
+    from app.downloads import system_proxy_env
+
+    env = {**os.environ, **system_proxy_env(), **path_env()}
     if extra:
         env.update(extra)
-    if sys.platform != "win32" and not shutil.which("sh", path=env.get("PATH", "")):
-        # npm runs package scripts through an OS shell. A private Node PATH
-        # must still work without exposing system Git/tar or requiring setup.
-        env.setdefault("npm_config_script_shell", "/bin/sh")
+    env.setdefault("NODE_USE_ENV_PROXY", "1")
+    # Only for a Node known to accept the flag: an older one refuses to start
+    # with an unknown NODE_OPTIONS entry, and resolve() can fall back to a
+    # PATH node whose version could not be probed.
+    rt = resolve()
+    if rt is not None and (major_of(rt.version) or 0) >= MIN_NODE_MAJOR:
+        node_options = env.get("NODE_OPTIONS", "")
+        if "--use-system-ca" not in node_options:
+            env["NODE_OPTIONS"] = (node_options + " --use-system-ca").strip()
+    no_proxy = env.get("NO_PROXY") or env.get("no_proxy") or ""
+    loopback = [h for h in ("localhost", "127.0.0.1", "::1") if h not in no_proxy]
+    if loopback:
+        merged = ",".join(filter(None, [no_proxy] + loopback))
+        env["NO_PROXY"] = env["no_proxy"] = merged
     return env
 
 
@@ -257,145 +313,197 @@ def npm_cmd() -> Optional[str]:
 
 
 def _platform_suffix():
-    target = runtime_manifest.target("node")
-    return target, (
-        "zip"
-        if target.startswith("win-")
-        else ("tar.gz" if target.startswith("darwin-") else "tar.xz")
-    )
+    """(suffix, extension) of the Node archive for this machine.
+
+    Windows gets the zip because tar would not preserve anything it needs;
+    unix gets a tarball because zip does not preserve the executable bit.
+    """
+    import platform
+
+    machine = platform.machine().lower()
+    arch = "arm64" if machine in ("arm64", "aarch64") else "x64"
+    if sys.platform == "win32":
+        return f"win-{arch}", "zip"
+    if sys.platform == "darwin":
+        return f"darwin-{arch}", "tar.gz"
+    return f"linux-{arch}", "tar.xz"
 
 
 def latest_download_url(log=None) -> Optional[str]:
-    """Compatibility entry point for prefetch: the approved release, not latest."""
+    """URL of the newest Node on the MIN_NODE_MAJOR line for this machine.
+
+    Split out of download_sidecar so the archive can be pre-fetched into a
+    cache without installing it (scripts/prefetch_runtimes.py).
+    """
+    import json
+    import ssl
+    import urllib.request
+
+    say = log or (lambda _m: None)
+
     try:
-        return runtime_manifest.asset("node")["url"]
-    except ValueError as exc:
-        (log or (lambda _: None))(str(exc))
+        import certifi
+
+        ctx = ssl.create_default_context(cafile=certifi.where())
+    except ImportError:
+        ctx = ssl.create_default_context()
+
+    suffix, ext = _platform_suffix()
+
+    try:
+        req = urllib.request.Request(
+            "https://nodejs.org/dist/index.json", headers={"User-Agent": "CraftBot"}
+        )
+        index = json.loads(urllib.request.urlopen(req, timeout=60, context=ctx).read())
+    except Exception as e:
+        say(f"   Could not reach the Node index: {str(e)[:160]}")
         return None
 
-
-def _pinned_exe():
-    target = runtime_manifest.target("node")
-    root = SIDECAR_DIR / f"node-v{runtime_manifest.version('node')}-{target}"
-    return root / ("node.exe" if sys.platform == "win32" else "bin/node")
-
-
-def npm_command(rt=None):
-    """Run npm's JS entry point with its own Node, without cmd.exe or shell quoting."""
-    rt = rt or resolve()
-    if rt is None:
-        return None
-    binary = Path(rt.node).resolve()
-    candidates = [
-        binary.parent / "node_modules/npm/bin/npm-cli.js",
-        binary.parent.parent / "lib/node_modules/npm/bin/npm-cli.js",
-    ]
-    if rt.npm:
-        candidates.append(Path(rt.npm).resolve().parent / "npm-cli.js")
-    for entry in candidates:
-        if entry.is_file():
-            return [str(binary), str(entry)]
-    return None
-
-
-def usable(rt):
-    if rt is None or (major_of(rt.version) or 0) < MIN_NODE_MAJOR:
-        return False
-    cmd = npm_command(rt)
-    if not cmd:
-        return False
-    try:
-        kwargs = (
-            {"creationflags": subprocess.CREATE_NO_WINDOW}
-            if sys.platform == "win32"
-            else {}
-        )
-        result = subprocess.run(
-            cmd + ["--version"], capture_output=True, text=True, timeout=20, **kwargs
-        )
-        return result.returncode == 0 and bool(
-            re.match(r"^\d+\.", result.stdout.strip())
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return False
-
-
-def _runtime(node, source="sidecar"):
-    return NodeRuntime(
-        str(node),
-        _sibling_npm(str(node)),
-        str(Path(node).parent),
-        probe_version(str(node)),
-        source,
+    ver = next(
+        (
+            e["version"]
+            for e in index
+            if e.get("version", "").startswith(f"v{MIN_NODE_MAJOR}.")
+        ),
+        None,
     )
+    if not ver:
+        say(f"   No v{MIN_NODE_MAJOR}.x release found in the Node index")
+        return None
+    return f"https://nodejs.org/dist/{ver}/node-{ver}-{suffix}.{ext}"
 
 
-def download_sidecar(log=None, offline=False) -> Optional[str]:
+def _extract_node(archive_src, ver, suffix, ext, say, url=None):
+    """Put a Node archive into SIDECAR_DIR and return its binary path.
+
+    Shared by the cached and downloaded paths so extraction, layout and the
+    binary probe cannot drift between them.
+    """
     import tarfile
-    import tempfile
     import zipfile
+
     from app import downloads
 
-    say = log or (lambda _: None)
+    dest_root = str(SIDECAR_DIR)
+    os.makedirs(dest_root, exist_ok=True)
+    archive = os.path.join(dest_root, f"_download.{ext}")
     try:
-        asset = runtime_manifest.asset("node")
-        target, ext = _platform_suffix()
-        version = "v" + runtime_manifest.version("node")
-        SIDECAR_DIR.mkdir(parents=True, exist_ok=True)
-        installed = SIDECAR_DIR / f"node-{version}-{target}"
-        with tempfile.TemporaryDirectory(prefix=".node-", dir=SIDECAR_DIR) as staging:
-            stage = Path(staging)
-            archive = stage / ("download." + ext)
-            downloads.download(
-                asset["url"],
-                str(archive),
-                log=say,
-                label=f"Node {version}",
-                expected_sha256=asset["sha256"],
-                offline=offline,
-            )
-            if ext == "zip":
-                with zipfile.ZipFile(archive) as zf:
-                    zf.extractall(stage)
-            else:
-                with tarfile.open(archive) as tf:
-                    tf.extractall(stage, filter="data")
-            candidate = stage / installed.name
-            exe = candidate / ("node.exe" if sys.platform == "win32" else "bin/node")
-            if not usable(_runtime(exe)):
-                raise RuntimeError("Downloaded Node/npm failed its execution check")
-            backup = SIDECAR_DIR / (installed.name + ".previous")
-            if backup.exists():
-                shutil.rmtree(backup)
-            if installed.exists():
-                installed.rename(backup)
-            try:
-                candidate.rename(installed)
-            except Exception:
-                if backup.exists():
-                    backup.rename(installed)
-                raise
-            if backup.exists():
-                shutil.rmtree(backup, ignore_errors=True)
-        probe_version.cache_clear()
-        return str(_pinned_exe())
-    except Exception as exc:
-        say(f"Node setup failed: {exc}")
+        if archive_src:
+            say(f"   Using cached {os.path.basename(archive_src)}")
+            shutil.copyfile(archive_src, archive)
+        else:
+            # Streamed with progress: the archive is 30-55MB, and a single
+            # silent blocking copy is indistinguishable from a hung install.
+            downloads.download(url, archive, log=say, label=f"Node {ver}")
+        say("   Extracting...")
+        if ext == "zip":
+            zipfile.ZipFile(archive).extractall(dest_root)
+        else:
+            # tar preserves the executable bit; zip does not, which is why
+            # Windows gets the zip and unix the tarball.
+            with tarfile.open(archive, mode="r:*") as tf:
+                downloads.safe_extract_tar(tf, dest_root)
+    except Exception as e:
+        say(f"   Node setup failed: {str(e)[:200]}")
+        return None
+    finally:
+        try:
+            os.remove(archive)
+        except OSError:
+            pass
+
+    binary = os.path.join(
+        dest_root,
+        f"node-{ver}-{suffix}",
+        "node.exe" if sys.platform == "win32" else os.path.join("bin", "node"),
+    )
+    return binary if os.path.isfile(binary) else None
+
+
+def download_sidecar(log=None) -> Optional[str]:
+    """Download an official Node build into SIDECAR_DIR; return the binary.
+
+    No PATH edits, nothing else touched — plain discovery picks it up on the
+    next resolve(refresh=True). Lives here rather than in install.py because
+    the installer needs it too: installer users never run install.py, so that
+    was the only route by which they could obtain Node, and they had none.
+
+    Stdlib-only (certifi when importable, else the system trust store).
+    """
+    import json
+    import ssl
+    import urllib.request
+
+    say = log or (lambda _m: None)
+
+    try:
+        import certifi
+
+        ctx = ssl.create_default_context(cafile=certifi.where())
+    except ImportError:
+        ctx = ssl.create_default_context()
+
+    suffix, ext = _platform_suffix()
+
+    # Consult the cache BEFORE the network. Resolving the version means
+    # fetching nodejs.org's release index, which on a slow or flaky link is
+    # its own failure point — and failing there while the archive is already
+    # on disk would be a pointless way to lose an install.
+    cached_archive = None
+    ver_from_cache = None
+    try:
+        from app import downloads
+
+        cached_archive = downloads.find_cached(
+            f"node-v{MIN_NODE_MAJOR}.*-{suffix}.{ext}"
+        )
+        if cached_archive:
+            m = _NODE_VER_RE.search(os.path.basename(cached_archive))
+            if m:
+                ver_from_cache = "v" + ".".join(m.groups())
+    except Exception:
+        cached_archive = None
+
+    if cached_archive and ver_from_cache:
+        ver = ver_from_cache
+        url = f"https://nodejs.org/dist/{ver}/node-{ver}-{suffix}.{ext}"
+        return _extract_node(cached_archive, ver, suffix, ext, say, url)
+
+    try:
+        # Newest release on the MIN_NODE_MAJOR line (the index is newest-first).
+        req = urllib.request.Request(
+            "https://nodejs.org/dist/index.json", headers={"User-Agent": "CraftBot"}
+        )
+        index = json.loads(urllib.request.urlopen(req, timeout=60, context=ctx).read())
+        ver = next(
+            (
+                e["version"]
+                for e in index
+                if e.get("version", "").startswith(f"v{MIN_NODE_MAJOR}.")
+            ),
+            None,
+        )
+        if not ver:
+            say(f"   ⚠ No v{MIN_NODE_MAJOR}.x release found in the Node index")
+            return None
+
+        url = f"https://nodejs.org/dist/{ver}/node-{ver}-{suffix}.{ext}"
+        return _extract_node(None, ver, suffix, ext, say, url)
+    except Exception as e:
+        say(f"   ⚠ Sidecar Node download failed: {str(e)[:200]}")
         return None
 
 
-def ensure_sidecar(log=None, offline=False) -> Optional[NodeRuntime]:
-    """Ensure a runnable Node/npm pair, repairing incomplete installations."""
-    global _cached, _resolved
-    rt = resolve(refresh=True)
-    if usable(rt):
+def ensure_sidecar(log=None) -> Optional[NodeRuntime]:
+    """Return Node >= MIN_NODE_MAJOR with npm, downloading both if needed.
+    Idempotent: a no-op when a suitable Node already resolves."""
+    rt = resolve()
+    if rt is not None and (major_of(rt.version) or 0) >= MIN_NODE_MAJOR and rt.npm:
         return rt
     if rt is not None and rt.source == "override":
         if log:
             log("CRAFTBOT_NODE must point to a supported Node installation with npm.")
         return None
-    node = download_sidecar(log=log, offline=offline)
-    if node:
-        _cached, _resolved = _runtime(node), True
-        return _cached
+    if download_sidecar(log=log):
+        return resolve(refresh=True)
     return None

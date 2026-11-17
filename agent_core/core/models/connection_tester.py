@@ -71,24 +71,13 @@ def _test_provider_connection_inner(
     cfg = registry[provider]
 
     try:
+        # The model factory uses a connected subscription sign-in instead of
+        # the API key, so test that sign-in rather than asking for a key.
+        if cfg.oauth_backend and _subscription_connected(provider):
+            return _test_subscription(provider, model)
         if provider == "openai":
             return _test_openai(api_key, timeout, model)
         elif provider == "anthropic":
-            from craftos_integrations.llm_oauth import claude_code
-
-            if claude_code.has_credential():
-                from agent_core.core.models.claude_code_client import ClaudeCodeClient
-
-                ClaudeCodeClient(timeout=timeout).messages.create(
-                    model=model or cfg.connection_test_model,
-                    max_tokens=32,
-                    messages=[{"role": "user", "content": "Reply with OK."}],
-                )
-                return {
-                    "success": True,
-                    "provider": provider,
-                    "message": "Claude Code subscription connection successful.",
-                }
             return _test_anthropic(api_key, timeout, model)
         elif provider == "gemini":
             return _test_gemini(api_key, timeout, model)
@@ -155,6 +144,59 @@ def _test_provider_connection_inner(
             "provider": provider,
             "error": str(e),
         }
+
+
+# ─── Subscription sign-ins (ChatGPT, Claude, SuperGrok) ───────────────
+
+
+def _subscription_connected(provider: str) -> bool:
+    try:
+        from craftos_integrations.llm_oauth.tokens import has_credential
+    except ImportError:
+        return False
+    return has_credential(provider)
+
+
+def _test_subscription(provider: str, model: Optional[str]) -> Dict[str, Any]:
+    """Send one short request through the client the factory builds for the
+    agent: the ChatGPT and SuperGrok bearers, or the Claude Code CLI."""
+    from agent_core.core.models.factory import ModelFactory
+    from agent_core.core.models.types import InterfaceType
+
+    try:
+        context = ModelFactory.create(
+            provider=provider, interface=InterfaceType.LLM, model_override=model
+        )
+        # The factory may run another model than requested (ChatGPT serves
+        # only its subscription models), so report the one it used.
+        tested = context["model"]
+        if context["anthropic_client"] is not None:
+            context["anthropic_client"].messages.create(
+                model=tested,
+                max_tokens=32,
+                messages=[{"role": "user", "content": "Reply with OK."}],
+            )
+        else:
+            # A system message: ChatGPT's backend takes it as the
+            # instructions every request must carry.
+            context["client"].chat.completions.create(
+                model=tested,
+                max_tokens=16,
+                messages=[
+                    {"role": "system", "content": "Reply with OK."},
+                    {"role": "user", "content": "OK?"},
+                ],
+            )
+    except Exception as exc:
+        return _classified_error_result(exc, provider, model)
+    return {
+        "success": True,
+        "provider": provider,
+        "message": (
+            f"Successfully connected to {_DISPLAY.get(provider, provider)} "
+            f"through your subscription with model {tested}."
+        ),
+    }
 
 
 # ─── OpenRouter proxy helpers (Moonshot / MiniMax) ────────────────────

@@ -16,6 +16,7 @@ Features:
 import asyncio
 import contextvars
 import importlib
+import importlib.metadata
 import json
 import os
 import subprocess
@@ -184,11 +185,23 @@ def _find_system_python() -> Optional[str]:
     return None
 
 
+def _requirements_satisfied(requirements: List[str]) -> bool:
+    """True when every declared requirement was already settled this process
+    for the system Python, so the caller can skip the worker thread."""
+    return all(
+        not pkg.strip() or (None, pkg.strip()) in _SETTLED_REQUIREMENTS
+        for pkg in requirements
+    )
+
+
 def _ensure_requirements(
     requirements: List[str], python_bin: Optional[str] = None
 ) -> None:
     """
     Install pip packages that are not yet available.
+
+    Blocking (imports, pip subprocesses): callers on the event loop run it
+    in a worker thread.
 
     *requirements* may contain a mix of importable module names (e.g.
     ``"DDGS"``) and pip package names (e.g. ``"duckduckgo-search"``).
@@ -241,8 +254,17 @@ def _ensure_requirements(
             # Only useful when NOT frozen (in-process imports work).
             import_name = pkg.replace("-", "_").split("[")[0]
 
-            # First try a fast import check (works for most packages)
+            # First try fast in-process checks. Distribution metadata covers
+            # pip names that differ from the import name (beautifulsoup4 ->
+            # bs4, Pillow -> PIL) without spawning pip; the import covers
+            # entries that name a module rather than a distribution (docx).
             if not getattr(sys, "frozen", False):
+                try:
+                    importlib.metadata.distribution(pkg.split("[")[0])
+                    _SETTLED_REQUIREMENTS.add((python_bin, pkg))
+                    continue  # already installed
+                except importlib.metadata.PackageNotFoundError:
+                    pass
                 try:
                     importlib.import_module(import_name)
                     _SETTLED_REQUIREMENTS.add((python_bin, pkg))
@@ -750,7 +772,11 @@ class ActionExecutor:
         # Pre-install declared pip requirements, off the event loop: a first
         # check runs pip (seconds; an install, up to minutes).
         requirements = getattr(action, "requirements", [])
-        if requirements and execution_mode == "internal":
+        if (
+            requirements
+            and execution_mode == "internal"
+            and not _requirements_satisfied(requirements)
+        ):
             await asyncio.to_thread(_ensure_requirements, requirements)
 
         if execution_mode == "internal":

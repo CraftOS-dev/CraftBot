@@ -15,7 +15,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path, PurePosixPath, PureWindowsPath
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple
 
 from aiohttp.client_exceptions import ClientConnectionResetError
 
@@ -96,6 +96,7 @@ from app.ui_layer.settings import (
     disconnect_subscription,
     get_subscription_status,
     prepare_subscription_async,
+    setup_subscription,
     # MCP settings
     list_mcp_servers,
     add_mcp_server_from_json,
@@ -187,11 +188,32 @@ def _with_request_id(message: Dict[str, Any]) -> Dict[str, Any]:
     return {**message, "data": {**data, "requestId": request_id}}
 
 
-def _make_static_or_spa(dist: Path):
+def _index_response(index_path: Path, backend_port: Optional[int]):
+    """index.html, told which backend port this run uses (app/instance.py)."""
+    from aiohttp import web
+
+    if backend_port is None:
+        return web.FileResponse(index_path)
+    from app.instance import inject_runtime_config
+
+    try:
+        html = index_path.read_bytes()
+    except OSError:
+        raise web.HTTPNotFound()
+    return web.Response(
+        body=inject_runtime_config(html, backend_port),
+        content_type="text/html",
+        charset="utf-8",
+        headers={"Cache-Control": "no-cache"},
+    )
+
+
+def _make_static_or_spa(dist: Path, backend_port: Optional[int] = None):
     """Build the catch-all handler: serve a file from dist/, else index.html.
 
     Every request path is resolved and must land inside the resolved dist/
     (symlinks included); anything else is a 404, never a file from elsewhere.
+    With ``backend_port``, index.html carries that port for the UI to use.
     """
     from aiohttp import web
 
@@ -201,7 +223,7 @@ def _make_static_or_spa(dist: Path):
     async def _static_or_spa(request: web.Request) -> web.StreamResponse:
         req_path = request.match_info.get("path", "")
         if not req_path:
-            return web.FileResponse(index_path)
+            return _index_response(index_path, backend_port)
         # Refuse drive/root/UNC paths before touching the filesystem: joining
         # an absolute path replaces dist/ outright, and resolving //host/share
         # makes Windows authenticate to that host.
@@ -213,9 +235,9 @@ def _make_static_or_spa(dist: Path):
             raise web.HTTPNotFound()
         if not file_path.is_relative_to(dist_root):
             raise web.HTTPNotFound()
-        if file_path.is_file():
+        if file_path.is_file() and file_path != index_path:
             return web.FileResponse(file_path)
-        return web.FileResponse(index_path)
+        return _index_response(index_path, backend_port)
 
     return _static_or_spa
 
@@ -587,13 +609,14 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
             logger.exception("[ActionStorage] Failed to initialize activity storage")
 
     def _persist_item(self, item: ActionItem) -> None:
-        """Write-through an item's full current state to storage."""
+        """Write-through an item's full current state to storage (written on
+        the storage's writer thread, in order)."""
         if not self._storage:
             return
         try:
             from app.usage.action_storage import StoredActionItem
 
-            self._storage.save_item(
+            self._storage.save_item_later(
                 StoredActionItem(
                     id=item.id,
                     name=item.name,
@@ -760,7 +783,7 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
         self._items = [i for i in self._items if i.id != item_id]
         if self._storage:
             try:
-                self._storage.delete_item(item_id)
+                self._storage.delete_item_later(item_id)
             except Exception:
                 pass
 
@@ -779,7 +802,7 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
         self._items.clear()
         if self._storage:
             try:
-                self._storage.clear_items()
+                self._storage.clear_items_later()
             except Exception:
                 pass
 
@@ -914,11 +937,15 @@ class BrowserAdapter(InterfaceAdapter):
     def __init__(
         self,
         controller: "UIController",
-        host: str = "localhost",
+        host: Optional[str] = None,
         port: int = 7926,
     ) -> None:
         super().__init__(controller, "browser")
-        self._host = host
+        # CRAFTBOT_BIND_HOST (app/instance.py): loopback unless set, e.g. to
+        # 0.0.0.0 in Docker. The Host/Origin guard stays loopback-only.
+        from app.instance import bind_host
+
+        self._host = host or bind_host()
         self._port = int(os.environ.get("BROWSER_PORT", port))
         # Origin allowlist + per-process session token for /ws (ws_auth.py).
         self._ws_auth = WsAuth(self._port)
@@ -1193,7 +1220,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             # Serve static files from dist/ (public/ files copied by Vite build)
             # This must come before the SPA catch-all so images, fonts, etc. are served directly
             self._app.router.add_get("/", self._spa_handler)
-            self._app.router.add_get("/{path:.*}", _make_static_or_spa(frontend_dist))
+            self._app.router.add_get(
+                "/{path:.*}", _make_static_or_spa(frontend_dist, self._port)
+            )
         else:
             # Fallback to inline HTML for development without build
             self._app.router.add_get("/", self._index_handler)
@@ -1225,11 +1254,11 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             self._change_detection = None
             logger.warning(f"[BROWSER ADAPTER] change detection unavailable: {e}")
 
+        from app.instance import display_url
+
         # Only print URL info if not using browser startup UI (run.py handles it)
         if os.getenv("BROWSER_STARTUP_UI", "0") != "1":
-            print(
-                f"\nCraftBot Browser Interface running at http://{self._host}:{self._port}"
-            )
+            print(f"\nCraftBot Browser Interface running at {display_url(self._port)}")
             print("Open this URL in your browser to interact with CraftBot.\n")
 
         # Emit ready event
@@ -1238,7 +1267,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 type=UIEventType.INTERFACE_READY,
                 data={
                     "adapter": "browser",
-                    "url": f"http://{self._host}:{self._port}",
+                    "url": display_url(self._port),
                 },
                 source_adapter=self._adapter_id,
             )
@@ -1354,6 +1383,15 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             )
             return ws
 
+        # The connect snapshot's blocking reads run in worker threads BEFORE
+        # this client joins the broadcast set: from joining until init is
+        # queued nothing awaits, so init still precedes every broadcast.
+        try:
+            snapshot_reads = await self._initial_state_reads()
+        except Exception:
+            await ws.close()
+            return ws
+
         is_first_client = len(self._ws_clients) == 0
         self._ws_clients.add(ws)
         channel = ClientChannel(ws)
@@ -1374,7 +1412,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         # Send initial state (through the channel, so it stays ordered with
         # broadcasts queued for this client)
         try:
-            initial_state = self._get_initial_state()
+            initial_state = self._get_initial_state(*snapshot_reads)
             channel.send_json(
                 {
                     "type": "init",
@@ -1928,6 +1966,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
         elif msg_type == "model_subscription_status":
             await self._handle_model_subscription_status(data.get("provider", ""))
+
+        elif msg_type == "model_subscription_setup":
+            await self._handle_model_subscription_setup(data.get("provider", ""))
 
         elif msg_type == "model_subscription_prepare":
             await self._handle_model_subscription_prepare(data.get("provider", ""))
@@ -3785,7 +3826,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             except Exception:
                 pass
             try:
-                get_action_storage().clear_items(session_id)
+                get_action_storage().clear_items_later(session_id)
             except Exception:
                 pass
             await self.broadcast_session_cleared(session_id)
@@ -4628,7 +4669,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     "priority": job.get("priority"),
                     "permissionTier": job.get("permission_tier"),
                     "sessionId": job.get("session_id"),
-                    "sessionTitle": getattr(_chat(job.get("session_id")), "title", None),
+                    "sessionTitle": getattr(
+                        _chat(job.get("session_id")), "title", None
+                    ),
                     "available": _chat(job.get("session_id")) is not None,
                     "time": job.get("time"),
                     "day": job.get("day"),
@@ -5058,9 +5101,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         """
         try:
             agent = self._controller.agent
-            removed = await asyncio.to_thread(
-                agent.memory_manager.remove_entity, name
-            )
+            removed = await asyncio.to_thread(agent.memory_manager.remove_entity, name)
             data: Dict[str, Any] = {"success": removed, "name": name}
             if removed:
                 data["graph"] = await self._memory_graph_snapshot()
@@ -5212,6 +5253,8 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 return
 
             sched = task.schedule
+            # Counts the events in every session's queue file: off the loop.
+            unprocessed = await asyncio.to_thread(get_unprocessed_event_count)
             await self._send_to(
                 ws,
                 {
@@ -5228,7 +5271,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         },
                         "threshold": get_memory_processing_threshold(),
                         "threshold_max": get_memory_processing_threshold_max(),
-                        "unprocessed": get_unprocessed_event_count(),
+                        "unprocessed": unprocessed,
                     },
                 },
             )
@@ -5280,7 +5323,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         agent = self._controller.agent
         snapshot = await asyncio.to_thread(agent.memory_manager.graph_snapshot)
         stats = snapshot.get("stats", {})
-        memory_stats = get_memory_stats()
+        memory_stats = await asyncio.to_thread(get_memory_stats)
         if memory_stats.get("success"):
             stats["unprocessed_events"] = memory_stats.get("unprocessed_events", 0)
             stats["memory_item_count"] = memory_stats.get("total_items", 0)
@@ -5310,8 +5353,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         """Send the indexed-files list and addable candidates."""
         try:
             agent = self._controller.agent
-            files = agent.memory_manager.get_index_files_info()
-            candidates_result = list_indexable_candidates()
+            # Both walk the disk: off the loop.
+            files = await asyncio.to_thread(agent.memory_manager.get_index_files_info)
+            candidates_result = await asyncio.to_thread(list_indexable_candidates)
             await self._broadcast(
                 {
                     "type": "memory_indexed_files_get",
@@ -6167,6 +6211,41 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             await self._broadcast(
                 {
                     "type": "model_subscription_status",
+                    "data": {
+                        "success": False,
+                        "provider": provider,
+                        "error": str(e),
+                    },
+                }
+            )
+
+    async def _handle_model_subscription_setup(self, provider: str) -> None:
+        """Install or update the CLI a subscription sign-in runs through.
+
+        Offered when status reports a ``setup`` step (Claude Code missing or
+        too old for ``claude auth``). Blocks for the download, so it runs off
+        the event loop; the refreshed status clears the step once it is done.
+        """
+        try:
+            success, message = await asyncio.to_thread(setup_subscription, provider)
+            await self._broadcast(
+                {
+                    "type": "model_subscription_setup",
+                    "data": {
+                        "success": success,
+                        "provider": provider,
+                        "message": message,
+                        "status": await asyncio.to_thread(
+                            get_subscription_status, provider
+                        ),
+                    },
+                }
+            )
+        except Exception as e:
+            logger.error(f"[BROWSER] subscription setup failed: {e}")
+            await self._broadcast(
+                {
+                    "type": "model_subscription_setup",
                     "data": {
                         "success": False,
                         "provider": provider,
@@ -7879,7 +7958,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         while self._running:
             try:
                 if self._metrics_subscribers:
-                    metrics = self._metrics_collector.get_metrics()
+                    # Reads every integration's account file: a worker thread.
+                    metrics = await asyncio.to_thread(
+                        self._metrics_collector.get_metrics
+                    )
                     payload = {"type": "dashboard_metrics", "data": metrics.to_dict()}
                     text = json.dumps(payload)
                     for ws in self._metrics_subscribers.copy():
@@ -7936,25 +8018,27 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
     ) -> None:
         """List files in a directory within the workspace with pagination and search."""
         try:
-            workspace = Path(AGENT_WORKSPACE_ROOT).resolve()
-
-            # Ensure workspace exists
-            if not workspace.exists():
-                workspace.mkdir(parents=True, exist_ok=True)
-
-            if directory:
-                target = self._validate_path(directory)
-            else:
-                target = workspace
-
-            if not target.exists():
-                raise FileNotFoundError(f"Directory not found: {directory}")
-
-            if not target.is_dir():
-                raise ValueError(f"Path is not a directory: {directory}")
 
             def _list_page():
-                # Collect and sort all files (a stat per entry: off the loop)
+                # Every step stats the disk: all of it runs off the loop.
+                workspace = Path(AGENT_WORKSPACE_ROOT).resolve()
+
+                # Ensure workspace exists
+                if not workspace.exists():
+                    workspace.mkdir(parents=True, exist_ok=True)
+
+                if directory:
+                    target = self._validate_path(directory)
+                else:
+                    target = workspace
+
+                if not target.exists():
+                    raise FileNotFoundError(f"Directory not found: {directory}")
+
+                if not target.is_dir():
+                    raise ValueError(f"Path is not a directory: {directory}")
+
+                # Collect and sort all files (a stat per entry)
                 all_files = sorted(
                     target.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower())
                 )
@@ -8002,27 +8086,32 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
     async def _handle_file_read(self, file_path: str) -> None:
         """Read file content."""
         try:
-            target = self._validate_path(file_path)
 
-            if not target.exists():
-                raise FileNotFoundError(f"File not found: {file_path}")
+            def _read():
+                # Up to 10 MB from disk: off the loop.
+                target = self._validate_path(file_path)
 
-            if target.is_dir():
-                raise ValueError(f"Cannot read directory as file: {file_path}")
+                if not target.exists():
+                    raise FileNotFoundError(f"File not found: {file_path}")
 
-            # Check file size (limit to 10MB for text preview)
-            if target.stat().st_size > 10 * 1024 * 1024:
-                raise ValueError("File too large to preview (max 10MB)")
+                if target.is_dir():
+                    raise ValueError(f"Cannot read directory as file: {file_path}")
 
-            # Try to read as text, fallback to binary info
-            try:
-                content = target.read_text(encoding="utf-8")
-                is_binary = False
-            except UnicodeDecodeError:
-                content = None
-                is_binary = True
+                # Check file size (limit to 10MB for text preview)
+                if target.stat().st_size > 10 * 1024 * 1024:
+                    raise ValueError("File too large to preview (max 10MB)")
 
-            file_info = self._get_file_info(target)
+                # Try to read as text, fallback to binary info
+                try:
+                    content = target.read_text(encoding="utf-8")
+                    is_binary = False
+                except UnicodeDecodeError:
+                    content = None
+                    is_binary = True
+
+                return content, is_binary, self._get_file_info(target)
+
+            content, is_binary, file_info = await asyncio.to_thread(_read)
 
             await self._broadcast(
                 {
@@ -9139,15 +9228,31 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             await self._chat.append_message(error_message)
             return {"success": False, "files_sent": 0, "errors": [str(e)]}
 
-    def _get_initial_state(self) -> Dict[str, Any]:
-        """Get initial state for new connections."""
+    async def _initial_state_reads(self) -> Tuple[Any, Dict[str, Any]]:
+        """The blocking parts of the connect snapshot, read in worker threads:
+        (dashboard metrics, last-seen message ids). Metrics read every
+        integration's account file; the ids are a chat-storage query, run on
+        the ordered chat worker so they see every earlier insert."""
+        metrics = await asyncio.to_thread(self._metrics_collector.get_metrics)
+        storage = self._chat._storage
+        last_seen = (
+            await self._chat.run_storage(storage.get_last_seen_message_ids)
+            if storage is not None
+            else {}
+        )
+        return metrics, last_seen
+
+    def _get_initial_state(
+        self, metrics: Any, last_seen_message_ids: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Get initial state for new connections, from the blocking reads
+        _initial_state_reads made."""
         from app.onboarding import onboarding_manager
         from app.ui_layer.settings.general_settings import (
             get_agent_profile_picture_info,
         )
 
         state = self._controller.state
-        metrics = self._metrics_collector.get_metrics()
 
         from app.config import get_app_version
 
@@ -9172,11 +9277,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             # older history through chat_history. ChatMessage.to_dict() always
             # carries sessionId.
             "messages": [m.to_dict() for m in self._chat.get_recent_messages()],
-            "lastSeenMessageIds": (
-                self._chat._storage.get_last_seen_message_ids()
-                if self._chat._storage is not None
-                else {}
-            ),
+            "lastSeenMessageIds": last_seen_message_ids,
             # Recent activity items (per-session inline feed); each carries sessionId.
             "actions": [
                 BrowserActionPanelComponent._item_payload(a)
@@ -9200,7 +9301,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         index_path = frontend_dist / "index.html"
 
         if index_path.exists():
-            return web.FileResponse(index_path)
+            return _index_response(index_path, self._port)
         else:
             # Fallback to inline HTML
             return web.Response(text=self._get_index_html(), content_type="text/html")
@@ -9263,7 +9364,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         """API endpoint for current state."""
         from aiohttp import web
 
-        return web.json_response(self._get_initial_state())
+        return web.json_response(
+            self._get_initial_state(*await self._initial_state_reads())
+        )
 
     async def _debug_loop_handler(self, request: "web.Request") -> "web.Response":
         """Event-loop stall statistics (app/ui_layer/diagnostics/loop_monitor.py)."""

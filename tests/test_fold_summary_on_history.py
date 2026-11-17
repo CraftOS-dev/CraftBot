@@ -191,5 +191,6 @@ def test_an_overflow_fold_stays_standalone():
     src = inspect.getsource(router_module.ActionRouter._prompt_for_decision)
     overflow = src[src.index("except LLMContextOverflowError") :]
     overflow = overflow[: overflow.index("continue")]
+    # Folded off the event loop (the summary call blocks), with no history.
     assert "self._fold, stream, system_prompt, static_prompt" in overflow
     assert "history=" not in overflow

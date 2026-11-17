@@ -70,11 +70,25 @@ def pytest_unconfigure(config):
 
 
 @pytest.fixture(autouse=True)
+def project_root_cwd():
+    """Start every test in the repository root, as set above at import.
+
+    Importing run.py moves the process into STATE_ROOT (_bootstrap_state runs
+    at import), so without this any later test that spawns
+    `python -c "import app..."` ran in the wrong directory and failed or
+    passed depending on test order.
+    """
+    os.chdir(PROJECT_ROOT)
+    yield
+    os.chdir(PROJECT_ROOT)
+
+
+@pytest.fixture(autouse=True)
 def configured_context_window(monkeypatch):
     """Give every test a configured model.context_window.
 
     It is required configuration -- the agent refuses to start without it --
-    and the tracked settings.json ships it as null on purpose. A test that
+    and the shipped settings.default.json carries it as null on purpose. A test that
     exercises the missing-window error patches get_settings itself, which
     takes precedence over this fixture for that test.
     """

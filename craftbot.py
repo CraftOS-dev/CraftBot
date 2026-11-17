@@ -7,6 +7,8 @@ and optionally register it to auto-start when your system boots.
 
 Commands:
     python craftbot.py start [options]    Start CraftBot in background
+    python craftbot.py open               Open CraftBot in the browser, starting it
+                                          first if it is not running (desktop icon)
     python craftbot.py stop               Stop CraftBot
     python craftbot.py restart [options]  Stop then start
     python craftbot.py status             Show if CraftBot is running
@@ -24,18 +26,20 @@ When running as a frozen EXE (CraftBot.exe with no args), the wizard opens
 automatically. Subcommands work the same as in source mode.
 
 Options passed to 'start' / 'install':
-    --cli                   Run in CLI mode instead of browser
     --no-open-browser       Don't open browser automatically (default for service)
-    --frontend-port PORT    Frontend port (default: 7925)
-    --backend-port PORT     Backend port (default: 7926)
+    --frontend-port PORT    Frontend port (default: 7925, or the next free pair)
+    --backend-port PORT     Backend port (default: 7926, or the next free pair)
     --agent-app-port PORT   First Agent App port, apps get PORT to PORT+99 (default: 3100)
     --conda                 Use conda environment
     --no-conda              Don't use conda
     --no-autostart          Install without automatic startup at login
 
+'start' waits until CraftBot answers (or prints why it stopped). The CLI
+interface needs a terminal, so it is not started in the background: run
+`python run.py --cli` instead.
+
 Examples:
     python craftbot.py start                   # Start in background (browser mode)
-    python craftbot.py start --cli             # Start in background (CLI mode)
     python craftbot.py install                 # Auto-start on login (browser mode)
     python craftbot.py install --no-open-browser  # Auto-start without opening browser
     python craftbot.py stop
@@ -62,7 +66,6 @@ import shlex
 import shutil
 import signal
 import subprocess
-import threading
 import time
 import webbrowser
 from typing import Callable, List, Optional
@@ -83,6 +86,15 @@ _PLATFORM: str = sys.platform
 # NOT contain the agent itself (no run.py, no openai/anthropic/etc bundled).
 IS_FROZEN: bool = bool(getattr(sys, "frozen", False))
 EXE_PATH: Optional[str] = sys.executable if IS_FROZEN else None
+
+# --state-root=PATH names this install's data folder. The desktop icon passes
+# it because, like a login start, it does not inherit CRAFTBOT_HOME from the
+# shell that installed CraftBot. Applied before any app module is imported
+# (app.paths resolves STATE_ROOT at import time) and removed from the args.
+for _argument in list(sys.argv[1:]):
+    if _argument.startswith("--state-root="):
+        os.environ["CRAFTBOT_HOME"] = _argument.split("=", 1)[1]
+        sys.argv.remove(_argument)
 
 # Single interpreter for every CraftBot process (see app/python_runtime.py).
 # Absent in the frozen installer EXE, which bundles no agent code.
@@ -133,8 +145,14 @@ def _user_data_dir() -> str:
     return path
 
 
-PID_FILE = os.path.join(_user_data_dir(), "craftbot.pid")
-LOG_FILE = os.path.join(_user_data_dir(), "craftbot.log")
+# The running CraftBot as seen from outside (app/instance.py). One pid file
+# and one log for every launcher: run.py writes the pid file itself, so
+# craftbot.py, the desktop launcher and service managers all read the same
+# record, in STATE_ROOT next to the user's data.
+from app import instance as _instance  # noqa: E402
+
+PID_FILE = str(_instance.PID_FILE)
+LOG_FILE = str(_instance.LOG_FILE)
 INSTALL_METADATA_FILE = os.path.join(_user_data_dir(), "install.json")
 
 # Source-mode only — relative to craftbot.py. The frozen installer never
@@ -447,7 +465,7 @@ def _tail_log_lines(n: int = 30, start_offset: int = 0) -> str:
     if not os.path.isfile(LOG_FILE):
         return ""
     try:
-        with open(LOG_FILE, "r", errors="replace") as f:
+        with open(LOG_FILE, "r", encoding="utf-8", errors="replace") as f:
             if start_offset:
                 f.seek(start_offset)
             lines = f.readlines()
@@ -456,66 +474,77 @@ def _tail_log_lines(n: int = 30, start_offset: int = 0) -> str:
     return "".join(lines[-n:])
 
 
-def _wait_for_startup_exit(
-    proc, timeout: float = 8.0, ready_log_offset: int = 0
-) -> Optional[int]:
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        try:
-            return proc.wait(timeout=0.1)
-        except subprocess.TimeoutExpired:
-            if CRAFTBOT_READY_MARKER in _tail_log_lines(80, ready_log_offset):
-                return None
-    return None
-
-
-#: How long cmd_start waits for the agent to finish booting before it gives
-#: up on opening the browser. Minutes, not seconds: a first run downloads the
-#: embedding model, and on a slow connection that dominates startup.
+#: How long cmd_start waits for the agent to finish booting. Minutes, not
+#: seconds: a first run downloads the embedding model, and on a slow
+#: connection that dominates startup. Running out is not a failure while the
+#: process is alive; start then says it is still starting.
 BROWSER_READY_TIMEOUT_S = 600
+#: How often cmd_start prints a progress line while it waits.
+_PROGRESS_EVERY_S = 30
+#: Log lines shown when a start fails.
+_FAILURE_LOG_LINES = 40
 
 
 def _clear_agent_ready() -> None:
-    """Drop any previous run's readiness marker before we launch."""
+    """Drop any previous run's readiness marker and ui.json before we launch."""
     try:
         paths.AGENT_READY_FILE.unlink(missing_ok=True)
     except Exception:
         pass
+    _instance.remove_ui()
 
 
-def _wait_for_ready_marker(start_offset: int, timeout: float) -> bool:
-    """Block until the agent reports that it finished booting.
+def _ui_ready(start_offset: int = 0) -> bool:
+    """Has this launch reached the point where the UI answers?
 
-    `_wait_for_startup_exit` is not a substitute: it returns after 8 seconds
-    whether or not anything is ready, because its job is only to catch a
-    launch that dies immediately. Opening the browser on that signal put a
-    tab in front of the user at around step 2 of 8.
-
-    Two signals, checked in this order:
-
-      1. app.paths.AGENT_READY_FILE, written by the agent itself. This is
-         authoritative and is what we actually wait on.
-      2. The ready banner in the log, kept only as a fallback for an older
-         installed agent that predates the marker file.
-
-    The log used to be the ONLY signal, and that was a bug: run.py's stdout
-    is a log FILE here, so Python block-buffers it. The banner sat unflushed
-    in an 8 KB buffer while this function timed out around it — the install
-    looked stuck on "Working..." long after the agent was serving.
-
-    Returns False on timeout; the caller decides what that means.
+    run.py writes ui.json once the backend answers, after the agent's own
+    ready marker. The ready banner in the log is kept only for an older
+    installed run.py that predates ui.json. (The log used to be the ONLY
+    signal, and run.py's stdout is a log FILE here, so the banner could sit
+    unflushed in a buffer long after the agent was serving.)
     """
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        try:
-            if paths.AGENT_READY_FILE.is_file():
-                return True
-        except OSError:
-            pass
-        if CRAFTBOT_READY_MARKER in _tail_log_lines(200, start_offset):
-            return True
+    if _instance.read_ui() is not None:
+        return True
+    return CRAFTBOT_READY_MARKER in _tail_log_lines(200, start_offset)
+
+
+def _wait_until_ready(proc, start_offset: int, timeout: float) -> str:
+    """Wait for the CraftBot just launched: "ready", "exited" or "timeout".
+
+    Watches the process the whole time. This used to look for an early exit
+    for 8 seconds only, and then wait up to 10 minutes for readiness without
+    noticing that the process had died, so a crash at second 9 was reported
+    as a running CraftBot.
+    """
+    started = time.time()
+    next_note = started + _PROGRESS_EVERY_S
+    while True:
+        if proc.poll() is not None:
+            return "exited"
+        if _ui_ready(start_offset):
+            return "ready"
+        now = time.time()
+        if now - started >= timeout:
+            return "timeout"
+        if now >= next_note:
+            print(
+                f"  {DIM}Still starting ({int(now - started)}s)...{RESET}", flush=True
+            )
+            next_note += _PROGRESS_EVERY_S
         time.sleep(0.5)
-    return False
+
+
+def _current_url(args: Optional[List[str]] = None) -> str:
+    """Where the UI is. An explicit --frontend-port names it (run.py uses or
+    refuses the ports it is given); otherwise ui.json of the running
+    CraftBot does, as its ports move when another program holds 7925/7926;
+    else the default address."""
+    args = args or []
+    if not _parse_port_arg(args, "--frontend-port", 0):
+        ui = _instance.read_ui()
+        if ui:
+            return str(ui["url"])
+    return _frontend_url(args)
 
 
 def _is_running(pid: int) -> bool:
@@ -524,7 +553,14 @@ def _is_running(pid: int) -> bool:
 
 
 def _orphan_listeners(args: Optional[List[str]] = None) -> List[tuple]:
-    """(pid, description) for CraftBots on our ports that no PID file covers.
+    """(pid, description) for CraftBots of THIS installation on our ports
+    that no PID file covers.
+
+    Only this state root's own CraftBot counts (app.instance
+    .belongs_to_this_home). A CraftBot from another checkout or another
+    CRAFTBOT_HOME on the same port is a separate installation that is
+    working for someone: it is never reported as an orphan of this one, and
+    so never stopped by this one.
 
     Read-only — `status` reports them, `stop` acts on them.
     """
@@ -532,13 +568,22 @@ def _orphan_listeners(args: Optional[List[str]] = None) -> List[tuple]:
         from app.process_ledger import craftbot_listeners
     except Exception:
         return []  # psutil missing (pre-dependency install) — nothing to say
-    ports = (
+    ports = {
         _parse_port_arg(args or [], "--frontend-port", DEFAULT_FRONTEND_PORT),
         _parse_port_arg(args or [], "--backend-port", DEFAULT_BACKEND_PORT),
-    )
+    }
+    # The ports the last run actually used, when it had to move.
+    ui = _instance.read_ui() or {}
+    for key in ("frontend_port", "backend_port"):
+        if isinstance(ui.get(key), int):
+            ports.add(ui[key])
     found: List[tuple] = []
-    for port in ports:
-        found.extend(craftbot_listeners(port))
+    for port in sorted(ports):
+        for pid, description in craftbot_listeners(port):
+            if pid in {p for p, _ in found}:
+                continue
+            if _instance.belongs_to_this_home(pid):
+                found.append((pid, description))
     return found
 
 
@@ -614,79 +659,60 @@ def _build_run_args(extra: List[str], service_mode: bool = True) -> List[str]:
 
 
 def _open_browser_detached(url: str) -> None:
-    """Poll the server URL and open the browser once it responds.
+    """Open the UI in the user's browser.
 
-    In frozen mode (installer EXE) sys.executable is CraftBotInstaller.exe,
-    not python — so spawning `sys.executable -c <script>` would just re-launch
-    the wizard. We run the poll in-process on a daemon thread instead. In
-    source mode we keep the detached-subprocess path so `python craftbot.py
-    start` returns immediately even on slow agent boots.
+    cmd_start only calls this once run.py has reported the UI as reachable
+    (ui.json), so there is nothing left to poll for.
     """
-    if IS_FROZEN:
+    try:
+        webbrowser.open(url)
+    except Exception as e:
+        print(f"  {DIM}Could not open a browser ({e}). Open {url} yourself.{RESET}")
 
-        def _poll_and_open() -> None:
-            from urllib.request import urlopen
 
-            deadline = time.time() + 120
-            while time.time() < deadline:
-                try:
-                    urlopen(url, timeout=1).close()
-                    break
-                except Exception:
-                    time.sleep(1)
-            webbrowser.open(url)
+#: Shown when a background start or an auto-start registration asks for the
+#: terminal interface, which needs the terminal it was started from.
+_CLI_IN_BACKGROUND = (
+    "The CLI interface runs in your terminal, so it cannot run in the "
+    "background or start on login.\n"
+    "  Start it in this terminal instead:  python run.py --cli"
+)
 
-        threading.Thread(target=_poll_and_open, daemon=True).start()
-        return
 
-    poll_script = (
-        "import sys, time, webbrowser\n"
-        "try:\n"
-        "    from urllib.request import urlopen\n"
-        "    deadline = time.time() + 120\n"
-        "    while time.time() < deadline:\n"
-        "        try:\n"
-        f"            urlopen('{url}', timeout=1).close()\n"
-        "            break\n"
-        "        except Exception:\n"
-        "            time.sleep(1)\n"
-        "except Exception:\n"
-        "    pass\n"
-        f"webbrowser.open('{url}')\n"
-    )
-
-    python = _installed_python()
-    if _PLATFORM == "win32":
-        pythonw = python.replace("python.exe", "pythonw.exe")
-        if os.path.isfile(pythonw):
-            python = pythonw
-
-    kwargs: dict = dict(
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        **_helpers.detached_popen_flags(),
-    )
-
-    subprocess.Popen([python, "-c", poll_script], **kwargs)
+def _child_env() -> dict:
+    """Environment for a CraftBot Python child (run.py, install.py, checks):
+    nothing from the user's shell that would make CraftBot's interpreter load
+    foreign packages (app.python_runtime.isolated_env), no proxy for
+    loopback, and UTF-8 output."""
+    if _python_runtime is not None and hasattr(_python_runtime, "isolated_env"):
+        env = _python_runtime.isolated_env(os.environ)
+    else:
+        env = os.environ.copy()
+    _instance.with_no_proxy(env)
+    env["PYTHONIOENCODING"] = "utf-8"
+    env["PYTHONUTF8"] = "1"
+    return env
 
 
 def cmd_start(extra_args: List[str]) -> bool:
     """Start CraftBot as a detached background process.
 
-    Returns True once the service survives the early startup check; False when
-    launch fails before CraftBot can be used.
+    Returns True once the UI answers, or while the process is alive but still
+    starting when the wait runs out. False when it exits first: then the last
+    log lines and the log path are printed.
     """
+    if "--cli" in extra_args:
+        print(f"  {RED}✗{RESET} {WHITE}{_CLI_IN_BACKGROUND}{RESET}")
+        return False
+
     # Unconditional, not `if _owned_pid()`: the thing most likely to be
     # holding our port is the CraftBot this install has no PID file for.
     cmd_stop(quiet=True, args=extra_args)
 
-    # service_mode=False — don't suppress the browser; we open it ourselves below
-    run_args = _build_run_args(extra_args, service_mode=False)
     # Always pass --no-open-browser to run.py; craftbot.py handles opening the browser
-    if "--cli" not in run_args:
-        if "--no-open-browser" not in run_args:
-            run_args.append("--no-open-browser")
+    run_args = _build_run_args(extra_args, service_mode=False)
+    if "--no-open-browser" not in run_args:
+        run_args.append("--no-open-browser")
 
     if IS_FROZEN:
         # Launching an install is metadata.launch_command()'s job — it is the
@@ -695,22 +721,19 @@ def cmd_start(extra_args: List[str]) -> bool:
         # Spreading that knowledge is how the entry points drifted before.
         launch = _metadata.launch_command(INSTALL_METADATA_FILE)
         if not launch:
-            print("Error: no usable install found — run install first.")
+            print("Error: no usable install found. Run install first.")
             return False
         cmd = launch + run_args
     else:
-        python = _python_exe()
-        # Use plain python.exe for CLI because pythonw has no console
-        if "--cli" in run_args:
-            python = _installed_python()
-        cmd = [python, RUN_SCRIPT] + run_args
+        cmd = [_python_exe(), RUN_SCRIPT] + run_args
+
+    # Clear the readiness marker and ui.json BEFORE launching, so what the
+    # previous run left cannot make this one look instantly ready.
+    _clear_agent_ready()
 
     # UTF-8 with replace so the agent's Unicode banner / box-drawing chars
     # don't crash on Windows where the default file encoding is cp1252.
-    # Clear the readiness marker BEFORE launching, so a marker left by the
-    # previous run cannot make this one look instantly ready.
-    _clear_agent_ready()
-
+    os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)
     log_fh = open(LOG_FILE, "a", encoding="utf-8", errors="replace")
     log_fh.write(f"\n{'=' * 60}\n")
     log_fh.write(f"CraftBot service started at {_timestamp()}\n")
@@ -719,79 +742,243 @@ def cmd_start(extra_args: List[str]) -> bool:
     log_fh.flush()
     ready_log_offset = log_fh.tell()
 
-    env = os.environ.copy()
-    env["PYTHONIOENCODING"] = "utf-8"
-    env["PYTHONUTF8"] = "1"
-
     kwargs = dict(
         cwd=BASE_DIR,
         stdout=log_fh,
         stderr=subprocess.STDOUT,
         stdin=subprocess.DEVNULL,
-        env=env,
+        env=_child_env(),
         **_helpers.detached_popen_flags(new_process_group=True),
     )
 
     try:
         proc = subprocess.Popen(cmd, **kwargs)
-    except FileNotFoundError as e:
+    except (FileNotFoundError, OSError) as e:
         log_fh.close()
-        print(f"  {RED}✗{RESET} {WHITE}Could not launch CraftBot — {e}{RESET}")
+        print(f"  {RED}✗{RESET} {WHITE}Could not launch CraftBot: {e}{RESET}")
         return False
 
     # Parent closes its copy — the child process (run.py) keeps the fd open
     log_fh.close()
-    _write_pid(proc.pid)
-
-    # Catch immediate startup failures before reporting success. This surfaces
-    # wrong-Python dependency errors from run.py instead of leaving a stale PID.
-    exit_code = _wait_for_startup_exit(proc, ready_log_offset=ready_log_offset)
-
-    if exit_code is not None:
-        _remove_pid()
-        print(
-            f"  {RED}✗{RESET} {WHITE}CraftBot failed to start{RESET}  {DIM}exit {exit_code}{RESET}"
-        )
-        log_tail = _tail_log_lines()
-        if log_tail:
-            print(f"\n{DIM}Last log lines:{RESET}\n{log_tail}", end="")
-        print(f"\nCheck logs: {sys.executable} craftbot.py logs")
-        return False
 
     print(
-        f"  {GREEN}▸{RESET} {WHITE}CRAFTBOT STARTED{RESET}  {DIM}PID {proc.pid}{RESET}"
+        f"  {DIM}Starting CraftBot. This can take a few minutes on the first start.{RESET}"
     )
+    state = _wait_until_ready(proc, ready_log_offset, BROWSER_READY_TIMEOUT_S)
+
+    if state == "exited":
+        # run.py removes its pid file on a clean exit; a crash may leave one.
+        if _owned_pid() is None:
+            _remove_pid()
+        print(
+            f"  {RED}✗{RESET} {WHITE}CraftBot failed to start{RESET}"
+            f"  {DIM}exit {proc.returncode}{RESET}"
+        )
+        log_tail = _tail_log_lines(_FAILURE_LOG_LINES)
+        if log_tail:
+            print(f"\n{DIM}Last log lines:{RESET}\n{log_tail}", end="")
+            if not log_tail.endswith("\n"):
+                print()
+        print(f"\nFull log: {LOG_FILE}")
+        return False
+
+    # run.py writes its own pid (after any interpreter hop) as it starts; an
+    # older run.py does not, so record the process we launched instead.
+    pid = _owned_pid()
+    if pid is None:
+        _write_pid(proc.pid)
+        pid = proc.pid
+
+    browser_url = _current_url(extra_args)
+    if state == "timeout":
+        print(
+            f"  {GREEN}▸{RESET} {WHITE}CRAFTBOT IS STILL STARTING{RESET}  {DIM}PID {pid}{RESET}"
+        )
+        print(
+            f"  {DIM}It will be available at {browser_url} when it finishes. "
+            f"Follow its progress with: python craftbot.py logs{RESET}"
+        )
+        return True
+
+    print(f"  {GREEN}▸{RESET} {WHITE}CRAFTBOT STARTED{RESET}  {DIM}PID {pid}{RESET}")
+    print(f"  {DIM}░░{RESET} {ORANGE}{browser_url}{RESET}")
 
     # Create a desktop shortcut so the user can reopen the browser anytime
-    if "--cli" not in run_args:
-        if _PLATFORM == "win32":
-            _create_desktop_shortcut_windows(extra_args)
-        else:
-            _create_desktop_shortcut_unix(extra_args)
+    if _PLATFORM == "win32":
+        _create_desktop_shortcut_windows(extra_args)
+    else:
+        _create_desktop_shortcut_unix(extra_args)
 
-    open_browser = "--cli" not in run_args and "--no-open-browser" not in extra_args
-    if open_browser:
-        browser_url = _frontend_url(extra_args)
-        print(f"  {DIM}░░{RESET} {ORANGE}{browser_url}{RESET}")
-        # Wait for the agent to actually be up before opening a tab at it.
-        #
-        # This used to open immediately after _wait_for_startup_exit(), which
-        # returns after 8 seconds — around step 2 of 8, while the model
-        # download, MCP servers, skills, integrations and the scheduler were
-        # all still to come. The browser then showed a backend that could not
-        # serve it.
-        #
-        # run.py only prints the ready marker once the agent signals that
-        # boot() finished (see app/paths.py AGENT_READY_FILE), so waiting for
-        # the marker here is waiting for the real thing.
-        if _wait_for_ready_marker(ready_log_offset, BROWSER_READY_TIMEOUT_S):
-            _open_browser_detached(browser_url)
-        else:
-            print(
-                f"  {DIM}Still starting — open {browser_url} once it finishes.{RESET}"
-            )
+    if "--no-open-browser" not in extra_args:
+        _open_browser_detached(browser_url)
 
     return True
+
+
+def _running_ui_url(args: List[str]) -> Optional[str]:
+    """The address of THIS install's CraftBot when it answers, else None.
+
+    ui.json is written by this state root's run.py once its UI answers, so it
+    names our CraftBot even when its ports moved. Without one (an older
+    run.py), a listener that app.instance proves to be ours counts too. A
+    program on 7925 that is not this CraftBot never does.
+    """
+    ui = _instance.read_ui()
+    if ui and _instance.http_answers(str(ui["url"])):
+        return str(ui["url"])
+    if _orphan_listeners(args):
+        url = _current_url(args)
+        if _instance.http_answers(url):
+            return url
+    return None
+
+
+def _wait_for_running(pid: int, args: List[str], status) -> Optional[str]:
+    """Wait for a CraftBot that is already starting (a login start, or a
+    second click on the icon) instead of starting another one. Its address
+    once it answers; None when it exits or never answers."""
+    started = time.time()
+    while time.time() - started < BROWSER_READY_TIMEOUT_S:
+        url = _running_ui_url(args)
+        if url:
+            return url
+        if not _is_running(pid):
+            return None
+        status("CraftBot is starting. Your browser opens when it is ready.")
+        time.sleep(1)
+    return None
+
+
+def _start_lock() -> str:
+    return str(paths.STATE_ROOT / ".opening.lock")
+
+
+def _claim_start() -> Optional[int]:
+    """Become the one icon click that starts CraftBot.
+
+    None when this process holds the lock now; otherwise the pid of the
+    click that is already starting CraftBot. People double-click an icon
+    twice: without this both clicks started CraftBot, and the second start's
+    cleanup stopped the first one. A lock whose holder is gone is taken over.
+    """
+    for _ in range(2):
+        try:
+            fd = os.open(_start_lock(), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            try:
+                with open(_start_lock(), encoding="utf-8") as f:
+                    holder = int(f.read().strip() or 0)
+            except (OSError, ValueError):
+                holder = 0
+            if holder and holder != os.getpid() and _is_running(holder):
+                return holder
+            try:
+                os.remove(_start_lock())
+            except OSError:
+                pass
+            continue
+        except OSError:
+            return None  # an unwritable state root must not block the start
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(str(os.getpid()))
+        return None
+    return None
+
+
+def _release_start() -> None:
+    try:
+        with open(_start_lock(), encoding="utf-8") as f:
+            mine = f.read().strip() == str(os.getpid())
+        if mine:
+            os.remove(_start_lock())
+    except (OSError, ValueError):
+        pass
+
+
+def _start_failure() -> str:
+    tail = _tail_log_lines(8).strip().splitlines()
+    detail = tail[-1][:300] if tail else "The start did not complete."
+    return f"{detail}\n\nFull log: {LOG_FILE}"
+
+
+def _open_or_start(args: List[str], status) -> tuple:
+    """(ok, failure detail): open CraftBot, starting it first if needed."""
+    url = _running_ui_url(args)
+    if url is None:
+        pid = _owned_pid()
+        if pid is not None:
+            url = _wait_for_running(pid, args, status)
+    if url:
+        _open_browser_detached(url)
+        return True, None
+
+    other_click = _claim_start()
+    if other_click is not None:
+        # Another click is starting CraftBot right now: wait for that start,
+        # then for CraftBot itself if it is still booting when that click
+        # stops waiting.
+        url = _wait_for_running(other_click, args, status)
+        if url is None and _owned_pid() is not None:
+            url = _wait_for_running(_owned_pid(), args, status)
+        if url:
+            _open_browser_detached(url)
+            return True, None
+        return False, _start_failure()
+
+    try:
+        status("Starting CraftBot. Your browser opens when it is ready.")
+        # cmd_start opens the browser itself once the UI answers.
+        if cmd_start(_port_args(args)):
+            return True, None
+        return False, _start_failure()
+    finally:
+        _release_start()
+
+
+def _has_console() -> bool:
+    """True when started from a terminal; the desktop icon has none."""
+    return bool(getattr(sys.stdout, "isatty", lambda: False)())
+
+
+def cmd_open(extra_args: List[str]) -> bool:
+    """What the desktop icon runs: show CraftBot in the browser, starting it
+    first when it is not running.
+
+    Never starts a second copy: a CraftBot that is already starting (the
+    login start, or an earlier click) is waited for, not replaced. Started
+    from the icon there is no console, so progress and any failure are shown
+    in a small window instead; from a terminal they are printed.
+    """
+    if IS_FROZEN or "--cli" in extra_args:
+        # The legacy installer EXE has no run.py next to it to start, and the
+        # terminal interface needs the terminal it is started from.
+        _open_browser_detached(_current_url(extra_args))
+        return True
+
+    url = _running_ui_url(extra_args)
+    if url:  # the common case, and no window at all for it
+        _open_browser_detached(url)
+        return True
+
+    if _has_console():
+        said: List[str] = []
+
+        def say(text: str) -> None:
+            line = text.splitlines()[0]
+            if not said or said[-1] != line:  # each message once, not per poll
+                said.append(line)
+                print(f"  {DIM}{line}{RESET}", flush=True)
+
+        ok, detail = _open_or_start(extra_args, say)
+        if not ok and detail:
+            print(f"  {RED}✗{RESET} {WHITE}CraftBot could not start.{RESET}\n{detail}")
+        return ok
+
+    from installer.open_window import run_with_window
+
+    return run_with_window(
+        lambda status: _open_or_start(extra_args, status), log_file=LOG_FILE
+    )
 
 
 def cmd_stop(quiet: bool = False, args: Optional[List[str]] = None) -> bool:
@@ -825,7 +1012,7 @@ def cmd_stop(quiet: bool = False, args: Optional[List[str]] = None) -> bool:
         stopped = True
 
     # A forced termination (and a reboot) cannot run the agent's cleanup.
-    # Do not leave the previous process's readiness behind after stop.
+    # Do not leave the previous process's readiness or ui.json behind.
     _clear_agent_ready()
 
     if not stopped and not quiet:
@@ -869,6 +1056,12 @@ def cmd_status() -> None:
         print(
             f"{ORANGE}║{RESET}  {GREEN}▸ RUNNING{RESET}  {DIM}PID {pid}{RESET}{' ' * (W - 17 - len(str(pid)))}{ORANGE}║{RESET}"
         )
+        ui = _instance.read_ui()
+        _url = f"░░ URL: {ui['url']}" if ui else "░░ URL: (still starting)"
+        _url = _url[: W - 2]
+        print(
+            f"{ORANGE}║{RESET}  {DIM}{_url}{RESET}{' ' * max(0, W - 2 - len(_url))}{ORANGE}║{RESET}"
+        )
         print(
             f"{ORANGE}║{RESET}  {DIM}░░ LOG: {LOG_FILE[: W - 8]}{RESET}{' ' * max(0, W - 10 - len(LOG_FILE[: W - 8]))}{ORANGE}║{RESET}"
         )
@@ -908,7 +1101,7 @@ def cmd_logs(n: int = 50) -> None:
         print(f"No log file found at {LOG_FILE}")
         return
     try:
-        with open(LOG_FILE, "r", errors="replace") as f:
+        with open(LOG_FILE, "r", encoding="utf-8", errors="replace") as f:
             lines = f.readlines()
         tail = lines[-n:] if len(lines) > n else lines
         print(f"\n{ORANGE}╔{'═' * 60}╗{RESET}")
@@ -1012,32 +1205,69 @@ def _ps_literal(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
 
 
+def _open_command(extra_args: Optional[List[str]] = None) -> Optional[List[str]]:
+    """What the desktop icon runs: `craftbot.py open` for this install, or
+    None for the legacy installer EXE (its icon only opens the browser).
+
+    It names the state root and keeps any custom ports, because the icon does
+    not inherit CRAFTBOT_HOME or the install's arguments. On Windows it is
+    pythonw, so no console window appears; `open` shows its own small window
+    only while CraftBot starts.
+    """
+    if IS_FROZEN:
+        return None
+    python = _python_exe() if _PLATFORM == "win32" else _installed_python()
+    return [
+        python,
+        os.path.abspath(__file__),
+        "open",
+        f"--state-root={paths.STATE_ROOT.resolve()}",
+    ] + _port_args(extra_args or [])
+
+
 def _create_desktop_shortcut_windows(extra_args: Optional[List[str]] = None) -> None:
-    """Create a .lnk shortcut on the Windows Desktop with the CraftBot icon."""
+    """Create a .lnk shortcut on the Windows Desktop with the CraftBot icon.
+
+    It runs `craftbot.py open` (_open_command): the browser opens straight
+    away when CraftBot is running, and CraftBot is started first when it is
+    not. The link is rewritten every time, so upgrades and port changes take
+    effect.
+    """
     desktop = _find_desktop()
     if not desktop:
         return
+    url = _current_url(extra_args)
     shortcut_path = os.path.join(desktop, SHORTCUT_NAME)
     # Refresh existing links too: upgrades and custom ports must take effect.
     ico_path = _ensure_ico()
+    command = _open_command(extra_args)
     try:
         # Write the PS script to a temp file with UTF-8-BOM so PowerShell
         # handles non-ASCII paths (e.g. Japanese Desktop folder) correctly.
         import tempfile
 
-        browser_command = '/c start "" ' + _frontend_url(extra_args or [])
+        if command:
+            target = command[0]
+            arguments = subprocess.list2cmdline(command[1:])
+            working_dir = BASE_DIR
+            window_style = 1  # pythonw: there is no console to show
+        else:
+            target = "cmd.exe"
+            arguments = '/c start "" ' + url
+            working_dir = ""
+            window_style = 7  # minimized (hides the cmd flash)
         ps_lines = [
             "$ws = New-Object -ComObject WScript.Shell",
             f"$s = $ws.CreateShortcut({_ps_literal(shortcut_path)})",
-            '$s.TargetPath = "cmd.exe"',
-            f"$s.Arguments = {_ps_literal(browser_command)}",
-            '$s.WorkingDirectory = ""',
-            "$s.WindowStyle = 7",  # minimized (hides the cmd flash)
+            f"$s.TargetPath = {_ps_literal(target)}",
+            f"$s.Arguments = {_ps_literal(arguments)}",
+            f"$s.WorkingDirectory = {_ps_literal(working_dir)}",
+            f"$s.WindowStyle = {window_style}",
         ]
         if ico_path:
             ps_lines.append(f"$s.IconLocation = {_ps_literal(ico_path + ',0')}")
         ps_lines += [
-            '$s.Description = "Open CraftBot in your browser"',
+            '$s.Description = "Open CraftBot"',
             "$s.Save()",
         ]
         with tempfile.NamedTemporaryFile(
@@ -1067,7 +1297,10 @@ def _create_desktop_shortcut_windows(extra_args: Optional[List[str]] = None) -> 
                 pass
         if os.path.exists(shortcut_path):
             print(f"  Desktop shortcut created: {shortcut_path}")
-            print("  Double-click it anytime to open CraftBot in your browser.")
+            print(
+                "  Double-click it anytime to open CraftBot; it starts CraftBot "
+                "first if it is not running."
+            )
         else:
             print(f"  (Shortcut creation may have failed — check {desktop})")
     except Exception as e:
@@ -1085,36 +1318,66 @@ def _installed_launch() -> Optional[List[str]]:
     return _metadata.launch_command(INSTALL_METADATA_FILE)
 
 
+def _desktop_entry_arg(arg: str) -> str:
+    r"""One Exec= argument, quoted per the Desktop Entry spec.
+
+    An argument with a reserved character goes in double quotes, inside which
+    " ` $ and \ are escaped with a backslash. The file's string escaping is
+    applied on top, so each backslash is then written twice, and a literal %
+    is written %%.
+    """
+    reserved = set(" \t\n\"'\\><~|&;$*?#()`")
+    if arg and not any(c in reserved for c in arg):
+        return arg.replace("%", "%%")
+    quoted = "".join("\\" + c if c in '"`$\\' else c for c in arg)
+    return '"' + quoted.replace("\\", "\\\\").replace("%", "%%") + '"'
+
+
 def _create_desktop_shortcut_unix(extra_args: Optional[List[str]] = None) -> None:
-    """Create a desktop shortcut on Linux or macOS."""
+    """Create a desktop shortcut on Linux or macOS.
+
+    Like the Windows one it runs `craftbot.py open` (_open_command): the
+    browser opens straight away when CraftBot is running, and CraftBot is
+    started first when it is not.
+    """
     if extra_args is None:
         extra_args = []
     desktop = _find_desktop()
     if not desktop:
         return
     try:
-        browser_url = _frontend_url(extra_args)
+        # Where the UI is: its ports move when another program holds them.
+        browser_url = _current_url(extra_args)
+        command = _open_command(extra_args)
         if _PLATFORM == "darwin":
             # macOS does not support XDG .desktop files — create a double-clickable .command script
             shortcut_path = os.path.join(desktop, "CraftBot.command")
-            content = f"#!/bin/sh\nexec open {shlex.quote(browser_url)}\n"
+            if command:
+                line = " ".join(shlex.quote(part) for part in command)
+            else:
+                line = f"open {shlex.quote(browser_url)}"
+            content = f"#!/bin/sh\nexec {line}\n"
             with open(shortcut_path, "w") as f:
                 f.write(content)
             os.chmod(shortcut_path, 0o755)
         else:
             # Linux: standard XDG .desktop entry
             shortcut_path = os.path.join(desktop, "CraftBot.desktop")
-            open_cmd = (
-                "xdg-open"
-                if os.path.isfile("/usr/bin/xdg-open")
-                or os.path.isfile("/usr/local/bin/xdg-open")
-                else "sensible-browser"
-            )
+            if command:
+                exec_line = " ".join(_desktop_entry_arg(part) for part in command)
+            else:
+                open_cmd = (
+                    "xdg-open"
+                    if os.path.isfile("/usr/bin/xdg-open")
+                    or os.path.isfile("/usr/local/bin/xdg-open")
+                    else "sensible-browser"
+                )
+                exec_line = f"{open_cmd} {browser_url}"
             content = (
                 "[Desktop Entry]\n"
                 "Type=Application\n"
                 "Name=CraftBot\n"
-                f"Exec={open_cmd} {browser_url}\n"
+                f"Exec={exec_line}\n"
                 "Icon=web-browser\n"
                 "Terminal=false\n"
             )
@@ -1122,9 +1385,108 @@ def _create_desktop_shortcut_unix(extra_args: Optional[List[str]] = None) -> Non
                 f.write(content)
             os.chmod(shortcut_path, 0o755)
         print(f"  Desktop shortcut created: {shortcut_path}")
-        print("  Double-click it anytime to open CraftBot in your browser.")
+        print(
+            "  Double-click it anytime to open CraftBot; it starts CraftBot "
+            "first if it is not running."
+        )
     except Exception as e:
         print(f"  (Could not create desktop shortcut: {e})")
+
+
+# ─── Auto-start: environment of a login start ─────────────────────────────────
+
+
+#: Network settings the user had when registering auto-start: proxies,
+#: package mirrors and certificates. Task Scheduler, launchd and systemd do
+#: not inherit the installing shell's environment, so without them Agent App
+#: creation (npm, the PocketBase download) and model downloads fail at boot
+#: behind a proxy or mirror that worked from the terminal.
+_NETWORK_ENV = (
+    "HTTPS_PROXY",
+    "https_proxy",
+    "HTTP_PROXY",
+    "http_proxy",
+    "NO_PROXY",
+    "no_proxy",
+    "PIP_INDEX_URL",
+    "PIP_EXTRA_INDEX_URL",
+    "PIP_CERT",
+    "npm_config_registry",
+    "NPM_CONFIG_REGISTRY",
+    "HF_ENDPOINT",
+    "CRAFTBOT_MIRRORS",
+    "SSL_CERT_FILE",
+)
+
+
+def _captured_settings() -> List[tuple]:
+    """CraftBot and network settings from this environment, set ones only.
+    (Windows names are case-insensitive, so each is taken once there.)
+
+    CRAFTBOT_HOME is not among them: the registered command names the state
+    root itself (--state-root, see _autostart_launch)."""
+    names = ("CRAFTBOT_BIND_HOST",) + _NETWORK_ENV
+    found: List[tuple] = []
+    seen = set()
+    for name in names:
+        key = name.upper() if _PLATFORM == "win32" else name
+        if key in seen:
+            continue
+        seen.add(key)
+        value = os.environ.get(name)
+        if value:
+            found.append((key, value))
+    return found
+
+
+def _service_environment() -> List[tuple]:
+    """Environment a launchd agent or systemd service needs, captured at
+    install time.
+
+    launchd and systemd start programs with a minimal PATH, on which Homebrew
+    or .pkg Node, conda and git are not found: CraftBot then could not start
+    its UI or its MCP servers at login although it worked from a terminal.
+    Whatever this shell could run, the service can run, with the same
+    CraftBot and network settings.
+    """
+    env = [
+        ("PATH", os.environ.get("PATH", "")),
+        ("PYTHONUNBUFFERED", "1"),
+        ("PYTHONUTF8", "1"),
+        ("PYTHONNOUSERSITE", "1"),
+    ]
+    for name in ("LANG", "LC_ALL"):
+        value = os.environ.get(name)
+        if value:
+            env.append((name, value))
+    env.extend(_captured_settings())
+    return [(k, v) for k, v in env if v]
+
+
+def _service_env_file() -> str:
+    """Windows has no per-task environment: the captured settings go to this
+    file, and run.py loads it when the login task starts it (--service)."""
+    return os.path.join(str(paths.STATE_ROOT), "service-env.json")
+
+
+def _write_service_env_file() -> bool:
+    """Write the captured settings for a Windows login start. True if any."""
+    import json
+
+    settings = dict(_captured_settings())
+    path = _service_env_file()
+    try:
+        if not settings:
+            if os.path.isfile(path):
+                os.remove(path)
+            return False
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(settings, f, indent=2)
+        return True
+    except OSError as e:
+        print(f"Warning: could not save network settings for auto-start: {e}")
+        return False
 
 
 # ─── Auto-start: Windows Task Scheduler ───────────────────────────────────────
@@ -1190,6 +1552,10 @@ def _install_windows_registry(action: str) -> bool:
 def _install_windows(run_args: List[str]) -> bool:
     import csv
     import tempfile
+
+    # Task Scheduler has no per-task environment: the network settings of
+    # this shell go to service-env.json, which run.py --service loads.
+    _write_service_env_file()
 
     command = _autostart_launch(run_args)
     if not command:
@@ -1308,12 +1674,73 @@ def _uninstall_windows(*, stop: bool = True) -> bool:
     except Exception as e:
         print(f"Warning: Could not clean registry — {e}")
 
+    try:
+        os.remove(_service_env_file())
+    except OSError:
+        pass
+
     if not removed_any:
         print("No auto-start registration found (already uninstalled?).")
     return not _is_installed()
 
 
 # ─── Auto-start: Linux systemd (user service) ─────────────────────────────────
+
+
+def _is_wsl() -> bool:
+    if os.environ.get("WSL_DISTRO_NAME"):
+        return True
+    try:
+        with open("/proc/version", encoding="utf-8", errors="replace") as f:
+            return "microsoft" in f.read().lower()
+    except OSError:
+        return False
+
+
+def _systemd_running() -> bool:
+    """systemd is PID 1 (sd_booted: /run/systemd/system exists)."""
+    return os.path.isdir("/run/systemd/system")
+
+
+def _explain_missing_systemd() -> None:
+    """After a failed registration: say why when systemd is not running."""
+    if _systemd_running():
+        return
+    if _is_wsl():
+        print("systemd is not running in this WSL distribution. To enable it, add")
+        print("these lines to /etc/wsl.conf:")
+        print("  [boot]")
+        print("  systemd=true")
+        print(
+            "then run `wsl --shutdown` in Windows, reopen WSL and run this command again."
+        )
+    else:
+        print("This system does not run systemd, so it cannot start CraftBot at login.")
+    print(
+        "To install without automatic startup: python craftbot.py install --no-autostart"
+    )
+
+
+def _print_linger_hint() -> None:
+    """A user unit stops when the user's last session ends (SSH logout)
+    unless lingering is enabled for that user."""
+    import getpass
+
+    user = getpass.getuser()
+    try:
+        result = subprocess.run(
+            ["loginctl", "show-user", user, "--property=Linger", "--value"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return
+    if result.returncode == 0 and (result.stdout or "").strip() == "yes":
+        return
+    print("\nCraftBot stops when you log out of your last session on this machine.")
+    print("To keep it running after you log out (for example over SSH), run once:")
+    print(f"  sudo loginctl enable-linger {user}")
 
 
 def _install_linux(run_args: List[str]) -> bool:
@@ -1330,6 +1757,12 @@ def _install_linux(run_args: List[str]) -> bool:
         if len(command) > 1 and command[1].endswith(".py")
         else BASE_DIR
     )
+    # systemd starts the service with a minimal environment: carry over the
+    # PATH and network settings of the shell that registered it.
+    environment = "\n".join(
+        f"Environment={_startup.systemd_quote(f'{name}={value}')}"
+        for name, value in _service_environment()
+    )
 
     content = f"""[Unit]
 Description=CraftBot AI Agent
@@ -1341,12 +1774,12 @@ ExecStart={exec_start}
 WorkingDirectory={_startup.systemd_path(directory)}
 Restart=on-failure
 RestartSec=5
-Environment=PYTHONUNBUFFERED=1
+{environment}
 
 [Install]
 WantedBy=default.target
 """
-    with open(service_file, "w") as f:
+    with open(service_file, "w", encoding="utf-8") as f:
         f.write(content)
 
     try:
@@ -1354,13 +1787,15 @@ WantedBy=default.target
         subprocess.run(
             ["systemctl", "--user", "enable", SYSTEMD_SERVICE], check=True, timeout=10
         )
+        url = _current_url(run_args)
         print(f"Auto-start registered as systemd user service '{SYSTEMD_SERVICE}'.")
         print("CraftBot will start automatically when you log in.")
-        print(f"\nOpen CraftBot: {BROWSER_URL}")
-        print(f"  Tip: Bookmark {BROWSER_URL} so you never have to remember it!")
+        print(f"\nOpen CraftBot: {url}")
+        print(f"  Tip: Bookmark {url} so you never have to remember it!")
         _create_desktop_shortcut_unix(run_args)
         print(f"\nTo start it now: systemctl --user start {SYSTEMD_SERVICE}")
         print(f"To view logs:    journalctl --user -u {SYSTEMD_SERVICE} -f")
+        _print_linger_hint()
         return True
     except subprocess.CalledProcessError as e:
         print(f"Error enabling systemd service: {e}")
@@ -1370,6 +1805,7 @@ WantedBy=default.target
         )
     except FileNotFoundError:
         print("systemctl not found. Is systemd running on this system?")
+    _explain_missing_systemd()
     return False
 
 
@@ -1384,11 +1820,11 @@ def _uninstall_linux(*, stop: bool = True) -> bool:
             timeout=10,
         )
         if stop:
-        subprocess.run(
-            ["systemctl", "--user", "stop", SYSTEMD_SERVICE],
-            capture_output=True,
-            timeout=10,
-        )
+            subprocess.run(
+                ["systemctl", "--user", "stop", SYSTEMD_SERVICE],
+                capture_output=True,
+                timeout=10,
+            )
     except Exception:
         pass
 
@@ -1435,22 +1871,25 @@ def _install_macos(run_args: List[str]) -> bool:
                 "KeepAlive": False,
                 "StandardOutPath": LOG_FILE,
                 "StandardErrorPath": LOG_FILE,
-                "EnvironmentVariables": {"PYTHONUNBUFFERED": "1"},
+                # launchd starts agents with a minimal environment: carry over
+                # the PATH and network settings of the shell that registered it.
+                "EnvironmentVariables": dict(_service_environment()),
             },
             f,
         )
 
     # launchd reads ~/Library/LaunchAgents at login. Do not load RunAtLoad
     # now: changing the login preference must not start a second agent.
-        print(f"Auto-start registered as launchd agent '{LAUNCHD_LABEL}'.")
+    print(f"Auto-start registered as launchd agent '{LAUNCHD_LABEL}'.")
     print("CraftBot will start automatically at your next login.")
     _print_launchd_hints(plist_file, run_args)
     return True
 
 
 def _print_launchd_hints(plist_file: str, run_args: List[str]) -> None:
-    print(f"\nOpen CraftBot: {BROWSER_URL}")
-    print(f"  Tip: Bookmark {BROWSER_URL} so you never have to remember it!")
+    url = _current_url(run_args)
+    print(f"\nOpen CraftBot: {url}")
+    print(f"  Tip: Bookmark {url} so you never have to remember it!")
     _create_desktop_shortcut_unix(run_args)
     print(f"\nPlist file: {plist_file}")
 
@@ -1460,9 +1899,9 @@ def _uninstall_macos(*, stop: bool = True) -> bool:
     if os.path.isfile(plist_file):
         try:
             if stop:
-            subprocess.run(
-                ["launchctl", "unload", plist_file], capture_output=True, timeout=10
-            )
+                subprocess.run(
+                    ["launchctl", "unload", plist_file], capture_output=True, timeout=10
+                )
         except Exception:
             pass
         os.remove(plist_file)
@@ -1493,7 +1932,7 @@ def _is_installed() -> bool:
                 root = ET.fromstring(result.stdout)
                 enabled = root.find("{*}Settings/{*}Enabled")
                 if enabled is None or enabled.text != "false":
-                return True
+                    return True
         except Exception:
             pass
         # Check Registry fallback
@@ -1541,6 +1980,9 @@ def _startup_options(extra_args: List[str]) -> tuple:
 
 def _configure_autostart(enabled: bool, run_args: List[str]) -> bool:
     """Refresh OS registration on every install/repair, honoring an opt-out."""
+    if enabled and "--cli" in run_args:
+        print(f"  {RED}✗{RESET} {WHITE}{_CLI_IN_BACKGROUND}{RESET}")
+        return False
     try:
         if enabled:
             ok = _helpers.dispatch_per_platform(
@@ -1749,9 +2191,34 @@ def _full_install_frozen(
         )
 
 
+def _recorded_conda() -> Optional[str]:
+    """config.json `conda_executable`: the conda install.py used, by path."""
+    try:
+        import json
+
+        with open(os.path.join(BASE_DIR, "config.json"), encoding="utf-8") as f:
+            path = json.load(f).get("conda_executable")
+    except (OSError, ValueError, AttributeError):
+        return None
+    return path if isinstance(path, str) and os.path.isfile(path) else None
+
+
+def _install_failed(message: str, hint: Optional[str] = None) -> bool:
+    """Report a failed install and keep its window open long enough to read."""
+    print(f"\n  {RED}✗{RESET} {WHITE}{message}{RESET}")
+    if hint:
+        print(f"  {DIM}{hint}{RESET}")
+    _hold_console_on_failure()
+    return False
+
+
 def cmd_install(extra_args: List[str]) -> bool:
     """Install dependencies (source mode) or copy-and-register (frozen mode),
     then start the service."""
+    if "--cli" in extra_args:
+        print(f"  {RED}✗{RESET} {WHITE}{_CLI_IN_BACKGROUND}{RESET}")
+        return False
+
     if IS_FROZEN:
         # Frozen mode: skip pip, run the full installer in the default location.
         # The wizard provides a UI for picking a custom location; the CLI just
@@ -1775,15 +2242,13 @@ def cmd_install(extra_args: List[str]) -> bool:
         result = subprocess.run(
             [sys.executable, install_script, "--no-launch"] + install_flags,
             cwd=BASE_DIR,
+            env=_child_env(),
         )
         if result.returncode != 0:
-            print(
-                f"\n  {RED}✗{RESET} {WHITE}Dependency installation failed. Aborting.{RESET}"
+            return _install_failed(
+                "Dependency installation failed. Aborting.",
+                "Run 'python install.py' directly to see the full error.",
             )
-            print(
-                f"  {DIM}Run 'python install.py' directly to see the full error.{RESET}"
-            )
-            return False
 
         # install.py just recorded the interpreter it provisioned (often a
         # downloaded sidecar). This process resolved — and cached — before
@@ -1800,16 +2265,20 @@ def cmd_install(extra_args: List[str]) -> bool:
         if "--conda" in install_flags:
             _env_name = "craftbot"
             try:
-                with open(os.path.join(BASE_DIR, "environment.yml")) as _f:
+                # UTF-8 explicitly: environment.yml holds non-ASCII text, and
+                # the locale encoding (cp936, cp932...) cannot decode it.
+                with open(
+                    os.path.join(BASE_DIR, "environment.yml"), encoding="utf-8"
+                ) as _f:
                     for _line in _f:
                         if _line.strip().startswith("name:"):
                             _env_name = _line.split(":", 1)[1].strip().strip("'\"")
                             break
-            except OSError:
+            except (OSError, UnicodeDecodeError):
                 pass
             _check_python = f"conda env '{_env_name}'"
             _check_cmd = [
-                shutil.which("conda") or "conda",
+                _recorded_conda() or shutil.which("conda") or "conda",
                 "run",
                 "-n",
                 _env_name,
@@ -1822,19 +2291,18 @@ def cmd_install(extra_args: List[str]) -> bool:
             # one running this script (see _installed_python).
             _check_python = _installed_python()
             _check_cmd = [_check_python, "-c", _imports]
-        _critical_check = subprocess.run(_check_cmd, capture_output=True)
+        _critical_check = subprocess.run(
+            _check_cmd, capture_output=True, env=_child_env()
+        )
         if _critical_check.returncode != 0:
-            print(
-                f"\n  {RED}✗{RESET} {WHITE}Packages installed but not importable — wrong interpreter?{RESET}"
-            )
             print(f"  {DIM}Checked interpreter: {_check_python}{RESET}")
-            print(
-                f"  {DIM}Run 'python install.py' to reinstall with this Python.{RESET}"
+            return _install_failed(
+                "Packages installed but not importable. Wrong interpreter?",
+                "Run 'python install.py' to reinstall with this Python.",
             )
-            return False
         print()
     else:
-        print(f"  {DIM}(install.py not found — skipping dependency install){RESET}\n")
+        print(f"  {DIM}(install.py not found, skipping dependency install){RESET}\n")
 
     # ── Step 2: Start the service now ──────────────────────────────────────
     #
@@ -1848,20 +2316,30 @@ def cmd_install(extra_args: List[str]) -> bool:
     # exists by the time registration looks for it (see _install_macos).
     _retro_step(2, 3, "Starting CraftBot")
     if not cmd_start(extra_args):
-        print(f"\n  {RED}✗{RESET} {WHITE}CraftBot failed to start.{RESET}")
-        return False
+        return _install_failed(
+            "CraftBot failed to start.",
+            f"The log above shows why. Full log: {LOG_FILE}",
+        )
     print()
 
     # ── Step 3: Register auto-start ────────────────────────────────────────
     _retro_step(3, 3, "Updating automatic startup")
     if not _configure_autostart(auto_start, extra_args):
+        _hold_console_on_failure()
         return False
-        print()
+    print()
 
-    print(f"\n  {GREEN}▸{RESET} {WHITE}CRAFTBOT IS RUNNING IN THE BACKGROUND{RESET}")
-    print(f"  {DIM}░░{RESET} {ORANGE}{_frontend_url(extra_args)}{RESET}")
-    print("You can close this window now.")
-    time.sleep(2)
+    url = _current_url(extra_args)
+    if _instance.read_ui() is not None:
+        print(
+            f"\n  {GREEN}▸{RESET} {WHITE}CRAFTBOT IS RUNNING IN THE BACKGROUND{RESET}"
+        )
+    else:
+        print(
+            f"\n  {GREEN}▸{RESET} {WHITE}CRAFTBOT IS STARTING IN THE BACKGROUND{RESET}"
+        )
+        print(f"  {DIM}It will be available at this address when it finishes.{RESET}")
+    print(f"  {DIM}░░{RESET} {ORANGE}{url}{RESET}")
     _close_console_window()
     return True
 
@@ -1976,32 +2454,65 @@ def cmd_uninstall() -> None:
         print("\nUninstall complete.")
         return
 
-    # Source mode: uninstall pip packages.
+    # Source mode: remove what CraftBot itself provisioned, and nothing else.
     #
-    # Not for a managed install: there the interpreter is a sidecar under the
-    # user data directory that the launcher removes wholesale right after
-    # this returns, so uninstalling packages from it one by one would only
-    # add minutes to the uninstall.
+    # This used to `pip uninstall -r requirements.txt` and `pip cache purge`
+    # on whichever interpreter was recorded, which could be the user's own
+    # Python: it stripped packages other programs depended on and emptied a
+    # cache that was not ours. CraftBot's interpreter and Node are private
+    # copies under STATE_ROOT/runtime, so removing that directory removes
+    # them; the npm trees it installed are removed too.
+    #
+    # Not for a managed install: there the launcher removes the runtime
+    # right after this returns.
     if paths.is_managed_install():
-        print("\n(managed install — the launcher removes the runtime)")
+        print("\n(managed install: the launcher removes the runtime)")
         print("\nUninstall complete.")
         return
 
-    req_file = os.path.join(BASE_DIR, "requirements.txt")
-    if os.path.isfile(req_file):
-        print("\nUninstalling pip packages...")
-        subprocess.run(
-            [_installed_python(), "-m", "pip", "uninstall", "-r", req_file, "-y"],
-            cwd=BASE_DIR,
+    targets = [
+        os.path.join(BASE_DIR, *rel.split("/"), "node_modules")
+        for rel in (
+            "app/ui_layer/browser/frontend",
+            "agent-app",
+            "craftos_integrations/providers/whatsapp_web",
         )
-    else:
-        print("\n(requirements.txt not found — skipping pip uninstall)")
-
-    # Purge pip cache
-    print("\nPurging pip cache...")
-    subprocess.run([_installed_python(), "-m", "pip", "cache", "purge"])
+    ]
+    targets.append(str(paths.RUNTIME_DIR))
+    for target in targets:
+        if os.path.isdir(target):
+            _remove_tree_now_or_after_exit(target)
 
     print("\nUninstall complete.")
+
+
+def _remove_tree_now_or_after_exit(path: str) -> None:
+    """Delete a directory. On Windows a file in use (this very interpreter,
+    when it is the private one) cannot be deleted; then the rest is removed
+    by a hidden cmd.exe once this process has exited."""
+    print(f"Removing {path}")
+    shutil.rmtree(path, ignore_errors=True)
+    if not os.path.isdir(path):
+        return
+    if _PLATFORM != "win32":
+        print(f"Warning: could not remove everything in {path}. Delete it yourself.")
+        return
+    try:
+        subprocess.Popen(
+            [
+                "cmd.exe",
+                "/d",
+                "/c",
+                f'ping -n 4 127.0.0.1 >nul & rmdir /s /q "{path}"',
+            ],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            **_helpers.detached_popen_flags(),
+        )
+        print("  (some files are in use and are removed when this window closes)")
+    except OSError as e:
+        print(f"Warning: could not remove {path}: {e}")
 
 
 def cmd_repair(
@@ -2058,60 +2569,64 @@ def cmd_repair(
 # ─── Utility ──────────────────────────────────────────────────────────────────
 
 
-def _get_parent_pid() -> Optional[int]:
-    """Return the PID of the parent process (cmd.exe / terminal)."""
+def _console_owned_alone() -> bool:
+    """True when the console window exists only for this CraftBot command.
+
+    That is the case when craftbot.py was started by double-clicking (or by
+    the launcher with a fresh console): the window closes by itself once we
+    exit. Any other process on the console (cmd.exe, PowerShell, an IDE
+    terminal) means it is the user's window. A python.exe parent is the
+    interpreter hop of app.python_runtime, which belongs to us.
+    """
+    if _PLATFORM != "win32":
+        return False
     try:
-        result = subprocess.run(
-            [
-                "wmic",
-                "process",
-                "where",
-                f"ProcessId={os.getpid()}",
-                "get",
-                "ParentProcessId",
-                "/value",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        for line in result.stdout.splitlines():
-            if "ParentProcessId=" in line:
-                return int(line.split("=")[1].strip())
+        import ctypes
+
+        buffer = (ctypes.c_uint32 * 16)()
+        count = ctypes.windll.kernel32.GetConsoleProcessList(buffer, 16)
+    except Exception:
+        return False
+    if count <= 0 or count > 16:
+        return False
+    ours = {os.getpid()}
+    try:
+        import psutil
+
+        parent = psutil.Process().parent()
+        if parent is not None and parent.name().lower().startswith("python"):
+            ours.add(parent.pid)
     except Exception:
         pass
-    return None
+    return all(pid in ours for pid in list(buffer)[:count])
+
+
+def _hold_console_on_failure() -> None:
+    """Never let a failure vanish with its window: when the window is only
+    ours (it would close the moment we exit), wait for Enter first."""
+    if not _console_owned_alone():
+        return
+    try:
+        if sys.stdin is not None and sys.stdin.isatty():
+            input("\nPress Enter to close this window.")
+    except (EOFError, OSError, KeyboardInterrupt):
+        pass
 
 
 def _close_console_window() -> None:
-    """Close the current console/terminal window on Windows then exit.
+    """Finish a successful install.
 
-    Only when this process owns a console. Launched from a script, a pipe or
-    the CraftBot launcher, the "parent" is not a cmd.exe window at all — it
-    is whatever started us, and killing it would take the launcher's window
-    down with it.
+    Never kills another process: this used to find the parent shell with
+    wmic (gone from Windows 11 24H2) and force-stop it, which took IDE
+    terminals and the user's own shells down with it. A window that exists
+    only for this command closes by itself when we exit; any other window is
+    the user's to close.
     """
-    if _PLATFORM != "win32" or not sys.stdout.isatty():
-        sys.exit(0)
-    # Use PowerShell to kill the parent cmd.exe after a short delay
-    try:
-        parent_pid = _get_parent_pid()
-        if parent_pid:
-            subprocess.Popen(
-                [
-                    "powershell",
-                    "-NoProfile",
-                    "-Command",
-                    f"Start-Sleep -Milliseconds 500; Stop-Process -Id {parent_pid} -Force -ErrorAction SilentlyContinue",
-                ],
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                **_helpers.detached_popen_flags(),
-            )
-    except Exception:
-        pass
-    sys.exit(0)
+    if _console_owned_alone():
+        print("This window will close in a moment.")
+        time.sleep(3)
+    else:
+        print("You can close this window now.")
 
 
 def _timestamp() -> str:
@@ -2153,6 +2668,12 @@ def main() -> None:
 
     if command == "start":
         if not cmd_start(rest):
+            _hold_console_on_failure()
+            sys.exit(1)
+
+    elif command == "open":
+        # What the desktop icon runs.
+        if not cmd_open(rest):
             sys.exit(1)
 
     elif command == "stop":
@@ -2160,6 +2681,7 @@ def main() -> None:
 
     elif command == "restart":
         if not cmd_restart(rest):
+            _hold_console_on_failure()
             sys.exit(1)
 
     elif command == "status":

@@ -845,6 +845,7 @@ class ActionRouter:
                         f"[SESSION CACHE] Request exceeded the context budget; folding "
                         f"the event stream and retrying once for {call_type}"
                     )
+                    # The summary call blocks: off the event loop.
                     await to_thread_with_usage(
                         self._fold, stream, system_prompt, static_prompt
                     )
