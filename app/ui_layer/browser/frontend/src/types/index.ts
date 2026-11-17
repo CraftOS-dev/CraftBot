@@ -877,8 +877,7 @@ export interface OnboardingCompleteResponse {
 }
 
 // One derived "the app is being built" event, produced read-only by the
-// framework build view and
-// rendered in the construction dock's feed + CodePeek.
+// framework build view and rendered in the construction dock's feed.
 export interface AgentAppBuildEvent {
   id: string
   ts: number
@@ -886,18 +885,27 @@ export interface AgentAppBuildEvent {
   area: 'backend' | 'frontend' | 'tests' | 'docs' | 'config' | 'other'
   label: string
   file?: string
-  entities?: {
-    models?: string[]
-    routes?: string[]
-    components?: string[]
-    tests?: string[]
-  }
-  snippet?: string
   tests?: { passed: number; failed: number }
-  /** Authoritative counts scanned from the project on disk at event time —
-   * the source of truth for the dock's summary chips (not the per-write
-   * entities above, which only describe what that one write touched). */
-  snapshot?: { collections: number; components: number; routes: number }
+  /** The build at this moment: the dock's bar, status line and counts follow
+   * the row being shown, so they move with the feed rather than ahead of it. */
+  snapshot?: BuildSnapshot
+}
+
+/** A framework build's progress, as CraftBot's construction dock shows it. */
+export interface BuildSnapshot {
+  /** Files the builder has written so far. */
+  files: number
+  /** React components declared or used in those files. */
+  components: number
+  tasksDone: number
+  tasksTotal: number
+  /** 0–100, never going back. */
+  progress: number
+  stage: 'setup' | 'questions' | 'requirements' | 'review' | 'planning' | 'building' | 'checking' | 'verifying' | 'launching'
+  /** The next task in the build's ledger. */
+  task: string
+  /** Repairing what a check or the verifier found. */
+  fixing: boolean
 }
 
 // Framework snapshots remain separate from legacy project IDs and controls.

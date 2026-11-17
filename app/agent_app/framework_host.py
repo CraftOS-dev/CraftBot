@@ -51,6 +51,10 @@ class FrameworkHost:
 
         self.maintenance = FrameworkMaintenance(self)
         self.sharing = FrameworkSharing(self)
+        from app.agent_app.framework_build_feed import BuildFeed
+
+        # The construction dock's picture of each build in progress.
+        self.feed = BuildFeed(self)
         _host = self
         for job in self.store.all("install"):
             if job["status"] == "running":
@@ -473,6 +477,7 @@ class FrameworkHost:
                 "problems": doc.get("problems") or [],
             }
         self._remember_checkpoint(session_id, doc.get("checkpoint"))
+        self.feed.person_replied(session_id, doc.get("checkpoint"))
         if isinstance(doc.get("message"), str):
             ui = getattr(self.agent, "ui_controller", None)
             if ui is not None:
@@ -929,6 +934,8 @@ class FrameworkHost:
             return await self.connections.cancel(data.get("id"))
         if operation == "disconnect":
             return await self.disconnect(data["path"], data["appId"])
+        if operation == "build_feed":
+            return self.feed.replay(data.get("sessionId"))
         if operation == "checkpoint":
             return await self.checkpoint(data.get("sessionId"))
         if operation == "checkpoint_reply":

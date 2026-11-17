@@ -123,10 +123,22 @@
     "preparingWorkspace": "Preparing your workspace…",
     "componentCount_one": "{{count}} component",
     "componentCount_other": "{{count}} components",
-    "collectionCount_one": "{{count}} collection",
-    "collectionCount_other": "{{count}} collections",
-    "routeCount_one": "{{count}} route",
-    "routeCount_other": "{{count}} routes"
+    "taskCount": "{{done}} of {{total}} tasks",
+    "fileCount_one": "{{count}} file",
+    "fileCount_other": "{{count}} files",
+    "fixing": "Fixing what the checks found",
+    "stage": {
+      "setup": "Setting up the project",
+      "questions": "Waiting for your answers",
+      "requirements": "Writing the requirements",
+      "review": "Waiting for your review",
+      "planning": "Planning the build",
+      "building": "Building the app",
+      "buildingTask": "Building: {{task}}",
+      "checking": "Running the checks",
+      "verifying": "Verifying the app in a browser",
+      "launching": "Launching"
+    }
   },
   "themeModal": {
     "title": "Choose Theme",

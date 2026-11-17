@@ -74,7 +74,10 @@ stamp and returns it to the builder; do not call the verdict-reporting action.
         "run_shell",
         *(["run_powershell"] if platform.system() == "Windows" else []),
     ],
-    max_iterations=100,
-    max_wall_seconds=1800,
+    # Room for a whole first walk of an app: a feature or quality check takes
+    # several browser turns, and a walk that runs out leaves checks for
+    # another round, which costs more than the turns it saved.
+    max_iterations=200,
+    max_wall_seconds=3600,
     early_end_guard=_valid_result,
 )
