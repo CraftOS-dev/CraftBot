@@ -325,7 +325,7 @@ def test_react_always_cleans_up_typing_task(monkeypatch, exit_kind):
         state_manager=SimpleNamespace(start_turn=noop, clean_state=lambda: None),
         _announce_trigger=lambda *args: None,
         _log_trigger_claim=lambda *args: None,
-        _log_deferred_user_messages=lambda *args: None,
+        _log_deferred_user_messages=noop,
         _extract_trigger_data=lambda *args: TriggerData(
             query="Hi", session_id="main", payload=owner_origin()
         ),

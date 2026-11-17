@@ -7,6 +7,7 @@ The integration tests run the real BrowserAdapter handlers (built with
 import asyncio
 import json
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import aiohttp
 import pytest
@@ -86,7 +87,8 @@ def _stub_adapter() -> BrowserAdapter:
     adapter._lane_tasks = set()
     adapter._started_at = 0.0
     adapter._ws_prepare_failures = 0
-    adapter._get_initial_state = lambda: {"stub": True}
+    adapter._initial_state_reads = AsyncMock(return_value=(None, {}))
+    adapter._get_initial_state = lambda *reads: {"stub": True}
     adapter._get_skill_meta = lambda: {}
     adapter._agent_app_manager = SimpleNamespace(list_projects=lambda: [])
     return adapter

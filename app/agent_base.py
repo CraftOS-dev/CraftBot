@@ -777,7 +777,7 @@ class AgentBase:
             # the next turn dismiss it as already-handled input). Called for
             # every trigger: aggregated batches may carry user messages even
             # when the base trigger is a different source.
-            self._log_deferred_user_messages(trigger, session_id)
+            await self._log_deferred_user_messages(trigger, session_id)
 
             trigger_data = self._extract_trigger_data(trigger, session_id)
             from app.telegram_feedback import start_typing
@@ -1240,7 +1240,7 @@ class AgentBase:
                 return
             from app.usage.session_storage import get_session_storage
 
-            get_session_storage().persist_event_stream(
+            get_session_storage().persist_event_stream_later(
                 session_id, self.event_stream_manager.get_stream_by_id(session_id)
             )
         except Exception as e:
@@ -1251,11 +1251,12 @@ class AgentBase:
 
     def _persist_llm_session(self, session_id: str) -> None:
         """Save a session's LLM state (LLMInterface.export_session), so a
-        restart continues the session instead of starting a new prefix."""
+        restart continues the session instead of starting a new prefix.
+        Snapshotted now, written on the session storage's writer thread."""
         try:
             from app.usage.session_storage import get_session_storage
 
-            get_session_storage().persist_llm_session(
+            get_session_storage().persist_llm_session_later(
                 session_id, self.llm.export_session(session_id)
             )
         except Exception as e:
@@ -2428,14 +2429,15 @@ class AgentBase:
         if logged:
             self.state_manager.bump_event_stream()
 
-    def _log_deferred_user_messages(self, trigger, session_id: str) -> None:
+    async def _log_deferred_user_messages(self, trigger, session_id: str) -> None:
         """Write a user-message trigger's message(s) into the session stream.
 
         Called by react() when the trigger is claimed, so each message lands
         in the stream at the start of its OWN turn (aggregated batches log
         every message, in order). Also runs the memory injection that used
         to happen at arrival, so relevant memories still appear right after
-        the message(s) they relate to.
+        the message(s) they relate to. The memory search (embedding + vector
+        search) runs in a worker thread.
         """
         payload = trigger.payload or {}
         entries = payload.get("queued_user_messages")
@@ -2464,13 +2466,18 @@ class AgentBase:
             )
 
         try:
-            from agent_core.core.impl.memory.injector import inject_memory_event
+            from agent_core.core.impl.memory.injector import (
+                log_memory_event,
+                memory_event_message,
+            )
 
             query = "\n".join(
                 (e.get("display") or e.get("content") or "") for e in entries
             ).strip()
             if query:
-                inject_memory_event(query=query, session_id=session_id)
+                message = await asyncio.to_thread(memory_event_message, query)
+                if message:
+                    log_memory_event(message, session_id)
         except Exception as e:
             logger.debug(f"[MEMORY] Deferred injection failed: {e}")
 
@@ -2648,7 +2655,10 @@ class AgentBase:
             # stays the raw text so the chat bubble is clean.
             stream_content = chat_content
             if session is not None and getattr(session, "agent_app_project_id", None):
-                note = self._build_agent_app_note(session.agent_app_project_id)
+                # Reads the app's schema and capability files: off the loop.
+                note = await asyncio.to_thread(
+                    self._build_agent_app_note, session.agent_app_project_id
+                )
                 if note:
                     stream_content = f"{chat_content}\n\n{note}"
 
@@ -3920,7 +3930,10 @@ class AgentBase:
                             session_id,
                             self.event_stream_manager.get_stream_by_id(session_id),
                         )
-                    self._persist_llm_session(session_id)
+                    # Shutdown: wait for the write, not just queue it.
+                    storage.persist_llm_session(
+                        session_id, self.llm.export_session(session_id)
+                    )
                     count += 1
                 except Exception as e:
                     logger.warning(

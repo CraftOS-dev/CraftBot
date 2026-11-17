@@ -16,11 +16,13 @@ Features:
 import asyncio
 import contextvars
 import importlib
+import importlib.metadata
 import json
 import os
 import subprocess
 import sys
 import tempfile
+import threading
 import uuid
 import venv
 from pathlib import Path
@@ -45,6 +47,12 @@ _PERSISTENT_VENV_DIR: Optional[Path] = None
 
 # Base packages that must be installed in the sandbox venv (empty - venv isolation is the sandbox)
 _SANDBOX_BASE_PACKAGES = []
+
+# Declared requirements already confirmed installed in this process, so each
+# package is checked once rather than before every action call. The lock keeps
+# concurrent actions from running pip on the same package at the same time.
+_SATISFIED_REQUIREMENTS: set = set()
+_REQUIREMENTS_LOCK = threading.Lock()
 
 
 def _get_persistent_venv_dir() -> Path:
@@ -166,11 +174,22 @@ def _find_system_python() -> Optional[str]:
     return None
 
 
+def _requirements_satisfied(requirements: List[str]) -> bool:
+    """True when every declared requirement was already confirmed this process."""
+    return all(
+        not pkg.strip() or pkg.strip() in _SATISFIED_REQUIREMENTS
+        for pkg in requirements
+    )
+
+
 def _ensure_requirements(
     requirements: List[str], python_bin: Optional[str] = None
 ) -> None:
     """
     Install pip packages that are not yet available.
+
+    Blocking (imports, pip subprocesses): callers on the event loop run it
+    in a worker thread.
 
     *requirements* may contain a mix of importable module names (e.g.
     ``"DDGS"``) and pip package names (e.g. ``"duckduckgo-search"``).
@@ -193,6 +212,13 @@ def _ensure_requirements(
     if not requirements:
         return
 
+    with _REQUIREMENTS_LOCK:
+        _ensure_requirements_locked(requirements, python_bin)
+
+
+def _ensure_requirements_locked(
+    requirements: List[str], python_bin: Optional[str]
+) -> None:
     pip_python = python_bin or _find_system_python()
     if not pip_python:
         logger.warning(
@@ -200,10 +226,11 @@ def _ensure_requirements(
         )
         return
 
+    frozen = getattr(sys, "frozen", False)
     installed_any = False
     for pkg in requirements:
         pkg = pkg.strip()
-        if not pkg:
+        if not pkg or pkg in _SATISFIED_REQUIREMENTS:
             continue
 
         # Heuristic: skip entries that look like class names
@@ -211,33 +238,40 @@ def _ensure_requirements(
         # packages. Pip packages are lowercase and may contain
         # hyphens/underscores/dots.
         if not pkg[0].islower() and "-" not in pkg:
+            _SATISFIED_REQUIREMENTS.add(pkg)
             continue
 
-        # Derive the importable module name for the quick check.
-        # Only useful when NOT frozen (in-process imports work).
-        import_name = pkg.replace("-", "_").split("[")[0]
-
-        # First try a fast import check (works for most packages)
-        if not getattr(sys, "frozen", False):
+        if not frozen:
+            # In-process checks (this interpreter is the one pip would
+            # install into). Distribution metadata covers pip names that
+            # differ from the import name (beautifulsoup4 -> bs4, Pillow ->
+            # PIL) without spawning pip; the import covers entries that
+            # name a module rather than a distribution (docx).
             try:
-                importlib.import_module(import_name)
+                importlib.metadata.distribution(pkg.split("[")[0])
+                _SATISFIED_REQUIREMENTS.add(pkg)
+                continue  # already installed
+            except importlib.metadata.PackageNotFoundError:
+                pass
+            try:
+                importlib.import_module(pkg.replace("-", "_").split("[")[0])
+                _SATISFIED_REQUIREMENTS.add(pkg)
                 continue  # already installed
             except ImportError:
                 pass
-
-        # If import failed (or frozen), use pip show to check.
-        # This handles packages where pip name != import name
-        # (e.g., beautifulsoup4 -> bs4, Pillow -> PIL)
-        try:
-            subprocess.check_call(
-                [str(pip_python), "-m", "pip", "show", "--quiet", pkg],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=15,
-            )
-            continue  # already installed
-        except Exception:
-            pass
+        else:
+            # Frozen: pip runs on a different interpreter, so ask it.
+            try:
+                subprocess.check_call(
+                    [str(pip_python), "-m", "pip", "show", "--quiet", pkg],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=15,
+                )
+                _SATISFIED_REQUIREMENTS.add(pkg)
+                continue  # already installed
+            except Exception:
+                pass
 
         try:
             subprocess.check_call(
@@ -247,6 +281,7 @@ def _ensure_requirements(
                 timeout=120,
             )
             installed_any = True
+            _SATISFIED_REQUIREMENTS.add(pkg)
             logger.info(f"[REQUIREMENTS] Installed '{pkg}'")
         except Exception as e:
             logger.warning(f"[REQUIREMENTS] Failed to install '{pkg}': {e}")
@@ -714,10 +749,15 @@ class ActionExecutor:
         )
         logger.debug(f"[EXECUTION CODE] {action.code}")
 
-        # Pre-install declared pip requirements
+        # Pre-install declared pip requirements (off the event loop: the
+        # check may import modules and run pip)
         requirements = getattr(action, "requirements", [])
-        if requirements and execution_mode == "internal":
-            _ensure_requirements(requirements)
+        if (
+            requirements
+            and execution_mode == "internal"
+            and not _requirements_satisfied(requirements)
+        ):
+            await asyncio.to_thread(_ensure_requirements, requirements)
 
         if execution_mode == "internal":
             # Use async executor which handles both sync and async action functions

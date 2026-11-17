@@ -11,6 +11,7 @@ Routes are registered on the browser adapter's aiohttp app.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Awaitable, Callable, Dict, Optional
@@ -118,20 +119,24 @@ class IntegrationBridge:
         from craftos_integrations import get_registered_platforms
         from app.data.action.integrations._helpers import system_for
 
-        integrations = []
-        for platform_id in get_registered_platforms():
-            system = system_for(platform_id)
-            try:
-                connected = bool(system and system.list_accounts(platform_id))
-            except Exception:
-                connected = False
-            integrations.append(
-                {
-                    "id": platform_id,
-                    "connected": connected,
-                }
-            )
+        def _list() -> list:
+            # Reads every provider's account file: run in a worker thread.
+            integrations = []
+            for platform_id in get_registered_platforms():
+                system = system_for(platform_id)
+                try:
+                    connected = bool(system and system.list_accounts(platform_id))
+                except Exception:
+                    connected = False
+                integrations.append(
+                    {
+                        "id": platform_id,
+                        "connected": connected,
+                    }
+                )
+            return integrations
 
+        integrations = await asyncio.to_thread(_list)
         return web.json_response({"integrations": integrations})
 
     async def _handle_proxy(self, request: web.Request) -> web.Response:
@@ -203,8 +208,11 @@ class IntegrationBridge:
             )
         url = resolved
 
-        # Get auth headers from platform client
-        auth_headers = self._get_auth_headers(integration, account)
+        # Get auth headers from platform client (a worker thread: building
+        # them can refresh an OAuth token over HTTP and rewrite credentials)
+        auth_headers = await asyncio.to_thread(
+            self._get_auth_headers, integration, account
+        )
         if auth_headers is None:
             detail = f" (account {account!r} not found?)" if account else ""
             return web.json_response(

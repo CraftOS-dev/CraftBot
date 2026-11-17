@@ -242,43 +242,43 @@ with tempfile.TemporaryDirectory() as tmp:
 
     async def _t3():
         # absent last_at -> due now (first-enable and boot catch-up)
-        mgr._maybe_schedule_backup(lp)
+        await mgr._maybe_schedule_backup(lp)
         await asyncio.sleep(0)
         assert fired == ["sched001"], "no last_at must mean due"
 
         # recent last_at -> not due; ancient -> due again
         host.record_backup_ok("sched001", time.time())
-        mgr._maybe_schedule_backup(lp)
+        await mgr._maybe_schedule_backup(lp)
         assert len(fired) == 1, "fresh backup must not be due"
         host.record_backup_ok("sched001", time.time() - 86400 - 5)
-        mgr._maybe_schedule_backup(lp)
+        await mgr._maybe_schedule_backup(lp)
         await asyncio.sleep(0)
         assert len(fired) == 2, "older than the interval must be due"
 
         # interval enum honored (hourly with a 2h-old stamp is due)
         lp.backup_interval = "hourly"
         host.record_backup_ok("sched001", time.time() - 7200)
-        mgr._maybe_schedule_backup(lp)
+        await mgr._maybe_schedule_backup(lp)
         await asyncio.sleep(0)
         assert len(fired) == 3
 
         # gates: disabled / external / mid-op / inflight / no live DB
         host.record_backup_ok("sched001", time.time() - 7200)
         lp.backups_enabled = False
-        mgr._maybe_schedule_backup(lp)
+        await mgr._maybe_schedule_backup(lp)
         lp.backups_enabled = True
         lp.project_type = "external"
-        mgr._maybe_schedule_backup(lp)
+        await mgr._maybe_schedule_backup(lp)
         lp.project_type = "native"
         mgr._live_ops.add("sched001")
-        mgr._maybe_schedule_backup(lp)
+        await mgr._maybe_schedule_backup(lp)
         mgr._live_ops.discard("sched001")
         mgr._backups_inflight.add("sched001")
-        mgr._maybe_schedule_backup(lp)
+        await mgr._maybe_schedule_backup(lp)
         mgr._backups_inflight.discard("sched001")
         db = Path(lp.path) / "pb" / "pb_data" / "data.db"
         db.rename(db.with_name("data.db.away"))
-        mgr._maybe_schedule_backup(lp)
+        await mgr._maybe_schedule_backup(lp)
         db.with_name("data.db.away").rename(db)
         await asyncio.sleep(0)
         assert len(fired) == 3, "every gate must hold"

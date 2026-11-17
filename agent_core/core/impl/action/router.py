@@ -614,7 +614,9 @@ class ActionRouter:
                                 )
                                 # The history in progress holds every event
                                 # being folded: the summary is written on it.
-                                self._fold(
+                                # The summary call blocks: off the event loop.
+                                await to_thread_with_usage(
+                                    self._fold,
                                     stream,
                                     system_prompt,
                                     static_prompt,
@@ -787,7 +789,10 @@ class ActionRouter:
                         f"[SESSION CACHE] Request exceeded the context budget; folding "
                         f"the event stream and retrying once for {call_type}"
                     )
-                    self._fold(stream, system_prompt, static_prompt)
+                    # The summary call blocks: off the event loop.
+                    await to_thread_with_usage(
+                        self._fold, stream, system_prompt, static_prompt
+                    )
                     folded = True
                 elif not stream.collapse_undelivered_oversize():
                     # Folded, and the new events have nothing left to shrink.

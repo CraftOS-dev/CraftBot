@@ -155,6 +155,63 @@ def rmtree_long(path: Any, **kwargs: Any) -> None:
     shutil.rmtree(long_path(path), **kwargs)
 
 
+def _marketplace_app_prefix(zip_data: bytes, app_id: str) -> Optional[str]:
+    """The ``root/{app_id}/`` folder prefix inside a marketplace zipball,
+    or None when the app is not in it.
+
+    Match on path SEGMENTS, never substrings. GitHub names the zip root
+    "{repo}-{ref with / as -}", so a ref named after the app it carries
+    ("feature/invoice-tracker") produces a root folder ENDING in the app id.
+    A substring search then resolves the prefix to the repo root and extracts
+    the whole marketplace, leaving no manifest.json where one is expected.
+    """
+    import io
+
+    with zipfile.ZipFile(io.BytesIO(zip_data)) as zf:
+        # GitHub zips have a root folder like "repo-main/"
+        root_prefix = None
+        for name in zf.namelist():
+            parts = name.split("/")
+            if root_prefix is None:
+                root_prefix = parts[0] + "/"
+            # The app folder is exactly root/{app_id}/
+            if len(parts) > 2 and parts[1] == app_id:
+                return f"{root_prefix}{app_id}/"
+    return None
+
+
+def _clear_adopted_scaffold(project_path: Path, preserved_hold: Path) -> None:
+    """Move the scaffold's reference/ and .factory/ into `preserved_hold`,
+    then delete the rest of the scaffold."""
+    for rel in ("reference", ".factory"):
+        keep = project_path / rel
+        if keep.exists():
+            shutil.move(str(keep), str(preserved_hold / rel))
+    shutil.rmtree(project_path.resolve())
+
+
+def _extract_marketplace_app(
+    zip_data: bytes, app_prefix: str, project_path: Path
+) -> None:
+    """Write the files under `app_prefix` in the zipball into `project_path`."""
+    import io
+
+    project_path.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(io.BytesIO(zip_data)) as zf:
+        for member in zf.namelist():
+            if member.startswith(app_prefix) and not member.endswith("/"):
+                # Get the relative path within the app folder
+                rel_path = member[len(app_prefix) :]
+                if rel_path and rel_path.split("/")[0] not in (
+                    ".factory",
+                    ".snapshots",
+                ):
+                    target = project_path / rel_path
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    with zf.open(member) as src, open(target, "wb") as dst:
+                        dst.write(src.read())
+
+
 @dataclass
 class AgentAppProject:
     """Represents a Agent App project."""
@@ -477,7 +534,7 @@ class AgentAppManager:
                     # running gate — a stopped app with a live DB still backs
                     # up (via the stopped capture path).
                     try:
-                        self._maybe_schedule_backup(project)
+                        await self._maybe_schedule_backup(project)
                     except Exception as e:
                         logger.warning(
                             f"[AGENT_APP:BACKUP] schedule check failed for "
@@ -489,7 +546,10 @@ class AgentAppManager:
                         retry_counts.pop(project_id, None)
                         continue
 
-                    frontend_dead = self._project_is_dead(project)
+                    # Port probes wait up to 0.5 s each: off the event loop.
+                    frontend_dead = await asyncio.to_thread(
+                        self._project_is_dead, project
+                    )
 
                     if not frontend_dead:
                         # Everything healthy, reset retry counter
@@ -564,28 +624,40 @@ class AgentAppManager:
         "weekly": 7 * 86400,
     }
 
-    def _maybe_schedule_backup(self, project) -> None:
+    async def _maybe_schedule_backup(self, project) -> None:
         """Watchdog tick: start a due scheduled backup as a background task.
-        Sync and cheap — one sidecar read past the structural gates."""
-        from app.factory.host_craftbot import get_factory_host
-        from app.agent_app.lifecycle import live_db_exists
+        The due check reads the disk (live DB + sidecar), so it runs in a
+        worker thread; the structural gates are re-checked after it."""
+        if not self._backup_may_run(project):
+            return
+        if not await asyncio.to_thread(self._backup_due, project):
+            return
+        if not self._backup_may_run(project):
+            return
+        self._backups_inflight.add(project.id)
+        asyncio.create_task(self._run_scheduled_backup(project))
 
-        if (
+    def _backup_may_run(self, project) -> bool:
+        return not (
             not project.backups_enabled
             or getattr(project, "project_type", "native") == "external"
             or project.id in self._live_ops
             or project.id in self._backups_inflight
-            or not live_db_exists(project.path)
-        ):
-            return
+        )
+
+    def _backup_due(self, project) -> bool:
+        """Blocking: whether the project's live DB exists and its scheduled
+        backup is due."""
+        from app.factory.host_craftbot import get_factory_host
+        from app.agent_app.lifecycle import live_db_exists
+
+        if not live_db_exists(project.path):
+            return False
         state = get_factory_host().backup_state(project.id)
         interval = self._BACKUP_INTERVALS.get(project.backup_interval, 86400)
         # Absent last_at -> due now: first-enable AND catch-up after a
         # restart/overdue sleep both fall out of the same rule.
-        if state["last_at"] is not None and time.time() - state["last_at"] < interval:
-            return
-        self._backups_inflight.add(project.id)
-        asyncio.create_task(self._run_scheduled_backup(project))
+        return state["last_at"] is None or time.time() - state["last_at"] >= interval
 
     async def _run_scheduled_backup(self, project) -> None:
         """One scheduled capture + prune + sidecar record. Failure never
@@ -692,7 +764,15 @@ class AgentAppManager:
         once the lock is held and do nothing if it recovered.
         """
         async with self._launch_lock(project.id):
-            if not self._project_is_dead(project):
+            # Stopped (by the user, a delete, a restore or shutdown) while the
+            # retry delay ran: a stop is not a crash, so nothing to restart.
+            if project.status != "running":
+                logger.info(
+                    f"[AGENT_APP:WATCHDOG] {project.name} ({project.id}) was "
+                    "stopped while we waited — not restarting."
+                )
+                return False
+            if not await asyncio.to_thread(self._project_is_dead, project):
                 logger.info(
                     f"[AGENT_APP:WATCHDOG] {project.name} ({project.id}) came back "
                     "while we waited — another launch handled it."
@@ -720,8 +800,8 @@ class AgentAppManager:
                 # Windows; clear it before rebinding (the native restart used
                 # to skip this and burn the whole retry ladder on a squatted
                 # port).
-                if project.port and self._is_port_in_use(project.port):
-                    self._kill_process_on_port(project.port)
+                if project.port:
+                    await asyncio.to_thread(self._free_port_if_in_use, project.port)
                 project.process = await self.runner.start(
                     Path(project.path),
                     project.port,
@@ -1025,10 +1105,13 @@ UI in {project.path}/frontend/src/app/."""
         return lock
 
     def _project_is_dead(self, project: "AgentAppProject") -> bool:
-        """Whether a project marked running has actually stopped serving."""
-        if project.process is not None and project.process.poll() is not None:
+        """Whether a project marked running has actually stopped serving.
+        Runs in a worker thread while the loop may clear project.process, so
+        the process is read once."""
+        process = project.process
+        if process is not None and process.poll() is not None:
             return True
-        if project.port and project.process is None:
+        if project.port and process is None:
             if not self._is_port_in_use(project.port):
                 return True
         # External apps: the in-process proxy keeps the PROJECT port alive
@@ -1056,6 +1139,11 @@ UI in {project.path}/frontend/src/app/."""
                 return True
             except OSError:
                 return False
+
+    def _free_port_if_in_use(self, port: int) -> None:
+        """Blocking: kill our own listener on `port` when one is there."""
+        if self._is_port_in_use(port):
+            self._kill_process_on_port(port)
 
     def _is_port_in_use(self, port: int) -> bool:
         """Check if a port is actually in use on the system.
@@ -1152,8 +1240,8 @@ UI in {project.path}/frontend/src/app/."""
         # Clear any stale listener before binding the port. Only our own
         # leftovers are killed; a program CraftBot did not start keeps the
         # port, and booting anyway would "pass" health against THAT program.
-        self._kill_process_on_port(port)
-        holder = self._foreign_listener(port)
+        await asyncio.to_thread(self._kill_process_on_port, port)
+        holder = await asyncio.to_thread(self._foreign_listener, port)
         if holder is not None:
             return _fail(
                 "start",
@@ -1168,7 +1256,9 @@ UI in {project.path}/frontend/src/app/."""
         # pocketbase.log ever sees — catch them here, before any process spawns.
         # Checked against the LIVE pb_data in both environments: a shadow's DB
         # is fresh, but the promote this shadow is heading for is not.
-        divergence = self._check_migration_divergence(project_dir)
+        divergence = await asyncio.to_thread(
+            self._check_migration_divergence, project_dir
+        )
         if divergence:
             return _fail("validation", [divergence])
 
@@ -1256,7 +1346,7 @@ UI in {project.path}/frontend/src/app/."""
         ):
             healthy = False
         if not healthy:
-            self._terminate_process(process)
+            await asyncio.to_thread(self._terminate_process, process)
             # A dead health check with no cause starved the agent before —
             # the boot abort (bad migration, hook panic) is in pocketbase.log
             # and nowhere else. Ship this boot's lines with the failure.
@@ -1275,7 +1365,7 @@ UI in {project.path}/frontend/src/app/."""
             line for line in boot_log.splitlines() if "failed to execute" in line
         ]
         if load_failures:
-            self._terminate_process(process)
+            await asyncio.to_thread(self._terminate_process, process)
             return _fail(
                 "hooks",
                 [
@@ -1367,13 +1457,11 @@ UI in {project.path}/frontend/src/app/."""
                 await old_proxy.stop()
             except Exception:
                 pass
-        if self._is_port_in_use(port):
-            self._kill_process_on_port(port)
+        await asyncio.to_thread(self._free_port_if_in_use, port)
 
         # The app itself binds a fresh hidden internal port each launch.
         if project.internal_port:
-            if self._is_port_in_use(project.internal_port):
-                self._kill_process_on_port(project.internal_port)
+            await asyncio.to_thread(self._free_port_if_in_use, project.internal_port)
             self._release_port(project.internal_port)
             project.internal_port = None
         try:
@@ -1502,7 +1590,7 @@ UI in {project.path}/frontend/src/app/."""
             pipeline.get("health"), internal_port, process, timeout=45
         )
         if not healthy:
-            self._terminate_process(process)
+            await asyncio.to_thread(self._terminate_process, process)
             errors = [
                 f"App not healthy on internal port :{internal_port} "
                 f"(health config: {pipeline.get('health')!r})"
@@ -1542,7 +1630,7 @@ UI in {project.path}/frontend/src/app/."""
         try:
             await proxy.start()
         except Exception as e:
-            self._terminate_process(process)
+            await asyncio.to_thread(self._terminate_process, process)
             return _fail(
                 "adapter",
                 [f"A2App adapter failed to bind :{port}: {e}"],
@@ -1554,7 +1642,7 @@ UI in {project.path}/frontend/src/app/."""
                 await proxy.stop()
             except Exception:
                 pass
-            self._terminate_process(process)
+            await asyncio.to_thread(self._terminate_process, process)
             return _fail(
                 "adapter",
                 [
@@ -1639,7 +1727,7 @@ UI in {project.path}/frontend/src/app/."""
         # Clear any stale process before relaunching (the pipeline also kills
         # by port — this drops our own stale handle).
         if project.process and project.process.poll() is None:
-            self._terminate_process(project.process)
+            await asyncio.to_thread(self._terminate_process, project.process)
         project.process = None
         if not project.port:
             project.port = self._allocate_port()
@@ -1984,14 +2072,14 @@ UI in {project.path}/frontend/src/app/."""
 
     async def _ensure_port_available(self, port: int) -> bool:
         """Ensure a port is available, killing orphan processes if needed."""
-        if not self._is_port_in_use(port):
+        if not await asyncio.to_thread(self._is_port_in_use, port):
             return True
 
         logger.warning(f"[AGENT_APP:PIPELINE] Port {port} in use, attempting to free")
-        self._kill_process_on_port(port)
+        await asyncio.to_thread(self._kill_process_on_port, port)
         await asyncio.sleep(1)
 
-        if self._is_port_in_use(port):
+        if await asyncio.to_thread(self._is_port_in_use, port):
             logger.error(f"[AGENT_APP:PIPELINE] Could not free port {port}")
             return False
         return True
@@ -3325,8 +3413,6 @@ UI in {project.path}/frontend/src/app/."""
             Dict with status, project info, or error
         """
         import urllib.request
-        import zipfile
-        import io
 
         # Adopt a pre-created placeholder id when provided (so the tab spawned
         # at request time becomes this project), else allocate a fresh one.
@@ -3376,71 +3462,45 @@ UI in {project.path}/frontend/src/app/."""
                 marketplace_source.download_archive, owner, repo
             )
 
-            # Extract just the app folder from the zip
-            with zipfile.ZipFile(io.BytesIO(zip_data)) as zf:
-                # GitHub zips have a root folder like "repo-main/"
-                root_prefix = None
-                app_prefix = None
+            # Extract just the app folder from the zip. Zip reading, scaffold
+            # clearing and extraction are disk work: worker threads.
+            app_prefix = await asyncio.to_thread(
+                _marketplace_app_prefix, zip_data, app_id
+            )
+            if not app_prefix:
+                return {
+                    "status": "error",
+                    "error": f"App '{app_id}' not found in marketplace repo",
+                }
 
-                # Match on path SEGMENTS, never substrings. GitHub names the
-                # zip root "{repo}-{ref with / as -}", so a ref named after the
-                # app it carries ("feature/invoice-tracker") produces a root
-                # folder ENDING in the app id. A substring search then resolves
-                # the prefix to the repo root and extracts the whole
-                # marketplace, leaving no manifest.json where one is expected.
-                for name in zf.namelist():
-                    parts = name.split("/")
-                    if root_prefix is None:
-                        root_prefix = parts[0] + "/"
-                    # The app folder is exactly root/{app_id}/
-                    if len(parts) > 2 and parts[1] == app_id:
-                        app_prefix = f"{root_prefix}{app_id}/"
-                        break
-
-                if not app_prefix:
-                    return {
-                        "status": "error",
-                        "error": f"App '{app_id}' not found in marketplace repo",
-                    }
-
-                # The app exists in the zip — NOW it is safe to clear an
-                # adopted scaffold, PRESERVING the wizard's requirements
-                # (reference/) and the factory's machine state (.factory/),
-                # which the continuing build run still needs. The extraction
-                # below writes file-by-file into an existing dir, and a plain
-                # overlay would leave scaffold leftovers behind (e.g. the
-                # starter migration, which would create a stray `items`
-                # collection in the installed app).
-                if adopting:
-                    if existing.process:
-                        self._terminate_process(existing.process)
-                        existing.process = None
-                    if existing.port and self._is_port_in_use(existing.port):
-                        self._kill_process_on_port(existing.port)
-                    if project_path.exists():
-                        preserved_hold = Path(
-                            tempfile.mkdtemp(prefix="agent-app-adopt-")
+            # The app exists in the zip — NOW it is safe to clear an
+            # adopted scaffold, PRESERVING the wizard's requirements
+            # (reference/) and the factory's machine state (.factory/),
+            # which the continuing build run still needs. The extraction
+            # below writes file-by-file into an existing dir, and a plain
+            # overlay would leave scaffold leftovers behind (e.g. the
+            # starter migration, which would create a stray `items`
+            # collection in the installed app).
+            if adopting:
+                if existing.process:
+                    process, existing.process = existing.process, None
+                    await asyncio.to_thread(self._terminate_process, process)
+                if existing.port:
+                    await asyncio.to_thread(self._free_port_if_in_use, existing.port)
+                if project_path.exists():
+                    preserved_hold = Path(
+                        await asyncio.to_thread(
+                            tempfile.mkdtemp, prefix="agent-app-adopt-"
                         )
-                        for rel in ("reference", ".factory"):
-                            keep = project_path / rel
-                            if keep.exists():
-                                shutil.move(str(keep), str(preserved_hold / rel))
-                        shutil.rmtree(project_path.resolve())
+                    )
+                    await asyncio.to_thread(
+                        _clear_adopted_scaffold, project_path, preserved_hold
+                    )
 
-                # Extract app files to project path
-                project_path.mkdir(parents=True, exist_ok=True)
-                for member in zf.namelist():
-                    if member.startswith(app_prefix) and not member.endswith("/"):
-                        # Get the relative path within the app folder
-                        rel_path = member[len(app_prefix) :]
-                        if rel_path and rel_path.split("/")[0] not in (
-                            ".factory",
-                            ".snapshots",
-                        ):
-                            target = project_path / rel_path
-                            target.parent.mkdir(parents=True, exist_ok=True)
-                            with zf.open(member) as src, open(target, "wb") as dst:
-                                dst.write(src.read())
+            # Extract app files to project path
+            await asyncio.to_thread(
+                _extract_marketplace_app, zip_data, app_prefix, project_path
+            )
 
             logger.info(f"[AGENT_APP:MARKETPLACE] Extracted {app_id} to {project_path}")
 
@@ -3528,7 +3588,10 @@ UI in {project.path}/frontend/src/app/."""
                 for key, value in custom_fields.items():
                     replacements[f"{{{{{key}}}}}"] = value
 
-            self._replace_placeholders(project_path, replacements)
+            # Rewrites every file in the tree: a worker thread.
+            await asyncio.to_thread(
+                self._replace_placeholders, project_path, replacements
+            )
 
             # Record WHICH marketplace app this project holds: a crash
             # between install and build-completion redispatches a "continue
@@ -3946,7 +4009,7 @@ UI in {project.path}/frontend/src/app/."""
             if (
                 actually_alive
                 and project.port
-                and not self._is_port_in_use(project.port)
+                and not await asyncio.to_thread(self._is_port_in_use, project.port)
             ):
                 logger.warning(
                     f"[AGENT_APP] Frontend port {project.port} not responding for {project_id}"
@@ -4206,6 +4269,11 @@ UI in {project.path}/frontend/src/app/."""
             logger.error(f"[AGENT_APP] Project not found: {project_id}")
             return False
 
+        # Stopped BEFORE the teardown below awaits: the watchdog runs while a
+        # kill is in flight, and an app still marked running whose process is
+        # gone reads as a crash it would restart.
+        project.status = "stopped"
+
         live = self.instances.live(project_id)
 
         # External teardown FIRST: the in-process A2App proxy holds the
@@ -4218,24 +4286,24 @@ UI in {project.path}/frontend/src/app/."""
                 await proxy.stop()
             except Exception:
                 pass
+        # Process kills and port probes block for seconds: worker threads.
         if (
             getattr(project, "project_type", "native") == "external"
             and project.internal_port
         ):
-            if self._is_port_in_use(project.internal_port):
-                self._kill_process_on_port(project.internal_port)
+            await asyncio.to_thread(self._free_port_if_in_use, project.internal_port)
             self._release_port(project.internal_port)
             project.internal_port = None
 
         # Stop the app process
         if project.process:
-            self._terminate_process(project.process)
-            project.process = None
+            process, project.process = project.process, None
+            await asyncio.to_thread(self._terminate_process, process)
 
         # Also kill by port in case process reference is stale (the project's
         # OWN sticky port — not a cross-project lookup).
-        if project.port and self._is_port_in_use(project.port):
-            self._kill_process_on_port(project.port)
+        if project.port:
+            await asyncio.to_thread(self._free_port_if_in_use, project.port)
 
         # Drop the live instance from the registry. The sticky live port stays
         # reserved (the project keeps its address across stop/start); a shadow
@@ -4246,7 +4314,6 @@ UI in {project.path}/frontend/src/app/."""
 
         project.url = None
 
-        project.status = "stopped"
         self._save_projects()
 
         logger.info(f"[AGENT_APP] Stopped project: {project_id}")
@@ -4298,7 +4365,9 @@ UI in {project.path}/frontend/src/app/."""
 
                 if getattr(
                     project, "project_type", "native"
-                ) != "external" and live_db_exists(project.path):
+                ) != "external" and await asyncio.to_thread(
+                    live_db_exists, project.path
+                ):
                     async with self._backup_lock:
                         await asyncio.to_thread(
                             self.backups.capture_stopped, project, "pre_delete"
@@ -4318,7 +4387,9 @@ UI in {project.path}/frontend/src/app/."""
 
         for inst in self.instances.for_project(project_id):
             if inst.role == ROLE_SHADOW:
-                self.lifecycle.provisioner.destroy(project_id, inst)
+                await asyncio.to_thread(
+                    self.lifecycle.provisioner.destroy, project_id, inst
+                )
         self.instances.clear_project(project_id)
 
         # Release the sticky live port back to the pool.
@@ -4340,7 +4411,8 @@ UI in {project.path}/frontend/src/app/."""
                         # tree may hold paths past MAX_PATH, and a project
                         # that cannot be deleted is stuck forever. The guard
                         # above ran on the plain path and is unaffected.
-                        rmtree_long(project_path)
+                        # A worker thread: a big tree takes many seconds.
+                        await asyncio.to_thread(rmtree_long, project_path)
                     except Exception as e:
                         logger.error(
                             f"[AGENT_APP] Failed to delete project directory: {e}"
