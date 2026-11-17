@@ -136,6 +136,8 @@ agent_file_system/*.local-backup
 
 # Per-install automatic startup preference (managed installs keep it in user data).
 /startup.json
+# Held while the desktop icon starts CraftBot, so a double-click starts it once.
+/.opening.lock
 # Runtime state CraftBot writes while it runs. Each is created on first start
 # from a shipped default (app/config/<name>.default.json, or the template in
 # app/data/agent_file_system_template/), so `git pull` never collides with a

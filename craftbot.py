@@ -7,6 +7,8 @@ and optionally register it to auto-start when your system boots.
 
 Commands:
     python craftbot.py start [options]    Start CraftBot in background
+    python craftbot.py open               Open CraftBot in the browser, starting it
+                                          first if it is not running (desktop icon)
     python craftbot.py stop               Stop CraftBot
     python craftbot.py restart [options]  Stop then start
     python craftbot.py status             Show if CraftBot is running
@@ -84,6 +86,15 @@ _PLATFORM: str = sys.platform
 # NOT contain the agent itself (no run.py, no openai/anthropic/etc bundled).
 IS_FROZEN: bool = bool(getattr(sys, "frozen", False))
 EXE_PATH: Optional[str] = sys.executable if IS_FROZEN else None
+
+# --state-root=PATH names this install's data folder. The desktop icon passes
+# it because, like a login start, it does not inherit CRAFTBOT_HOME from the
+# shell that installed CraftBot. Applied before any app module is imported
+# (app.paths resolves STATE_ROOT at import time) and removed from the args.
+for _argument in list(sys.argv[1:]):
+    if _argument.startswith("--state-root="):
+        os.environ["CRAFTBOT_HOME"] = _argument.split("=", 1)[1]
+        sys.argv.remove(_argument)
 
 # Single interpreter for every CraftBot process (see app/python_runtime.py).
 # Absent in the frozen installer EXE, which bundles no agent code.
@@ -798,6 +809,172 @@ def cmd_start(extra_args: List[str]) -> bool:
     return True
 
 
+def _running_ui_url(args: List[str]) -> Optional[str]:
+    """The address of THIS install's CraftBot when it answers, else None.
+
+    ui.json is written by this state root's run.py once its UI answers, so it
+    names our CraftBot even when its ports moved. Without one (an older
+    run.py), a listener that app.instance proves to be ours counts too. A
+    program on 7925 that is not this CraftBot never does.
+    """
+    ui = _instance.read_ui()
+    if ui and _instance.http_answers(str(ui["url"])):
+        return str(ui["url"])
+    if _orphan_listeners(args):
+        url = _current_url(args)
+        if _instance.http_answers(url):
+            return url
+    return None
+
+
+def _wait_for_running(pid: int, args: List[str], status) -> Optional[str]:
+    """Wait for a CraftBot that is already starting (a login start, or a
+    second click on the icon) instead of starting another one. Its address
+    once it answers; None when it exits or never answers."""
+    started = time.time()
+    while time.time() - started < BROWSER_READY_TIMEOUT_S:
+        url = _running_ui_url(args)
+        if url:
+            return url
+        if not _is_running(pid):
+            return None
+        status("CraftBot is starting. Your browser opens when it is ready.")
+        time.sleep(1)
+    return None
+
+
+def _start_lock() -> str:
+    return str(paths.STATE_ROOT / ".opening.lock")
+
+
+def _claim_start() -> Optional[int]:
+    """Become the one icon click that starts CraftBot.
+
+    None when this process holds the lock now; otherwise the pid of the
+    click that is already starting CraftBot. People double-click an icon
+    twice: without this both clicks started CraftBot, and the second start's
+    cleanup stopped the first one. A lock whose holder is gone is taken over.
+    """
+    for _ in range(2):
+        try:
+            fd = os.open(_start_lock(), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            try:
+                with open(_start_lock(), encoding="utf-8") as f:
+                    holder = int(f.read().strip() or 0)
+            except (OSError, ValueError):
+                holder = 0
+            if holder and holder != os.getpid() and _is_running(holder):
+                return holder
+            try:
+                os.remove(_start_lock())
+            except OSError:
+                pass
+            continue
+        except OSError:
+            return None  # an unwritable state root must not block the start
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(str(os.getpid()))
+        return None
+    return None
+
+
+def _release_start() -> None:
+    try:
+        with open(_start_lock(), encoding="utf-8") as f:
+            mine = f.read().strip() == str(os.getpid())
+        if mine:
+            os.remove(_start_lock())
+    except (OSError, ValueError):
+        pass
+
+
+def _start_failure() -> str:
+    tail = _tail_log_lines(8).strip().splitlines()
+    detail = tail[-1][:300] if tail else "The start did not complete."
+    return f"{detail}\n\nFull log: {LOG_FILE}"
+
+
+def _open_or_start(args: List[str], status) -> tuple:
+    """(ok, failure detail): open CraftBot, starting it first if needed."""
+    url = _running_ui_url(args)
+    if url is None:
+        pid = _owned_pid()
+        if pid is not None:
+            url = _wait_for_running(pid, args, status)
+    if url:
+        _open_browser_detached(url)
+        return True, None
+
+    other_click = _claim_start()
+    if other_click is not None:
+        # Another click is starting CraftBot right now: wait for that start,
+        # then for CraftBot itself if it is still booting when that click
+        # stops waiting.
+        url = _wait_for_running(other_click, args, status)
+        if url is None and _owned_pid() is not None:
+            url = _wait_for_running(_owned_pid(), args, status)
+        if url:
+            _open_browser_detached(url)
+            return True, None
+        return False, _start_failure()
+
+    try:
+        status("Starting CraftBot. Your browser opens when it is ready.")
+        # cmd_start opens the browser itself once the UI answers.
+        if cmd_start(_port_args(args)):
+            return True, None
+        return False, _start_failure()
+    finally:
+        _release_start()
+
+
+def _has_console() -> bool:
+    """True when started from a terminal; the desktop icon has none."""
+    return bool(getattr(sys.stdout, "isatty", lambda: False)())
+
+
+def cmd_open(extra_args: List[str]) -> bool:
+    """What the desktop icon runs: show CraftBot in the browser, starting it
+    first when it is not running.
+
+    Never starts a second copy: a CraftBot that is already starting (the
+    login start, or an earlier click) is waited for, not replaced. Started
+    from the icon there is no console, so progress and any failure are shown
+    in a small window instead; from a terminal they are printed.
+    """
+    if IS_FROZEN or "--cli" in extra_args:
+        # The legacy installer EXE has no run.py next to it to start, and the
+        # terminal interface needs the terminal it is started from.
+        _open_browser_detached(_current_url(extra_args))
+        return True
+
+    url = _running_ui_url(extra_args)
+    if url:  # the common case, and no window at all for it
+        _open_browser_detached(url)
+        return True
+
+    if _has_console():
+        said: List[str] = []
+
+        def say(text: str) -> None:
+            line = text.splitlines()[0]
+            if not said or said[-1] != line:  # each message once, not per poll
+                said.append(line)
+                print(f"  {DIM}{line}{RESET}", flush=True)
+
+        ok, detail = _open_or_start(extra_args, say)
+        if not ok and detail:
+            print(f"  {RED}✗{RESET} {WHITE}CraftBot could not start.{RESET}\n{detail}")
+        return ok
+
+    from installer.open_window import run_with_window
+
+    return run_with_window(
+        lambda status: _open_or_start(extra_args, status), log_file=LOG_FILE
+    )
+
+
 def cmd_stop(quiet: bool = False, args: Optional[List[str]] = None) -> bool:
     """Stop the running CraftBot service. True if anything was stopped.
 
@@ -848,6 +1025,8 @@ def _kill_owned_pid(pid: int) -> None:
                 ["taskkill", "/PID", str(pid), "/F", "/T"],
                 capture_output=True,
                 timeout=15,
+                # The desktop icon runs windowless: no console flash.
+                **_quiet_windows_flags(),
             )
         except Exception as e:
             print(f"Warning: taskkill failed — {e}")
@@ -1027,11 +1206,33 @@ def _ps_literal(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
 
 
+def _open_command(extra_args: Optional[List[str]] = None) -> Optional[List[str]]:
+    """What the desktop icon runs: `craftbot.py open` for this install, or
+    None for the legacy installer EXE (its icon only opens the browser).
+
+    It names the state root and keeps any custom ports, because the icon does
+    not inherit CRAFTBOT_HOME or the install's arguments. On Windows it is
+    pythonw, so no console window appears; `open` shows its own small window
+    only while CraftBot starts.
+    """
+    if IS_FROZEN:
+        return None
+    python = _python_exe() if _PLATFORM == "win32" else _installed_python()
+    return [
+        python,
+        os.path.abspath(__file__),
+        "open",
+        f"--state-root={paths.STATE_ROOT.resolve()}",
+    ] + _port_args(extra_args or [])
+
+
 def _create_desktop_shortcut_windows(extra_args: Optional[List[str]] = None) -> None:
     """Create a .lnk shortcut on the Windows Desktop with the CraftBot icon.
 
-    It opens where the UI is (_current_url): the ports move when another
-    program holds 7925/7926, so an existing link is rewritten every time.
+    It runs `craftbot.py open` (_open_command): the browser opens straight
+    away when CraftBot is running, and CraftBot is started first when it is
+    not. The link is rewritten every time, so upgrades and port changes take
+    effect.
     """
     desktop = _find_desktop()
     if not desktop:
@@ -1040,24 +1241,34 @@ def _create_desktop_shortcut_windows(extra_args: Optional[List[str]] = None) -> 
     shortcut_path = os.path.join(desktop, SHORTCUT_NAME)
     # Refresh existing links too: upgrades and custom ports must take effect.
     ico_path = _ensure_ico()
+    command = _open_command(extra_args)
     try:
         # Write the PS script to a temp file with UTF-8-BOM so PowerShell
         # handles non-ASCII paths (e.g. Japanese Desktop folder) correctly.
         import tempfile
 
-        browser_command = '/c start "" ' + url
+        if command:
+            target = command[0]
+            arguments = subprocess.list2cmdline(command[1:])
+            working_dir = BASE_DIR
+            window_style = 1  # pythonw: there is no console to show
+        else:
+            target = "cmd.exe"
+            arguments = '/c start "" ' + url
+            working_dir = ""
+            window_style = 7  # minimized (hides the cmd flash)
         ps_lines = [
             "$ws = New-Object -ComObject WScript.Shell",
             f"$s = $ws.CreateShortcut({_ps_literal(shortcut_path)})",
-            '$s.TargetPath = "cmd.exe"',
-            f"$s.Arguments = {_ps_literal(browser_command)}",
-            '$s.WorkingDirectory = ""',
-            "$s.WindowStyle = 7",  # minimized (hides the cmd flash)
+            f"$s.TargetPath = {_ps_literal(target)}",
+            f"$s.Arguments = {_ps_literal(arguments)}",
+            f"$s.WorkingDirectory = {_ps_literal(working_dir)}",
+            f"$s.WindowStyle = {window_style}",
         ]
         if ico_path:
             ps_lines.append(f"$s.IconLocation = {_ps_literal(ico_path + ',0')}")
         ps_lines += [
-            '$s.Description = "Open CraftBot in your browser"',
+            '$s.Description = "Open CraftBot"',
             "$s.Save()",
         ]
         with tempfile.NamedTemporaryFile(
@@ -1087,7 +1298,10 @@ def _create_desktop_shortcut_windows(extra_args: Optional[List[str]] = None) -> 
                 pass
         if os.path.exists(shortcut_path):
             print(f"  Desktop shortcut created: {shortcut_path}")
-            print("  Double-click it anytime to open CraftBot in your browser.")
+            print(
+                "  Double-click it anytime to open CraftBot; it starts CraftBot "
+                "first if it is not running."
+            )
         else:
             print(f"  (Shortcut creation may have failed — check {desktop})")
     except Exception as e:
@@ -1105,8 +1319,28 @@ def _installed_launch() -> Optional[List[str]]:
     return _metadata.launch_command(INSTALL_METADATA_FILE)
 
 
+def _desktop_entry_arg(arg: str) -> str:
+    r"""One Exec= argument, quoted per the Desktop Entry spec.
+
+    An argument with a reserved character goes in double quotes, inside which
+    " ` $ and \ are escaped with a backslash. The file's string escaping is
+    applied on top, so each backslash is then written twice, and a literal %
+    is written %%.
+    """
+    reserved = set(" \t\n\"'\\><~|&;$*?#()`")
+    if arg and not any(c in reserved for c in arg):
+        return arg.replace("%", "%%")
+    quoted = "".join("\\" + c if c in '"`$\\' else c for c in arg)
+    return '"' + quoted.replace("\\", "\\\\").replace("%", "%%") + '"'
+
+
 def _create_desktop_shortcut_unix(extra_args: Optional[List[str]] = None) -> None:
-    """Create a desktop shortcut on Linux or macOS."""
+    """Create a desktop shortcut on Linux or macOS.
+
+    Like the Windows one it runs `craftbot.py open` (_open_command): the
+    browser opens straight away when CraftBot is running, and CraftBot is
+    started first when it is not.
+    """
     if extra_args is None:
         extra_args = []
     desktop = _find_desktop()
@@ -1115,27 +1349,36 @@ def _create_desktop_shortcut_unix(extra_args: Optional[List[str]] = None) -> Non
     try:
         # Where the UI is: its ports move when another program holds them.
         browser_url = _current_url(extra_args)
+        command = _open_command(extra_args)
         if _PLATFORM == "darwin":
             # macOS does not support XDG .desktop files — create a double-clickable .command script
             shortcut_path = os.path.join(desktop, "CraftBot.command")
-            content = f"#!/bin/sh\nexec open {shlex.quote(browser_url)}\n"
+            if command:
+                line = " ".join(shlex.quote(part) for part in command)
+            else:
+                line = f"open {shlex.quote(browser_url)}"
+            content = f"#!/bin/sh\nexec {line}\n"
             with open(shortcut_path, "w") as f:
                 f.write(content)
             os.chmod(shortcut_path, 0o755)
         else:
             # Linux: standard XDG .desktop entry
             shortcut_path = os.path.join(desktop, "CraftBot.desktop")
-            open_cmd = (
-                "xdg-open"
-                if os.path.isfile("/usr/bin/xdg-open")
-                or os.path.isfile("/usr/local/bin/xdg-open")
-                else "sensible-browser"
-            )
+            if command:
+                exec_line = " ".join(_desktop_entry_arg(part) for part in command)
+            else:
+                open_cmd = (
+                    "xdg-open"
+                    if os.path.isfile("/usr/bin/xdg-open")
+                    or os.path.isfile("/usr/local/bin/xdg-open")
+                    else "sensible-browser"
+                )
+                exec_line = f"{open_cmd} {browser_url}"
             content = (
                 "[Desktop Entry]\n"
                 "Type=Application\n"
                 "Name=CraftBot\n"
-                f"Exec={open_cmd} {browser_url}\n"
+                f"Exec={exec_line}\n"
                 "Icon=web-browser\n"
                 "Terminal=false\n"
             )
@@ -1143,7 +1386,10 @@ def _create_desktop_shortcut_unix(extra_args: Optional[List[str]] = None) -> Non
                 f.write(content)
             os.chmod(shortcut_path, 0o755)
         print(f"  Desktop shortcut created: {shortcut_path}")
-        print("  Double-click it anytime to open CraftBot in your browser.")
+        print(
+            "  Double-click it anytime to open CraftBot; it starts CraftBot "
+            "first if it is not running."
+        )
     except Exception as e:
         print(f"  (Could not create desktop shortcut: {e})")
 
@@ -2437,6 +2683,11 @@ def main() -> None:
     if command == "start":
         if not cmd_start(rest):
             _hold_console_on_failure()
+            sys.exit(1)
+
+    elif command == "open":
+        # What the desktop icon runs.
+        if not cmd_open(rest):
             sys.exit(1)
 
     elif command == "stop":
