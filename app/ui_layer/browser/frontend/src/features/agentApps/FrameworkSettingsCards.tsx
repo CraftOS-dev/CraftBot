@@ -16,19 +16,24 @@ import { FrameworkAppDelete } from './FrameworkAppDialogs'
 import { AppSettingsCard, AppSettingsInfo } from '../../pages/Settings/AgentAppSettingsCard'
 import settingsStyles from '../../pages/Settings/SettingsPage.module.css'
 
-function RegistrySettingsCard({ app, expanded, onToggle, onDelete, cardRef, stale, busy }: {
-  app: FrameworkRegistryApp; expanded: boolean; onToggle: () => void; onDelete: () => void; cardRef?: Ref<HTMLElement>; stale: boolean; busy: boolean
+function RegistrySettingsCard({ app, expanded, onToggle, onDelete, cardRef, stale, busy, operation }: {
+  app: FrameworkRegistryApp; expanded: boolean; onToggle: () => void; onDelete: () => void; cardRef?: Ref<HTMLElement>; stale: boolean; busy: boolean; operation?: string
 }) {
   const { t } = useTranslation(['settings', 'agentapp'])
   const settings = useFrameworkAppSettings(app.path, app.id, expanded && app.status !== 'missing', app.status, !!app.connection)
-  const status = app.status === 'stopped' ? t('settings:agentApp.status.notRunning') : t(`agentapp:registry.status.${app.status}`)
-  const statusColor = app.status === 'running' ? 'var(--color-success)' : app.status === 'unreachable' ? 'var(--color-error)' : 'var(--text-muted)'
+  const launching = busy && operation === 'start'
+  const status = launching ? t('settings:agentApp.status.launching')
+    : app.status === 'stopped' || (busy && operation === 'stop') ? t('settings:agentApp.status.notRunning')
+    : t(`agentapp:registry.status.${app.status}`)
+  const statusColor = launching ? 'var(--color-warning)'
+    : busy && operation === 'stop' ? 'var(--text-muted)'
+    : app.status === 'running' ? 'var(--color-success)' : app.status === 'unreachable' ? 'var(--color-error)' : 'var(--text-muted)'
   const exportApp = () => {
     if (!expanded) onToggle()
     void settings.manage('export')
   }
   return <AppSettingsCard name={app.name} status={stale ? t('agentapp:registry.lastKnown', { status }) : status}
-    statusColor={statusColor} active={app.status === 'running'} expanded={expanded} onToggle={onToggle} cardRef={cardRef}
+    statusColor={statusColor} active={launching || (app.status === 'running' && !(busy && operation === 'stop'))} expanded={expanded} onToggle={onToggle} cardRef={cardRef}
     actions={<>
       <FrameworkAppControls app={app} compact />
       {!app.connection && <Button size="sm" variant="ghost" icon={settings.busy ? <Loader2 size={14} className={settingsStyles.spinning} /> : <Download size={14} />}
@@ -47,7 +52,7 @@ function RegistrySettingsCard({ app, expanded, onToggle, onDelete, cardRef, stal
 }
 
 export function FrameworkSettingsCards() {
-  const { t } = useTranslation(['agentapp', 'common'])
+  const { t } = useTranslation(['agentapp', 'settings', 'common'])
   const location = useLocation()
   const { requestAgentAppList } = useWebSocket()
   const snapshot = useAppSelector(s => s.agentApp.framework)
@@ -65,16 +70,20 @@ export function FrameworkSettingsCards() {
   useEffect(() => { selectedCard.current?.scrollIntoView({ block: 'nearest' }) }, [selectedKey, snapshot.apps.length])
   const stale = !connected || snapshot.status !== 'success'
   return <>
-    {snapshot.status === 'loading' && !snapshot.apps.length && <p role="status">{t('registry.loading')}</p>}
+    {(snapshot.status === 'loading' || snapshot.status === 'idle') && !snapshot.apps.length && <div className={settingsStyles.loadingState}>
+      <Loader2 size={20} className={settingsStyles.spinning} />
+      <span>{t('settings:agentApp.loadingProjects')}</span>
+    </div>}
     {(!connected || snapshot.status === 'error' || snapshot.warning) && <p role="alert">
       {!connected ? t('registry.disconnected') : snapshot.status === 'error' ? t('registry.failed') : snapshot.warning}
     </p>}
     {snapshot.apps.map(app => {
       const key = frameworkKey(app.path, app.id)
       const open = expanded.has(key)
-      const busy = jobs[frameworkAppKey(app.path, app.id)]?.status === 'running'
+      const job = jobs[frameworkAppKey(app.path, app.id)]
+      const busy = job?.status === 'running'
       return <RegistrySettingsCard key={key} app={app} expanded={open} onToggle={() => toggle(key)} onDelete={() => setDeleting(app)}
-        stale={stale} busy={busy} cardRef={key === selectedKey ? selectedCard : undefined} />
+        stale={stale} busy={busy} operation={job?.operation} cardRef={key === selectedKey ? selectedCard : undefined} />
     })}
     {deleting && <FrameworkAppDelete app={deleting} onClose={() => setDeleting(null)} onDeleted={() => { setDeleting(null); requestAgentAppList() }} />}
   </>
