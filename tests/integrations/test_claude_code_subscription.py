@@ -14,7 +14,7 @@ import pytest
 
 from craftos_integrations.config import ConfigStore
 from craftos_integrations.llm_oauth import claude_code, tokens
-from agent_core.core.models.claude_code_client import ClaudeCodeClient
+from agent_core.core.models.claude_code_client import ClaudeCodeClient, _content
 from agent_core.core.models.factory import ModelFactory
 from agent_core.core.models.types import InterfaceType
 
@@ -406,6 +406,16 @@ def test_request_preserves_text_images_and_usage_without_running_tools(monkeypat
     assert result.usage.input_tokens == 20
     assert result.usage.cache_read_input_tokens == 10
     assert all(not path.exists() for path in temporary_paths)
+
+
+def test_each_turn_extends_the_previous_turn_so_the_cli_cache_carries_over():
+    first = [{"role": "user", "content": "first question"}]
+    second = first + [
+        {"role": "assistant", "content": "first answer"},
+        {"role": "user", "content": "second question"},
+    ]
+    turn_one = _content(first)
+    assert _content(second)[: len(turn_one)] == turn_one
 
 
 @pytest.mark.parametrize(

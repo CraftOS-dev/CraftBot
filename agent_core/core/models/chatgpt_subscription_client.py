@@ -38,10 +38,13 @@ FORWARDED for cache routing (Codex-specific — the whole reason prefix
 caching works under ``store=false``):
 
 - ``prompt_cache_key`` — sourced from the caller's ``extra_body`` when
-  present, or a stable per-client UUID as fallback. Codex-rs uses
-  ``thread_id`` here; CraftBot's LLM interface uses
-  ``<call_type>_<sha256(system_prompt)>``. Any stable string works;
-  rotating it per turn breaks caching (known anti-pattern).
+  present, or a stable per-client UUID as fallback. CraftBot's LLM
+  interface uses ``<call_type>_<sha256(system_prompt)>``. Any stable
+  string works; rotating it per turn breaks caching (known anti-pattern).
+- ``session-id`` request header: set to the same key. ChatGPT derives
+  cache affinity from this header, not from the body field: without it
+  each request lands on a random shard and finds no cache. Codex-rs sends
+  its prompt cache key as ``session-id`` for the same reason.
 
 Response shape: the SDK ``Response`` object's ``output_text`` is exposed
 as ``choices[0].message.content``; usage fields are re-mapped onto the
@@ -257,15 +260,15 @@ def _translate_request(
     # context turn-over-turn (backend keeps no state of its own).
     out["include"] = ["reasoning.encrypted_content"]
 
-    # ``prompt_cache_key`` is what turns a cold shard into a warm one.
-    # Codex-rs sets it to ``self.state.thread_id.to_string()`` (a UUID
-    # stable for the entire conversation). Under ``store=false``, this is
-    # the ONLY thing keeping requests landing on the same warm-cache shard;
-    # rotating it per turn (e.g. hashing the growing messages array) is a
-    # known anti-pattern that pegs cache hit at ~10%. We prefer the value
-    # the caller supplied via ``extra_body.prompt_cache_key`` — CraftBot's
-    # LLM interface generates a stable ``<call_type>_<system_prompt_hash>``
-    # there — and fall back to a per-client UUID if the caller omitted it.
+    # ``prompt_cache_key`` names the conversation's cache. It must stay
+    # stable across turns; rotating it per turn (e.g. hashing the growing
+    # messages array) is a known anti-pattern that pegs cache hit at ~10%.
+    # The same key is sent as the ``session-id`` header (see
+    # _CompletionsNamespace.create), which is what actually pins requests
+    # to a warm shard. We prefer the value the caller supplied via
+    # ``extra_body.prompt_cache_key`` (CraftBot's LLM interface generates a
+    # stable ``<call_type>_<system_prompt_hash>`` there) and fall back to a
+    # per-client UUID if the caller omitted it.
     extra_body = kwargs.get("extra_body") or {}
     if isinstance(extra_body, dict) and extra_body.get("prompt_cache_key"):
         out["prompt_cache_key"] = str(extra_body["prompt_cache_key"])
@@ -667,8 +670,14 @@ class _CompletionsNamespace:
             f"cache_key={translated.get('prompt_cache_key')!r}, "
             f"streaming=True)"
         )
+        # ChatGPT routes cache affinity by the ``session-id`` header; the body
+        # ``prompt_cache_key`` alone leaves every request on a random shard
+        # with 0 cached tokens. Codex-rs sends its cache key here too.
         try:
-            stream = self._parent._inner.responses.create(**translated)
+            stream = self._parent._inner.responses.create(
+                **translated,
+                extra_headers={"session-id": translated["prompt_cache_key"]},
+            )
         except Exception as exc:
             logger.error(
                 f"[CHATGPT-SUB] responses.create failed: {type(exc).__name__}: {exc}"

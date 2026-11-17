@@ -158,10 +158,9 @@ def generate_openai(
         # Build provider-specific cache hints in extra_body.
         # - prompt_cache_key (OpenAI/DeepSeek/OpenRouter/Grok): improves
         #   prefix-cache routing stickiness across alternating call types.
-        #   Grok DOES honor it — verified empirically: without a key a
-        #   repeated identical prefix intermittently missed (routing bounced
-        #   to a cold node); with prompt_cache_key the same prefix stayed a
-        #   consistent hit. The old code skipped grok on a stale assumption.
+        #   Grok's Chat Completions routes cache by the x-grok-conv-id
+        #   header (profile.cache_routing_header), so the same key is also
+        #   sent there.
         # - cache_control (OpenRouter routing to Anthropic Claude only): Anthropic
         #   prompt caching is opt-in. OpenRouter accepts a top-level cache_control
         #   field and applies it to the last cacheable block automatically. For
@@ -186,6 +185,10 @@ def generate_openai(
             prompt_hash = hashlib.sha256(system_prompt.encode()).hexdigest()[:16]
             cache_key = f"{call_type}_{prompt_hash}" if call_type else prompt_hash
             extra_body["prompt_cache_key"] = cache_key
+            if _profile is not None and _profile.cache_routing_header:
+                request_kwargs["extra_headers"] = {
+                    _profile.cache_routing_header: cache_key
+                }
             logger.debug(f"[OPENAI] Using prompt_cache_key: {cache_key}")
 
         if iface.provider == "openrouter" and long_enough:
