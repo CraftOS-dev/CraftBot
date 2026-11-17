@@ -304,6 +304,16 @@ def disconnect_subscription(provider: str) -> Tuple[bool, str]:
     return success, message
 
 
+def setup_subscription(provider: str) -> Tuple[bool, str]:
+    """Install or update the CLI a subscription sign-in runs through (Claude
+    Code). Blocks for the download, so async callers should offload it."""
+    try:
+        from craftos_integrations.llm_oauth import tokens as _oauth_tokens
+    except Exception as e:
+        return False, f"Subscription OAuth backend unavailable: {e}"
+    return _oauth_tokens.setup(provider)
+
+
 def connect_subscription(provider: str) -> Tuple[bool, str]:
     """Sync wrapper around ``connect_subscription_async`` — for CLI/script
     callers that aren't running inside an event loop. **Do not call from an

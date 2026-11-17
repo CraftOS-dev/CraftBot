@@ -26,6 +26,14 @@ def isolated_connection(tmp_path, monkeypatch):
     monkeypatch.setattr(claude_code, "_login_generation", 0)
     # Never find the real CLI installed on the test machine.
     monkeypatch.setattr(claude_code, "_native_install", lambda: tmp_path / "no-claude")
+    which = claude_code.shutil.which
+    monkeypatch.setattr(
+        claude_code.shutil,
+        "which",
+        lambda name, *args, **kwargs: (
+            None if name == "claude" else which(name, *args, **kwargs)
+        ),
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -115,7 +123,7 @@ def claude_account(monkeypatch):
 
 def connected(monkeypatch):
     def signed_out_cli(args, **kwargs):
-        assert args in (["auth", "logout"], ["auth", "status"])
+        assert args in (["auth", "logout"], ["auth", "status", "--json"])
         return SimpleNamespace(returncode=0, stdout='{"loggedIn": false}')
 
     monkeypatch.setattr(claude_code, "run_cli", signed_out_cli)
@@ -135,7 +143,12 @@ def test_connection_is_explicit_and_does_not_store_cli_credentials(
     monkeypatch, tmp_path
 ):
     assert not tokens.has_credential("anthropic")
-    assert tokens.status("anthropic") == {"supported": True, "connected": False}
+    # No CLI on this machine: status offers to install it before sign-in.
+    assert tokens.status("anthropic") == {
+        "supported": True,
+        "connected": False,
+        "setup": {"action": "install"},
+    }
     connected(monkeypatch)
     assert tokens.has_credential("anthropic")
     assert tokens.status("anthropic")["email"] == "user@example.com"
@@ -159,7 +172,7 @@ def test_disconnect_logs_out_then_verifies_before_clearing_marker(monkeypatch):
 
     monkeypatch.setattr(claude_code, "run_cli", logout)
     assert tokens.disconnect("anthropic")[0]
-    assert calls == [["auth", "logout"], ["auth", "status"]]
+    assert calls == [["auth", "logout"], ["auth", "status", "--json"]]
     assert not tokens.has_credential("anthropic")
 
 
@@ -487,6 +500,158 @@ def test_native_install_is_used_when_app_path_is_stale(monkeypatch, tmp_path):
     assert claude_code.cli_command() == [str(native)]
 
 
+def npm_install(tmp_path, *, binary=True):
+    """A Windows npm global install: the shim and the package beside it."""
+    package = tmp_path / "npm/node_modules/@anthropic-ai/claude-code"
+    package.mkdir(parents=True)
+    entry = package / ("bin/claude.exe" if binary else "cli.js")
+    entry.parent.mkdir(parents=True, exist_ok=True)
+    entry.write_text("")
+    return tmp_path / "npm/claude.cmd", entry
+
+
+class Machine:
+    """subprocess.run on a machine whose Claude Code predates `claude auth`
+    (1.0.90) until an installer command runs, then is current (2.1.326)."""
+
+    def __init__(self, installer_code=0, installer_output="", upgrades=True):
+        self.installer_code = installer_code
+        self.installer_output = installer_output
+        self.upgrades = upgrades
+        self.current = False
+        self.commands = []
+
+    def run(self, args, **kwargs):
+        if "auth" in args or "--version" in args:
+            if "--version" in args:
+                version = "2.1.326" if self.current else "1.0.90"
+                return SimpleNamespace(
+                    returncode=0, stdout=f"{version} (Claude Code)\n"
+                )
+            assert args[-3:] == ["auth", "status", "--json"]
+            assert kwargs["stdin"] is subprocess.DEVNULL
+            if not self.current:
+                # Older releases reject the option instead of prompting Claude.
+                return SimpleNamespace(returncode=1, stdout="")
+            return SimpleNamespace(
+                returncode=0,
+                stdout=json.dumps({"loggedIn": False, "authMethod": "none"}),
+            )
+        self.commands.append(args)
+        self.current = self.upgrades and not self.installer_code
+        return SimpleNamespace(
+            returncode=self.installer_code, stdout="", stderr=self.installer_output
+        )
+
+
+def test_npm_package_binary_is_run_without_a_shell(monkeypatch, tmp_path):
+    shim, binary = npm_install(tmp_path)
+    monkeypatch.setattr(
+        claude_code.shutil,
+        "which",
+        lambda name: str(shim) if name == "claude" else None,
+    )
+    assert claude_code.cli_command() == [str(binary)]
+
+
+def test_cli_without_auth_command_stops_before_sign_in(monkeypatch):
+    machine = Machine()
+    monkeypatch.setattr(claude_code, "cli_command", lambda: ["claude"])
+    monkeypatch.setattr(claude_code.subprocess, "run", machine.run)
+    monkeypatch.setattr(
+        claude_code.subprocess, "Popen", lambda *a, **k: pytest.fail("No login")
+    )
+    ok, message = asyncio.run(tokens.connect("anthropic"))
+    assert not ok and "1.0.90" in message and "Update" in message
+    assert tokens.status("anthropic")["setup"] == {
+        "action": "update",
+        "version": "1.0.90",
+    }
+    assert not tokens.has_credential("anthropic")
+
+
+def test_setup_updates_an_npm_install_in_place(monkeypatch, tmp_path):
+    shim, _ = npm_install(tmp_path)
+    monkeypatch.setattr(
+        claude_code.shutil,
+        "which",
+        lambda name: {"claude": str(shim), "npm": "npm"}.get(name),
+    )
+    machine = Machine()
+    monkeypatch.setattr(claude_code.subprocess, "run", machine.run)
+    assert tokens.status("anthropic")["setup"]["action"] == "update"
+    ok, message = tokens.setup("anthropic")
+    assert ok and "2.1.326" in message
+    assert machine.commands == [
+        ["npm", "install", "--global", "@anthropic-ai/claude-code@latest"]
+    ]
+    assert tokens.status("anthropic") == {"supported": True, "connected": False}
+
+
+def test_setup_runs_the_official_installer_without_a_cli(monkeypatch, tmp_path):
+    native = tmp_path / "no-claude"
+    machine = Machine()
+
+    def run(args, **kwargs):
+        result = machine.run(args, **kwargs)
+        if machine.current:
+            native.write_text("")
+        return result
+
+    monkeypatch.setattr(claude_code.subprocess, "run", run)
+    assert tokens.status("anthropic")["setup"] == {"action": "install"}
+    ok, _ = tokens.setup("anthropic")
+    assert ok
+    platform = "windows" if claude_code.os.name == "nt" else "posix"
+    assert machine.commands == [claude_code._CLI["native_installer"][platform]]
+
+
+def test_failed_setup_reports_the_installer_error(monkeypatch):
+    machine = Machine(installer_code=1, installer_output="Failed to download binary")
+    monkeypatch.setattr(claude_code.subprocess, "run", machine.run)
+    ok, message = tokens.setup("anthropic")
+    assert not ok and "Failed to download binary" in message
+    assert tokens.status("anthropic")["setup"] == {"action": "install"}
+
+
+def test_setup_names_an_old_copy_still_first_on_path(monkeypatch, tmp_path):
+    shim, _ = npm_install(tmp_path)
+    monkeypatch.setattr(
+        claude_code.shutil,
+        "which",
+        lambda name: {"claude": str(shim), "npm": "npm"}.get(name),
+    )
+    monkeypatch.setattr(claude_code.subprocess, "run", Machine(upgrades=False).run)
+    ok, message = tokens.setup("anthropic")
+    assert not ok and str(shim) in message and "still" in message
+
+
+def test_browser_setup_returns_refreshed_status(monkeypatch):
+    from app.ui_layer.adapters.browser_adapter import BrowserAdapter
+
+    native = claude_code._native_install()
+    machine = Machine()
+
+    def run(args, **kwargs):
+        result = machine.run(args, **kwargs)
+        if machine.current:
+            native.write_text("")
+        return result
+
+    monkeypatch.setattr(claude_code.subprocess, "run", run)
+    adapter = object.__new__(BrowserAdapter)
+    sent = []
+
+    async def broadcast(message):
+        sent.append(message)
+
+    adapter._broadcast = broadcast
+    asyncio.run(adapter._handle_model_subscription_setup("anthropic"))
+    assert [m["type"] for m in sent] == ["model_subscription_setup"]
+    assert sent[0]["data"]["success"]
+    assert "setup" not in sent[0]["data"]["status"]
+
+
 def test_status_detects_cli_logout_without_exporting_tokens(monkeypatch):
     connected(monkeypatch)
     monkeypatch.setattr(
@@ -575,7 +740,7 @@ def test_old_shared_login_marker_requires_new_profile_sign_in(tmp_path):
 
     save_credential(claude_code.CRED_FILE, claude_code.ClaudeCodeConnection())
     assert not tokens.has_credential("anthropic")
-    assert tokens.status("anthropic") == {"supported": True, "connected": False}
+    assert not tokens.status("anthropic")["connected"]
     assert not (tmp_path / ".credentials" / "claude_code").exists()
 
 

@@ -153,6 +153,13 @@
       "submitCode": "コードを送信",
       "reopenSignIn": "サインインページを再度開く",
       "openingBrowser": "ブラウザを開いています…",
+      "claudeCodeMissing": "サブスクリプションでのサインインには Claude Code が必要です。",
+      "claudeCodeOutdated": "Claude Code {{version}} はサブスクリプションでのサインインに対応していません。",
+      "claudeCodeOutdatedUnknown": "インストールされている Claude Code はサブスクリプションでのサインインに対応していません。",
+      "installClaudeCode": "Claude Code をインストール",
+      "updateClaudeCode": "Claude Code を更新",
+      "installingClaudeCode": "Claude Code をインストール中…",
+      "updatingClaudeCode": "Claude Code を更新中…",
       "signInWith": "{{provider}} でサインイン",
       "useApiKeyInstead": "代わりに API キーを使用"
     },

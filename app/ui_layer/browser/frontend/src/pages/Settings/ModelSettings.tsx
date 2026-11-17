@@ -293,6 +293,14 @@ export function ModelSettings() {
           d.message || d.error || t('settings:model.subscription.disconnectFailed'),
         )
       }),
+      onMessage('model_subscription_setup', (data: unknown) => {
+        const d = data as { provider?: string; success: boolean; message?: string; error?: string }
+        if (d.provider !== provider) return
+        showToast(
+          d.success ? 'success' : 'error',
+          d.message || d.error || t('settings:model.subscription.connectFailed'),
+        )
+      }),
       onMessage('ollama_models_get', (data: unknown) => {
         const d = data as { success: boolean; models: string[] }
         setOllamaModelsLoading(false)
@@ -1027,6 +1035,36 @@ export function ModelSettings() {
                       <div className={styles.formError}>{pb.errorMessage}</div>
                     )}
                   </>
+                ) : subStatus?.setup ? (
+                  // Claude Code is missing or too old to sign in: offer to set
+                  // it up instead of a sign-in that cannot open a browser.
+                  <>
+                    <p className={styles.hint}>
+                      {subStatus.setup.action === 'install'
+                        ? t('settings:model.subscription.claudeCodeMissing')
+                        : subStatus.setup.version
+                          ? t('settings:model.subscription.claudeCodeOutdated', { version: subStatus.setup.version })
+                          : t('settings:model.subscription.claudeCodeOutdatedUnknown')}
+                    </p>
+                    <div className={styles.subscriptionButtonRow}>
+                      <Button
+                        variant="primary"
+                        disabled={isSubPending}
+                        onClick={() => {
+                          dispatch(setSubscriptionPending({ provider, pending: true }))
+                          send('model_subscription_setup', { provider })
+                        }}
+                      >
+                        {subStatus.setup.action === 'install'
+                          ? (isSubPending
+                            ? <><Loader2 size={14} className={styles.spinning} /> {t('settings:model.subscription.installingClaudeCode')}</>
+                            : t('settings:model.subscription.installClaudeCode'))
+                          : (isSubPending
+                            ? <><Loader2 size={14} className={styles.spinning} /> {t('settings:model.subscription.updatingClaudeCode')}</>
+                            : t('settings:model.subscription.updateClaudeCode'))}
+                      </Button>
+                    </div>
+                  </>
                 ) : (
                   <div className={styles.subscriptionButtonRow}>
                     <Button
@@ -1073,7 +1111,7 @@ export function ModelSettings() {
                     </Button>
                   </>
                 )}
-                {subStatus?.error && (
+                {subStatus?.error && !subStatus.setup && (
                   <p role="alert" className={styles.hint}>{subStatus.error}</p>
                 )}
               </div>

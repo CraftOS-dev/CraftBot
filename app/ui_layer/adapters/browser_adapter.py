@@ -97,6 +97,7 @@ from app.ui_layer.settings import (
     disconnect_subscription,
     get_subscription_status,
     prepare_subscription_async,
+    setup_subscription,
     # MCP settings
     list_mcp_servers,
     add_mcp_server_from_json,
@@ -2014,6 +2015,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
         elif msg_type == "model_subscription_status":
             await self._handle_model_subscription_status(data.get("provider", ""))
+
+        elif msg_type == "model_subscription_setup":
+            await self._handle_model_subscription_setup(data.get("provider", ""))
 
         elif msg_type == "model_subscription_prepare":
             await self._handle_model_subscription_prepare(data.get("provider", ""))
@@ -7171,6 +7175,41 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             await self._broadcast(
                 {
                     "type": "model_subscription_status",
+                    "data": {
+                        "success": False,
+                        "provider": provider,
+                        "error": str(e),
+                    },
+                }
+            )
+
+    async def _handle_model_subscription_setup(self, provider: str) -> None:
+        """Install or update the CLI a subscription sign-in runs through.
+
+        Offered when status reports a ``setup`` step (Claude Code missing or
+        too old for ``claude auth``). Blocks for the download, so it runs off
+        the event loop; the refreshed status clears the step once it is done.
+        """
+        try:
+            success, message = await asyncio.to_thread(setup_subscription, provider)
+            await self._broadcast(
+                {
+                    "type": "model_subscription_setup",
+                    "data": {
+                        "success": success,
+                        "provider": provider,
+                        "message": message,
+                        "status": await asyncio.to_thread(
+                            get_subscription_status, provider
+                        ),
+                    },
+                }
+            )
+        except Exception as e:
+            logger.error(f"[BROWSER] subscription setup failed: {e}")
+            await self._broadcast(
+                {
+                    "type": "model_subscription_setup",
                     "data": {
                         "success": False,
                         "provider": provider,
