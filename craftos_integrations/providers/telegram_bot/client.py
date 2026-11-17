@@ -374,7 +374,9 @@ class TelegramBotClient(BasePlatformClient):
         chat = message.get("chat", {})
 
         cfg = (
-            load_config(_telegram_bot_config_file(), TelegramBotConfig)
+            await asyncio.to_thread(
+                load_config, _telegram_bot_config_file(), TelegramBotConfig
+            )
             or TelegramBotConfig()
         )
         if cfg.self_messages_only and chat.get("type") != "private":

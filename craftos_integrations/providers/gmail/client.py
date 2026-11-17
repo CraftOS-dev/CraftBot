@@ -516,7 +516,7 @@ class GmailClient(GoogleApiClientMixin, BasePlatformClient):
         result = await arequest(
             "GET",
             f"{GMAIL_API_BASE}/users/me/profile",
-            headers=self._auth_header(),
+            headers=await self._async_auth_header(),
             expected=(200,),
         )
         if "error" in result:
@@ -547,7 +547,7 @@ class GmailClient(GoogleApiClientMixin, BasePlatformClient):
         result = await arequest(
             "GET",
             f"{GMAIL_API_BASE}/users/me/history",
-            headers=self._auth_header(),
+            headers=await self._async_auth_header(),
             params={
                 "startHistoryId": self._history_id,
                 "historyTypes": "messageAdded",
@@ -589,7 +589,10 @@ class GmailClient(GoogleApiClientMixin, BasePlatformClient):
                 logger.debug(f"[GMAIL] Error processing message {msg_id}: {e}")
 
     async def _fetch_and_dispatch(self, msg_id: str) -> None:
-        cfg = load_config(_gmail_config_file(), GmailConfig) or GmailConfig()
+        cfg = (
+            await asyncio.to_thread(load_config, _gmail_config_file(), GmailConfig)
+            or GmailConfig()
+        )
         if not cfg.process_incoming:
             return
 
@@ -605,7 +608,7 @@ class GmailClient(GoogleApiClientMixin, BasePlatformClient):
         result = await arequest(
             "GET",
             f"{GMAIL_API_BASE}/users/me/messages/{msg_id}",
-            headers=self._auth_header(),
+            headers=await self._async_auth_header(),
             params=[
                 ("format", "full"),
                 (

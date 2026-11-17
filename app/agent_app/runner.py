@@ -152,9 +152,10 @@ class AgentAppRunner:
                 )
             raise AgentAppRunnerUnavailable(
                 f"Node.js >= {MIN_NODE_MAJOR} is required to build Agent Apps "
-                f"with working npm and none was found{hint}. Use Repair in "
-                "the installer to restore CraftBot's private Node/npm. For "
-                "a source checkout, run `python craftbot.py install`, then restart."
+                f"and none was found{hint}. CraftBot never upgrades your "
+                "default Node: run `python install.py` to add a side-by-side "
+                "Node (nvm install 24 also works), or point the CRAFTBOT_NODE "
+                "env var at a >= 24 binary, then restart."
             )
         major = node_runtime.major_of(rt.version)
         if major is not None and major < MIN_NODE_MAJOR:
@@ -279,16 +280,13 @@ class AgentAppRunner:
         frontend = project_dir / "frontend"
         if (frontend / "node_modules").exists():
             return
-        # Invoke the selected Node's npm JS directly, without a Windows shell.
-        npm = node_runtime.npm_command()
-        if not npm:
-            raise AgentAppRunnerUnavailable(
-                "npm is unavailable. Run CraftBot Repair to restore the Node runtime."
-            )
+        # Windows: bare "npm" is npm.cmd — CreateProcess only finds it via a
+        # full path, so never spawn the bare name.
+        npm = node_runtime.npm_cmd() or "npm"
         code, out = await self._run(
             # --ignore-scripts: any npm package is allowed in a project, so
             # lifecycle scripts must never run (supply-chain guard, spec B7).
-            npm + ["install", "--no-audit", "--no-fund", "--ignore-scripts"],
+            [npm, "install", "--no-audit", "--no-fund", "--ignore-scripts"],
             timeout=INSTALL_TIMEOUT_S,
             cwd=frontend,
         )
@@ -401,11 +399,12 @@ class AgentAppRunner:
         pb_dir = project_dir / "pb"
         cred_file = project_dir / ".superuser"
 
-        creds = read_superuser_creds(project_dir)
+        # File and database reads: worker threads, off the event loop.
+        creds = await asyncio.to_thread(read_superuser_creds, project_dir)
         email = creds[0] if creds else "agent@agent-app.local"
         password = creds[1] if creds else secrets.token_urlsafe(18)
         db_path = (data_dir if data_dir is not None else pb_dir / "pb_data") / "data.db"
-        stamp_before = _superuser_stamp(db_path, email)
+        stamp_before = await asyncio.to_thread(_superuser_stamp, db_path, email)
 
         # Flags first, then `--`, then the positional email and password: a
         # token_urlsafe password can start with "-", and without the
@@ -441,10 +440,9 @@ class AgentAppRunner:
         # PocketBase's CLI exits 0 even when a command fails, so the exit
         # code alone proves nothing: the save is confirmed from the database
         # itself (the superuser row exists and its `updated` stamp moved).
-        saved = code == 0 and _superuser_stamp(db_path, email) not in (
-            None,
-            stamp_before,
-        )
+        saved = code == 0 and await asyncio.to_thread(
+            _superuser_stamp, db_path, email
+        ) not in (None, stamp_before)
         if not saved:
             # FAIL CLOSED. A serve without a superuser makes PocketBase pop
             # the user's SYSTEM BROWSER with a one-time /_/#/pbinstall/…
@@ -462,12 +460,16 @@ class AgentAppRunner:
                 f"to serve without one (PocketBase would open its installer "
                 f"page in the user's browser): {tail}"
             )
-        try:
+
+        def _persist_creds() -> None:
             cred_file.write_text(
                 _json.dumps({"email": email, "password": password}) + "\n",
                 encoding="utf-8",
             )
             cred_file.chmod(0o600)
+
+        try:
+            await asyncio.to_thread(_persist_creds)
         except Exception as e:
             logger.warning(f"[AGENT_APP] could not persist .superuser: {e}")
 
@@ -532,15 +534,12 @@ class AgentAppRunner:
         # Must happen BEFORE serve, or PocketBase opens its setup page.
         await self.ensure_superuser(project_dir, data_dir=effective_data)
         # The credential non-browser clients present to write (Phase 2 C4).
-        self.ensure_agent_token(project_dir)
+        await asyncio.to_thread(self.ensure_agent_token, project_dir)
         # Upgrade the in-app A2APP layer. This is the ONLY path that reaches an
         # app the user already had — install and import cover new arrivals only.
         await self.adapter_sync(project_dir)
         logs_dir = log_dir if log_dir is not None else project_dir / "logs"
-        logs_dir.mkdir(parents=True, exist_ok=True)
         log_path = logs_dir / "pocketbase.log"
-        cap_log(log_path)
-        log_file = open(log_path, "a")
 
         # The app's pb_hooks (_craftbot_bridge.js) call back into CraftBot's
         # LLM/integration bridge over HTTP using these two env vars — without
@@ -564,44 +563,57 @@ class AgentAppRunner:
         env["CRAFTBOT_APP_ENV"] = app_env
         env["CRAFTBOT_APP_PORT"] = str(port)
 
-        process = subprocess.Popen(
-            [
-                str(pb_bin),
-                "serve",
-                f"--http=127.0.0.1:{port}",
-                "--dir",
-                str(effective_data),
-                "--hooksDir",
-                str(pb_dir / "pb_hooks"),
-                "--migrationsDir",
-                str(pb_dir / "pb_migrations"),
-                "--publicDir",
-                str(effective_public),
-                # Hooks are shared by LIVE and SHADOW (they ARE the candidate
-                # code); the live process must never hot-load an edit before
-                # it is verified. No effect on Windows per PB docs — pinned
-                # anyway so the invariant holds on every platform.
-                "--hooksWatch=false",
-                # PocketBase guesses dev mode from its binary's path (a `go
-                # run` heuristic) and this install path trips it, so pin it.
-                # Dev mode echoes every SQL statement and request: a shadow
-                # keeps it (verify quotes PB's validation errors from it); a
-                # live app's log grew to 20 GB with it.
-                f"--dev={'false' if app_env == 'live' else 'true'}",
-            ],
-            env=env,
-            stdout=log_file,
-            stderr=subprocess.STDOUT,
-            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
-        )
-        # Recorded so cleanup can later kill exactly this process (and a
-        # restart can reap it) without guessing from the port.
-        get_ledger().register(
-            process.pid,
-            ROLE_AGENT_APP,
-            owner=project_dir.name,
-            label=f"pocketbase {app_env} :{port}",
-        )
+        command = [
+            str(pb_bin),
+            "serve",
+            f"--http=127.0.0.1:{port}",
+            "--dir",
+            str(effective_data),
+            "--hooksDir",
+            str(pb_dir / "pb_hooks"),
+            "--migrationsDir",
+            str(pb_dir / "pb_migrations"),
+            "--publicDir",
+            str(effective_public),
+            # Hooks are shared by LIVE and SHADOW (they ARE the candidate
+            # code); the live process must never hot-load an edit before
+            # it is verified. No effect on Windows per PB docs — pinned
+            # anyway so the invariant holds on every platform.
+            "--hooksWatch=false",
+            # PocketBase guesses dev mode from its binary's path (a `go
+            # run` heuristic) and this install path trips it, so pin it.
+            # Dev mode echoes every SQL statement and request: a shadow
+            # keeps it (verify quotes PB's validation errors from it); a
+            # live app's log grew to 20 GB with it.
+            f"--dev={'false' if app_env == 'live' else 'true'}",
+        ]
+
+        def _spawn() -> subprocess.Popen:
+            # Log capping, the spawn and the ledger write all touch the disk:
+            # one worker thread, off the event loop.
+            logs_dir.mkdir(parents=True, exist_ok=True)
+            cap_log(log_path)
+            log_file = open(log_path, "a")
+            process = subprocess.Popen(
+                command,
+                env=env,
+                stdout=log_file,
+                stderr=subprocess.STDOUT,
+                creationflags=(
+                    subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+                ),
+            )
+            # Recorded so cleanup can later kill exactly this process (and a
+            # restart can reap it) without guessing from the port.
+            get_ledger().register(
+                process.pid,
+                ROLE_AGENT_APP,
+                owner=project_dir.name,
+                label=f"pocketbase {app_env} :{port}",
+            )
+            return process
+
+        process = await asyncio.to_thread(_spawn)
         logger.info(
             f"[AGENT_APP] started PocketBase pid={process.pid} port={port} "
             f"env={app_env}"

@@ -150,11 +150,63 @@ class TestWatchdogRestart:
         asyncio.run(race())
         assert order == ["agent-launch", "watchdog"]
 
+    def test_it_does_not_restart_an_app_stopped_while_it_waited(
+        self, manager, monkeypatch
+    ):
+        # A stop (user, delete, restore, shutdown) during the retry delay is
+        # not a crash: the stopped app must stay stopped.
+        monkeypatch.setattr(manager, "_project_is_dead", lambda _p: True)
+
+        async def boom(_project):
+            raise AssertionError("must not restart a stopped app")
+
+        monkeypatch.setattr(manager, "_run_external_pipeline", boom)
+        project = _project(status="stopped")
+        assert asyncio.run(manager._watchdog_restart(project)) is False
+
+    def test_a_stop_reads_as_stopped_while_its_kill_is_in_flight(
+        self, manager, monkeypatch
+    ):
+        # The kill runs in a worker thread while the watchdog keeps running;
+        # an app still marked running with its process gone reads as a crash.
+        project = _project(
+            project_type="native",
+            internal_port=None,
+            process=types.SimpleNamespace(pid=1),
+        )
+        manager.projects[project.id] = project
+        seen = []
+        monkeypatch.setattr(
+            manager, "_terminate_process", lambda _proc: seen.append(project.status)
+        )
+        monkeypatch.setattr(manager, "_free_port_if_in_use", lambda _port: None)
+        monkeypatch.setattr(manager, "_save_projects", lambda: None)
+
+        assert asyncio.run(manager.stop_project(project.id)) is True
+        assert seen == ["stopped"]
+        assert project.status == "stopped" and project.process is None
+
 
 class TestLiveness:
     def test_a_dead_process_handle_is_dead(self, manager):
         p = _project(process=types.SimpleNamespace(poll=lambda: 1))
         assert manager._project_is_dead(p) is True
+
+    def test_a_process_cleared_mid_check_does_not_raise(self, manager):
+        # The check runs in a worker thread while a stop clears
+        # project.process on the loop, so it reads the process once.
+        class ClearedMidCheck(types.SimpleNamespace):
+            @property
+            def process(self):
+                self.reads = getattr(self, "reads", 0) + 1
+                if self.reads == 1:
+                    return types.SimpleNamespace(poll=lambda: None)
+                return None
+
+        p = ClearedMidCheck(
+            id="949f0cad", port=None, internal_port=None, project_type="native"
+        )
+        assert manager._project_is_dead(p) is False
 
     def test_an_external_app_is_dead_when_its_internal_port_is_silent(self, manager):
         # The proxy keeps the PROJECT port answering, which is why the

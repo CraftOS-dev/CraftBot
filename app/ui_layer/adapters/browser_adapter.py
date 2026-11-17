@@ -617,13 +617,14 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
             logger.exception("[ActionStorage] Failed to initialize activity storage")
 
     def _persist_item(self, item: ActionItem) -> None:
-        """Write-through an item's full current state to storage."""
+        """Write-through an item's full current state to storage (written on
+        the storage's writer thread, in order)."""
         if not self._storage:
             return
         try:
             from app.usage.action_storage import StoredActionItem
 
-            self._storage.save_item(
+            self._storage.save_item_later(
                 StoredActionItem(
                     id=item.id,
                     name=item.name,
@@ -790,7 +791,7 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
         self._items = [i for i in self._items if i.id != item_id]
         if self._storage:
             try:
-                self._storage.delete_item(item_id)
+                self._storage.delete_item_later(item_id)
             except Exception:
                 pass
 
@@ -809,7 +810,7 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
         self._items.clear()
         if self._storage:
             try:
-                self._storage.clear_items()
+                self._storage.clear_items_later()
             except Exception:
                 pass
 
@@ -1430,6 +1431,15 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             )
             return ws
 
+        # The connect snapshot's blocking reads run in worker threads BEFORE
+        # this client joins the broadcast set: from joining until init is
+        # queued nothing awaits, so init still precedes every broadcast.
+        try:
+            snapshot_reads = await self._initial_state_reads()
+        except Exception:
+            await ws.close()
+            return ws
+
         is_first_client = len(self._ws_clients) == 0
         self._ws_clients.add(ws)
         channel = ClientChannel(ws)
@@ -1450,7 +1460,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         # Send initial state (through the channel, so it stays ordered with
         # broadcasts queued for this client)
         try:
-            initial_state = self._get_initial_state()
+            initial_state = self._get_initial_state(*snapshot_reads)
             channel.send_json(
                 {
                     "type": "init",
@@ -4788,7 +4798,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             except Exception:
                 pass
             try:
-                get_action_storage().clear_items(session_id)
+                get_action_storage().clear_items_later(session_id)
             except Exception:
                 pass
             await self.broadcast_session_cleared(session_id)
@@ -6220,6 +6230,8 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 return
 
             sched = task.schedule
+            # Counts the events in every session's queue file: off the loop.
+            unprocessed = await asyncio.to_thread(get_unprocessed_event_count)
             await self._send_to(
                 ws,
                 {
@@ -6236,7 +6248,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         },
                         "threshold": get_memory_processing_threshold(),
                         "threshold_max": get_memory_processing_threshold_max(),
-                        "unprocessed": get_unprocessed_event_count(),
+                        "unprocessed": unprocessed,
                     },
                 },
             )
@@ -6288,7 +6300,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         agent = self._controller.agent
         snapshot = await asyncio.to_thread(agent.memory_manager.graph_snapshot)
         stats = snapshot.get("stats", {})
-        memory_stats = get_memory_stats()
+        memory_stats = await asyncio.to_thread(get_memory_stats)
         if memory_stats.get("success"):
             stats["unprocessed_events"] = memory_stats.get("unprocessed_events", 0)
             stats["memory_item_count"] = memory_stats.get("total_items", 0)
@@ -6318,8 +6330,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         """Send the indexed-files list and addable candidates."""
         try:
             agent = self._controller.agent
-            files = agent.memory_manager.get_index_files_info()
-            candidates_result = list_indexable_candidates()
+            # Both walk the disk: off the loop.
+            files = await asyncio.to_thread(agent.memory_manager.get_index_files_info)
+            candidates_result = await asyncio.to_thread(list_indexable_candidates)
             await self._broadcast(
                 {
                     "type": "memory_indexed_files_get",
@@ -8708,7 +8721,8 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         """Get all Agent App projects with their settings."""
         from app.ui_layer.settings.agent_app_settings import get_agent_app_projects
 
-        result = get_agent_app_projects()
+        # Reads every project's backup folder: off the loop.
+        result = await asyncio.to_thread(get_agent_app_projects)
         await self._broadcast({"type": "agent_app_settings_get", "data": result})
 
     async def _handle_agent_app_project_setting_update(
@@ -9346,7 +9360,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         while self._running:
             try:
                 if self._metrics_subscribers:
-                    metrics = self._metrics_collector.get_metrics()
+                    # Reads every integration's account file: a worker thread.
+                    metrics = await asyncio.to_thread(
+                        self._metrics_collector.get_metrics
+                    )
                     payload = {"type": "dashboard_metrics", "data": metrics.to_dict()}
                     text = json.dumps(payload)
                     for ws in self._metrics_subscribers.copy():
@@ -9403,25 +9420,27 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
     ) -> None:
         """List files in a directory within the workspace with pagination and search."""
         try:
-            workspace = Path(AGENT_WORKSPACE_ROOT).resolve()
-
-            # Ensure workspace exists
-            if not workspace.exists():
-                workspace.mkdir(parents=True, exist_ok=True)
-
-            if directory:
-                target = self._validate_path(directory)
-            else:
-                target = workspace
-
-            if not target.exists():
-                raise FileNotFoundError(f"Directory not found: {directory}")
-
-            if not target.is_dir():
-                raise ValueError(f"Path is not a directory: {directory}")
 
             def _list_page():
-                # Collect and sort all files (a stat per entry: off the loop)
+                # Every step stats the disk: all of it runs off the loop.
+                workspace = Path(AGENT_WORKSPACE_ROOT).resolve()
+
+                # Ensure workspace exists
+                if not workspace.exists():
+                    workspace.mkdir(parents=True, exist_ok=True)
+
+                if directory:
+                    target = self._validate_path(directory)
+                else:
+                    target = workspace
+
+                if not target.exists():
+                    raise FileNotFoundError(f"Directory not found: {directory}")
+
+                if not target.is_dir():
+                    raise ValueError(f"Path is not a directory: {directory}")
+
+                # Collect and sort all files (a stat per entry)
                 all_files = sorted(
                     target.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower())
                 )
@@ -9469,27 +9488,32 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
     async def _handle_file_read(self, file_path: str) -> None:
         """Read file content."""
         try:
-            target = self._validate_path(file_path)
 
-            if not target.exists():
-                raise FileNotFoundError(f"File not found: {file_path}")
+            def _read():
+                # Up to 10 MB from disk: off the loop.
+                target = self._validate_path(file_path)
 
-            if target.is_dir():
-                raise ValueError(f"Cannot read directory as file: {file_path}")
+                if not target.exists():
+                    raise FileNotFoundError(f"File not found: {file_path}")
 
-            # Check file size (limit to 10MB for text preview)
-            if target.stat().st_size > 10 * 1024 * 1024:
-                raise ValueError("File too large to preview (max 10MB)")
+                if target.is_dir():
+                    raise ValueError(f"Cannot read directory as file: {file_path}")
 
-            # Try to read as text, fallback to binary info
-            try:
-                content = target.read_text(encoding="utf-8")
-                is_binary = False
-            except UnicodeDecodeError:
-                content = None
-                is_binary = True
+                # Check file size (limit to 10MB for text preview)
+                if target.stat().st_size > 10 * 1024 * 1024:
+                    raise ValueError("File too large to preview (max 10MB)")
 
-            file_info = self._get_file_info(target)
+                # Try to read as text, fallback to binary info
+                try:
+                    content = target.read_text(encoding="utf-8")
+                    is_binary = False
+                except UnicodeDecodeError:
+                    content = None
+                    is_binary = True
+
+                return content, is_binary, self._get_file_info(target)
+
+            content, is_binary, file_info = await asyncio.to_thread(_read)
 
             await self._broadcast(
                 {
@@ -10607,15 +10631,31 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             await self._chat.append_message(error_message)
             return {"success": False, "files_sent": 0, "errors": [str(e)]}
 
-    def _get_initial_state(self) -> Dict[str, Any]:
-        """Get initial state for new connections."""
+    async def _initial_state_reads(self) -> Tuple[Any, Dict[str, Any]]:
+        """The blocking parts of the connect snapshot, read in worker threads:
+        (dashboard metrics, last-seen message ids). Metrics read every
+        integration's account file; the ids are a chat-storage query, run on
+        the ordered chat worker so they see every earlier insert."""
+        metrics = await asyncio.to_thread(self._metrics_collector.get_metrics)
+        storage = self._chat._storage
+        last_seen = (
+            await self._chat.run_storage(storage.get_last_seen_message_ids)
+            if storage is not None
+            else {}
+        )
+        return metrics, last_seen
+
+    def _get_initial_state(
+        self, metrics: Any, last_seen_message_ids: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Get initial state for new connections, from the blocking reads
+        _initial_state_reads made."""
         from app.onboarding import onboarding_manager
         from app.ui_layer.settings.general_settings import (
             get_agent_profile_picture_info,
         )
 
         state = self._controller.state
-        metrics = self._metrics_collector.get_metrics()
 
         from app.config import get_app_version
 
@@ -10640,11 +10680,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             # older history through chat_history. ChatMessage.to_dict() always
             # carries sessionId.
             "messages": [m.to_dict() for m in self._chat.get_recent_messages()],
-            "lastSeenMessageIds": (
-                self._chat._storage.get_last_seen_message_ids()
-                if self._chat._storage is not None
-                else {}
-            ),
+            "lastSeenMessageIds": last_seen_message_ids,
             # Recent activity items (per-session inline feed); each carries sessionId.
             "actions": [
                 BrowserActionPanelComponent._item_payload(a)
@@ -10731,7 +10767,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         """API endpoint for current state."""
         from aiohttp import web
 
-        return web.json_response(self._get_initial_state())
+        return web.json_response(
+            self._get_initial_state(*await self._initial_state_reads())
+        )
 
     async def _debug_loop_handler(self, request: "web.Request") -> "web.Response":
         """Event-loop stall statistics (app/ui_layer/diagnostics/loop_monitor.py)."""

@@ -5,6 +5,7 @@ Skill Manager Module
 Singleton manager for all skill lifecycle operations.
 """
 
+import asyncio
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 
@@ -70,7 +71,10 @@ class SkillManager:
 
         logger.info(f"[SKILLS] Searching for skills in: {search_dirs}")
 
-        skills = SkillLoader.discover_skills(search_dirs, self._config)
+        # Reads and parses every skill file: a worker thread.
+        skills = await asyncio.to_thread(
+            SkillLoader.discover_skills, search_dirs, self._config
+        )
 
         # Store skills by name
         self._skills.clear()
@@ -86,8 +90,6 @@ class SkillManager:
         Returns:
             Number of skills loaded.
         """
-        import asyncio
-
         asyncio.get_event_loop().run_until_complete(self._discover_skills())
         return len(self._skills)
 
