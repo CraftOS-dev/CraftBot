@@ -157,7 +157,7 @@ from app.ui_layer.events.resource_changes import (
     notify_resource_changed,
     resource_changes_for_message,
 )
-from app.agent_app.broadcast import register_wizard_callback, make_todo_broadcast_hook
+from app.agent_app.broadcast import make_todo_broadcast_hook
 
 if TYPE_CHECKING:
     from app.ui_layer.controller.ui_controller import UIController
@@ -966,7 +966,6 @@ class BrowserAdapter(InterfaceAdapter):
         # Staged bundle bytes keyed by short-lived token (inspect → import flow)
         self._staged_bundles: Dict[str, bytes] = {}
 
-        self._wizard_image_notes: Dict[str, List[str]] = {}
         from app.agent_app.framework_host import FrameworkHost
 
         agent = self._controller.agent
@@ -976,7 +975,6 @@ class BrowserAdapter(InterfaceAdapter):
             agent.framework_host = self._framework_host
         else:
             self._framework_host.changed = self._framework_changed
-        register_wizard_callback(self.broadcast_agent_app_wizard_open)
 
     @property
     def theme_adapter(self) -> ThemeAdapter:
@@ -1254,7 +1252,6 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             self._framework_app_list_task.cancel()
             await asyncio.gather(self._framework_app_list_task, return_exceptions=True)
             self._framework_app_list_task = None
-        register_wizard_callback(None)
 
         # Close the Mini Browser while the loop still runs (Chromium holds a
         # lock on its profile until it exits).
@@ -2149,14 +2146,6 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             model = data.get("model", "")
             base_url = data.get("baseUrl")
             await self._handle_local_llm_pull_model(model, base_url)
-        # Agent App handlers
-
-        elif msg_type == "agent_app_wizard_interview":
-            await self._handle_agent_app_wizard_interview(data)
-
-        elif msg_type == "agent_app_wizard_finalize":
-            await self._handle_agent_app_wizard_finalize(data)
-
 
         elif msg_type == "agent_app_list":
             await self._handle_agent_app_list()
@@ -2913,134 +2902,6 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
     # Agent App Handlers
     # -------------------------------------------------------------------------
 
-    async def _handle_agent_app_wizard_interview(self, data: Dict[str, Any]) -> None:
-        """Wizard step 2: generate interview questions from the Step-1
-        configuration via a direct LLM call (no project/session exists yet)."""
-        from app.agent_app import wizard
-
-        wizard_id = str(data.get("wizardId", ""))
-        try:
-            config = data.get("config") or {}
-            agent_app_dir = Path(AGENT_WORKSPACE_ROOT) / "agent_app"
-            wizard.sweep_stale_staging(agent_app_dir)
-
-            # Reference images are described once and reused at finalize.
-            image_notes = await wizard.describe_staged_images(agent_app_dir, wizard_id)
-            self._wizard_image_notes[wizard_id] = image_notes
-
-            questions = await wizard.generate_interview(config, image_notes)
-            await self._broadcast(
-                {
-                    "type": "agent_app_wizard_interview",
-                    "data": {
-                        "success": True,
-                        "wizardId": wizard_id,
-                        "questions": questions,
-                    },
-                }
-            )
-        except Exception as e:
-            logger.error(f"[AGENT_APP:WIZARD] interview failed: {e}")
-            await self._broadcast(
-                {
-                    "type": "agent_app_wizard_interview",
-                    "data": {
-                        "success": False,
-                        "wizardId": wizard_id,
-                        "error": str(e),
-                    },
-                }
-            )
-
-    async def _handle_agent_app_wizard_finalize(self, data: Dict[str, Any]) -> None:
-        """Finish requirements gathering and open the framework app conversation."""
-        from app.agent_app import wizard
-
-        wizard_id = str(data.get("wizardId", ""))
-        try:
-            config = data.get("config") or {}
-            answers = data.get("answers") or []
-            name = str(config.get("name", "")).strip()
-            description = str(config.get("description", "")).strip()
-            if not name or not description:
-                raise ValueError(tui("agentapp_name_desc_required"))
-
-            agent_app_dir = Path(AGENT_WORKSPACE_ROOT) / "agent_app"
-            image_notes = self._wizard_image_notes.pop(wizard_id, None)
-            if image_notes is None:
-                image_notes = await wizard.describe_staged_images(
-                    agent_app_dir, wizard_id
-                )
-
-            # SECOND INTERVIEW ROUND (one, at most): with a marketplace
-            # match, round 1 collapses to the marketplace question — correct
-            # for the install path, but the other two answers need the real
-            # questions asked NOW (both observed live 2026-08-05):
-            #   adapt  → targeted "what should be different" follow-ups
-            #            (else synthesis fabricates the adaptation list);
-            #   fresh  → the standard requirement interview, catalogue
-            #            withheld (else the build synthesizes from a
-            #            one-line description with zero questions asked).
-            # Fail-open: no follow-ups → synthesize as before.
-            if not bool(data.get("followupDone")):
-                followups = []
-                try:
-                    if wizard.adapt_chosen(answers):
-                        followups = await wizard.generate_followup_questions(
-                            config, answers, image_notes
-                        )
-                    elif wizard.fresh_build_chosen(answers) and len(answers) <= 1:
-                        followups = await wizard.generate_interview(
-                            config, image_notes, include_marketplace=False
-                        )
-                except Exception as e:
-                    logger.warning(f"[AGENT_APP:WIZARD] round 2 skipped: {e}")
-                    followups = []
-                if followups:
-                    # Re-id: a model reusing "q1" would collide with the
-                    # marketplace question and overwrite its answer in the
-                    # frontend's answers map.
-                    for i, q in enumerate(followups):
-                        q["id"] = f"r2-{i + 1}"
-                    self._wizard_image_notes[wizard_id] = image_notes
-                    await self._broadcast(
-                        {
-                            "type": "agent_app_wizard_finalize",
-                            "data": {
-                                "success": True,
-                                "wizardId": wizard_id,
-                                "followupQuestions": followups,
-                            },
-                        }
-                    )
-                    return
-
-            requirements_doc = await wizard.synthesize_requirements(
-                config, answers, image_notes
-            )
-
-            result = await wizard.start_framework_build(
-                self._framework_host, config, requirements_doc,
-                [str(p) for p in wizard.list_staged(agent_app_dir, wizard_id)],
-            )
-            await self._broadcast({
-                "type": "agent_app_wizard_finalize",
-                "data": {"success": True, "wizardId": wizard_id, **result},
-            })
-        except Exception as e:
-            logger.error(f"[AGENT_APP:WIZARD] finalize failed: {e}")
-            await self._broadcast(
-                {
-                    "type": "agent_app_wizard_finalize",
-                    "data": {
-                        "success": False,
-                        "wizardId": wizard_id,
-                        "error": str(e),
-                    },
-                }
-            )
-
-
     async def _handle_agent_app_list(self) -> None:
         self._schedule_framework_app_list()
 
@@ -3206,50 +3067,29 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
         Saves under agent_app/_staging/refs/ and returns {"path": ...}. The
         create flow moves staged files into the project's reference/ dir.
-
-        Wizard mode: with ?wizardId=<id> (and optional &kind=icon) the file
-        stages under agent_app/_staging/wizard/<id>/ instead; icons are
-        normalized to icon.<ext> so finalize can find them.
         """
         from aiohttp import web
 
-        from app.agent_app import wizard
-
-        wizard_id = request.query.get("wizardId", "")
-        kind = request.query.get("kind", "reference")
         try:
             reader = await request.multipart()
             saved = None
             async for part in reader:
                 if part.name == "file":
                     filename = Path(part.filename or "reference.bin").name
-                    if wizard_id:
-                        staging = wizard.staging_dir(
-                            Path(AGENT_WORKSPACE_ROOT) / "agent_app", wizard_id
-                        )
-                        if kind == "icon":
-                            filename = f"icon{Path(filename).suffix.lower() or '.png'}"
-                    else:
-                        staging = (
-                            Path(AGENT_WORKSPACE_ROOT) / "agent_app"
-                            / "_staging"
-                            / "refs"
-                        )
+                    staging = (
+                        Path(AGENT_WORKSPACE_ROOT) / "agent_app"
+                        / "_staging"
+                        / "refs"
+                    )
                     staging.mkdir(parents=True, exist_ok=True)
                     target = staging / filename
-                    if wizard_id and kind == "icon":
-                        # Re-picking the icon replaces it (finalize looks
-                        # for exactly icon.<ext>); clear stale extensions.
-                        for old in staging.glob("icon.*"):
-                            old.unlink(missing_ok=True)
-                    else:
-                        i = 1
-                        while target.exists():
-                            target = (
-                                staging
-                                / f"{target.stem.split('__')[0]}__{i}{target.suffix}"
-                            )
-                            i += 1
+                    i = 1
+                    while target.exists():
+                        target = (
+                            staging
+                            / f"{target.stem.split('__')[0]}__{i}{target.suffix}"
+                        )
+                        i += 1
                     with open(target, "wb") as f:
                         while True:
                             chunk = await part.read_chunk()
@@ -3613,13 +3453,6 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     pass
 
         return web.json_response(result)
-
-
-    async def broadcast_agent_app_wizard_open(self, payload: Dict[str, Any]) -> bool:
-        if not self._ws_clients:
-            return False
-        await self._broadcast({"type": "agent_app_wizard_open", "data": payload})
-        return True
 
 
     async def _handle_option_click(

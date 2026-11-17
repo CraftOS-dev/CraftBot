@@ -6,7 +6,6 @@ import { Button } from './Button'
 import { Modal } from './Modal'
 import { AgentAppIcon } from './AgentAppIcon'
 import { CreateCustomWizard } from './CreateCustomWizard'
-import { useSettingsWebSocket } from '../../pages/Settings/useSettingsWebSocket'
 import { tourAnchorProps, useTourEnvAction, type TourAnchorId } from '../../tour'
 import styles from './CreateAgentAppModal.module.css'
 import { frameworkRequest } from '../../features/agentApps/frameworkApi'
@@ -25,7 +24,6 @@ const TAB_TOUR_ANCHORS: Record<'marketplace' | 'custom' | 'import', TourAnchorId
 export interface CreateAgentAppModalProps {
   isOpen: boolean
   onClose: () => void
-  onInstalled?: (projectId: string) => void
 }
 
 interface MarketplaceApp {
@@ -39,7 +37,7 @@ interface MarketplaceApp {
   version?: string
 }
 
-export function CreateAgentAppModal({ isOpen, onClose, onInstalled }: CreateAgentAppModalProps) {
+export function CreateAgentAppModal({ isOpen, onClose }: CreateAgentAppModalProps) {
   const { t } = useTranslation(['components', 'common'])
   const [activeTab, setActiveTab] = useState<'marketplace' | 'custom' | 'import' | 'connect'>('marketplace')
   const native = useFrameworkCreation(onClose)
@@ -64,8 +62,6 @@ export function CreateAgentAppModal({ isOpen, onClose, onInstalled }: CreateAgen
   const [importError, setImportError] = useState<string | null>(null)
   const [dropActive, setDropActive] = useState(false)
 
-  // The chat-triggered wizard keeps its existing interview messages.
-  const { send, onMessage } = useSettingsWebSocket()
   const isConnected = useAppSelector(state => state.connection.connected)
 
   // Marketplace state
@@ -85,26 +81,6 @@ export function CreateAgentAppModal({ isOpen, onClose, onInstalled }: CreateAgen
       setActiveTab(arg)
     }
   })
-
-  // Chat-path requirements phase: agent_app_scaffold generated setup
-  // questions (creating nothing yet) and the backend summons the SAME
-  // Create Custom wizard, pre-seeded and opened at the interview step
-  // (agent_app_wizard_open); its finalize creates the project as usual.
-  const [chatWizard, setChatWizard] = useState<{
-    wizardId: string
-    config: Record<string, any>
-    questions: any[]
-    originSessionId?: string
-  } | null>(null)
-  useEffect(
-    () =>
-      onMessage('agent_app_wizard_open', (data: any) => {
-        if (data?.wizardId && Array.isArray(data.questions) && data.questions.length > 0) {
-          setChatWizard(data)
-        }
-      }),
-    [onMessage]
-  )
 
   // Upload ZIP, then install the staged package through Agent-App.
   const handleZipUpload = async (file: File) => {
@@ -219,38 +195,7 @@ export function CreateAgentAppModal({ isOpen, onClose, onInstalled }: CreateAgen
 
   // Escape key intentionally does NOT close this modal — user must use the X button
 
-  // The backend can open the chat wizard while the Add Agent App modal is
-  // closed. Cancelling before finalize creates no project.
-  if (chatWizard && !isOpen) {
-    return (
-      <Modal
-        isOpen={true}
-        onClose={() => setChatWizard(null)}
-        size="full"
-        closeOnOverlayClick={false}
-        closeOnEsc={false}
-        title={
-          <>
-            <Sparkles size={20} className={styles.headerIcon} />
-            {t('components:createAgentApp.setupQuestions', { name: String(chatWizard.config?.name || 'Agent App') })}
-          </>
-        }
-      >
-        <CreateCustomWizard
-          send={send}
-          onMessage={onMessage}
-          initial={chatWizard}
-          onClose={() => setChatWizard(null)}
-          onCreated={(projectId: string) => {
-            setChatWizard(null)
-            onInstalled?.(projectId)
-          }}
-        />
-      </Modal>
-    )
-  }
-
-  // Hide the UI while keeping chat wizard listeners and install tracking mounted.
+  // Hide the UI while keeping install tracking mounted.
   if (!isOpen) return null
 
   const tabsConfig = [
@@ -411,8 +356,6 @@ export function CreateAgentAppModal({ isOpen, onClose, onInstalled }: CreateAgen
         {/* Custom Tab — collect requirements for Agent-App creation. */}
         {activeTab === 'custom' && (
           <CreateCustomWizard
-            send={send}
-            onMessage={onMessage}
             onClose={onClose}
             onConfigure={native.create}
             disabled={!isConnected}

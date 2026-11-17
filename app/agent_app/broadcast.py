@@ -1,17 +1,4 @@
-"""Browser handoff for the chat-driven app setup wizard."""
-
-_wizard_open = None
-
-
-def register_wizard_callback(callback):
-    global _wizard_open
-    _wizard_open = callback
-
-
-async def broadcast_agent_app_wizard_open(payload):
-    if _wizard_open is None:
-        return False
-    return await _wizard_open(payload)
+"""Browser handoff for framework build progress."""
 
 
 def make_todo_broadcast_hook(callback):

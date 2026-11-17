@@ -29,7 +29,6 @@ RESOURCE_BY_ACTION: Dict[str, Resource] = {
     "disconnect_integration": Resource.INTEGRATIONS,
     "manage_integration_account": Resource.INTEGRATIONS,
     # Agent Apps
-    "agent_app_scaffold": Resource.AGENT_APPS,
     "agent_app_framework_workflow": Resource.AGENT_APPS,
     "agent_app_command": Resource.AGENT_APPS,
 }

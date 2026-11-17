@@ -144,6 +144,29 @@ async def command(
                 timeout=1200,
                 env_extra=env,
             )
+        # A build checkpoint the Build dialog shows ends the builder's turn
+        # here: the person answers in CraftBot, and the answer arrives as
+        # their next message.
+        awaiting_person = False
+        if (
+            surface == "agent-app"
+            and len(args) > 2
+            and args[1] == "checkpoint"
+            and not help_requested
+        ):
+            from app.agent_app.framework_host import get_host
+            from agent_core.core.state.session import StateSession
+
+            host = get_host()
+            state = StateSession.bound()
+            doc = result.json()
+            if host and state and isinstance(doc, dict):
+                awaiting_person = await host.checkpoint_seen(
+                    state.session_id,
+                    args[0],
+                    doc.get("checkpoint"),
+                    opened=result.ok and args[2] in {"ask", "review"},
+                )
         if authority and result.ok:
             doc = result.json()
             if (
@@ -203,6 +226,11 @@ async def command(
             "timed_out": result.timed_out,
             **({"host_warning": host_warning} if host_warning else {}),
             **({"host_note": "CraftBot displays this app in its embedded view. No external browser is needed; do not open the returned URL in another tab."} if embedded_open else {}),
+            **({
+                "end_turn": True,
+                "awaiting_answer": True,
+                "host_note": "CraftBot shows this to the person in its build view, so your turn ends here. Their reply arrives as their next message.",
+            } if awaiting_person else {}),
         }
 
     # All host-issued app management commands share the lifecycle lock, not
