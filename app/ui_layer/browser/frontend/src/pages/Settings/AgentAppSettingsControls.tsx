@@ -82,13 +82,12 @@ interface BackupControlsProps {
   restoring: boolean
   status: AgentAppBackupStatus
   restoreResult?: { ok: boolean; message: string }
-  scheduleDescription?: string
   onToggleSetting: (setting: string, value: boolean | string | number) => void
   handleBackupNow: () => void
   handleRestore: (filename: string, ts: number) => void
   handleDeleteEntry: (filename: string, ts: number) => void
 }
-export function BackupControls({ project, backups, busy, disabled, restoring, status, restoreResult, scheduleDescription, onToggleSetting, handleBackupNow, handleRestore, handleDeleteEntry }: BackupControlsProps) {
+export function BackupControls({ project, backups, busy, disabled, restoring, status, restoreResult, onToggleSetting, handleBackupNow, handleRestore, handleDeleteEntry }: BackupControlsProps) {
   const { t } = useTranslation(['settings', 'common'])
   const rowStyle: React.CSSProperties = {
     display: 'flex',
@@ -105,7 +104,7 @@ export function BackupControls({ project, backups, busy, disabled, restoring, st
         <div className={styles.toggleInfo}>
           <span className={styles.toggleLabel}>{t('settings:agentApp.scheduledBackups')}</span>
           <span className={styles.toggleDesc}>
-            {scheduleDescription || t('settings:agentApp.scheduledBackupsDesc')}
+            {t('settings:agentApp.scheduledBackupsDesc')}
           </span>
         </div>
         <input

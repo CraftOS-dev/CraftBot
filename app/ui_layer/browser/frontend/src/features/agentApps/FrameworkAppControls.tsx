@@ -37,7 +37,7 @@ export function FrameworkAppControls({ app, menu = false, compact = false }: { a
   const icon = busy ? <Loader2 size={iconSize} className={styles.spinner} />
     : operation === 'start' ? <Play size={iconSize} /> : <Square size={iconSize} />
   if (menu) return supported && <button className={navStyles.sessionMenuItem} {...props}>{icon}{label}</button>
-  if (compact) return supported && <Button {...props} size="sm" variant={operation === 'stop' ? 'danger' : 'primary'} icon={icon}>{!busy && operation === 'start' ? t('settings:agentApp.launch') : label}</Button>
+  if (compact) return supported && <Button {...props} size="sm" variant={operation === 'stop' ? 'danger' : 'primary'} icon={icon}>{t(operation === 'stop' ? 'settings:agentApp.stop' : 'settings:agentApp.launch')}</Button>
   return <div className={styles.controls}>
     {supported && <Button {...props} icon={icon}>{label}</Button>}
     <FrameworkAppFeedback app={app} />
