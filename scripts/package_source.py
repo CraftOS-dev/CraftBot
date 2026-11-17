@@ -169,6 +169,8 @@ def build(output: Path) -> int:
             "installer/metadata.py",
             "installer/payload.py",
         "installer/startup.py",
+        # The desktop icon's progress window (craftbot.py open).
+        "installer/open_window.py",
         ]
     )
     with zipfile.ZipFile(output) as zf:

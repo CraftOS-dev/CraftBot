@@ -317,13 +317,15 @@ def test_cold_pythonw_startup_logs_and_survives_interpreter_handoff(tmp_path):
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="requires Windows shortcuts")
-def test_real_windows_shortcut_refreshes_url_without_launching_agent(
-    tmp_path, monkeypatch
-):
+def test_real_windows_shortcut_runs_open_for_this_install(tmp_path, monkeypatch):
+    """The icon runs `craftbot.py open` (opens the browser, starting CraftBot
+    first when it is not running), with this install's state root and ports;
+    the link is rewritten when the ports change."""
     desktop = tmp_path / "Desktop O'Hare $literal"
     desktop.mkdir()
     monkeypatch.setattr(craftbot, "_find_desktop", lambda: str(desktop))
     monkeypatch.setattr(craftbot, "_ensure_ico", lambda: None)
+    monkeypatch.setattr(craftbot, "IS_FROZEN", False)
     craftbot._create_desktop_shortcut_windows([])
     craftbot._create_desktop_shortcut_windows(["--frontend-port", "8123"])
     link = desktop / "CraftBot.lnk"
@@ -348,8 +350,13 @@ def test_real_windows_shortcut_refreshes_url_without_launching_agent(
         check=True,
     )
     shortcut = json.loads(result.stdout)
-    assert Path(shortcut["TargetPath"]).name.lower() == "cmd.exe"
-    assert shortcut["Arguments"] == '/c start "" http://localhost:8123'
+    assert Path(shortcut["TargetPath"]).name.lower() in ("pythonw.exe", "python.exe")
+    arguments = shortcut["Arguments"]
+    assert "craftbot.py" in arguments
+    assert " open " in arguments
+    assert "--state-root=" in arguments
+    assert "--frontend-port 8123" in arguments
+    assert "cmd.exe" not in shortcut["TargetPath"].lower()
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="requires pythonw.exe")

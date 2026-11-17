@@ -132,7 +132,7 @@ python run.py --cli           # Run in the terminal instead of the browser
 Installer users can do the same from the installer window (**Start**, **Stop**, **Repair**, **Uninstall**).
 
 > [!TIP]
-> After `install` or `start`, a **CraftBot desktop shortcut** is created automatically. It only opens the browser; it never starts or restarts CraftBot. Automatic startup runs CraftBot in the background when you log in after a restart, without opening a browser. If you disabled startup, run `python craftbot.py start` before using the shortcut.
+> After `install` or `start`, a **CraftBot desktop shortcut** is created automatically. It opens CraftBot in your browser, and starts CraftBot first if it is not running (a small window shows the progress). It never starts a second copy or restarts a running one. Automatic startup runs CraftBot in the background when you log in after a restart, without opening a browser.
 
 Both the installer and `python craftbot.py install` enable automatic startup by default. Use `python craftbot.py install --no-autostart` to opt out during installation. Reinstall and Repair refresh the startup configuration and preserve an explicit opt-out and custom ports. Disabling automatic startup does not stop the current session; use `python craftbot.py stop` for that.
 

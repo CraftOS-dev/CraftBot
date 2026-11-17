@@ -228,9 +228,12 @@ def test_cli_mode_is_refused_for_background_runs(service, monkeypatch, capsys, c
     "platform,filename", [("darwin", "CraftBot.command"), ("linux", "CraftBot.desktop")]
 )
 @pytest.mark.parametrize("frozen", [False, True])
-def test_unix_shortcuts_only_open_the_configured_url(
+def test_unix_shortcuts_open_or_start_this_install(
     tmp_path, monkeypatch, platform, filename, frozen
 ):
+    """Source and managed installs: the icon runs `craftbot.py open` with
+    this install's state root and ports. The legacy installer EXE has no
+    run.py to start, so its icon only opens the browser."""
     desktop = tmp_path / "Desktop"
     desktop.mkdir()
     monkeypatch.setattr(craftbot, "_PLATFORM", platform)
@@ -242,15 +245,27 @@ def test_unix_shortcuts_only_open_the_configured_url(
         ["--frontend-port=8123", "--backend-port", "8124"]
     )
     content = (desktop / filename).read_text()
-    assert "http://localhost:8123" in content
     assert "7925" not in content
-    assert "craftbot.py" not in content
     assert "run.py" not in content
     assert "curl" not in content
-    if platform == "darwin":
-        assert content == "#!/bin/sh\nexec open http://localhost:8123\n"
+    if frozen:
+        assert "http://localhost:8123" in content
+        assert "craftbot.py" not in content
+        if platform == "darwin":
+            assert content == "#!/bin/sh\nexec open http://localhost:8123\n"
+        else:
+            assert "Exec=" in content
     else:
-        assert "Exec=" in content
+        assert "craftbot.py" in content
+        assert " open " in content
+        assert "--state-root=" in content
+        assert "--frontend-port=8123" in content
+        assert "--backend-port 8124" in content
+        if platform == "darwin":
+            assert content.startswith("#!/bin/sh\nexec ")
+        else:
+            assert "Exec=" in content
+            assert "Terminal=false" in content
 
 
 def test_cli_start_exits_nonzero_when_start_fails(monkeypatch):
