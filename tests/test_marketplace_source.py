@@ -123,8 +123,9 @@ def test_import_default_branch_failure_does_not_guess_main(monkeypatch, response
         ("native-id", "marketplace", "missing", False),
     ],
 )
+@pytest.mark.parametrize("external", [False, True])
 def test_registry_marketplace_identity_uses_matching_upstream_provenance(
-    tmp_path, identity, kind, status, expected
+    tmp_path, identity, kind, status, expected, external
 ):
     from app.agent_app.framework import _list_apps
 
@@ -134,6 +135,16 @@ def test_registry_marketplace_identity_uses_matching_upstream_provenance(
         "location": "github:example/apps",
         "ref": "staging",
     }
+    revision = (
+        {
+            "repository": "https://github.com/author/studio",
+            "commit": "a" * 40,
+            "path": "apps/studio",
+        }
+        if external
+        else {}
+    )
+    provenance.update(revision)
     (tmp_path / "manifest.json").write_text(
         json.dumps({"id": identity, "source": provenance})
     )
@@ -160,6 +171,7 @@ def test_registry_marketplace_identity_uses_matching_upstream_provenance(
             "id": "kanban-board",
             "location": "github:example/apps",
             "ref": "staging",
+            **revision,
         }
     # A broken manifest must still leave an actionable registry row.
     (tmp_path / "manifest.json").write_text("not json")

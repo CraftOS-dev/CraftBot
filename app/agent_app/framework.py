@@ -99,6 +99,9 @@ def _add_marketplace_sources(apps: list[dict]) -> None:
             app["marketplace"] = {"id": source["catalogueId"], "location": source["location"]}
             if isinstance(source.get("ref"), str):
                 app["marketplace"]["ref"] = source["ref"]
+            for key in ("repository", "commit", "path"):
+                if isinstance(source.get(key), str):
+                    app["marketplace"][key] = source[key]
         except (OSError, ValueError, KeyError, TypeError, AttributeError):
             continue  # A missing/unreadable manifest must not hide the registry row.
 

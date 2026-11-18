@@ -203,14 +203,29 @@
   opacity: 0.5;
 }
 
-/* Name and Add button share one 28px line box, so they sit on the same
-   center line. */
+/* Keep Add aligned with the name; attribution sits on the next line. */
 .appCardFooter {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: var(--space-3);
-  height: 28px;
+  min-height: 28px;
+}
+
+.appCardDetails {
+  flex: 1;
+  min-width: 0;
+}
+
+.appCardPublisher {
+  display: block;
+  padding-left: calc(14px + var(--space-2));
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .appCardTitle {
