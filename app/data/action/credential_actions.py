@@ -23,6 +23,8 @@ from agent_core import action
         "message": {"type": "string", "description": "Safe failure explanation."},
     },
     test_payload={"simulated_mode": True},
+    display_param="query",
+    icon="KeyRound",
 )
 async def credential_list_api_keys(input_data: dict) -> dict:
     if input_data.get("simulated_mode"):
@@ -70,6 +72,8 @@ async def credential_list_api_keys(input_data: dict) -> dict:
         "error_code": {"type": "string", "description": "Failure code when available."},
     },
     test_payload={"credential_id": "example", "url": "https://api.example.com/v1/items", "simulated_mode": True},
+    display_param="url",
+    icon="KeyRound",
 )
 async def credential_api_request(input_data: dict) -> dict:
     if input_data.get("simulated_mode"):

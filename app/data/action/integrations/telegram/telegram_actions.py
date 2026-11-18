@@ -54,6 +54,8 @@ from agent_core import action
         "status": {"type": "string", "example": "success"},
         "result": {"type": "object", "example": {"message_id": 42}},
     },
+    display_param="text",
+    integration="telegram_bot",
 )
 async def send_telegram_bot_message(input_data: dict) -> dict:
     from app.data.action.integrations.telegram._auto_reply import (
@@ -133,6 +135,8 @@ async def send_telegram_bot_message(input_data: dict) -> dict:
         "status": {"type": "string", "example": "success"},
         "result": {"type": "object", "example": {"message_id": 42}},
     },
+    display_param="text",
+    integration="telegram_bot",
 )
 async def send_telegram_text_message(input_data: dict) -> dict:
     from app.data.action.integrations.telegram._auto_reply import (
@@ -184,6 +188,8 @@ async def send_telegram_text_message(input_data: dict) -> dict:
         "status": {"type": "string", "example": "success"},
         "result": {"type": "object", "example": {"message_id": 42}},
     },
+    display_param="text",
+    integration="telegram_bot",
 )
 async def edit_telegram_message_text(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -230,6 +236,8 @@ async def edit_telegram_message_text(input_data: dict) -> dict:
         "status": {"type": "string", "example": "success"},
         "result": {"type": "object", "example": {"message_id": 42}},
     },
+    display_param="caption",
+    integration="telegram_bot",
 )
 async def edit_telegram_message_caption(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -264,6 +272,8 @@ async def edit_telegram_message_caption(input_data: dict) -> dict:
         "status": {"type": "string", "example": "success"},
         "result": {"type": "object", "example": {"message_id": 42}},
     },
+    display_param="chat_id",
+    integration="telegram_bot",
 )
 async def edit_telegram_message_reply_markup(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -287,6 +297,8 @@ async def edit_telegram_message_reply_markup(input_data: dict) -> dict:
         "message_id": {"type": "integer", "required": True, "description": "Message ID.", "example": 42},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="chat_id",
+    integration="telegram_bot",
 )
 async def delete_telegram_message(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -313,6 +325,8 @@ async def delete_telegram_message(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="chat_id",
+    integration="telegram_bot",
 )
 async def delete_telegram_messages(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -356,6 +370,8 @@ async def delete_telegram_messages(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="chat_id",
+    integration="telegram_bot",
 )
 async def copy_telegram_message(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -394,6 +410,8 @@ async def copy_telegram_message(input_data: dict) -> dict:
         "status": {"type": "string", "example": "success"},
         "result": {"type": "object", "example": {"message_id": 42}},
     },
+    display_param="chat_id",
+    integration="telegram_bot",
 )
 async def forward_telegram_message(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -437,6 +455,8 @@ async def forward_telegram_message(input_data: dict) -> dict:
         "status": {"type": "string", "example": "success"},
         "result": {"type": "object", "example": {"message_ids": [43, 44]}},
     },
+    display_param="chat_id",
+    integration="telegram_bot",
 )
 async def forward_telegram_messages(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -477,6 +497,8 @@ async def forward_telegram_messages(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="chat_id",
+    integration="telegram_bot",
 )
 async def pin_telegram_message(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -504,6 +526,8 @@ async def pin_telegram_message(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="chat_id",
+    integration="telegram_bot",
 )
 async def unpin_telegram_message(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -524,6 +548,8 @@ async def unpin_telegram_message(input_data: dict) -> dict:
         "chat_id": {"type": "string", "required": True, "description": "Chat ID.", "example": "123"},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="chat_id",
+    integration="telegram_bot",
 )
 async def unpin_all_telegram_messages(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -556,6 +582,8 @@ async def unpin_all_telegram_messages(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="reactions",
+    integration="telegram_bot",
 )
 async def set_telegram_message_reaction(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -584,6 +612,8 @@ async def set_telegram_message_reaction(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="action_type",
+    integration="telegram_bot",
 )
 async def send_telegram_chat_action(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -621,6 +651,8 @@ async def send_telegram_chat_action(input_data: dict) -> dict:
         "status": {"type": "string", "example": "success"},
         "result": {"type": "object", "example": {"message_id": 42}},
     },
+    display_param="photo",
+    integration="telegram_bot",
 )
 async def send_telegram_photo(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -659,6 +691,8 @@ async def send_telegram_photo(input_data: dict) -> dict:
         "status": {"type": "string", "example": "success"},
         "result": {"type": "object", "example": {"message_id": 42}},
     },
+    display_param="document",
+    integration="telegram_bot",
 )
 async def send_telegram_document(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -704,6 +738,8 @@ async def send_telegram_document(input_data: dict) -> dict:
         "status": {"type": "string", "example": "success"},
         "result": {"type": "object", "example": {"message_id": 42}},
     },
+    display_param="video",
+    integration="telegram_bot",
 )
 async def send_telegram_video(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -741,6 +777,8 @@ async def send_telegram_video(input_data: dict) -> dict:
         "status": {"type": "string", "example": "success"},
         "result": {"type": "object", "example": {"message_id": 42}},
     },
+    display_param="audio",
+    integration="telegram_bot",
 )
 async def send_telegram_audio(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -782,6 +820,8 @@ async def send_telegram_audio(input_data: dict) -> dict:
         "status": {"type": "string", "example": "success"},
         "result": {"type": "object", "example": {"message_id": 42}},
     },
+    display_param="voice",
+    integration="telegram_bot",
 )
 async def send_telegram_voice(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -822,6 +862,8 @@ async def send_telegram_voice(input_data: dict) -> dict:
         "status": {"type": "string", "example": "success"},
         "result": {"type": "object", "example": {"message_id": 42}},
     },
+    display_param="video_note",
+    integration="telegram_bot",
 )
 async def send_telegram_video_note(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -856,6 +898,8 @@ async def send_telegram_video_note(input_data: dict) -> dict:
         "status": {"type": "string", "example": "success"},
         "result": {"type": "object", "example": {"message_id": 42}},
     },
+    display_param="animation",
+    integration="telegram_bot",
 )
 async def send_telegram_animation(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -888,6 +932,8 @@ async def send_telegram_animation(input_data: dict) -> dict:
         "status": {"type": "string", "example": "success"},
         "result": {"type": "object", "example": {"message_id": 42}},
     },
+    display_param="sticker",
+    integration="telegram_bot",
 )
 async def send_telegram_sticker(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -926,6 +972,8 @@ async def send_telegram_sticker(input_data: dict) -> dict:
         "status": {"type": "string", "example": "success"},
         "result": {"type": "object", "example": {"message_id": 42}},
     },
+    display_param="chat_id",
+    integration="telegram_bot",
 )
 async def send_telegram_location(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -967,6 +1015,8 @@ async def send_telegram_location(input_data: dict) -> dict:
         "status": {"type": "string", "example": "success"},
         "result": {"type": "object", "example": {"message_id": 42}},
     },
+    display_param="title",
+    integration="telegram_bot",
 )
 async def send_telegram_venue(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -1008,6 +1058,8 @@ async def send_telegram_venue(input_data: dict) -> dict:
         "status": {"type": "string", "example": "success"},
         "result": {"type": "object", "example": {"message_id": 42}},
     },
+    display_param="first_name",
+    integration="telegram_bot",
 )
 async def send_telegram_contact(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -1041,6 +1093,8 @@ async def send_telegram_contact(input_data: dict) -> dict:
         "status": {"type": "string", "example": "success"},
         "result": {"type": "object", "example": {"message_id": 42}},
     },
+    display_param="emoji",
+    integration="telegram_bot",
 )
 async def send_telegram_dice(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -1102,6 +1156,8 @@ async def send_telegram_dice(input_data: dict) -> dict:
         "status": {"type": "string", "example": "success"},
         "result": {"type": "object", "example": {"message_id": 42}},
     },
+    display_param="question",
+    integration="telegram_bot",
 )
 async def send_telegram_poll(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -1134,6 +1190,8 @@ async def send_telegram_poll(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="chat_id",
+    integration="telegram_bot",
 )
 async def stop_telegram_poll(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1167,6 +1225,8 @@ async def stop_telegram_poll(input_data: dict) -> dict:
         "status": {"type": "string", "example": "success"},
         "result": {"type": "object", "example": {"message_ids": [43, 44]}},
     },
+    display_param="chat_id",
+    integration="telegram_bot",
 )
 async def send_telegram_media_group(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1199,6 +1259,8 @@ async def send_telegram_media_group(input_data: dict) -> dict:
         "file_id": {"type": "string", "required": True, "description": "File ID.", "example": "AgAC..."},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="file_id",
+    integration="telegram_bot",
 )
 async def get_telegram_file(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1224,6 +1286,8 @@ async def get_telegram_file(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="dest_path",
+    integration="telegram_bot",
 )
 async def download_telegram_file(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1255,6 +1319,8 @@ async def download_telegram_file(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="chat_id",
+    integration="telegram_bot",
 )
 async def get_telegram_chat(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1270,6 +1336,8 @@ async def get_telegram_chat(input_data: dict) -> dict:
         "chat_id": {"type": "string", "required": True, "description": "Chat ID.", "example": "123"},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="chat_id",
+    integration="telegram_bot",
 )
 async def get_telegram_chat_members_count(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1289,6 +1357,8 @@ async def get_telegram_chat_members_count(input_data: dict) -> dict:
         "chat_id": {"type": "string", "required": True, "description": "Chat ID.", "example": "123"},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="chat_id",
+    integration="telegram_bot",
 )
 async def get_telegram_chat_administrators(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1321,6 +1391,8 @@ async def get_telegram_chat_administrators(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="chat_id",
+    integration="telegram_bot",
 )
 async def ban_telegram_chat_member(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1350,6 +1422,8 @@ async def ban_telegram_chat_member(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="chat_id",
+    integration="telegram_bot",
 )
 async def unban_telegram_chat_member(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1384,6 +1458,8 @@ async def unban_telegram_chat_member(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="chat_id",
+    integration="telegram_bot",
 )
 async def restrict_telegram_chat_member(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1479,6 +1555,8 @@ async def restrict_telegram_chat_member(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="chat_id",
+    integration="telegram_bot",
 )
 async def promote_telegram_chat_member(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1523,6 +1601,8 @@ async def promote_telegram_chat_member(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="custom_title",
+    integration="telegram_bot",
 )
 async def set_telegram_chat_administrator_custom_title(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1550,6 +1630,8 @@ async def set_telegram_chat_administrator_custom_title(input_data: dict) -> dict
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="chat_id",
+    integration="telegram_bot",
 )
 async def set_telegram_chat_permissions(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1576,6 +1658,8 @@ async def set_telegram_chat_permissions(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="title",
+    integration="telegram_bot",
 )
 async def set_telegram_chat_title(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1602,6 +1686,8 @@ async def set_telegram_chat_title(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="description",
+    integration="telegram_bot",
 )
 async def set_telegram_chat_description(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1622,6 +1708,8 @@ async def set_telegram_chat_description(input_data: dict) -> dict:
         "chat_id": {"type": "string", "required": True, "description": "Chat ID.", "example": "123"},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="chat_id",
+    integration="telegram_bot",
 )
 async def delete_telegram_chat_photo(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1641,6 +1729,8 @@ async def delete_telegram_chat_photo(input_data: dict) -> dict:
         "chat_id": {"type": "string", "required": True, "description": "Chat ID.", "example": "123"},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="chat_id",
+    integration="telegram_bot",
 )
 async def leave_telegram_chat(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1661,6 +1751,8 @@ async def leave_telegram_chat(input_data: dict) -> dict:
         "user_id": {"type": "integer", "required": True, "description": "User ID.", "example": 987654321},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="chat_id",
+    integration="telegram_bot",
 )
 async def get_telegram_chat_member(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1681,6 +1773,8 @@ async def get_telegram_chat_member(input_data: dict) -> dict:
         "chat_id": {"type": "string", "required": True, "description": "Chat ID.", "example": "123"},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="chat_id",
+    integration="telegram_bot",
 )
 async def export_telegram_chat_invite_link(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1719,6 +1813,8 @@ async def export_telegram_chat_invite_link(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="name",
+    integration="telegram_bot",
 )
 async def create_telegram_chat_invite_link(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1767,6 +1863,8 @@ async def create_telegram_chat_invite_link(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="invite_link",
+    integration="telegram_bot",
 )
 async def edit_telegram_chat_invite_link(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1797,6 +1895,8 @@ async def edit_telegram_chat_invite_link(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="invite_link",
+    integration="telegram_bot",
 )
 async def revoke_telegram_chat_invite_link(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1818,6 +1918,8 @@ async def revoke_telegram_chat_invite_link(input_data: dict) -> dict:
         "user_id": {"type": "integer", "required": True, "description": "User ID.", "example": 987654321},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="chat_id",
+    integration="telegram_bot",
 )
 async def approve_telegram_chat_join_request(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1839,6 +1941,8 @@ async def approve_telegram_chat_join_request(input_data: dict) -> dict:
         "user_id": {"type": "integer", "required": True, "description": "User ID.", "example": 987654321},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="chat_id",
+    integration="telegram_bot",
 )
 async def decline_telegram_chat_join_request(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1882,6 +1986,8 @@ async def decline_telegram_chat_join_request(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="commands",
+    integration="telegram_bot",
 )
 async def set_telegram_my_commands(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1914,6 +2020,8 @@ async def set_telegram_my_commands(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="scope",
+    integration="telegram_bot",
 )
 async def get_telegram_my_commands(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1945,6 +2053,8 @@ async def get_telegram_my_commands(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="scope",
+    integration="telegram_bot",
 )
 async def delete_telegram_my_commands(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1976,6 +2086,8 @@ async def delete_telegram_my_commands(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="description",
+    integration="telegram_bot",
 )
 async def set_telegram_my_description(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -2001,6 +2113,8 @@ async def set_telegram_my_description(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="language_code",
+    integration="telegram_bot",
 )
 async def get_telegram_my_description(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -2031,6 +2145,8 @@ async def get_telegram_my_description(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="short_description",
+    integration="telegram_bot",
 )
 async def set_telegram_my_short_description(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -2057,6 +2173,8 @@ async def set_telegram_my_short_description(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="name",
+    integration="telegram_bot",
 )
 async def set_telegram_my_name(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -2088,6 +2206,8 @@ async def set_telegram_my_name(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="menu_button",
+    integration="telegram_bot",
 )
 async def set_telegram_chat_menu_button(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -2113,6 +2233,8 @@ async def set_telegram_chat_menu_button(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="chat_id",
+    integration="telegram_bot",
 )
 async def get_telegram_chat_menu_button(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -2143,6 +2265,8 @@ async def get_telegram_chat_menu_button(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="rights",
+    integration="telegram_bot",
 )
 async def set_telegram_my_default_administrator_rights(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -2168,6 +2292,8 @@ async def set_telegram_my_default_administrator_rights(input_data: dict) -> dict
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param=None,
+    integration="telegram_bot",
 )
 async def get_telegram_my_default_administrator_rights(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -2185,6 +2311,8 @@ async def get_telegram_my_default_administrator_rights(input_data: dict) -> dict
     action_sets=["telegram_bot_config", "telegram"],
     input_schema={},
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param=None,
+    integration="telegram_bot",
 )
 async def get_telegram_bot_info(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -2235,6 +2363,8 @@ async def get_telegram_bot_info(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="text",
+    integration="telegram_bot",
 )
 async def answer_telegram_callback_query(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -2293,6 +2423,8 @@ async def answer_telegram_callback_query(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="url",
+    integration="telegram_bot",
 )
 async def set_telegram_webhook(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -2321,6 +2453,8 @@ async def set_telegram_webhook(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param=None,
+    integration="telegram_bot",
 )
 async def delete_telegram_webhook(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -2338,6 +2472,8 @@ async def delete_telegram_webhook(input_data: dict) -> dict:
     action_sets=["telegram_webhooks"],
     input_schema={},
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param=None,
+    integration="telegram_bot",
 )
 async def get_telegram_webhook_info(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -2382,6 +2518,8 @@ async def get_telegram_webhook_info(input_data: dict) -> dict:
             "description": "Lean: [{update_id, message_id, chat_id, from, text, date, type?}]. Raw Updates with include_metadata=true.",
         },
     },
+    display_param=None,
+    integration="telegram_bot",
 )
 async def get_telegram_updates(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -2456,6 +2594,8 @@ async def get_telegram_updates(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="name",
+    integration="telegram_bot",
 )
 async def search_telegram_contact(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -2477,6 +2617,8 @@ async def search_telegram_contact(input_data: dict) -> dict:
         "limit": {"type": "integer", "required": False, "description": "Limit.", "example": 50},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param=None,
+    integration="telegram_bot",
 )
 async def get_telegram_chats(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -2497,6 +2639,8 @@ async def get_telegram_chats(input_data: dict) -> dict:
         "limit": {"type": "integer", "required": False, "description": "Limit.", "example": 50},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="chat_id",
+    integration="telegram_bot",
 )
 async def read_telegram_messages(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -2524,6 +2668,8 @@ async def read_telegram_messages(input_data: dict) -> dict:
         "text": {"type": "string", "required": True, "description": "Text.", "example": "Hi"},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="text",
+    integration="telegram_bot",
 )
 async def send_telegram_user_message(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import (
@@ -2557,6 +2703,8 @@ async def send_telegram_user_message(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="file_path",
+    integration="telegram_bot",
 )
 async def send_telegram_user_file(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -2577,6 +2725,8 @@ async def send_telegram_user_file(input_data: dict) -> dict:
         "query": {"type": "string", "required": True, "description": "Query.", "example": "John"},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="query",
+    integration="telegram_bot",
 )
 async def search_telegram_user_contacts(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -2612,6 +2762,8 @@ async def search_telegram_user_contacts(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="dest_path",
+    integration="telegram_bot",
 )
 async def download_telegram_user_media(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -2631,6 +2783,8 @@ async def download_telegram_user_media(input_data: dict) -> dict:
     action_sets=["telegram_user"],
     input_schema={},
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param=None,
+    integration="telegram_bot",
 )
 async def get_telegram_user_account_info(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client

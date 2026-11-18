@@ -69,6 +69,8 @@ from agent_core import action
         "job_id": {"type": "string", "description": "The ID of the created job"},
         "message": {"type": "string", "description": "Confirmation message"},
     },
+    display_param="name",
+    icon="CalendarPlus",
 )
 def cron_job_add(input_data: dict) -> dict:
     """Add a cron job."""

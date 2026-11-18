@@ -20,7 +20,7 @@ import { ChatWorkspace, type PanelLayout } from '../ChatWorkspace/ChatWorkspace'
 import { useChatBrowser } from '../MiniBrowser/useChatBrowser'
 import { TypingIndicatorRow } from '../../pages/Chat/TypingIndicator'
 import { ReasoningBlock, ActionBlock, ChunkHeaderRow, StreamLiveRow } from '../activity/ActivityBlocks'
-import { selectSessionStream } from '../../store/slices/streamSlice'
+import { selectSessionStream, selectSessionStatus } from '../../store/slices/streamSlice'
 import { DraftWidthGate } from './DraftWidthGate'
 import { normalizeActionName } from '../activity/actionNames'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
@@ -215,6 +215,8 @@ export function Chat({ sessionId, placeholder, panelLayout = 'side', panelVisibl
   const activity = useAppSelector(state => selectSessionActivity(state, sessionId))
   // The agent's reply as it is being written (streamSlice).
   const liveStream = useAppSelector(state => selectSessionStream(state, sessionId))
+  // What the run's current step is doing, shown in place of "Working".
+  const stepStatus = useAppSelector(state => selectSessionStatus(state, sessionId))
   // Unanswered agent questions (oldest first). The first one is pinned in a
   // QuestionBox above the composer; answering/dismissing advances the queue.
   const pendingQuestions = useAppSelector(state => selectPendingQuestions(state, sessionId))
@@ -1561,9 +1563,10 @@ export function Chat({ sessionId, placeholder, panelLayout = 'side', panelVisibl
                           sessionId={sessionId}
                           reasoning={streamRows.reasoning}
                           actions={streamRows.actions}
+                          connected={lastDisplayRow?.kind === 'activity'}
                         />
                       ) : (
-                        <TypingIndicatorRow />
+                        <TypingIndicatorRow status={stepStatus} />
                       )}
                     </div>
                   )
@@ -1608,6 +1611,17 @@ export function Chat({ sessionId, placeholder, panelLayout = 'side', panelVisibl
                   : entry.kind === 'chunkHeader'
                     ? (entry.expanded ? 10 : 18)
                     : 0
+                // The rail joins the status icons of an open block: its
+                // header and every row of it, down into the step being
+                // written when that follows.
+                const rail = entry.kind === 'activity'
+                  ? {
+                      up: prev?.kind === 'activity' || (prev?.kind === 'chunkHeader' && prev.expanded),
+                      down: next?.kind === 'activity' || streamFollows,
+                    }
+                  : entry.kind === 'chunkHeader'
+                    ? { down: entry.expanded && next?.kind === 'activity' }
+                    : undefined
                 return (
                   <div
                     key={getRowKey(virtualItem.index)}
@@ -1649,13 +1663,15 @@ export function Chat({ sessionId, placeholder, panelLayout = 'side', panelVisibl
                         count={entry.count}
                         expanded={entry.expanded}
                         working={entry.tail && showLiveRow}
+                        status={stepStatus}
                         startedAt={entry.tail && showLiveRow ? entry.startTs : undefined}
                         onToggle={() => toggleChunk(entry.chunkId)}
+                        rail={rail}
                       />
                     ) : entry.item.itemType === 'reasoning' ? (
-                      <ReasoningBlock item={entry.item} />
+                      <ReasoningBlock item={entry.item} rail={rail} />
                     ) : (
-                      <ActionBlock item={entry.item} />
+                      <ActionBlock item={entry.item} rail={rail} />
                     )}
                   </div>
                 )

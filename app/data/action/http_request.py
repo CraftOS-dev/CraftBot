@@ -163,6 +163,8 @@ from agent_core import action
         "verify_tls": True,
         "simulated_mode": True,
     },
+    display_param="url",
+    icon="Globe",
 )
 def send_http_requests(input_data: dict) -> dict:
     import sys

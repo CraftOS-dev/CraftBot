@@ -28,6 +28,8 @@ from agent_core import action
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="text",
+    integration="twitter",
 )
 async def post_tweet(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -61,6 +63,8 @@ async def post_tweet(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="text",
+    integration="twitter",
 )
 async def reply_to_tweet(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -85,6 +89,8 @@ async def reply_to_tweet(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="tweet_id",
+    integration="twitter",
 )
 async def delete_tweet(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -105,6 +111,8 @@ async def delete_tweet(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="tweet_id",
+    integration="twitter",
 )
 async def get_tweet(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -131,6 +139,8 @@ async def get_tweet(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="tweet_ids",
+    integration="twitter",
 )
 async def lookup_tweets(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -168,6 +178,8 @@ async def lookup_tweets(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="query",
+    integration="twitter",
 )
 async def search_tweets(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -207,6 +219,8 @@ async def search_tweets(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="user_id",
+    integration="twitter",
 )
 async def get_twitter_timeline(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -245,6 +259,8 @@ async def get_twitter_timeline(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="user_id",
+    integration="twitter",
 )
 async def get_twitter_mentions(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -279,6 +295,8 @@ async def get_twitter_mentions(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="text",
+    integration="twitter",
 )
 async def post_quote_tweet(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -311,6 +329,8 @@ async def post_quote_tweet(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="reply_tweet_id",
+    integration="twitter",
 )
 async def hide_tweet_reply(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -350,6 +370,8 @@ async def hide_tweet_reply(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="text",
+    integration="twitter",
 )
 async def post_tweet_with_media(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -383,6 +405,8 @@ async def post_tweet_with_media(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="tweet_id",
+    integration="twitter",
 )
 async def like_tweet(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -404,6 +428,8 @@ async def like_tweet(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="tweet_id",
+    integration="twitter",
 )
 async def unlike_tweet(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -425,6 +451,8 @@ async def unlike_tweet(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="tweet_id",
+    integration="twitter",
 )
 async def retweet(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -446,6 +474,8 @@ async def retweet(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="tweet_id",
+    integration="twitter",
 )
 async def unretweet(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -467,6 +497,8 @@ async def unretweet(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="tweet_id",
+    integration="twitter",
 )
 async def add_twitter_bookmark(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -488,6 +520,8 @@ async def add_twitter_bookmark(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="tweet_id",
+    integration="twitter",
 )
 async def remove_twitter_bookmark(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -516,6 +550,8 @@ async def remove_twitter_bookmark(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param=None,
+    integration="twitter",
 )
 async def list_twitter_bookmarks(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -542,6 +578,8 @@ async def list_twitter_bookmarks(input_data: dict) -> dict:
         "max_results": {"type": "integer", "required": False, "description": "Max users.", "example": 50},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="tweet_id",
+    integration="twitter",
 )
 async def list_tweet_liking_users(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -568,6 +606,8 @@ async def list_tweet_liking_users(input_data: dict) -> dict:
         "max_results": {"type": "integer", "required": False, "description": "Max users.", "example": 50},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="tweet_id",
+    integration="twitter",
 )
 async def list_tweet_retweeted_by(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -599,6 +639,8 @@ async def list_tweet_retweeted_by(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="username",
+    integration="twitter",
 )
 async def get_twitter_user(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -614,6 +656,8 @@ async def get_twitter_user(input_data: dict) -> dict:
     action_sets=["twitter_users", "twitter"],
     input_schema={},
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param=None,
+    integration="twitter",
 )
 async def get_twitter_me(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -635,6 +679,8 @@ async def get_twitter_me(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="target_user_id",
+    integration="twitter",
 )
 async def follow_twitter_user(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -658,6 +704,8 @@ async def follow_twitter_user(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="target_user_id",
+    integration="twitter",
 )
 async def unfollow_twitter_user(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -686,6 +734,8 @@ async def unfollow_twitter_user(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="user_id",
+    integration="twitter",
 )
 async def list_twitter_following(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -712,6 +762,8 @@ async def list_twitter_following(input_data: dict) -> dict:
         "max_results": {"type": "integer", "required": False, "description": "Max users.", "example": 100},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="user_id",
+    integration="twitter",
 )
 async def list_twitter_followers(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -738,6 +790,8 @@ async def list_twitter_followers(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="target_user_id",
+    integration="twitter",
 )
 async def block_twitter_user(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -761,6 +815,8 @@ async def block_twitter_user(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="target_user_id",
+    integration="twitter",
 )
 async def unblock_twitter_user(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -784,6 +840,8 @@ async def unblock_twitter_user(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="target_user_id",
+    integration="twitter",
 )
 async def mute_twitter_user(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -807,6 +865,8 @@ async def mute_twitter_user(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="target_user_id",
+    integration="twitter",
 )
 async def unmute_twitter_user(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -848,6 +908,8 @@ async def unmute_twitter_user(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="name",
+    integration="twitter",
 )
 async def create_twitter_list(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -874,6 +936,8 @@ async def create_twitter_list(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="list_id",
+    integration="twitter",
 )
 async def get_twitter_list(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -908,6 +972,8 @@ async def get_twitter_list(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="name",
+    integration="twitter",
 )
 async def update_twitter_list(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -938,6 +1004,8 @@ async def update_twitter_list(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="list_id",
+    integration="twitter",
 )
 async def delete_twitter_list(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -959,6 +1027,8 @@ async def delete_twitter_list(input_data: dict) -> dict:
         "max_results": {"type": "integer", "required": False, "description": "Max lists.", "example": 100},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="user_id",
+    integration="twitter",
 )
 async def list_twitter_owned_lists(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -991,6 +1061,8 @@ async def list_twitter_owned_lists(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="user_id",
+    integration="twitter",
 )
 async def add_twitter_list_member(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1023,6 +1095,8 @@ async def add_twitter_list_member(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="user_id",
+    integration="twitter",
 )
 async def remove_twitter_list_member(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1049,6 +1123,8 @@ async def remove_twitter_list_member(input_data: dict) -> dict:
         "max_results": {"type": "integer", "required": False, "description": "Max users.", "example": 100},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="list_id",
+    integration="twitter",
 )
 async def list_twitter_list_members(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1086,6 +1162,8 @@ async def list_twitter_list_members(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="list_id",
+    integration="twitter",
 )
 async def list_twitter_list_tweets(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1121,6 +1199,8 @@ async def list_twitter_list_tweets(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="text",
+    integration="twitter",
 )
 async def send_twitter_dm(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1154,6 +1234,8 @@ async def send_twitter_dm(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="text",
+    integration="twitter",
 )
 async def send_twitter_dm_to_conversation(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1186,6 +1268,8 @@ async def send_twitter_dm_to_conversation(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="text",
+    integration="twitter",
 )
 async def create_twitter_group_dm(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1211,6 +1295,8 @@ async def create_twitter_group_dm(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param=None,
+    integration="twitter",
 )
 async def list_twitter_dm_events(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1239,6 +1325,8 @@ async def list_twitter_dm_events(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="participant_id",
+    integration="twitter",
 )
 async def list_twitter_dm_events_with_user(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1277,6 +1365,8 @@ async def list_twitter_dm_events_with_user(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="file_path",
+    integration="twitter",
 )
 async def upload_twitter_media(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1309,6 +1399,8 @@ async def upload_twitter_media(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="tag",
+    integration="twitter",
 )
 def set_twitter_watch_tag(input_data: dict) -> dict:
     try:

@@ -111,6 +111,8 @@ def _register(provider: Provider, op: Operation) -> None:
         output_schema=op.output_schema,
         parallelizable=op.parallelizable,
         irreversible=op.destructive,
+        display_param=op.display_param,
+        integration=provider.id,
     )(_make_handler(provider.id, op.name))
     # The capability catalog lists each set under the provider it serves.
     for set_name in op.tags:

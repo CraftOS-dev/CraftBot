@@ -25,6 +25,8 @@ from agent_core import action
         "per_page": {"type": "integer", "required": False, "description": "Max results.", "example": 30},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="repo",
+    integration="github",
 )
 async def list_github_issues(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -70,6 +72,8 @@ async def list_github_issues(input_data: dict) -> dict:
             "description": "Lean: number, title, state, body, user, labels, assignees, milestone, comments, dates, html_url, is_pr. Raw payload when include_metadata=true.",
         },
     },
+    display_param="repo",
+    integration="github",
 )
 async def get_github_issue(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -122,6 +126,8 @@ async def get_github_issue(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="title",
+    integration="github",
 )
 async def create_github_issue(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -192,6 +198,8 @@ async def create_github_issue(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="title",
+    integration="github",
 )
 async def update_github_issue(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -235,6 +243,8 @@ async def update_github_issue(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="repo",
+    integration="github",
 )
 async def close_github_issue(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -266,6 +276,8 @@ async def close_github_issue(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="repo",
+    integration="github",
 )
 async def lock_github_issue(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -295,6 +307,8 @@ async def lock_github_issue(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="repo",
+    integration="github",
 )
 async def unlock_github_issue(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -325,6 +339,8 @@ async def unlock_github_issue(input_data: dict) -> dict:
         "per_page": {"type": "integer", "required": False, "description": "Max results.", "example": 30},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="repo",
+    integration="github",
 )
 async def list_github_issue_events(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -370,6 +386,8 @@ async def list_github_issue_events(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="body",
+    integration="github",
 )
 async def add_github_comment(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -402,6 +420,8 @@ async def add_github_comment(input_data: dict) -> dict:
         "per_page": {"type": "integer", "required": False, "description": "Max results.", "example": 30},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="repo",
+    integration="github",
 )
 async def list_github_issue_comments(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -442,6 +462,8 @@ async def list_github_issue_comments(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="body",
+    integration="github",
 )
 async def update_github_comment(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -469,6 +491,8 @@ async def update_github_comment(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="repo",
+    integration="github",
 )
 async def delete_github_comment(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -510,6 +534,8 @@ async def delete_github_comment(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="labels",
+    integration="github",
 )
 async def add_github_labels(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -550,6 +576,8 @@ async def add_github_labels(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="labels",
+    integration="github",
 )
 async def set_github_labels(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -588,6 +616,8 @@ async def set_github_labels(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="name",
+    integration="github",
 )
 async def remove_github_label(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -631,6 +661,8 @@ async def remove_github_label(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="assignees",
+    integration="github",
 )
 async def add_github_assignees(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -671,6 +703,8 @@ async def add_github_assignees(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="assignees",
+    integration="github",
 )
 async def remove_github_assignees(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -706,6 +740,8 @@ async def remove_github_assignees(input_data: dict) -> dict:
         "per_page": {"type": "integer", "required": False, "description": "Max results.", "example": 30},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="repo",
+    integration="github",
 )
 async def list_github_repo_labels(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -750,6 +786,8 @@ async def list_github_repo_labels(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="name",
+    integration="github",
 )
 async def create_github_label(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -803,6 +841,8 @@ async def create_github_label(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="name",
+    integration="github",
 )
 async def update_github_label(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -841,6 +881,8 @@ async def update_github_label(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="name",
+    integration="github",
 )
 async def delete_github_label(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -876,6 +918,8 @@ async def delete_github_label(input_data: dict) -> dict:
         "per_page": {"type": "integer", "required": False, "description": "Max results.", "example": 30},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="repo",
+    integration="github",
 )
 async def list_github_milestones(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -928,6 +972,8 @@ async def list_github_milestones(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="title",
+    integration="github",
 )
 async def create_github_milestone(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -983,6 +1029,8 @@ async def create_github_milestone(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="title",
+    integration="github",
 )
 async def update_github_milestone(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -1017,6 +1065,8 @@ async def update_github_milestone(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="repo",
+    integration="github",
 )
 async def delete_github_milestone(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -1052,6 +1102,8 @@ async def delete_github_milestone(input_data: dict) -> dict:
         "per_page": {"type": "integer", "required": False, "description": "Max results.", "example": 30},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="repo",
+    integration="github",
 )
 async def list_github_prs(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -1097,6 +1149,8 @@ async def list_github_prs(input_data: dict) -> dict:
             "description": "Lean: number, title, state, body, draft, merged, mergeable, merged_by, user, labels, assignees, requested_reviewers, base/head {ref, sha}, commits, additions, deletions, changed_files, dates, html_url. Raw payload when include_metadata=true.",
         },
     },
+    display_param="repo",
+    integration="github",
 )
 async def get_github_pr(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -1156,6 +1210,8 @@ async def get_github_pr(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="title",
+    integration="github",
 )
 async def create_github_pr(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -1213,6 +1269,8 @@ async def create_github_pr(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="title",
+    integration="github",
 )
 async def update_github_pr(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -1269,6 +1327,8 @@ async def update_github_pr(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="repo",
+    integration="github",
 )
 async def merge_github_pr(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -1301,6 +1361,8 @@ async def merge_github_pr(input_data: dict) -> dict:
         "per_page": {"type": "integer", "required": False, "description": "Max results.", "example": 30},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="repo",
+    integration="github",
 )
 async def list_github_pr_files(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -1330,6 +1392,8 @@ async def list_github_pr_files(input_data: dict) -> dict:
         "per_page": {"type": "integer", "required": False, "description": "Max results.", "example": 30},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="repo",
+    integration="github",
 )
 async def list_github_pr_commits(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -1371,6 +1435,8 @@ async def list_github_pr_commits(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="reviewers",
+    integration="github",
 )
 async def request_github_pr_reviewers(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -1416,6 +1482,8 @@ async def request_github_pr_reviewers(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="reviewers",
+    integration="github",
 )
 async def remove_github_pr_reviewers(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -1461,6 +1529,8 @@ async def remove_github_pr_reviewers(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="body",
+    integration="github",
 )
 async def create_github_pr_review(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -1491,6 +1561,8 @@ async def create_github_pr_review(input_data: dict) -> dict:
         "per_page": {"type": "integer", "required": False, "description": "Max results.", "example": 30},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="repo",
+    integration="github",
 )
 async def list_github_pr_reviews(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -1538,6 +1610,8 @@ async def list_github_pr_reviews(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="event",
+    integration="github",
 )
 async def submit_github_pr_review(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -1569,6 +1643,8 @@ async def submit_github_pr_review(input_data: dict) -> dict:
         "per_page": {"type": "integer", "required": False, "description": "Max results.", "example": 30},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="repo",
+    integration="github",
 )
 async def list_github_pr_review_comments(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -1628,6 +1704,8 @@ async def list_github_pr_review_comments(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="body",
+    integration="github",
 )
 async def create_github_pr_review_comment(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -1664,6 +1742,8 @@ async def create_github_pr_review_comment(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param=None,
+    integration="github",
 )
 async def list_github_repos(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1698,6 +1778,8 @@ async def list_github_repos(input_data: dict) -> dict:
             "description": "Lean: name, full_name, description, private, fork, default_branch, language, star/fork/issue counts, topics, archived, pushed_at, html_url, owner login. Raw payload when include_metadata=true.",
         },
     },
+    display_param="repo",
+    integration="github",
 )
 async def get_github_repo(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -1743,6 +1825,8 @@ async def get_github_repo(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="name",
+    integration="github",
 )
 async def create_github_repo(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -1802,6 +1886,8 @@ async def create_github_repo(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="repo",
+    integration="github",
 )
 async def update_github_repo(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -1835,6 +1921,8 @@ async def update_github_repo(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="repo",
+    integration="github",
 )
 async def delete_github_repo(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -1874,6 +1962,8 @@ async def delete_github_repo(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="repo",
+    integration="github",
 )
 async def fork_github_repo(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -1903,6 +1993,8 @@ async def fork_github_repo(input_data: dict) -> dict:
         "per_page": {"type": "integer", "required": False, "description": "Max results.", "example": 30},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="repo",
+    integration="github",
 )
 async def list_github_forks(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -1929,6 +2021,8 @@ async def list_github_forks(input_data: dict) -> dict:
         "per_page": {"type": "integer", "required": False, "description": "Max results.", "example": 30},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="repo",
+    integration="github",
 )
 async def list_github_collaborators(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -1967,6 +2061,8 @@ async def list_github_collaborators(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="username",
+    integration="github",
 )
 async def add_github_collaborator(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -2001,6 +2097,8 @@ async def add_github_collaborator(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="username",
+    integration="github",
 )
 async def remove_github_collaborator(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -2030,6 +2128,8 @@ async def remove_github_collaborator(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="repo",
+    integration="github",
 )
 async def get_github_readme(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -2053,6 +2153,8 @@ async def get_github_readme(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="repo",
+    integration="github",
 )
 async def list_github_topics(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -2080,6 +2182,8 @@ async def list_github_topics(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="topics",
+    integration="github",
 )
 async def set_github_topics(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -2121,6 +2225,8 @@ async def set_github_topics(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="path",
+    integration="github",
 )
 async def get_github_file(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -2177,6 +2283,8 @@ async def get_github_file(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="path",
+    integration="github",
 )
 async def create_or_update_github_file(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -2232,6 +2340,8 @@ async def create_or_update_github_file(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="path",
+    integration="github",
 )
 async def delete_github_file(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -2267,6 +2377,8 @@ async def delete_github_file(input_data: dict) -> dict:
         "per_page": {"type": "integer", "required": False, "description": "Max results.", "example": 30},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="repo",
+    integration="github",
 )
 async def list_github_branches(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -2293,6 +2405,8 @@ async def list_github_branches(input_data: dict) -> dict:
         "branch": {"type": "string", "required": True, "description": "Branch name.", "example": "main"},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="branch",
+    integration="github",
 )
 async def get_github_branch(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -2329,6 +2443,8 @@ async def get_github_branch(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="branch",
+    integration="github",
 )
 async def create_github_branch(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -2361,6 +2477,8 @@ async def create_github_branch(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="branch",
+    integration="github",
 )
 async def delete_github_branch(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -2408,6 +2526,8 @@ async def delete_github_branch(input_data: dict) -> dict:
         "per_page": {"type": "integer", "required": False, "description": "Max results.", "example": 30},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="repo",
+    integration="github",
 )
 async def list_github_commits(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -2450,6 +2570,8 @@ async def list_github_commits(input_data: dict) -> dict:
             "description": "Lean: sha, message, author/committer {name, email, date, login}, stats, parent shas, files [{filename, status, additions, deletions, patch}], html_url. Raw payload when include_metadata=true.",
         },
     },
+    display_param="repo",
+    integration="github",
 )
 async def get_github_commit(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -2489,6 +2611,8 @@ async def get_github_commit(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="repo",
+    integration="github",
 )
 async def compare_github_commits(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -2520,6 +2644,8 @@ async def compare_github_commits(input_data: dict) -> dict:
         "per_page": {"type": "integer", "required": False, "description": "Max results.", "example": 30},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="repo",
+    integration="github",
 )
 async def list_github_releases(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -2570,6 +2696,8 @@ async def list_github_releases(input_data: dict) -> dict:
             "description": "Lean: id, tag_name, name, body, draft, prerelease, dates, html_url, author login, assets [{name, size, download_count, browser_download_url}]. Raw payload when include_metadata=true.",
         },
     },
+    display_param="repo",
+    integration="github",
 )
 async def get_github_release(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -2632,6 +2760,8 @@ async def get_github_release(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="tag_name",
+    integration="github",
 )
 async def create_github_release(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -2695,6 +2825,8 @@ async def create_github_release(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="name",
+    integration="github",
 )
 async def update_github_release(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -2728,6 +2860,8 @@ async def update_github_release(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="repo",
+    integration="github",
 )
 async def delete_github_release(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -2752,6 +2886,8 @@ async def delete_github_release(input_data: dict) -> dict:
         "per_page": {"type": "integer", "required": False, "description": "Max results.", "example": 30},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="repo",
+    integration="github",
 )
 async def list_github_tags(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -2796,6 +2932,8 @@ async def list_github_tags(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="content",
+    integration="github",
 )
 async def add_github_issue_reaction(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -2829,6 +2967,8 @@ async def add_github_issue_reaction(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="content",
+    integration="github",
 )
 async def add_github_comment_reaction(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -2867,6 +3007,8 @@ async def add_github_comment_reaction(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="content",
+    integration="github",
 )
 async def add_github_pr_review_comment_reaction(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -2900,6 +3042,8 @@ async def add_github_pr_review_comment_reaction(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="repo",
+    integration="github",
 )
 async def delete_github_issue_reaction(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -2928,6 +3072,8 @@ async def delete_github_issue_reaction(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="repo",
+    integration="github",
 )
 async def delete_github_comment_reaction(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -2961,6 +3107,8 @@ async def delete_github_comment_reaction(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="repo",
+    integration="github",
 )
 async def delete_github_pr_review_comment_reaction(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -2992,6 +3140,8 @@ async def delete_github_pr_review_comment_reaction(input_data: dict) -> dict:
         "per_page": {"type": "integer", "required": False, "description": "Max results.", "example": 20},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="query",
+    integration="github",
 )
 async def search_github_issues(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -3018,6 +3168,8 @@ async def search_github_issues(input_data: dict) -> dict:
         "per_page": {"type": "integer", "required": False, "description": "Max results.", "example": 20},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="query",
+    integration="github",
 )
 async def search_github_repos(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -3044,6 +3196,8 @@ async def search_github_repos(input_data: dict) -> dict:
         "per_page": {"type": "integer", "required": False, "description": "Max results.", "example": 20},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="query",
+    integration="github",
 )
 async def search_github_code(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -3070,6 +3224,8 @@ async def search_github_code(input_data: dict) -> dict:
         "per_page": {"type": "integer", "required": False, "description": "Max results.", "example": 20},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="query",
+    integration="github",
 )
 async def search_github_users(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -3096,6 +3252,8 @@ async def search_github_users(input_data: dict) -> dict:
         "per_page": {"type": "integer", "required": False, "description": "Max results.", "example": 20},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="query",
+    integration="github",
 )
 async def search_github_commits(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -3119,6 +3277,8 @@ async def search_github_commits(input_data: dict) -> dict:
     action_sets=["github_users"],
     input_schema={},
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param=None,
+    integration="github",
 )
 async def get_github_authenticated_user(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -3139,6 +3299,8 @@ async def get_github_authenticated_user(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="username",
+    integration="github",
 )
 async def get_github_user(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -3166,6 +3328,8 @@ async def get_github_user(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="username",
+    integration="github",
 )
 async def list_github_user_repos(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -3194,6 +3358,8 @@ async def list_github_user_repos(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="username",
+    integration="github",
 )
 async def follow_github_user(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -3215,6 +3381,8 @@ async def follow_github_user(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="username",
+    integration="github",
 )
 async def unfollow_github_user(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -3232,6 +3400,8 @@ async def unfollow_github_user(input_data: dict) -> dict:
         "per_page": {"type": "integer", "required": False, "description": "Max results.", "example": 30},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param=None,
+    integration="github",
 )
 async def list_github_followers(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -3249,6 +3419,8 @@ async def list_github_followers(input_data: dict) -> dict:
         "per_page": {"type": "integer", "required": False, "description": "Max results.", "example": 30},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param=None,
+    integration="github",
 )
 async def list_github_following(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -3277,6 +3449,8 @@ async def list_github_following(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="repo",
+    integration="github",
 )
 async def star_github_repo(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -3298,6 +3472,8 @@ async def star_github_repo(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="repo",
+    integration="github",
 )
 async def unstar_github_repo(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -3313,6 +3489,8 @@ async def unstar_github_repo(input_data: dict) -> dict:
         "per_page": {"type": "integer", "required": False, "description": "Max results.", "example": 30},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param=None,
+    integration="github",
 )
 async def list_github_starred(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -3336,6 +3514,8 @@ async def list_github_starred(input_data: dict) -> dict:
         "per_page": {"type": "integer", "required": False, "description": "Max results.", "example": 30},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="repo",
+    integration="github",
 )
 async def list_github_stargazers(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -3361,6 +3541,8 @@ async def list_github_stargazers(input_data: dict) -> dict:
         "per_page": {"type": "integer", "required": False, "description": "Max results.", "example": 30},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param=None,
+    integration="github",
 )
 async def list_github_gists(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -3390,6 +3572,8 @@ async def list_github_gists(input_data: dict) -> dict:
             "description": "Lean: id, description, public, html_url, dates, owner login, files {name: {filename, language, size, truncated, content}}. Raw payload when include_metadata=true.",
         },
     },
+    display_param="gist_id",
+    integration="github",
 )
 async def get_github_gist(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -3429,6 +3613,8 @@ async def get_github_gist(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="description",
+    integration="github",
 )
 async def create_github_gist(input_data: dict) -> dict:
     import json
@@ -3469,6 +3655,8 @@ async def create_github_gist(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="description",
+    integration="github",
 )
 async def update_github_gist(input_data: dict) -> dict:
     import json
@@ -3501,6 +3689,8 @@ async def update_github_gist(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="gist_id",
+    integration="github",
 )
 async def delete_github_gist(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -3533,6 +3723,8 @@ async def delete_github_gist(input_data: dict) -> dict:
         "per_page": {"type": "integer", "required": False, "description": "Max results.", "example": 30},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param=None,
+    integration="github",
 )
 async def list_github_notifications(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -3561,6 +3753,8 @@ async def list_github_notifications(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="last_read_at",
+    integration="github",
 )
 async def mark_github_notifications_read(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -3587,6 +3781,8 @@ async def mark_github_notifications_read(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="thread_id",
+    integration="github",
 )
 async def mark_github_notification_read(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -3615,6 +3811,8 @@ async def mark_github_notification_read(input_data: dict) -> dict:
         "per_page": {"type": "integer", "required": False, "description": "Max results.", "example": 30},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="repo",
+    integration="github",
 )
 async def list_github_workflows(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -3659,6 +3857,8 @@ async def list_github_workflows(input_data: dict) -> dict:
         "per_page": {"type": "integer", "required": False, "description": "Max results.", "example": 30},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="repo",
+    integration="github",
 )
 async def list_github_workflow_runs(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -3689,6 +3889,8 @@ async def list_github_workflow_runs(input_data: dict) -> dict:
         "run_id": {"type": "integer", "required": True, "description": "Workflow run ID.", "example": 1},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="repo",
+    integration="github",
 )
 async def get_github_workflow_run(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -3731,6 +3933,8 @@ async def get_github_workflow_run(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="workflow_id",
+    integration="github",
 )
 async def trigger_github_workflow(input_data: dict) -> dict:
     import json
@@ -3768,6 +3972,8 @@ async def trigger_github_workflow(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="repo",
+    integration="github",
 )
 async def cancel_github_workflow_run(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -3793,6 +3999,8 @@ async def cancel_github_workflow_run(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="repo",
+    integration="github",
 )
 async def rerun_github_workflow_run(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -3817,6 +4025,8 @@ async def rerun_github_workflow_run(input_data: dict) -> dict:
         "run_id": {"type": "integer", "required": True, "description": "Workflow run ID.", "example": 1},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="repo",
+    integration="github",
 )
 async def get_github_workflow_run_logs_url(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -3846,6 +4056,8 @@ async def get_github_workflow_run_logs_url(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="tag",
+    integration="github",
 )
 def set_github_watch_tag(input_data: dict) -> dict:
     try:
@@ -3883,6 +4095,8 @@ def set_github_watch_tag(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="repos",
+    integration="github",
 )
 def set_github_watch_repos(input_data: dict) -> dict:
     try:

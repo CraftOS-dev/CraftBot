@@ -192,6 +192,7 @@ def build_operations() -> List[Operation]:
                     "properties": _csv(d.get("properties", "")),
                     "archived": d.get("archived", False),
                 },
+                display_param="properties",
             ),
             _lean_listing,
         ),
@@ -221,6 +222,7 @@ def build_operations() -> List[Operation]:
                 "properties": _csv(d.get("properties", "")),
                 "associations": _csv(d.get("associations", "")),
             },
+            display_param="contact_id",
         ),
         _with_post(
             client_op(
@@ -246,6 +248,7 @@ def build_operations() -> List[Operation]:
                 },
                 output_schema=_only("Only {id}."),
                 arg_map=lambda d: {"properties": d["properties"]},
+                display_param="properties",
             ),
             _pick(["id"]),
         ),
@@ -267,6 +270,7 @@ def build_operations() -> List[Operation]:
                     "contact_id": d["contact_id"],
                     "properties": d["properties"],
                 },
+                display_param="properties",
             ),
             _pick(["id"]),
         ),
@@ -282,6 +286,7 @@ def build_operations() -> List[Operation]:
             tags=("hubspot_contacts",),
             input_schema={"contact_id": _s("Contact ID.", "123456789", required=True)},
             arg_map=lambda d: {"contact_id": d["contact_id"]},
+            display_param="contact_id",
         ),
         _with_post(
             client_op(
@@ -330,6 +335,7 @@ def build_operations() -> List[Operation]:
                     "limit": d.get("limit", 30),
                     "after": d.get("after") or None,
                 },
+                display_param="query",
             ),
             _lean_listing,
         ),
@@ -348,6 +354,7 @@ def build_operations() -> List[Operation]:
                 "ids": d["ids"],
                 "properties": _csv(d.get("properties", "")),
             },
+            display_param="ids",
         ),
         _with_post(
             client_op(
@@ -369,6 +376,7 @@ def build_operations() -> List[Operation]:
                 },
                 output_schema=_only("Only {ids, numErrors?, errors?}."),
                 arg_map=lambda d: {"records": d["records"]},
+                display_param="records",
             ),
             _batch_ids,
         ),
@@ -394,6 +402,7 @@ def build_operations() -> List[Operation]:
                     "primary_id": d["primary_id"],
                     "id_to_merge": d["id_to_merge"],
                 },
+                display_param="primary_id",
             ),
             _pick(["id"]),
         ),
@@ -418,6 +427,7 @@ def build_operations() -> List[Operation]:
                     "properties": _csv(d.get("properties", "")),
                     "archived": d.get("archived", False),
                 },
+                display_param="properties",
             ),
             _lean_listing,
         ),
@@ -440,6 +450,7 @@ def build_operations() -> List[Operation]:
                 "properties": _csv(d.get("properties", "")),
                 "associations": _csv(d.get("associations", "")),
             },
+            display_param="company_id",
         ),
         _with_post(
             client_op(
@@ -458,6 +469,7 @@ def build_operations() -> List[Operation]:
                 },
                 output_schema=_only("Only {id}."),
                 arg_map=lambda d: {"properties": d["properties"]},
+                display_param="properties",
             ),
             _pick(["id"]),
         ),
@@ -479,6 +491,7 @@ def build_operations() -> List[Operation]:
                     "company_id": d["company_id"],
                     "properties": d["properties"],
                 },
+                display_param="properties",
             ),
             _pick(["id"]),
         ),
@@ -491,6 +504,7 @@ def build_operations() -> List[Operation]:
             tags=("hubspot_companies",),
             input_schema={"company_id": _s("Company ID.", "123456789", required=True)},
             arg_map=lambda d: {"company_id": d["company_id"]},
+            display_param="company_id",
         ),
         _with_post(
             client_op(
@@ -531,6 +545,7 @@ def build_operations() -> List[Operation]:
                     "limit": d.get("limit", 30),
                     "after": d.get("after") or None,
                 },
+                display_param="query",
             ),
             _lean_listing,
         ),
@@ -547,6 +562,7 @@ def build_operations() -> List[Operation]:
                 "ids": d["ids"],
                 "properties": _csv(d.get("properties", "")),
             },
+            display_param="ids",
         ),
         _with_post(
             client_op(
@@ -565,6 +581,7 @@ def build_operations() -> List[Operation]:
                 },
                 output_schema=_only("Only {ids, numErrors?, errors?}."),
                 arg_map=lambda d: {"records": d["records"]},
+                display_param="records",
             ),
             _batch_ids,
         ),
@@ -591,6 +608,7 @@ def build_operations() -> List[Operation]:
                     "properties": _csv(d.get("properties", "")),
                     "archived": d.get("archived", False),
                 },
+                display_param="properties",
             ),
             _lean_listing,
         ),
@@ -615,6 +633,7 @@ def build_operations() -> List[Operation]:
                 "properties": _csv(d.get("properties", "")),
                 "associations": _csv(d.get("associations", "")),
             },
+            display_param="deal_id",
         ),
         _with_post(
             client_op(
@@ -640,6 +659,7 @@ def build_operations() -> List[Operation]:
                 },
                 output_schema=_only("Only {id}."),
                 arg_map=lambda d: {"properties": d["properties"]},
+                display_param="properties",
             ),
             _pick(["id"]),
         ),
@@ -659,6 +679,7 @@ def build_operations() -> List[Operation]:
                     "deal_id": d["deal_id"],
                     "properties": d["properties"],
                 },
+                display_param="properties",
             ),
             _pick(["id"]),
         ),
@@ -671,6 +692,7 @@ def build_operations() -> List[Operation]:
             tags=("hubspot_deals",),
             input_schema={"deal_id": _s("Deal ID.", "123456789", required=True)},
             arg_map=lambda d: {"deal_id": d["deal_id"]},
+            display_param="deal_id",
         ),
         _with_post(
             client_op(
@@ -706,6 +728,7 @@ def build_operations() -> List[Operation]:
                     "limit": d.get("limit", 30),
                     "after": d.get("after") or None,
                 },
+                display_param="query",
             ),
             _lean_listing,
         ),
@@ -728,6 +751,7 @@ def build_operations() -> List[Operation]:
                 },
                 output_schema=_only("Only {ids, numErrors?, errors?}."),
                 arg_map=lambda d: {"records": d["records"]},
+                display_param="records",
             ),
             _batch_ids,
         ),
@@ -754,6 +778,7 @@ def build_operations() -> List[Operation]:
                     "deal_id": d["deal_id"],
                     "stage_id": d["stage_id"],
                 },
+                display_param="stage_id",
             ),
             _pick(["id"]),
         ),
@@ -776,6 +801,7 @@ def build_operations() -> List[Operation]:
                     "limit": d.get("limit", 30),
                     "after": d.get("after") or None,
                 },
+                display_param="pipeline_id",
             ),
             _lean_listing,
         ),
@@ -802,6 +828,7 @@ def build_operations() -> List[Operation]:
                     "properties": _csv(d.get("properties", "")),
                     "archived": d.get("archived", False),
                 },
+                display_param="properties",
             ),
             _lean_listing,
         ),
@@ -824,6 +851,7 @@ def build_operations() -> List[Operation]:
                 "properties": _csv(d.get("properties", "")),
                 "associations": _csv(d.get("associations", "")),
             },
+            display_param="ticket_id",
         ),
         _with_post(
             client_op(
@@ -850,6 +878,7 @@ def build_operations() -> List[Operation]:
                 },
                 output_schema=_only("Only {id}."),
                 arg_map=lambda d: {"properties": d["properties"]},
+                display_param="properties",
             ),
             _pick(["id"]),
         ),
@@ -871,6 +900,7 @@ def build_operations() -> List[Operation]:
                     "ticket_id": d["ticket_id"],
                     "properties": d["properties"],
                 },
+                display_param="properties",
             ),
             _pick(["id"]),
         ),
@@ -883,6 +913,7 @@ def build_operations() -> List[Operation]:
             tags=("hubspot_tickets",),
             input_schema={"ticket_id": _s("Ticket ID.", "123456789", required=True)},
             arg_map=lambda d: {"ticket_id": d["ticket_id"]},
+            display_param="ticket_id",
         ),
         _with_post(
             client_op(
@@ -918,6 +949,7 @@ def build_operations() -> List[Operation]:
                     "limit": d.get("limit", 30),
                     "after": d.get("after") or None,
                 },
+                display_param="query",
             ),
             _lean_listing,
         ),
@@ -945,6 +977,7 @@ def build_operations() -> List[Operation]:
                     "ticket_id": d["ticket_id"],
                     "closed_stage_id": d["closed_stage_id"],
                 },
+                display_param="ticket_id",
             ),
             _pick(["id"]),
         ),
@@ -964,6 +997,7 @@ def build_operations() -> List[Operation]:
                     "limit": d.get("limit", 30),
                     "after": d.get("after") or None,
                 },
+                display_param="pipeline_id",
             ),
             _lean_listing,
         ),
@@ -988,6 +1022,7 @@ def build_operations() -> List[Operation]:
                     "after": d.get("after") or None,
                     "properties": _csv(d.get("properties", "")),
                 },
+                display_param="properties",
             ),
             _lean_listing,
         ),
@@ -1035,6 +1070,7 @@ def build_operations() -> List[Operation]:
                     "associated_object_type": d.get("associated_object_type") or None,
                     "associated_object_id": d.get("associated_object_id") or None,
                 },
+                display_param="subject",
             ),
             _pick(["id"]),
         ),
@@ -1059,6 +1095,7 @@ def build_operations() -> List[Operation]:
                     "task_id": d["task_id"],
                     "properties": d["properties"],
                 },
+                display_param="properties",
             ),
             _pick(["id"]),
         ),
@@ -1071,6 +1108,7 @@ def build_operations() -> List[Operation]:
             tags=("hubspot_engagements",),
             input_schema={"task_id": _s("Task ID.", "123456789", required=True)},
             arg_map=lambda d: {"task_id": d["task_id"]},
+            display_param="task_id",
         ),
         # ── Engagements: notes ───────────────────────────────────────────
         _with_post(
@@ -1091,6 +1129,7 @@ def build_operations() -> List[Operation]:
                     "after": d.get("after") or None,
                     "properties": _csv(d.get("properties", "")),
                 },
+                display_param="properties",
             ),
             _lean_listing,
         ),
@@ -1123,6 +1162,7 @@ def build_operations() -> List[Operation]:
                     "associated_object_type": d.get("associated_object_type") or None,
                     "associated_object_id": d.get("associated_object_id") or None,
                 },
+                display_param="body",
             ),
             _pick(["id"]),
         ),
@@ -1135,6 +1175,7 @@ def build_operations() -> List[Operation]:
             tags=("hubspot_engagements",),
             input_schema={"note_id": _s("Note ID.", "123456789", required=True)},
             arg_map=lambda d: {"note_id": d["note_id"]},
+            display_param="note_id",
         ),
         # ── Engagements: calls ───────────────────────────────────────────
         _with_post(
@@ -1157,6 +1198,7 @@ def build_operations() -> List[Operation]:
                     "after": d.get("after") or None,
                     "properties": _csv(d.get("properties", "")),
                 },
+                display_param="properties",
             ),
             _lean_listing,
         ),
@@ -1200,6 +1242,7 @@ def build_operations() -> List[Operation]:
                     "associated_object_type": d.get("associated_object_type") or None,
                     "associated_object_id": d.get("associated_object_id") or None,
                 },
+                display_param="title",
             ),
             _pick(["id"]),
         ),
@@ -1227,6 +1270,7 @@ def build_operations() -> List[Operation]:
                     "after": d.get("after") or None,
                     "properties": _csv(d.get("properties", "")),
                 },
+                display_param="properties",
             ),
             _lean_listing,
         ),
@@ -1271,6 +1315,7 @@ def build_operations() -> List[Operation]:
                     "associated_object_type": d.get("associated_object_type") or None,
                     "associated_object_id": d.get("associated_object_id") or None,
                 },
+                display_param="subject",
             ),
             _pick(["id"]),
         ),
@@ -1295,6 +1340,7 @@ def build_operations() -> List[Operation]:
                     "after": d.get("after") or None,
                     "properties": _csv(d.get("properties", "")),
                 },
+                display_param="properties",
             ),
             _lean_listing,
         ),
@@ -1330,6 +1376,7 @@ def build_operations() -> List[Operation]:
                     "associated_object_type": d.get("associated_object_type") or None,
                     "associated_object_id": d.get("associated_object_id") or None,
                 },
+                display_param="title",
             ),
             _pick(["id"]),
         ),
@@ -1342,6 +1389,7 @@ def build_operations() -> List[Operation]:
             tags=("hubspot_engagements",),
             input_schema={"meeting_id": _s("Meeting ID.", "123456789", required=True)},
             arg_map=lambda d: {"meeting_id": d["meeting_id"]},
+            display_param="meeting_id",
         ),
         # ── Lists ────────────────────────────────────────────────────────
         _with_post(
@@ -1358,6 +1406,7 @@ def build_operations() -> List[Operation]:
                     "limit": d.get("limit", 30),
                     "list_ids": d.get("list_ids") or None,
                 },
+                display_param="list_ids",
             ),
             _lean_listing,
         ),
@@ -1368,6 +1417,7 @@ def build_operations() -> List[Operation]:
             tags=("hubspot_lists",),
             input_schema={"list_id": _s("List ID.", "1", required=True)},
             arg_map=lambda d: {"list_id": d["list_id"]},
+            display_param="list_id",
         ),
         _with_post(
             client_op(
@@ -1398,6 +1448,7 @@ def build_operations() -> List[Operation]:
                     "processing_type": d.get("processing_type", "MANUAL"),
                     "filter_branch": d.get("filter_branch") or None,
                 },
+                display_param="name",
             ),
             _created_list_id,
         ),
@@ -1410,6 +1461,7 @@ def build_operations() -> List[Operation]:
             tags=("hubspot_lists",),
             input_schema={"list_id": _s("List ID.", "1", required=True)},
             arg_map=lambda d: {"list_id": d["list_id"]},
+            display_param="list_id",
         ),
         client_op(
             "add_contacts_to_hubspot_list",
@@ -1425,6 +1477,7 @@ def build_operations() -> List[Operation]:
                 "list_id": d["list_id"],
                 "contact_ids": d["contact_ids"],
             },
+            display_param="list_id",
         ),
         client_op(
             "remove_contacts_from_hubspot_list",
@@ -1441,6 +1494,7 @@ def build_operations() -> List[Operation]:
                 "list_id": d["list_id"],
                 "contact_ids": d["contact_ids"],
             },
+            display_param="list_id",
         ),
         # ── Pipelines ────────────────────────────────────────────────────
         _with_post(
@@ -1456,6 +1510,7 @@ def build_operations() -> List[Operation]:
                     "object_type": _s("Object type: deals or tickets.", "deals", required=True),
                 },
                 arg_map=lambda d: {"object_type": d["object_type"]},
+                display_param="object_type",
             ),
             _lean_listing,
         ),
@@ -1472,6 +1527,7 @@ def build_operations() -> List[Operation]:
                 "object_type": d["object_type"],
                 "pipeline_id": d["pipeline_id"],
             },
+            display_param="pipeline_id",
         ),
         _with_post(
             client_op(
@@ -1507,6 +1563,7 @@ def build_operations() -> List[Operation]:
                     "stages": d["stages"],
                     "display_order": d.get("display_order", 0),
                 },
+                display_param="label",
             ),
             _pick(["id"]),
         ),
@@ -1527,6 +1584,7 @@ def build_operations() -> List[Operation]:
                     "object_type": d["object_type"],
                     "pipeline_id": d["pipeline_id"],
                 },
+                display_param="pipeline_id",
             ),
             _lean_listing,
         ),
@@ -1555,6 +1613,7 @@ def build_operations() -> List[Operation]:
                     "stage_id": d["stage_id"],
                     "properties": d["properties"],
                 },
+                display_param="properties",
             ),
             _pick(["id"]),
         ),
@@ -1576,6 +1635,7 @@ def build_operations() -> List[Operation]:
                     "email": d.get("email") or None,
                     "limit": d.get("limit", 100),
                 },
+                display_param="email",
             ),
             _lean_listing,
         ),
@@ -1586,6 +1646,7 @@ def build_operations() -> List[Operation]:
             tags=("hubspot_owners",),
             input_schema={"owner_id": _s("Owner ID.", "12345", required=True)},
             arg_map=lambda d: {"owner_id": d["owner_id"]},
+            display_param="owner_id",
         ),
         # ── Properties ───────────────────────────────────────────────────
         _with_post(
@@ -1606,6 +1667,7 @@ def build_operations() -> List[Operation]:
                     ),
                 },
                 arg_map=lambda d: {"object_type": d["object_type"]},
+                display_param="object_type",
             ),
             _lean_listing,
         ),
@@ -1622,6 +1684,7 @@ def build_operations() -> List[Operation]:
                 "object_type": d["object_type"],
                 "property_name": d["property_name"],
             },
+            display_param="property_name",
         ),
         _with_post(
             client_op(
@@ -1653,6 +1716,7 @@ def build_operations() -> List[Operation]:
                     "object_type": d["object_type"],
                     "definition": d["definition"],
                 },
+                display_param="definition",
             ),
             _pick(["id", "name", "type"]),
         ),
@@ -1679,6 +1743,7 @@ def build_operations() -> List[Operation]:
                     "property_name": d["property_name"],
                     "definition": d["definition"],
                 },
+                display_param="property_name",
             ),
             _pick(["id", "name", "type"]),
         ),
@@ -1700,6 +1765,7 @@ def build_operations() -> List[Operation]:
                 "object_type": d["object_type"],
                 "property_name": d["property_name"],
             },
+            display_param="property_name",
         ),
         _with_post(
             client_op(
@@ -1714,6 +1780,7 @@ def build_operations() -> List[Operation]:
                     "object_type": _s("Object type.", "contacts", required=True),
                 },
                 arg_map=lambda d: {"object_type": d["object_type"]},
+                display_param="object_type",
             ),
             _lean_listing,
         ),
@@ -1749,6 +1816,7 @@ def build_operations() -> List[Operation]:
                     "to_object_id": d["to_object_id"],
                     "association_type_id": d.get("association_type_id") or None,
                 },
+                display_param="from_object_id",
             ),
             _pick(["id"]),
         ),
@@ -1774,6 +1842,7 @@ def build_operations() -> List[Operation]:
                     "limit": d.get("limit", 100),
                     "after": d.get("after") or None,
                 },
+                display_param="from_object_id",
             ),
             _lean_listing,
         ),
@@ -1796,6 +1865,7 @@ def build_operations() -> List[Operation]:
                 "to_object_type": d["to_object_type"],
                 "to_object_id": d["to_object_id"],
             },
+            display_param="from_object_id",
         ),
         _with_post(
             client_op(
@@ -1814,6 +1884,7 @@ def build_operations() -> List[Operation]:
                     "from_object_type": d["from_object_type"],
                     "to_object_type": d["to_object_type"],
                 },
+                display_param="from_object_type",
             ),
             _lean_listing,
         ),
@@ -1832,6 +1903,7 @@ def build_operations() -> List[Operation]:
                     "limit": d.get("limit", 30),
                     "after": d.get("after") or None,
                 },
+                display_param=None,
             ),
             _lean_listing,
         ),
@@ -1844,6 +1916,7 @@ def build_operations() -> List[Operation]:
                 "form_id": _s("Form GUID.", "abc12345-6789-0abc-def0-123456789abc", required=True),
             },
             arg_map=lambda d: {"form_id": d["form_id"]},
+            display_param="form_id",
         ),
         _with_post(
             client_op(
@@ -1881,6 +1954,7 @@ def build_operations() -> List[Operation]:
                     "fields": d["fields"],
                     "context": d.get("context") or None,
                 },
+                display_param="fields",
             ),
             _pick(["id"]),
         ),
@@ -1902,6 +1976,7 @@ def build_operations() -> List[Operation]:
                     "limit": d.get("limit", 30),
                     "after": d.get("after") or None,
                 },
+                display_param="form_guid",
             ),
             _lean_listing,
         ),
@@ -1920,6 +1995,7 @@ def build_operations() -> List[Operation]:
                     "limit": d.get("limit", 30),
                     "after": d.get("after") or None,
                 },
+                display_param=None,
             ),
             _lean_listing,
         ),
@@ -1930,6 +2006,7 @@ def build_operations() -> List[Operation]:
             tags=("hubspot_marketing_email",),
             input_schema={"email_id": _s("Marketing email ID.", "123456789", required=True)},
             arg_map=lambda d: {"email_id": d["email_id"]},
+            display_param="email_id",
         ),
         _with_post(
             client_op(
@@ -1959,6 +2036,7 @@ def build_operations() -> List[Operation]:
                     "custom_properties": d.get("custom_properties") or None,
                     "contact_properties": d.get("contact_properties") or None,
                 },
+                display_param="to_email",
             ),
             _pick(["id"]),
         ),
@@ -1969,6 +2047,7 @@ def build_operations() -> List[Operation]:
             tags=("hubspot_marketing_email",),
             input_schema={"email_id": _s("Marketing email ID.", "123456789", required=True)},
             arg_map=lambda d: {"email_id": d["email_id"]},
+            display_param="email_id",
         ),
         # ── Files ────────────────────────────────────────────────────────
         _with_post(
@@ -2000,6 +2079,7 @@ def build_operations() -> List[Operation]:
                     "access": d.get("access", "PRIVATE"),
                     "overwrite": d.get("overwrite", False),
                 },
+                display_param="file_path",
             ),
             _pick(["id", "url"]),
         ),
@@ -2010,6 +2090,7 @@ def build_operations() -> List[Operation]:
             tags=("hubspot_files",),
             input_schema={"file_id": _s("File ID.", "123456789", required=True)},
             arg_map=lambda d: {"file_id": d["file_id"]},
+            display_param="file_id",
         ),
         client_op(
             "delete_hubspot_file",
@@ -2020,6 +2101,7 @@ def build_operations() -> List[Operation]:
             tags=("hubspot_files",),
             input_schema={"file_id": _s("File ID.", "123456789", required=True)},
             arg_map=lambda d: {"file_id": d["file_id"]},
+            display_param="file_id",
         ),
         _with_post(
             client_op(
@@ -2035,6 +2117,7 @@ def build_operations() -> List[Operation]:
                     "limit": d.get("limit", 30),
                     "after": d.get("after") or None,
                 },
+                display_param=None,
             ),
             _lean_listing,
         ),
@@ -2053,6 +2136,7 @@ def build_operations() -> List[Operation]:
                     "limit": d.get("limit", 30),
                     "after": d.get("after") or None,
                 },
+                display_param=None,
             ),
             _lean_listing,
         ),
@@ -2063,6 +2147,7 @@ def build_operations() -> List[Operation]:
             tags=("hubspot_conversations",),
             input_schema={"thread_id": _s("Thread ID.", "123456789", required=True)},
             arg_map=lambda d: {"thread_id": d["thread_id"]},
+            display_param="thread_id",
         ),
         _with_post(
             client_op(
@@ -2080,6 +2165,7 @@ def build_operations() -> List[Operation]:
                     "limit": d.get("limit", 30),
                     "after": d.get("after") or None,
                 },
+                display_param="thread_id",
             ),
             _lean_listing,
         ),
@@ -2126,6 +2212,7 @@ def build_operations() -> List[Operation]:
                     "recipients": d["recipients"],
                     "sender_actor_id": d.get("sender_actor_id") or None,
                 },
+                display_param="text",
             ),
             _pick(["id"]),
         ),
@@ -2143,6 +2230,7 @@ def build_operations() -> List[Operation]:
                     "app_id": _s("HubSpot App ID (developer console).", "1234567", required=True),
                 },
                 arg_map=lambda d: {"app_id": d["app_id"]},
+                display_param="app_id",
             ),
             _lean_listing,
         ),
@@ -2174,6 +2262,7 @@ def build_operations() -> List[Operation]:
                     "property_name": d.get("property_name") or None,
                     "active": d.get("active", True),
                 },
+                display_param="event_type",
             ),
             _pick(["id"]),
         ),
@@ -2192,5 +2281,6 @@ def build_operations() -> List[Operation]:
                 "app_id": d["app_id"],
                 "subscription_id": d["subscription_id"],
             },
+            display_param="subscription_id",
         ),
     ]

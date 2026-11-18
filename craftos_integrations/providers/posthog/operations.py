@@ -107,6 +107,7 @@ def build_operations() -> List[Operation]:
                 ),
                 "project_id": _project(required=False),
             },
+            display_param="query",
         ),
         client_op(
             "run_posthog_query_async",
@@ -127,6 +128,7 @@ def build_operations() -> List[Operation]:
                 "variables": _obj("Optional HogQL query variables.", {}, required=False),
                 "project_id": _project(required=False),
             },
+            display_param="query",
         ),
         client_op(
             "get_posthog_query_status",
@@ -145,6 +147,7 @@ def build_operations() -> List[Operation]:
                 ),
                 "project_id": _project(required=False),
             },
+            display_param="query_id",
         ),
         client_op(
             "cancel_posthog_query",
@@ -161,6 +164,7 @@ def build_operations() -> List[Operation]:
                 ),
                 "project_id": _project(required=False),
             },
+            display_param="query_id",
         ),
         client_op(
             "draft_posthog_sql",
@@ -179,6 +183,7 @@ def build_operations() -> List[Operation]:
                 ),
                 "project_id": _project(required=False),
             },
+            display_param="prompt",
         ),
         client_op(
             "list_posthog_events",
@@ -197,6 +202,7 @@ def build_operations() -> List[Operation]:
                 "limit": _limit(required=False),
                 "project_id": _project(required=False),
             },
+            display_param="event",
         ),
         client_op(
             "get_posthog_event",
@@ -207,6 +213,7 @@ def build_operations() -> List[Operation]:
                 "event_uuid": _s("Event uuid.", "01890a5d-0000-0000-0000-000000000000", required=True),
                 "project_id": _project(required=False),
             },
+            display_param="event_uuid",
         ),
         # ═════════════════════════════════════════════════════════════
         # Insights — tag: posthog_insights
@@ -223,6 +230,7 @@ def build_operations() -> List[Operation]:
                 search=_s("Filter by name or description text.", "", required=False),
                 favorited=_b("Only favorited insights.", True, required=False),
             ),
+            display_param="search",
         ),
         client_op(
             "get_posthog_insight",
@@ -236,6 +244,7 @@ def build_operations() -> List[Operation]:
                 "insight_id": _s("Numeric insight id.", "12345", required=True),
                 "project_id": _project(required=False),
             },
+            display_param="insight_id",
         ),
         client_op(
             "create_posthog_insight",
@@ -260,6 +269,7 @@ def build_operations() -> List[Operation]:
                 "tags": _arr("Tags.", ["growth"], required=False),
                 "project_id": _project(required=False),
             },
+            display_param="name",
         ),
         client_op(
             "update_posthog_insight",
@@ -281,6 +291,7 @@ def build_operations() -> List[Operation]:
                 "tags": _arr("Replacement tags.", [], required=False),
                 "project_id": _project(required=False),
             },
+            display_param="name",
         ),
         client_op(
             "delete_posthog_insight",
@@ -296,6 +307,7 @@ def build_operations() -> List[Operation]:
                 "insight_id": _s("Numeric insight id.", "12345", required=True),
                 "project_id": _project(required=False),
             },
+            display_param="insight_id",
         ),
         client_op(
             "get_posthog_insight_sharing",
@@ -309,6 +321,7 @@ def build_operations() -> List[Operation]:
                 "insight_id": _s("Numeric insight id.", "12345", required=True),
                 "project_id": _project(required=False),
             },
+            display_param="insight_id",
         ),
         client_op(
             "list_posthog_trending_insights",
@@ -316,6 +329,7 @@ def build_operations() -> List[Operation]:
             description="List the insights most viewed recently in this project.",
             tags=("posthog_insights",),
             input_schema={"project_id": _project(required=False)},
+            display_param="project_id",
         ),
         client_op(
             "get_posthog_insight_activity",
@@ -326,6 +340,7 @@ def build_operations() -> List[Operation]:
                 "insight_id": _s("Numeric insight id.", "12345", required=True),
                 "project_id": _project(required=False),
             },
+            display_param="insight_id",
         ),
         # ═════════════════════════════════════════════════════════════
         # Dashboards — tag: posthog_dashboards
@@ -339,6 +354,7 @@ def build_operations() -> List[Operation]:
             ),
             tags=("posthog_dashboards", _UMBRELLA),
             input_schema=_paged(search=_s("Filter by name text.", "", required=False)),
+            display_param="search",
         ),
         client_op(
             "get_posthog_dashboard",
@@ -352,6 +368,7 @@ def build_operations() -> List[Operation]:
                 "dashboard_id": _s("Numeric dashboard id.", "1", required=True),
                 "project_id": _project(required=False),
             },
+            display_param="dashboard_id",
         ),
         client_op(
             "create_posthog_dashboard",
@@ -366,6 +383,7 @@ def build_operations() -> List[Operation]:
                 "tags": _arr("Tags.", [], required=False),
                 "project_id": _project(required=False),
             },
+            display_param="name",
         ),
         client_op(
             "update_posthog_dashboard",
@@ -384,6 +402,7 @@ def build_operations() -> List[Operation]:
                 "tags": _arr("Replacement tags.", [], required=False),
                 "project_id": _project(required=False),
             },
+            display_param="name",
         ),
         client_op(
             "delete_posthog_dashboard",
@@ -399,6 +418,7 @@ def build_operations() -> List[Operation]:
                 "dashboard_id": _s("Numeric dashboard id.", "1", required=True),
                 "project_id": _project(required=False),
             },
+            display_param="dashboard_id",
         ),
         client_op(
             "add_posthog_insight_to_dashboard",
@@ -415,6 +435,7 @@ def build_operations() -> List[Operation]:
                 "dashboard_id": _s("Numeric dashboard id.", "1", required=True),
                 "project_id": _project(required=False),
             },
+            display_param="insight_id",
         ),
         client_op(
             "create_posthog_dashboard_text_tile",
@@ -430,6 +451,7 @@ def build_operations() -> List[Operation]:
                 "body": _s("Markdown text for the tile.", "## Q3 goals", required=True),
                 "project_id": _project(required=False),
             },
+            display_param="body",
         ),
         client_op(
             "delete_posthog_dashboard_tile",
@@ -443,6 +465,7 @@ def build_operations() -> List[Operation]:
                 "tile_id": _s("Numeric tile id (from get_posthog_dashboard).", "42", required=True),
                 "project_id": _project(required=False),
             },
+            display_param="tile_id",
         ),
         client_op(
             "list_posthog_dashboard_templates",
@@ -450,6 +473,7 @@ def build_operations() -> List[Operation]:
             description="List dashboard templates available in this project.",
             tags=("posthog_dashboards",),
             input_schema=_paged(),
+            display_param="project_id",
         ),
         # ═════════════════════════════════════════════════════════════
         # Feature flags — tag: posthog_feature_flags
@@ -466,6 +490,7 @@ def build_operations() -> List[Operation]:
                 search=_s("Filter by key or name text.", "", required=False),
                 active=_b("Only active (true) or only inactive (false) flags.", True, required=False),
             ),
+            display_param="search",
         ),
         client_op(
             "get_posthog_feature_flag",
@@ -479,6 +504,7 @@ def build_operations() -> List[Operation]:
                 "flag_id": _s("Numeric feature flag id.", "678", required=True),
                 "project_id": _project(required=False),
             },
+            display_param="flag_id",
         ),
         client_op(
             "create_posthog_feature_flag",
@@ -506,6 +532,7 @@ def build_operations() -> List[Operation]:
                 ),
                 "project_id": _project(required=False),
             },
+            display_param="key",
         ),
         client_op(
             "update_posthog_feature_flag",
@@ -526,6 +553,7 @@ def build_operations() -> List[Operation]:
                 "filters": _obj("Replacement release conditions.", {}, required=False),
                 "project_id": _project(required=False),
             },
+            display_param="name",
         ),
         client_op(
             "set_posthog_feature_flag_rollout",
@@ -542,6 +570,7 @@ def build_operations() -> List[Operation]:
                 "rollout_percentage": _i("Percentage of users (0-100).", 25, required=True),
                 "project_id": _project(required=False),
             },
+            display_param="rollout_percentage",
         ),
         client_op(
             "enable_posthog_feature_flag",
@@ -553,6 +582,7 @@ def build_operations() -> List[Operation]:
                 "flag_id": _s("Numeric feature flag id.", "678", required=True),
                 "project_id": _project(required=False),
             },
+            display_param="flag_id",
         ),
         client_op(
             "disable_posthog_feature_flag",
@@ -564,6 +594,7 @@ def build_operations() -> List[Operation]:
                 "flag_id": _s("Numeric feature flag id.", "678", required=True),
                 "project_id": _project(required=False),
             },
+            display_param="flag_id",
         ),
         client_op(
             "delete_posthog_feature_flag",
@@ -580,6 +611,7 @@ def build_operations() -> List[Operation]:
                 "flag_id": _s("Numeric feature flag id.", "678", required=True),
                 "project_id": _project(required=False),
             },
+            display_param="flag_id",
         ),
         client_op(
             "archive_posthog_feature_flag",
@@ -594,6 +626,7 @@ def build_operations() -> List[Operation]:
                 "flag_id": _s("Numeric feature flag id.", "678", required=True),
                 "project_id": _project(required=False),
             },
+            display_param="flag_id",
         ),
         client_op(
             "unarchive_posthog_feature_flag",
@@ -605,6 +638,7 @@ def build_operations() -> List[Operation]:
                 "flag_id": _s("Numeric feature flag id.", "678", required=True),
                 "project_id": _project(required=False),
             },
+            display_param="flag_id",
         ),
         client_op(
             "get_posthog_feature_flag_status",
@@ -618,6 +652,7 @@ def build_operations() -> List[Operation]:
                 "flag_id": _s("Numeric feature flag id.", "678", required=True),
                 "project_id": _project(required=False),
             },
+            display_param="flag_id",
         ),
         client_op(
             "get_posthog_feature_flag_blast_radius",
@@ -636,6 +671,7 @@ def build_operations() -> List[Operation]:
                 "group_type_index": _i("Group type index for group-based flags.", 0, required=False),
                 "project_id": _project(required=False),
             },
+            display_param="condition",
         ),
         client_op(
             "list_posthog_my_feature_flags",
@@ -646,6 +682,7 @@ def build_operations() -> List[Operation]:
             ),
             tags=("posthog_feature_flags",),
             input_schema={"project_id": _project(required=False)},
+            display_param="project_id",
         ),
         client_op(
             "list_posthog_early_access_features",
@@ -656,6 +693,7 @@ def build_operations() -> List[Operation]:
             ),
             tags=("posthog_feature_flags",),
             input_schema=_paged(),
+            display_param="project_id",
         ),
         client_op(
             "create_posthog_early_access_feature",
@@ -673,6 +711,7 @@ def build_operations() -> List[Operation]:
                 "feature_flag_id": _i("Numeric id of the backing flag.", 678, required=False),
                 "project_id": _project(required=False),
             },
+            display_param="name",
         ),
         # ═════════════════════════════════════════════════════════════
         # Persons — tag: posthog_persons
@@ -691,6 +730,7 @@ def build_operations() -> List[Operation]:
                 distinct_id=_s("Exact distinct id to look up.", "", required=False),
                 email=_s("Exact email to look up.", "user@example.com", required=False),
             ),
+            display_param="search",
         ),
         client_op(
             "get_posthog_person",
@@ -704,6 +744,7 @@ def build_operations() -> List[Operation]:
                 "person_id": _s("Person uuid.", "01890a5d-0000-0000-0000-000000000000", required=True),
                 "project_id": _project(required=False),
             },
+            display_param="person_id",
         ),
         client_op(
             "update_posthog_person",
@@ -721,6 +762,7 @@ def build_operations() -> List[Operation]:
                 ),
                 "project_id": _project(required=False),
             },
+            display_param="properties",
         ),
         client_op(
             "update_posthog_person_property",
@@ -734,6 +776,7 @@ def build_operations() -> List[Operation]:
                 "value": _s("Property value.", "pro", required=True),
                 "project_id": _project(required=False),
             },
+            display_param="key",
         ),
         client_op(
             "delete_posthog_person_property",
@@ -747,6 +790,7 @@ def build_operations() -> List[Operation]:
                 "key": _s("Property name to remove.", "plan", required=True),
                 "project_id": _project(required=False),
             },
+            display_param="key",
         ),
         client_op(
             "delete_posthog_persons",
@@ -773,6 +817,7 @@ def build_operations() -> List[Operation]:
                 ),
                 "project_id": _project(required=False),
             },
+            display_param="person_ids",
         ),
         client_op(
             "list_posthog_person_cohorts",
@@ -783,6 +828,7 @@ def build_operations() -> List[Operation]:
                 "person_id": _s("Person uuid.", "01890a5d-0000-0000-0000-000000000000", required=True),
                 "project_id": _project(required=False),
             },
+            display_param="person_id",
         ),
         client_op(
             "get_posthog_person_properties_timeline",
@@ -795,6 +841,7 @@ def build_operations() -> List[Operation]:
                 "person_id": _s("Person uuid.", "01890a5d-0000-0000-0000-000000000000", required=True),
                 "project_id": _project(required=False),
             },
+            display_param="person_id",
         ),
         client_op(
             "list_posthog_person_property_values",
@@ -808,6 +855,7 @@ def build_operations() -> List[Operation]:
                 "key": _s("Person property name.", "plan", required=True),
                 "project_id": _project(required=False),
             },
+            display_param="key",
         ),
         # ═════════════════════════════════════════════════════════════
         # Cohorts — tag: posthog_cohorts
@@ -821,6 +869,7 @@ def build_operations() -> List[Operation]:
             ),
             tags=("posthog_cohorts", _UMBRELLA),
             input_schema=_paged(),
+            display_param="project_id",
         ),
         client_op(
             "get_posthog_cohort",
@@ -831,6 +880,7 @@ def build_operations() -> List[Operation]:
                 "cohort_id": _s("Numeric cohort id.", "42", required=True),
                 "project_id": _project(required=False),
             },
+            display_param="cohort_id",
         ),
         client_op(
             "create_posthog_cohort",
@@ -853,6 +903,7 @@ def build_operations() -> List[Operation]:
                 "is_static": _b("Static (manually filled) rather than dynamic.", False, required=False),
                 "project_id": _project(required=False),
             },
+            display_param="name",
         ),
         client_op(
             "update_posthog_cohort",
@@ -869,6 +920,7 @@ def build_operations() -> List[Operation]:
                 "description": _s("New description.", "", required=False),
                 "project_id": _project(required=False),
             },
+            display_param="name",
         ),
         client_op(
             "delete_posthog_cohort",
@@ -884,6 +936,7 @@ def build_operations() -> List[Operation]:
                 "cohort_id": _s("Numeric cohort id.", "42", required=True),
                 "project_id": _project(required=False),
             },
+            display_param="cohort_id",
         ),
         client_op(
             "list_posthog_cohort_persons",
@@ -891,6 +944,7 @@ def build_operations() -> List[Operation]:
             description="List the persons currently in a cohort, by numeric cohort id.",
             tags=("posthog_cohorts",),
             input_schema=_paged(cohort_id=_s("Numeric cohort id.", "42", required=True)),
+            display_param="cohort_id",
         ),
         client_op(
             "add_posthog_persons_to_cohort",
@@ -910,6 +964,7 @@ def build_operations() -> List[Operation]:
                 ),
                 "project_id": _project(required=False),
             },
+            display_param="cohort_id",
         ),
         # ═════════════════════════════════════════════════════════════
         # Annotations — tag: posthog_annotations
@@ -923,6 +978,7 @@ def build_operations() -> List[Operation]:
             ),
             tags=("posthog_annotations",),
             input_schema=_paged(),
+            display_param="project_id",
         ),
         client_op(
             "get_posthog_annotation",
@@ -933,6 +989,7 @@ def build_operations() -> List[Operation]:
                 "annotation_id": _s("Numeric annotation id.", "7", required=True),
                 "project_id": _project(required=False),
             },
+            display_param="annotation_id",
         ),
         client_op(
             "create_posthog_annotation",
@@ -957,6 +1014,7 @@ def build_operations() -> List[Operation]:
                 "dashboard_item": _i("Insight id when scope is dashboard_item.", 12345, required=False),
                 "project_id": _project(required=False),
             },
+            display_param="content",
         ),
         client_op(
             "update_posthog_annotation",
@@ -970,6 +1028,7 @@ def build_operations() -> List[Operation]:
                 "date_marker": _s("New ISO timestamp.", "", required=False),
                 "project_id": _project(required=False),
             },
+            display_param="content",
         ),
         client_op(
             "delete_posthog_annotation",
@@ -985,6 +1044,7 @@ def build_operations() -> List[Operation]:
                 "annotation_id": _s("Numeric annotation id.", "7", required=True),
                 "project_id": _project(required=False),
             },
+            display_param="annotation_id",
         ),
         # ═════════════════════════════════════════════════════════════
         # Definitions & actions — tag: posthog_definitions
@@ -999,6 +1059,7 @@ def build_operations() -> List[Operation]:
             ),
             tags=("posthog_definitions",),
             input_schema=_paged(search=_s("Filter by event name text.", "", required=False)),
+            display_param="search",
         ),
         client_op(
             "get_posthog_event_definition",
@@ -1011,6 +1072,7 @@ def build_operations() -> List[Operation]:
                 ),
                 "project_id": _project(required=False),
             },
+            display_param="definition_id",
         ),
         client_op(
             "update_posthog_event_definition",
@@ -1030,6 +1092,7 @@ def build_operations() -> List[Operation]:
                 "verified": _b("Mark as verified/official.", True, required=False),
                 "project_id": _project(required=False),
             },
+            display_param="description",
         ),
         client_op(
             "list_posthog_property_definitions",
@@ -1045,6 +1108,7 @@ def build_operations() -> List[Operation]:
                     "Only properties seen on these events.", ["$pageview"], required=False
                 ),
             ),
+            display_param="search",
         ),
         client_op(
             "update_posthog_property_definition",
@@ -1062,6 +1126,7 @@ def build_operations() -> List[Operation]:
                 "tags": _arr("Tags.", [], required=False),
                 "project_id": _project(required=False),
             },
+            display_param="description",
         ),
         client_op(
             "list_posthog_actions",
@@ -1072,6 +1137,7 @@ def build_operations() -> List[Operation]:
             ),
             tags=("posthog_definitions",),
             input_schema=_paged(),
+            display_param="project_id",
         ),
         client_op(
             "get_posthog_action",
@@ -1082,6 +1148,7 @@ def build_operations() -> List[Operation]:
                 "action_id": _s("Numeric action id.", "99", required=True),
                 "project_id": _project(required=False),
             },
+            display_param="action_id",
         ),
         client_op(
             "create_posthog_action",
@@ -1102,6 +1169,7 @@ def build_operations() -> List[Operation]:
                 "description": _s("Description.", "", required=False),
                 "project_id": _project(required=False),
             },
+            display_param="name",
         ),
         # ═════════════════════════════════════════════════════════════
         # Projects / organization / user — tag: posthog_projects
@@ -1116,6 +1184,7 @@ def build_operations() -> List[Operation]:
             ),
             tags=("posthog_projects",),
             input_schema={},
+            display_param=None,
         ),
         client_op(
             "get_posthog_organization",
@@ -1125,6 +1194,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "organization_id": _s("Organization uuid, or '@current'.", "@current", required=False),
             },
+            display_param="organization_id",
         ),
         client_op(
             "list_posthog_organization_members",
@@ -1136,6 +1206,7 @@ def build_operations() -> List[Operation]:
                 "limit": _limit(required=False),
                 "offset": _offset(required=False),
             },
+            display_param="organization_id",
         ),
         client_op(
             "list_posthog_projects",
@@ -1149,6 +1220,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "organization_id": _s("Organization uuid, or '@current'.", "@current", required=False),
             },
+            display_param="organization_id",
         ),
         client_op(
             "get_posthog_project",
@@ -1162,6 +1234,7 @@ def build_operations() -> List[Operation]:
                 "project_id": _project(required=False),
                 "organization_id": _s("Organization uuid, or '@current'.", "@current", required=False),
             },
+            display_param="project_id",
         ),
     ]
 

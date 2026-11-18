@@ -84,6 +84,8 @@ from agent_core import action
         "number_of_images": 1,
         "simulated_mode": True,
     },
+    display_param="prompt",
+    icon="ImagePlus",
 )
 def generate_image(input_data: dict) -> dict:
     simulated_mode = input_data.get("simulated_mode", False)

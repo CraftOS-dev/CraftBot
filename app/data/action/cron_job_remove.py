@@ -24,6 +24,8 @@ from agent_core import action
         },
         "message": {"type": "string", "description": "Status message"},
     },
+    display_param="job_id",
+    icon="CalendarX",
 )
 def cron_job_remove(input_data: dict) -> dict:
     """Remove a cron job."""

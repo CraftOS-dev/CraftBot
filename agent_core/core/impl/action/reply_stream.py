@@ -3,20 +3,20 @@
 
 The decision reply is one JSON object::
 
-    {"reasoning": "...", "actions": [{"action_name": "...", "parameters": {...}}, ...]}
+    {"reasoning": "...", "status": "...", "actions": [{"action_name": "...", "parameters": {...}}, ...]}
 
 ``ReplyParser`` reads it piece by piece as the provider streams it. It
-knows where the reasoning text is, where each action object starts, and
-the moment an action object closes (its text then parses on its own, so
-the action is complete).
+knows where the reasoning text is, the status line (what the step does, for
+the user), where each action object starts, and the moment an action object
+closes (its text then parses on its own, so the action is complete).
 
 ``ReplyStream`` follows one turn's decision. Its router asks it for a sink
 per request (``begin_attempt``); the LLM call hands the reply's text to that
 sink in its worker thread. The stream then, on the event loop:
 
-- shows the reply as it is written: the reasoning text, each action being
-  prepared, and the text of a reply message (``publish``, coalesced to a
-  few updates a second), and
+- shows the reply as it is written: the reasoning text, the status line
+  once complete, each action being prepared, and the text of a reply
+  message (``publish``, coalesced to a few updates a second), and
 - starts each action the moment its object closes, when the turn allows it
   (``start_action``) and the action may run alongside others
   (``classify``), instead of waiting for the whole reply.
@@ -41,6 +41,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 import jiter
 
+from agent_core.core.action_framework.registry import action_row_display
 from agent_core.core.impl.llm.streaming import StreamRestarted, StreamSink
 from agent_core.utils.logger import logger
 
@@ -56,6 +57,17 @@ MESSAGE_ACTIONS = frozenset({"send_message"})
 
 #: Actions the activity view never shows (EventTransformer hides them).
 HIDDEN_ACTIONS = frozenset({"end_turn"})
+
+_UNSET = object()
+
+
+def status_line(value: Any) -> Optional[str]:
+    """A reply's "status" as the chat shows it: its first line, trimmed;
+    None when the reply gave none."""
+    if not isinstance(value, str):
+        return None
+    line = value.strip().split("\n", 1)[0].strip()
+    return line or None
 
 
 def _partial(text: str, mode: str) -> Any:
@@ -117,6 +129,9 @@ class ReplyParser:
         self.reasoning_start: Optional[int] = None
         self.reasoning_end: Optional[int] = None
         self._reasoning: Optional[str] = None
+        self._status_start: Optional[int] = None
+        #: The status line, once its string closed (None until then).
+        self.status: Optional[str] = None
         self.actions: List[ActionRecord] = []
 
     # ── scanning ──────────────────────────────────────────────────────
@@ -225,6 +240,9 @@ class ReplyParser:
             elif stack[0].last_key == "reasoning" and self.reasoning_start is None:
                 role = "reasoning"
                 self.reasoning_start = i
+            elif stack[0].last_key == "status" and self._status_start is None:
+                role = "status"
+                self._status_start = i
         self._str_role = role
 
     def _close_string(self, i: int) -> None:
@@ -235,6 +253,11 @@ class ReplyParser:
                 self._stack[0].last_key = None
         elif self._str_role == "reasoning":
             self.reasoning_end = i
+        elif self._str_role == "status":
+            try:
+                self.status = status_line(json.loads(self.text[self._str_start : i + 1]))
+            except ValueError:
+                self.status = None
         self._str_role = None
 
     # ── what has been written so far ─────────────────────────────────
@@ -355,20 +378,22 @@ class ReplyAttempt:
             return actions[index].run_id
 
     def salvage(self) -> Dict[str, Any]:
-        """The decision as far as the reply went: its reasoning and every
-        action object that closed, each marked with its index. For a reply
-        whose actions already started but which did not end well-formed (cut
-        off, broken off by an error): the turn keeps what started instead of
-        asking again, which would run those actions a second time."""
+        """The decision as far as the reply went: its reasoning, its status
+        line and every action object that closed, each marked with its
+        index. For a reply whose actions already started but which did not
+        end well-formed (cut off, broken off by an error): the turn keeps
+        what started instead of asking again, which would run those actions
+        a second time."""
         with self._lock:
             reasoning = self.parser.reasoning() or ""
+            status = self.parser.status
             actions = []
             ordinal = 0
             for record in self.parser.actions:
                 if record.obj is not None:
                     actions.append({**record.obj, "_stream_index": ordinal})
                 ordinal += 1
-        return {"reasoning": reasoning, "actions": actions}
+        return {"reasoning": reasoning, "status": status, "actions": actions}
 
     def view(self) -> Dict[str, Any]:
         """The reply as written so far, for the chat."""
@@ -376,6 +401,7 @@ class ReplyAttempt:
             parser = self.parser
             reasoning = parser.reasoning()
             reasoning_done = parser.reasoning_done
+            status = parser.status
             records = [(r, parser.action_view(r)) for r in parser.actions]
         actions = []
         messages = []
@@ -406,9 +432,11 @@ class ReplyAttempt:
                     "name": name,
                     "input": rendered,
                     "done": seen["done"],
+                    # Shown as its real row will be (icon, display param).
+                    **action_row_display(name),
                 }
             )
-        return {
+        view = {
             "reasoning": (
                 {"id": self.reasoning_id, "text": reasoning, "done": reasoning_done}
                 if reasoning
@@ -417,6 +445,11 @@ class ReplyAttempt:
             "actions": actions,
             "messages": messages,
         }
+        if status:
+            # Complete only: the line replaces the previous step's status
+            # whole, never word by word.
+            view["status"] = status
+        return view
 
 
 class ReplyStream:
@@ -501,13 +534,15 @@ class ReplyStream:
     def finish(self, decisions: List[Dict[str, Any]]) -> None:
         """The reply ended and the turn runs ``decisions``: the chat keeps
         what runs (its rows and its message become the real ones) and drops
-        the rest of what was shown."""
+        the rest of what was shown. Its status line (None: the reply gave
+        none) is what the chat shows while they run, also when the reply did
+        not stream."""
         keep = [
             d["_run_id"]
             for d in decisions
             if d.get("_run_id") and not d.get("_error")
         ]
-        self._end(keep)
+        self._end(keep, status=decisions[0].get("status") if decisions else None)
 
     async def abort(self, *, cancel_actions: bool) -> None:
         """The turn ends before its actions ran (stopped, or failed): stop
@@ -529,11 +564,17 @@ class ReplyStream:
                 task.cancel()
         await asyncio.wait(tasks)
 
-    def _end(self, keep: List[str]) -> None:
+    def _end(self, keep: List[str], status: Any = _UNSET) -> None:
+        """``status``: the step's status line (None: none), given when the
+        reply ended well (finish); a turn that aborts leaves the chat's as
+        it is."""
         if self._closed:
             return
         self._closed = True
-        self._emit({"phase": "end", "keep": keep})
+        body: Dict[str, Any] = {"phase": "end", "keep": keep}
+        if status is not _UNSET:
+            body["status"] = status_line(status)
+        self._emit(body)
 
     # ── event loop: updates and early starts ─────────────────────────
 

@@ -6,6 +6,7 @@ from agent_core.core.action_framework.registry import (
     ActionMetadata,
     RegisteredAction,
     action,
+    action_row_display,
     registry_instance,
     install_all_action_requirements,
     PLATFORM_ALL,
@@ -29,6 +30,7 @@ __all__ = [
     "RegisteredAction",
     # Decorator
     "action",
+    "action_row_display",
     # Singleton instance
     "registry_instance",
     # Utilities

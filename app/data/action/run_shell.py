@@ -67,6 +67,8 @@ from agent_core import action
         "background": False,
         "simulated_mode": True,
     },
+    display_param="command",
+    icon="TerminalSquare",
 )
 def shell_exec(input_data: dict) -> dict:
     import os
@@ -293,6 +295,8 @@ def shell_exec(input_data: dict) -> dict:
         "background": False,
         "simulated_mode": True,
     },
+    display_param="command",
+    icon="TerminalSquare",
 )
 def shell_exec_windows(input_data: dict) -> dict:
     import os
@@ -551,6 +555,8 @@ def shell_exec_windows(input_data: dict) -> dict:
         "background": False,
         "simulated_mode": True,
     },
+    display_param="command",
+    icon="TerminalSquare",
 )
 def shell_exec_darwin(input_data: dict) -> dict:
     import os

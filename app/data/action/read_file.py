@@ -85,6 +85,8 @@ from agent_core import action
         "limit": 2000,
         "simulated_mode": True,
     },
+    display_param="file_path",
+    icon="FileText",
 )
 def read_file(input_data: dict) -> dict:
     import os

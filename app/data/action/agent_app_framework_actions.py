@@ -28,6 +28,8 @@ from app.subagent.definitions.framework_walk_verify import VERDICTS
         "message": {"type": "string"},
     },
     test_payload={"simulated_mode": True},
+    display_param="operation",
+    icon="ShieldCheck",
 )
 async def agent_app_framework_verification(input_data: dict) -> dict:
     if input_data.get("simulated_mode"):
@@ -81,6 +83,8 @@ async def agent_app_framework_verification(input_data: dict) -> dict:
         "message": {"type": "string"},
     },
     test_payload={"simulated_mode": True},
+    display_param="request",
+    icon="Workflow",
 )
 async def agent_app_framework_workflow(input_data: dict) -> dict:
     if input_data.get("simulated_mode"):
@@ -148,6 +152,8 @@ async def agent_app_framework_workflow(input_data: dict) -> dict:
         "message": {"type": "string"},
     },
     test_payload={"simulated_mode": True},
+    display_param="args",
+    icon="AppWindow",
 )
 async def agent_app_command(input_data: dict) -> dict:
     if input_data.get("simulated_mode"):
@@ -194,6 +200,8 @@ async def agent_app_command(input_data: dict) -> dict:
         "message": {"type": "string"},
     },
     test_payload={"simulated_mode": True},
+    display_param="args",
+    icon="AppWindow",
 )
 async def a2app_command(input_data: dict) -> dict:
     if input_data.get("simulated_mode"):
@@ -233,6 +241,8 @@ async def a2app_command(input_data: dict) -> dict:
         "message": {"type": "string", "description": "Failure explanation."},
     },
     test_payload={"simulated_mode": True},
+    display_param=None,
+    icon="LayoutGrid",
 )
 async def agent_app_framework_list(input_data: dict) -> dict:
     if input_data.get("simulated_mode", False):

@@ -274,6 +274,7 @@ def build_operations() -> List[Operation]:
                     "text": d["text"],
                     "thread_ts": d.get("thread_ts"),
                 },
+                display_param="text",
             ),
             _pick(["channel", "ts"]),
         ),
@@ -326,6 +327,7 @@ def build_operations() -> List[Operation]:
                     "text": d["text"] if "text" in d else None,
                     "blocks": d["blocks"] if "blocks" in d else None,
                 },
+                display_param="text",
             ),
             _pick(["channel", "ts"]),
         ),
@@ -350,6 +352,7 @@ def build_operations() -> List[Operation]:
                     "example": "",
                 },
             },
+            display_param="ts",
         ),
         _with_post(
             client_op(
@@ -407,6 +410,7 @@ def build_operations() -> List[Operation]:
                     "blocks": d["blocks"] if "blocks" in d else None,
                     "thread_ts": d.get("thread_ts") or None,
                 },
+                display_param="text",
             ),
             _pick(["channel", "message_ts"]),
         ),
@@ -466,6 +470,7 @@ def build_operations() -> List[Operation]:
                     "blocks": d["blocks"] if "blocks" in d else None,
                     "thread_ts": d.get("thread_ts") or None,
                 },
+                display_param="text",
             ),
             _pick(["scheduled_message_id", "channel", "post_at"]),
         ),
@@ -492,6 +497,7 @@ def build_operations() -> List[Operation]:
                     "example": "",
                 },
             },
+            display_param="scheduled_message_id",
         ),
         client_op(
             "list_scheduled_slack_messages",
@@ -516,6 +522,7 @@ def build_operations() -> List[Operation]:
                 "channel": d.get("channel") or None,
                 "limit": d.get("limit", 100),
             },
+            display_param="channel",
         ),
         client_op(
             "get_slack_message_permalink",
@@ -536,6 +543,7 @@ def build_operations() -> List[Operation]:
                     "example": "",
                 },
             },
+            display_param="message_ts",
         ),
         _with_post(
             client_op(
@@ -579,6 +587,7 @@ def build_operations() -> List[Operation]:
                     "ts": d["ts"],
                     "limit": d.get("limit", 100),
                 },
+                display_param="ts",
             ),
             _lean_messages,
         ),
@@ -612,6 +621,7 @@ def build_operations() -> List[Operation]:
                     "example": "thumbsup",
                 },
             },
+            display_param="name",
         ),
         client_op(
             "remove_slack_reaction",
@@ -640,6 +650,7 @@ def build_operations() -> List[Operation]:
                     "example": "thumbsup",
                 },
             },
+            display_param="name",
         ),
         client_op(
             "get_slack_reactions",
@@ -660,6 +671,7 @@ def build_operations() -> List[Operation]:
                     "example": "",
                 },
             },
+            display_param="timestamp",
         ),
         client_op(
             "list_slack_user_reactions",
@@ -684,6 +696,7 @@ def build_operations() -> List[Operation]:
                 "user": d.get("user") or None,
                 "count": d.get("count", 100),
             },
+            display_param="user",
         ),
         # ── Pins ──────────────────────────────────────────────────────────
         client_op(
@@ -706,6 +719,7 @@ def build_operations() -> List[Operation]:
                     "example": "",
                 },
             },
+            display_param="timestamp",
         ),
         client_op(
             "unpin_slack_message",
@@ -727,6 +741,7 @@ def build_operations() -> List[Operation]:
                     "example": "",
                 },
             },
+            display_param="timestamp",
         ),
         client_op(
             "list_slack_pins",
@@ -741,6 +756,7 @@ def build_operations() -> List[Operation]:
                     "example": "",
                 },
             },
+            display_param="channel",
         ),
         # ── Conversations — list/info/create/invite/open/archive/rename/
         #    topic/members ──────────────────────────────────────────────────
@@ -774,6 +790,7 @@ def build_operations() -> List[Operation]:
                     "channels": {"type": "array"},
                 },
                 arg_map=lambda d: {"limit": d.get("limit", 100)},
+                display_param=None,
             ),
             _lean_channels,
         ),
@@ -790,6 +807,7 @@ def build_operations() -> List[Operation]:
                     "example": "C1234567",
                 },
             },
+            display_param="channel",
         ),
         _with_post(
             client_op(
@@ -830,6 +848,7 @@ def build_operations() -> List[Operation]:
                     "channel": d["channel"],
                     "limit": d.get("limit", 50),
                 },
+                display_param="channel",
             ),
             _lean_messages,
         ),
@@ -863,6 +882,7 @@ def build_operations() -> List[Operation]:
                 "limit": d.get("limit", 100),
                 "cursor": d.get("cursor") or None,
             },
+            display_param="channel",
         ),
         client_op(
             "create_slack_channel",
@@ -888,6 +908,7 @@ def build_operations() -> List[Operation]:
                 "name": d["name"],
                 "is_private": d.get("is_private", False),
             },
+            display_param="name",
         ),
         client_op(
             "invite_to_slack_channel",
@@ -909,6 +930,7 @@ def build_operations() -> List[Operation]:
                     "example": ["U123"],
                 },
             },
+            display_param="channel",
         ),
         client_op(
             "open_slack_dm",
@@ -924,6 +946,7 @@ def build_operations() -> List[Operation]:
                     "example": ["U123"],
                 },
             },
+            display_param="users",
         ),
         client_op(
             "archive_slack_channel",
@@ -939,6 +962,7 @@ def build_operations() -> List[Operation]:
                     "example": "",
                 },
             },
+            display_param="channel",
         ),
         client_op(
             "unarchive_slack_channel",
@@ -954,6 +978,7 @@ def build_operations() -> List[Operation]:
                     "example": "",
                 },
             },
+            display_param="channel",
         ),
         client_op(
             "rename_slack_channel",
@@ -975,6 +1000,7 @@ def build_operations() -> List[Operation]:
                     "example": "",
                 },
             },
+            display_param="name",
         ),
         client_op(
             "set_slack_channel_topic",
@@ -996,6 +1022,7 @@ def build_operations() -> List[Operation]:
                     "example": "",
                 },
             },
+            display_param="topic",
         ),
         client_op(
             "set_slack_channel_purpose",
@@ -1017,6 +1044,7 @@ def build_operations() -> List[Operation]:
                     "example": "",
                 },
             },
+            display_param="purpose",
         ),
         client_op(
             "join_slack_channel",
@@ -1032,6 +1060,7 @@ def build_operations() -> List[Operation]:
                     "example": "",
                 },
             },
+            display_param="channel",
         ),
         client_op(
             "leave_slack_channel",
@@ -1047,6 +1076,7 @@ def build_operations() -> List[Operation]:
                     "example": "",
                 },
             },
+            display_param="channel",
         ),
         client_op(
             "kick_user_from_slack_channel",
@@ -1068,6 +1098,7 @@ def build_operations() -> List[Operation]:
                     "example": "",
                 },
             },
+            display_param="user",
         ),
         client_op(
             "close_slack_conversation",
@@ -1083,6 +1114,7 @@ def build_operations() -> List[Operation]:
                     "example": "",
                 },
             },
+            display_param="channel",
         ),
         # ── Files ─────────────────────────────────────────────────────────
         client_op(
@@ -1141,6 +1173,7 @@ def build_operations() -> List[Operation]:
                 "thread_ts": d.get("thread_ts") or None,
                 "filename": d.get("filename") or None,
             },
+            display_param="file_path",
         ),
         _with_post(
             client_op(
@@ -1202,6 +1235,7 @@ def build_operations() -> List[Operation]:
                     "count": d.get("count", 100),
                     "page": d.get("page", 1),
                 },
+                display_param="channel",
             ),
             _lean_files,
         ),
@@ -1220,6 +1254,7 @@ def build_operations() -> List[Operation]:
                     "example": "F0123ABC",
                 },
             },
+            display_param="file_id",
         ),
         client_op(
             "download_slack_file",
@@ -1244,6 +1279,7 @@ def build_operations() -> List[Operation]:
                     "example": "/path/to/save",
                 },
             },
+            display_param="dest_path",
         ),
         client_op(
             "delete_slack_file",
@@ -1260,6 +1296,7 @@ def build_operations() -> List[Operation]:
                     "example": "",
                 },
             },
+            display_param="file_id",
         ),
         # ── Users + usergroups + presence ─────────────────────────────────
         _with_post(
@@ -1292,6 +1329,7 @@ def build_operations() -> List[Operation]:
                     "users": {"type": "array"},
                 },
                 arg_map=lambda d: {"limit": d.get("limit", 100)},
+                display_param=None,
             ),
             _lean_users,
         ),
@@ -1309,6 +1347,7 @@ def build_operations() -> List[Operation]:
                 },
             },
             arg_map=lambda d: {"user_id": d["slack_user_id"]},
+            display_param="slack_user_id",
         ),
         client_op(
             "lookup_slack_user_by_email",
@@ -1323,6 +1362,7 @@ def build_operations() -> List[Operation]:
                     "example": "alice@example.com",
                 },
             },
+            display_param="email",
         ),
         client_op(
             "get_slack_user_presence",
@@ -1339,6 +1379,7 @@ def build_operations() -> List[Operation]:
                     "example": "",
                 },
             },
+            display_param="user",
         ),
         client_op(
             "set_slack_user_presence",
@@ -1357,6 +1398,7 @@ def build_operations() -> List[Operation]:
                     "example": "auto",
                 },
             },
+            display_param="presence",
         ),
         client_op(
             "list_slack_usergroups",
@@ -1388,6 +1430,7 @@ def build_operations() -> List[Operation]:
                 "include_count": bool(d.get("include_count", False)),
                 "include_users": bool(d.get("include_users", False)),
             },
+            display_param=None,
         ),
         client_op(
             "create_slack_usergroup",
@@ -1427,6 +1470,7 @@ def build_operations() -> List[Operation]:
                 "description": d.get("description") or None,
                 "channels": d.get("channels") or None,
             },
+            display_param="name",
         ),
         client_op(
             "update_slack_usergroup",
@@ -1473,6 +1517,7 @@ def build_operations() -> List[Operation]:
                 "description": d["description"] if "description" in d else None,
                 "channels": d["channels"] if "channels" in d else None,
             },
+            display_param="name",
         ),
         client_op(
             "list_slack_usergroup_users",
@@ -1497,6 +1542,7 @@ def build_operations() -> List[Operation]:
                 "usergroup": d["usergroup"],
                 "include_disabled": bool(d.get("include_disabled", False)),
             },
+            display_param="usergroup",
         ),
         client_op(
             "set_slack_usergroup_users",
@@ -1518,6 +1564,7 @@ def build_operations() -> List[Operation]:
                     "example": [],
                 },
             },
+            display_param="usergroup",
         ),
         client_op(
             "enable_slack_usergroup",
@@ -1533,6 +1580,7 @@ def build_operations() -> List[Operation]:
                     "example": "",
                 },
             },
+            display_param="usergroup",
         ),
         client_op(
             "disable_slack_usergroup",
@@ -1550,6 +1598,7 @@ def build_operations() -> List[Operation]:
                     "example": "",
                 },
             },
+            display_param="usergroup",
         ),
         # ── Workspace: auth / team / search / bookmarks / reminders ───────
         client_op(
@@ -1560,6 +1609,7 @@ def build_operations() -> List[Operation]:
             ),
             tags=("slack_workspace", "slack"),
             input_schema={},
+            display_param=None,
         ),
         client_op(
             "get_slack_team_info",
@@ -1577,6 +1627,7 @@ def build_operations() -> List[Operation]:
                 },
             },
             arg_map=lambda d: {"team": d.get("team") or None},
+            display_param="team",
         ),
         _with_post(
             client_op(
@@ -1614,6 +1665,7 @@ def build_operations() -> List[Operation]:
                     "query": d["query"],
                     "count": d.get("count", 20),
                 },
+                display_param="query",
             ),
             _lean_search,
         ),
@@ -1630,6 +1682,7 @@ def build_operations() -> List[Operation]:
                     "example": "",
                 },
             },
+            display_param="channel_id",
         ),
         client_op(
             "add_slack_bookmark",
@@ -1676,6 +1729,7 @@ def build_operations() -> List[Operation]:
                 "link": d.get("link") or None,
                 "emoji": d.get("emoji") or None,
             },
+            display_param="title",
         ),
         client_op(
             "edit_slack_bookmark",
@@ -1722,6 +1776,7 @@ def build_operations() -> List[Operation]:
                 "link": d["link"] if "link" in d else None,
                 "emoji": d["emoji"] if "emoji" in d else None,
             },
+            display_param="title",
         ),
         client_op(
             "remove_slack_bookmark",
@@ -1744,6 +1799,7 @@ def build_operations() -> List[Operation]:
                     "example": "",
                 },
             },
+            display_param="bookmark_id",
         ),
         client_op(
             "add_slack_reminder",
@@ -1782,6 +1838,7 @@ def build_operations() -> List[Operation]:
                 "time": d["time"],
                 "user": d.get("user") or None,
             },
+            display_param="text",
         ),
         client_op(
             "list_slack_reminders",
@@ -1789,6 +1846,7 @@ def build_operations() -> List[Operation]:
             description="List the authenticated user's Slack reminders.",
             tags=("slack_workspace",),
             input_schema={},
+            display_param=None,
         ),
         client_op(
             "get_slack_reminder",
@@ -1803,6 +1861,7 @@ def build_operations() -> List[Operation]:
                     "example": "",
                 },
             },
+            display_param="reminder",
         ),
         client_op(
             "complete_slack_reminder",
@@ -1818,6 +1877,7 @@ def build_operations() -> List[Operation]:
                     "example": "",
                 },
             },
+            display_param="reminder",
         ),
         client_op(
             "delete_slack_reminder",
@@ -1834,5 +1894,6 @@ def build_operations() -> List[Operation]:
                     "example": "",
                 },
             },
+            display_param="reminder",
         ),
     ]

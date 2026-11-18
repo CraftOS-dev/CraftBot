@@ -61,6 +61,7 @@ def _op(
     core=False,
     write=False,
     destructive=False,
+    display_param=None,
 ):
     return client_op(
         name,
@@ -70,6 +71,7 @@ def _op(
         tags=(f"figma_{group}", "figma") if core else (f"figma_{group}",),
         parallelizable=not write,
         destructive=destructive,
+        display_param=display_param,
     )
 
 
@@ -82,6 +84,7 @@ def build_operations():
             "files",
             {"file_key": {**FILE, "required": True}},
             core=True,
+            display_param="file_key",
         ),
         _op(
             "get_figma_file",
@@ -90,6 +93,7 @@ def build_operations():
             "files",
             {"file_key": FILE, "depth": DEPTH, "version": VERSION},
             core=True,
+            display_param="file_key",
         ),
         _op(
             "get_figma_file_metadata",
@@ -98,6 +102,7 @@ def build_operations():
             "files",
             {"file_key": FILE},
             core=True,
+            display_param="file_key",
         ),
         _op(
             "get_figma_nodes",
@@ -106,6 +111,7 @@ def build_operations():
             "files",
             {"file_key": FILE, "node_ids": NODES, "depth": DEPTH, "version": VERSION},
             core=True,
+            display_param="file_key",
         ),
         _op(
             "find_figma_nodes",
@@ -125,6 +131,7 @@ def build_operations():
                 "offset": OFFSET,
             },
             core=True,
+            display_param="name",
         ),
         _op(
             "list_figma_versions",
@@ -140,6 +147,7 @@ def build_operations():
                 ),
                 "after": _s("Next-page cursor or returned pagination.next_page URL.", required=False),
             },
+            display_param="file_key",
         ),
         _op(
             "export_figma_images",
@@ -154,6 +162,7 @@ def build_operations():
                 "version": VERSION,
             },
             core=True,
+            display_param="file_key",
         ),
         _op(
             "get_figma_image_fills",
@@ -162,6 +171,7 @@ def build_operations():
             "assets",
             {"file_key": FILE},
             core=True,
+            display_param="file_key",
         ),
         _op(
             "download_figma_images",
@@ -178,6 +188,7 @@ def build_operations():
             },
             core=True,
             write=True,
+            display_param="file_key",
         ),
         _op(
             "list_figma_comments",
@@ -186,6 +197,7 @@ def build_operations():
             "comments",
             {"file_key": FILE, "limit": LIMIT, "offset": OFFSET},
             core=True,
+            display_param="file_key",
         ),
         _op(
             "post_figma_comment",
@@ -205,6 +217,7 @@ def build_operations():
             core=True,
             write=True,
             destructive=True,  # Outward-facing post: enable the host replay guard.
+            display_param="message",
         ),
         _op(
             "reply_figma_comment",
@@ -219,6 +232,7 @@ def build_operations():
             core=True,
             write=True,
             destructive=True,
+            display_param="message",
         ),
         _op(
             "delete_figma_comment",
@@ -229,6 +243,7 @@ def build_operations():
             core=True,
             write=True,
             destructive=True,
+            display_param="comment_id",
         ),
         _op(
             "list_figma_comment_reactions",
@@ -240,6 +255,7 @@ def build_operations():
                 "comment_id": COMMENT,
                 "cursor": _s("Pagination cursor.", required=False),
             },
+            display_param="comment_id",
         ),
         _op(
             "add_figma_comment_reaction",
@@ -252,6 +268,7 @@ def build_operations():
                 "emoji": _s("Required emoji shortcode.", ":heart:", required=True),
             },
             write=True,
+            display_param="emoji",
         ),
         _op(
             "delete_figma_comment_reaction",
@@ -265,6 +282,7 @@ def build_operations():
             },
             write=True,
             destructive=True,
+            display_param="emoji",
         ),
         _op(
             "get_figma_current_user",
@@ -273,6 +291,7 @@ def build_operations():
             "discovery",
             {},
             core=True,
+            display_param=None,
         ),
         _op(
             "list_figma_team_folders",
@@ -281,6 +300,7 @@ def build_operations():
             "discovery",
             {"team_id": TEAM, "limit": LIMIT, "offset": OFFSET},
             core=True,
+            display_param="team_id",
         ),
         _op(
             "list_figma_subfolders",
@@ -288,6 +308,7 @@ def build_operations():
             "List direct subfolders. Requires folders:read and PAT/private OAuth; uses local pagination.",
             "discovery",
             {"folder_id": _s("Required folder id.", required=True), "limit": LIMIT, "offset": OFFSET},
+            display_param="folder_id",
         ),
         _op(
             "list_figma_folder_files",
@@ -296,6 +317,7 @@ def build_operations():
             "discovery",
             {"folder_id": _s("Required folder id.", required=True), "limit": LIMIT, "offset": OFFSET},
             core=True,
+            display_param="folder_id",
         ),
         _op(
             "get_figma_folder_metadata",
@@ -303,6 +325,7 @@ def build_operations():
             "Get folder metadata using folder_metadata:read (OAuth), or explicitly partial id/name metadata using folders:read with a personal token.",
             "discovery",
             {"folder_id": _s("Required folder id.", required=True)},
+            display_param="folder_id",
         ),
     ]
     # Published library endpoints share identical paging and identifier rules.
@@ -324,6 +347,7 @@ def build_operations():
                         "before": _s("Previous-page cursor.", required=False),
                         "after": _s("Next-page cursor.", required=False),
                     },
+                    display_param="team_id",
                 ),
                 _op(
                     f"list_figma_file_{resource}",
@@ -332,6 +356,7 @@ def build_operations():
                     "library",
                     {"file_key": FILE, "limit": LIMIT, "offset": OFFSET},
                     core=True,
+                    display_param="file_key",
                 ),
                 _op(
                     f"get_figma_{singular}",
@@ -344,6 +369,7 @@ def build_operations():
                             required=True,
                         )
                     },
+                    display_param=f"{singular}_key",
                 ),
             ]
         )
@@ -357,6 +383,7 @@ def build_operations():
                 {},
                 core=True,
                 write=True,
+                display_param=None,
             ),
             _op(
                 "connect_figma_canvas",
@@ -371,6 +398,7 @@ def build_operations():
                 },
                 core=True,
                 write=True,
+                display_param="channel",
             ),
             _op(
                 "get_figma_canvas_status",
@@ -384,6 +412,7 @@ def build_operations():
                     )
                 },
                 core=True,
+                display_param="request_id",
             ),
             _op(
                 "read_figma_canvas",
@@ -400,6 +429,7 @@ def build_operations():
                 },
                 core=True,
                 write=True,
+                display_param="node_ids",
             ),
             _op(
                 "create_figma_design",
@@ -432,6 +462,7 @@ def build_operations():
                 core=True,
                 write=True,
                 destructive=True,
+                display_param="design",
             ),
             _op(
                 "update_figma_canvas_node",
@@ -449,6 +480,7 @@ def build_operations():
                 },
                 write=True,
                 destructive=True,
+                display_param="properties",
             ),
             _op(
                 "delete_figma_canvas_node",
@@ -458,6 +490,7 @@ def build_operations():
                 {"node_id": _s("Required canvas node id selected for deletion.", required=True)},
                 write=True,
                 destructive=True,
+                display_param="node_id",
             ),
             _op(
                 "stop_figma_canvas",
@@ -466,6 +499,7 @@ def build_operations():
                 "canvas",
                 {},
                 write=True,
+                display_param=None,
             ),
             _op(
                 "get_figma_canvas_capabilities",
@@ -474,6 +508,7 @@ def build_operations():
                 "canvas",
                 {},
                 core=True,
+                display_param=None,
             ),
             _op(
                 "read_figma_canvas_details",
@@ -492,6 +527,7 @@ def build_operations():
                     },
                 },
                 write=True,
+                display_param="command",
             ),
             _op(
                 "edit_figma_canvas",
@@ -523,6 +559,7 @@ def build_operations():
                 core=True,
                 write=True,
                 destructive=True,
+                display_param="actions",
             ),
             _op(
                 "set_figma_canvas_image",
@@ -536,6 +573,7 @@ def build_operations():
                 },
                 write=True,
                 destructive=True,
+                display_param="image_path",
             ),
             _op(
                 "export_figma_canvas_image",
@@ -548,6 +586,7 @@ def build_operations():
                     "scale": SCALE,
                 },
                 write=True,
+                display_param="node_id",
             ),
         ]
     )

@@ -53,6 +53,8 @@ from agent_core import action
         "filter_connected": False,
         "simulated_mode": True,
     },
+    display_param=None,
+    icon="Plug",
 )
 def list_available_integrations(input_data: dict) -> dict:
     if input_data.get("simulated_mode"):
@@ -185,6 +187,8 @@ def list_available_integrations(input_data: dict) -> dict:
         "credentials": {"bot_token": "test_token"},
         "simulated_mode": True,
     },
+    display_param="integration_id",
+    icon="PlugZap",
 )
 def connect_integration(input_data: dict) -> dict:
     import asyncio
@@ -477,6 +481,8 @@ def connect_integration(input_data: dict) -> dict:
         "integration_id": "telegram_bot",
         "simulated_mode": True,
     },
+    display_param="integration_id",
+    icon="Plug",
 )
 def check_integration_status(input_data: dict) -> dict:
     import asyncio
@@ -663,6 +669,8 @@ def check_integration_status(input_data: dict) -> dict:
         "integration_id": "slack",
         "simulated_mode": True,
     },
+    display_param="integration_id",
+    icon="Unplug",
 )
 def disconnect_integration(input_data: dict) -> dict:
 
@@ -758,6 +766,8 @@ def disconnect_integration(input_data: dict) -> dict:
         "operation": "set_primary",
         "simulated_mode": True,
     },
+    display_param="integration_id",
+    icon="UserCog",
 )
 def manage_integration_account(input_data: dict) -> dict:
     if input_data.get("simulated_mode"):

@@ -28,6 +28,8 @@ from agent_core import action
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="text",
+    integration="lark",
 )
 async def send_lark_message(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -58,6 +60,8 @@ async def send_lark_message(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="text",
+    integration="lark",
 )
 async def reply_lark_message(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -105,6 +109,8 @@ async def reply_lark_message(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="content",
+    integration="lark",
 )
 async def send_lark_rich_message(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -143,6 +149,8 @@ async def send_lark_rich_message(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="receive_id",
+    integration="lark",
 )
 async def send_lark_image(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -179,6 +187,8 @@ async def send_lark_image(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="receive_id",
+    integration="lark",
 )
 async def send_lark_file(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -210,6 +220,8 @@ async def send_lark_file(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="card",
+    integration="lark",
 )
 async def send_lark_card(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -241,6 +253,8 @@ async def send_lark_card(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="post",
+    integration="lark",
 )
 async def send_lark_post(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -288,6 +302,8 @@ async def send_lark_post(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="content",
+    integration="lark",
 )
 async def reply_lark_rich_message(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -311,6 +327,8 @@ async def reply_lark_rich_message(input_data: dict) -> dict:
         "message_id": {"type": "string", "required": True, "description": "Message ID.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="message_id",
+    integration="lark",
 )
 async def get_lark_message(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -327,6 +345,8 @@ async def get_lark_message(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="message_id",
+    integration="lark",
 )
 async def delete_lark_message(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -357,6 +377,8 @@ async def delete_lark_message(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="content",
+    integration="lark",
 )
 async def update_lark_message(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -399,6 +421,8 @@ async def update_lark_message(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="receive_id",
+    integration="lark",
 )
 async def forward_lark_message(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -464,6 +488,8 @@ async def forward_lark_message(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="container_id",
+    integration="lark",
 )
 async def list_lark_chat_messages(input_data: dict) -> dict:
     import json
@@ -539,6 +565,8 @@ async def list_lark_chat_messages(input_data: dict) -> dict:
         "page_token": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="message_id",
+    integration="lark",
 )
 async def list_lark_message_read_users(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -568,6 +596,8 @@ async def list_lark_message_read_users(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="emoji_type",
+    integration="lark",
 )
 async def add_lark_reaction(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -595,6 +625,8 @@ async def add_lark_reaction(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="reaction_id",
+    integration="lark",
 )
 async def remove_lark_reaction(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -629,6 +661,8 @@ async def remove_lark_reaction(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="message_id",
+    integration="lark",
 )
 async def list_lark_reactions(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -653,6 +687,8 @@ async def list_lark_reactions(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="message_id",
+    integration="lark",
 )
 async def pin_lark_message(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -669,6 +705,8 @@ async def pin_lark_message(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="message_id",
+    integration="lark",
 )
 async def unpin_lark_message(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -688,6 +726,8 @@ async def unpin_lark_message(input_data: dict) -> dict:
         "page_token": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="chat_id",
+    integration="lark",
 )
 async def list_lark_pinned_messages(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -729,6 +769,8 @@ async def list_lark_pinned_messages(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="message_id",
+    integration="lark",
 )
 async def send_lark_urgent(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -781,6 +823,8 @@ async def send_lark_urgent(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="content",
+    integration="lark",
 )
 async def batch_send_lark_message(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -828,6 +872,8 @@ async def batch_send_lark_message(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="file_path",
+    integration="lark",
 )
 async def upload_lark_image(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -872,6 +918,8 @@ async def upload_lark_image(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="file_path",
+    integration="lark",
 )
 async def upload_lark_im_file(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -919,6 +967,8 @@ async def upload_lark_im_file(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="dest_path",
+    integration="lark",
 )
 async def download_lark_message_resource(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -952,6 +1002,8 @@ async def download_lark_message_resource(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param=None,
+    integration="lark",
 )
 async def list_lark_chats(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1024,6 +1076,8 @@ async def list_lark_chats(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="name",
+    integration="lark",
 )
 async def create_lark_chat(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1056,6 +1110,8 @@ async def create_lark_chat(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="chat_id",
+    integration="lark",
 )
 async def get_lark_chat(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1125,6 +1181,8 @@ async def get_lark_chat(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="name",
+    integration="lark",
 )
 async def update_lark_chat(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1153,6 +1211,8 @@ async def update_lark_chat(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="chat_id",
+    integration="lark",
 )
 async def dissolve_lark_chat(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1176,6 +1236,8 @@ async def dissolve_lark_chat(input_data: dict) -> dict:
         "page_token": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="chat_id",
+    integration="lark",
 )
 async def list_lark_chat_members(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1207,6 +1269,8 @@ async def list_lark_chat_members(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="chat_id",
+    integration="lark",
 )
 async def add_lark_chat_members(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1242,6 +1306,8 @@ async def add_lark_chat_members(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="chat_id",
+    integration="lark",
 )
 async def remove_lark_chat_members(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1271,6 +1337,8 @@ async def remove_lark_chat_members(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="query",
+    integration="lark",
 )
 async def search_lark_chats(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1307,6 +1375,8 @@ async def search_lark_chats(input_data: dict) -> dict:
         "chat_id": {"type": "string", "required": True, "description": "Chat ID.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="chat_id",
+    integration="lark",
 )
 async def get_lark_chat_announcement(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1337,6 +1407,8 @@ async def get_lark_chat_announcement(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="chat_id",
+    integration="lark",
 )
 async def update_lark_chat_announcement(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1377,6 +1449,8 @@ async def update_lark_chat_announcement(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="moderation_setting",
+    integration="lark",
 )
 async def set_lark_chat_moderation(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1422,6 +1496,8 @@ async def set_lark_chat_moderation(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="user_id",
+    integration="lark",
 )
 async def get_lark_user(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1480,6 +1556,8 @@ async def get_lark_user(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="user_ids",
+    integration="lark",
 )
 async def batch_get_lark_users(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1526,6 +1604,8 @@ async def batch_get_lark_users(input_data: dict) -> dict:
         "email": {"type": "string", "required": True, "description": "Email.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="email",
+    integration="lark",
 )
 async def get_lark_user_by_email(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1558,6 +1638,8 @@ async def get_lark_user_by_email(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="emails",
+    integration="lark",
 )
 async def batch_lookup_lark_users(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1587,6 +1669,8 @@ async def batch_lookup_lark_users(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="query",
+    integration="lark",
 )
 async def search_lark_users_by_name(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1662,6 +1746,8 @@ async def search_lark_users_by_name(input_data: dict) -> dict:
         "page_token": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="department_id",
+    integration="lark",
 )
 async def list_lark_department_users(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1731,6 +1817,8 @@ async def list_lark_department_users(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="department_id",
+    integration="lark",
 )
 async def get_lark_department(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1771,6 +1859,8 @@ async def get_lark_department(input_data: dict) -> dict:
         "page_token": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="parent_department_id",
+    integration="lark",
 )
 async def list_lark_department_children(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1797,6 +1887,8 @@ async def list_lark_department_children(input_data: dict) -> dict:
     action_sets=["lark"],
     input_schema={},
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param=None,
+    integration="lark",
 )
 async def get_lark_bot_info(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client

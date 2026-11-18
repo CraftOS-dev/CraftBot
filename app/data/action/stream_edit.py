@@ -74,6 +74,8 @@ from agent_core import action
         "ignore_case": False,
         "simulated_mode": True,
     },
+    display_param="file_path",
+    icon="FilePen",
 )
 def stream_edit_action(input_data: dict) -> dict:
     import os

@@ -1,0 +1,7 @@
+/* Logo wrapper: centers the brand mark (or its lucide fallback). */
+.logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+}

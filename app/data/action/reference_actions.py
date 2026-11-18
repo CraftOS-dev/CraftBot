@@ -29,6 +29,8 @@ from agent_core import action
             "example": "",
         },
     },
+    display_param="kind",
+    icon="Link",
 )
 async def read_reference(input_data: dict) -> dict:
     from app.references import ReferenceError, create_reference_service

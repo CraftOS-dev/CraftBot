@@ -134,6 +134,8 @@ from agent_core import action
         "number_of_videos": 1,
         "simulated_mode": True,
     },
+    display_param="prompt",
+    icon="Clapperboard",
 )
 def generate_video(input_data: dict) -> dict:
     simulated_mode = input_data.get("simulated_mode", False)

@@ -54,6 +54,8 @@ from agent_core import action
         "num_results": 5,
         "simulated_mode": True,
     },
+    display_param="query",
+    icon="Search",
 )
 def web_search(input_data: dict) -> dict:
     """

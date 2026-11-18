@@ -84,6 +84,10 @@ class Operation:
     selection is injected centrally by the host adapter and resolved by
     ``IntegrationSystem.execute()``; operations receive a ready client.
     ``destructive`` lets hosts add confirm-or-clarify behavior uniformly.
+    ``display_param`` is the one ``input_schema`` key whose value a host
+    shows next to the operation's name when it runs: the most informative
+    about what the call does (what it acts on, or what it sends); None when
+    no parameter says that.
     """
 
     name: str
@@ -94,6 +98,7 @@ class Operation:
     destructive: bool = False
     parallelizable: bool = True
     tags: Tuple[str, ...] = ()
+    display_param: Optional[str] = None
 
 
 @runtime_checkable

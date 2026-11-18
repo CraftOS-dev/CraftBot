@@ -51,6 +51,8 @@ from agent_core import action
         "content": "Test content",
         "simulated_mode": True,
     },
+    display_param="file_path",
+    icon="FilePlus",
 )
 def write_file(input_data: dict) -> dict:
     import os

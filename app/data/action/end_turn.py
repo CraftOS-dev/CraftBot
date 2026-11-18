@@ -26,6 +26,8 @@ from agent_core import action
         },
     },
     test_payload={"simulated_mode": True},
+    display_param=None,
+    icon="StopCircle",
 )
 def end_turn(input_data: dict) -> dict:
 

@@ -57,6 +57,8 @@ from agent_core import action
         "base_directory": "/home/user/Documents",
         "simulated_mode": True,
     },
+    display_param="pattern",
+    icon="FileSearch",
 )
 def find_file_by_name(input_data: dict) -> dict:
     import os
@@ -150,6 +152,8 @@ def find_file_by_name(input_data: dict) -> dict:
         "base_directory": "C:/Users/user/Documents",
         "simulated_mode": True,
     },
+    display_param="pattern",
+    icon="FileSearch",
 )
 def find_file_by_name_windows(input_data: dict) -> dict:
     import os

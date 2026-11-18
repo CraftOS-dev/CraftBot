@@ -33,6 +33,8 @@ from agent_core import action
             "description": "Total number of jobs (before filtering)",
         },
     },
+    display_param="frequency",
+    icon="CalendarDays",
 )
 def cron_job_list(input_data: dict) -> dict:
     """List cron jobs."""

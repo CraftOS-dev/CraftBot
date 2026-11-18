@@ -28,6 +28,8 @@ from agent_core import action
         },
     },
     test_payload={"seconds": 0.1, "simulated_mode": True},
+    display_param="seconds",
+    icon="Timer",
 )
 def wait(input_data: dict) -> dict:
     import time

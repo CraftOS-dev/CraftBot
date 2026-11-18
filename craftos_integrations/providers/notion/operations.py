@@ -137,6 +137,7 @@ def _search_notion_op() -> Operation:
             "query": d["query"],
             "filter_type": d.get("filter_type"),
         },
+        display_param="query",
     )
 
     def shaper(res: Dict[str, Any], input_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -204,6 +205,7 @@ def _get_notion_page_op() -> Operation:
             },
         },
         arg_map=lambda d: {"page_id": d["page_id"]},
+        display_param="page_id",
     )
 
     def shaper(res: Dict[str, Any], input_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -275,6 +277,7 @@ def _page_ops() -> List[Operation]:
                     "properties": d["properties"],
                     "children": d.get("children"),
                 },
+                display_param="properties",
             ),
             ["id", "url"],
         ),
@@ -306,6 +309,7 @@ def _page_ops() -> List[Operation]:
                         "description": "{id, url} of the updated page.",
                     },
                 },
+                display_param="properties",
             ),
             ["id", "url"],
         ),
@@ -321,6 +325,7 @@ def _page_ops() -> List[Operation]:
             input_schema={
                 "page_id": {"type": "string", "required": True, "description": "Page ID.", "example": ""},
             },
+            display_param="page_id",
         ),
         client_op(
             "restore_notion_page",
@@ -331,6 +336,7 @@ def _page_ops() -> List[Operation]:
             input_schema={
                 "page_id": {"type": "string", "required": True, "description": "Page ID.", "example": ""},
             },
+            display_param="page_id",
         ),
         client_op(
             "get_notion_page_property",
@@ -360,6 +366,7 @@ def _page_ops() -> List[Operation]:
                 "property_id": d["property_id"],
                 "page_size": d.get("page_size", 100),
             },
+            display_param="page_id",
         ),
     ]
 
@@ -398,6 +405,7 @@ def _get_notion_database_schema_op() -> Operation:
         },
         output_schema={**STATUS_OUTPUT, "database": {"type": "object"}},
         arg_map=lambda d: {"database_id": d["database_id"]},
+        display_param="database_id",
     )
 
     def shaper(res: Dict[str, Any], input_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -474,6 +482,7 @@ def _query_notion_database_op() -> Operation:
             "filter_obj": d.get("filter"),
             "sorts": d.get("sorts"),
         },
+        display_param="database_id",
     )
 
     def shaper(res: Dict[str, Any], input_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -579,6 +588,7 @@ def _database_ops() -> List[Operation]:
                     "icon": d.get("icon") or None,
                     "cover": d.get("cover") or None,
                 },
+                display_param="title",
             ),
             ["id", "url"],
         ),
@@ -641,6 +651,7 @@ def _database_ops() -> List[Operation]:
                     "properties": d.get("properties"),
                     "is_inline": d["is_inline"] if "is_inline" in d else None,
                 },
+                display_param="title",
             ),
             ["id", "url"],
         ),
@@ -658,6 +669,7 @@ def _database_ops() -> List[Operation]:
                     "example": "",
                 },
             },
+            display_param="database_id",
         ),
         client_op(
             "restore_notion_database",
@@ -673,6 +685,7 @@ def _database_ops() -> List[Operation]:
                     "example": "",
                 },
             },
+            display_param="database_id",
         ),
     ]
 
@@ -725,6 +738,7 @@ def _get_notion_page_content_op() -> Operation:
             },
         },
         arg_map=lambda d: {"block_id": d["page_id"]},
+        display_param="page_id",
     )
 
     def shaper(result: Dict[str, Any], input_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -789,6 +803,7 @@ def _append_notion_page_content_op() -> Operation:
             "result": {"type": "object", "description": "{appended, ids}."},
         },
         arg_map=lambda d: {"block_id": d["page_id"], "children": d["children"]},
+        display_param="page_id",
     )
 
     def shaper(res: Dict[str, Any], _input_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -820,6 +835,7 @@ def _block_ops() -> List[Operation]:
                     "example": "",
                 },
             },
+            display_param="block_id",
         ),
         _picked(
             client_op(
@@ -859,6 +875,7 @@ def _block_ops() -> List[Operation]:
                         "description": "{id} of the updated block.",
                     },
                 },
+                display_param="block_update",
             ),
             ["id"],
         ),
@@ -879,6 +896,7 @@ def _block_ops() -> List[Operation]:
                     "example": "",
                 },
             },
+            display_param="block_id",
         ),
     ]
 
@@ -920,6 +938,7 @@ def _comment_and_user_ops() -> List[Operation]:
                 "page_size": d.get("page_size", 100),
                 "start_cursor": d.get("start_cursor") or None,
             },
+            display_param="block_id",
         ),
         client_op(
             "create_notion_comment",
@@ -963,6 +982,7 @@ def _comment_and_user_ops() -> List[Operation]:
                 "parent_block_id": d.get("parent_block_id") or None,
                 "discussion_id": d.get("discussion_id") or None,
             },
+            display_param="rich_text",
         ),
         client_op(
             "list_notion_users",
@@ -987,6 +1007,7 @@ def _comment_and_user_ops() -> List[Operation]:
                 "page_size": d.get("page_size", 100),
                 "start_cursor": d.get("start_cursor") or None,
             },
+            display_param=None,
         ),
         client_op(
             "get_notion_user",
@@ -996,6 +1017,7 @@ def _comment_and_user_ops() -> List[Operation]:
             input_schema={
                 "user_id": {"type": "string", "required": False, "description": "User ID.", "example": ""},
             },
+            display_param="user_id",
         ),
         client_op(
             "get_notion_bot_info",
@@ -1006,6 +1028,7 @@ def _comment_and_user_ops() -> List[Operation]:
             ),
             tags=("notion_users", "notion"),
             input_schema={},
+            display_param=None,
         ),
     ]
 
@@ -1046,6 +1069,7 @@ def _file_upload_ops() -> List[Operation]:
                 "file_path": d["file_path"],
                 "content_type": d.get("content_type") or None,
             },
+            display_param="file_path",
         ),
         client_op(
             "create_notion_file_upload",
@@ -1096,6 +1120,7 @@ def _file_upload_ops() -> List[Operation]:
                 "number_of_parts": d.get("number_of_parts") or None,
                 "external_url": d.get("external_url") or None,
             },
+            display_param="filename",
         ),
         client_op(
             "send_notion_file_upload",
@@ -1133,6 +1158,7 @@ def _file_upload_ops() -> List[Operation]:
                 "file_path": d["file_path"],
                 "part_number": d.get("part_number") or None,
             },
+            display_param="file_path",
         ),
         client_op(
             "complete_notion_file_upload",
@@ -1151,6 +1177,7 @@ def _file_upload_ops() -> List[Operation]:
                     "example": "",
                 },
             },
+            display_param="file_upload_id",
         ),
         client_op(
             "get_notion_file_upload",
@@ -1165,6 +1192,7 @@ def _file_upload_ops() -> List[Operation]:
                     "example": "",
                 },
             },
+            display_param="file_upload_id",
         ),
         client_op(
             "list_notion_file_uploads",
@@ -1199,6 +1227,7 @@ def _file_upload_ops() -> List[Operation]:
                 "page_size": d.get("page_size", 100),
                 "start_cursor": d.get("start_cursor") or None,
             },
+            display_param="status",
         ),
     ]
 

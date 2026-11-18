@@ -55,6 +55,8 @@ _OUTPUT_SCHEMA = {
     input_schema=_INPUT_SCHEMA,
     output_schema=_OUTPUT_SCHEMA,
     test_payload={"query": "user preferences", "top_k": 5, "simulated_mode": True},
+    display_param="query",
+    icon="Brain",
 )
 def memory_search(input_data: dict) -> dict:
     """

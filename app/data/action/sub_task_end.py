@@ -59,6 +59,8 @@ from agent_core import action
         "result": "Test result string.",
         "simulated_mode": True,
     },
+    display_param="result",
+    icon="Flag",
 )
 def sub_task_end(input_data: dict) -> dict:
     # Imports inside the function — required by the action runtime model

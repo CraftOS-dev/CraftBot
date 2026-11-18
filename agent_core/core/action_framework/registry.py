@@ -106,6 +106,16 @@ class ActionMetadata:
     # are guarded by the activity ledger: intent is recorded
     # before execution and a completed run is never silently re-executed.
     irreversible: bool = False
+    # How the chat shows a run of this action: one line with an icon, the
+    # action's name, and the value of ``display_param``, the one input
+    # parameter that best says what this call does (the thing it acts on,
+    # or what it sends); None when the action takes no such parameter.
+    # ``integration`` is the integration id whose logo the line shows; an
+    # action of no integration names a lucide icon (``icon``) instead.
+    # Display only: none of these reaches the model.
+    display_param: Optional[str] = None
+    icon: Optional[str] = None
+    integration: Optional[str] = None
 
     @property
     def display_name(self) -> str:
@@ -232,6 +242,28 @@ class ActionRegistry:
     def list_all_actions(self) -> Dict[str, Any]:
         """Returns the entire registry structure for inspection."""
         return self._registry
+
+    def display_meta(self, name: str) -> Optional[Dict[str, Optional[str]]]:
+        """How the chat shows a run of action ``name``: its display_param,
+        icon and integration (ActionMetadata). ``name`` may be the canonical
+        name or its display form ("Web search"); None for an unknown action."""
+        impls = self._registry.get(name)
+        if impls is None:
+            canonical = name.strip().lower().replace(" ", "_").replace("-", "_")
+            impls = self._registry.get(canonical)
+            if impls is None:
+                impls = next(
+                    (v for k, v in self._registry.items() if k.lower() == canonical),
+                    None,
+                )
+        if not impls:
+            return None
+        meta = next(iter(impls.values())).metadata
+        return {
+            "display_param": meta.display_param,
+            "icon": meta.icon,
+            "integration": meta.integration,
+        }
 
     def list_all_actions_as_json(self) -> List[Dict[str, Any]]:
         """
@@ -424,6 +456,22 @@ def install_all_action_requirements():
         logger.error(f"Error during package installation: {e}")
 
 
+def action_row_display(name: str) -> Dict[str, Optional[str]]:
+    """How the chat shows a run of action ``name`` (canonical or display
+    form), as wire fields: ``displayParam`` (null: the action shows no
+    input), plus ``icon`` or ``integration`` when declared. Empty for an
+    unknown action, which the chat shows without a declared input."""
+    meta = registry_instance.display_meta(name)
+    if meta is None:
+        return {}
+    wire: Dict[str, Optional[str]] = {"displayParam": meta["display_param"]}
+    if meta["icon"]:
+        wire["icon"] = meta["icon"]
+    if meta["integration"]:
+        wire["integration"] = meta["integration"]
+    return wire
+
+
 # ==========================================
 # The Decorator Implementation
 # ==========================================
@@ -441,6 +489,9 @@ def action(
     action_sets: Optional[List[str]] = None,
     parallelizable: bool = True,
     irreversible: bool = False,
+    display_param: Optional[str] = None,
+    icon: Optional[str] = None,
+    integration: Optional[str] = None,
 ):
     """
     Decorator used by developers to register functions as actions.
@@ -465,6 +516,15 @@ def action(
                       it reaches the outside world (send email/message, post
                       publicly). Guarded by the activity ledger: a completed
                       run is never silently re-executed after a crash.
+        display_param: The one input parameter whose value the chat shows
+                       next to the action's name: the most informative about
+                       what a call does (what it acts on, or what it sends),
+                       short when two are as informative. None: no parameter
+                       says that (the action takes none).
+        icon: Lucide icon name shown before the action's name, for an action
+              of no integration.
+        integration: Integration id whose logo is shown before the action's
+                     name, for an integration's action.
     """
     # Normalize platforms input to a list of lowercase strings
     if platforms is None:
@@ -490,6 +550,9 @@ def action(
             action_sets=action_sets or [],
             parallelizable=parallelizable,
             irreversible=irreversible,
+            display_param=display_param,
+            icon=icon,
+            integration=integration,
         )
 
         # 2. Create the full registration object

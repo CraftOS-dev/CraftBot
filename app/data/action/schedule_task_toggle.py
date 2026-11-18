@@ -29,6 +29,8 @@ from agent_core import action
             "description": "The new enabled state of the schedule",
         },
     },
+    display_param="schedule_id",
+    icon="CalendarCheck",
 )
 def schedule_task_toggle(input_data: dict) -> dict:
     """Enable or disable a scheduled task."""

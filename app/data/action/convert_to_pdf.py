@@ -182,6 +182,8 @@ _STYLE_DESC = (
         "source_format": "markdown",
         "simulated_mode": True,
     },
+    display_param="output_path",
+    icon="FileInput",
 )
 def convert_to_pdf(input_data: dict) -> dict:
     # NOTE: all helpers + lookup tables are defined INSIDE this function.

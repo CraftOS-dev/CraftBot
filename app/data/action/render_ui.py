@@ -81,6 +81,8 @@ from agent_core import action
         "html": "<button>Count</button>",
         "simulated_mode": True,
     },
+    display_param="title",
+    icon="LayoutTemplate",
 )
 async def render_ui(input_data: dict) -> dict:
     # CraftBot executes the serialized function body in a fresh namespace.
