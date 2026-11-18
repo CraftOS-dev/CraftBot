@@ -201,7 +201,7 @@ async def agent_app_command(input_data: dict) -> dict:
     },
     test_payload={"simulated_mode": True},
     display_param="args",
-    icon="AppWindow",
+    icon="Box",
 )
 async def a2app_command(input_data: dict) -> dict:
     if input_data.get("simulated_mode"):
