@@ -110,6 +110,8 @@ _RESULT = {
     },
     output_schema=_RESULT,
     test_payload={"url": "https://example.com", "simulated_mode": True},
+    display_param="url",
+    icon="Compass",
 )
 async def mini_browser_navigate(input_data: dict) -> dict:
     if input_data.get("simulated_mode"):
@@ -202,6 +204,8 @@ async def mini_browser_navigate(input_data: dict) -> dict:
         "error_code": _ERROR_CODE,
     },
     test_payload={"simulated_mode": True},
+    display_param=None,
+    icon="BookOpenText",
 )
 async def mini_browser_read(input_data: dict) -> dict:
     if input_data.get("simulated_mode"):
@@ -261,6 +265,8 @@ async def mini_browser_read(input_data: dict) -> dict:
     },
     output_schema=_RESULT,
     test_payload={"element_id": 0, "simulated_mode": True},
+    display_param=None,
+    icon="MousePointerClick",
 )
 async def mini_browser_click(input_data: dict) -> dict:
     if input_data.get("simulated_mode"):
@@ -331,6 +337,8 @@ async def mini_browser_click(input_data: dict) -> dict:
         "submit": True,
         "simulated_mode": True,
     },
+    display_param="text",
+    icon="TextCursorInput",
 )
 async def mini_browser_type(input_data: dict) -> dict:
     if input_data.get("simulated_mode"):
@@ -384,6 +392,8 @@ async def mini_browser_type(input_data: dict) -> dict:
     },
     output_schema=_RESULT,
     test_payload={"keys": "Enter", "simulated_mode": True},
+    display_param="keys",
+    icon="Keyboard",
 )
 async def mini_browser_press_key(input_data: dict) -> dict:
     if input_data.get("simulated_mode"):
@@ -429,6 +439,8 @@ async def mini_browser_press_key(input_data: dict) -> dict:
     },
     output_schema=_RESULT,
     test_payload={"element_id": 0, "value": "M", "simulated_mode": True},
+    display_param="value",
+    icon="ListChecks",
 )
 async def mini_browser_select_option(input_data: dict) -> dict:
     if input_data.get("simulated_mode"):
@@ -468,6 +480,8 @@ async def mini_browser_select_option(input_data: dict) -> dict:
     },
     output_schema=_RESULT,
     test_payload={"element_id": 0, "simulated_mode": True},
+    display_param=None,
+    icon="MousePointer2",
 )
 async def mini_browser_hover(input_data: dict) -> dict:
     if input_data.get("simulated_mode"):
@@ -524,6 +538,8 @@ async def mini_browser_hover(input_data: dict) -> dict:
         "at_bottom": {"type": "boolean", "description": "True at the end of the page."},
     },
     test_payload={"direction": "down", "simulated_mode": True},
+    display_param="direction",
+    icon="ArrowDownUp",
 )
 async def mini_browser_scroll(input_data: dict) -> dict:
     if input_data.get("simulated_mode"):
@@ -594,6 +610,8 @@ async def mini_browser_scroll(input_data: dict) -> dict:
     },
     output_schema=_RESULT,
     test_payload={"seconds": 1, "simulated_mode": True},
+    display_param="text",
+    icon="Hourglass",
 )
 async def mini_browser_wait(input_data: dict) -> dict:
     if input_data.get("simulated_mode"):
@@ -643,6 +661,8 @@ async def mini_browser_wait(input_data: dict) -> dict:
         "paths": ["C:/workspace/report.pdf"],
         "simulated_mode": True,
     },
+    display_param="paths",
+    icon="Upload",
 )
 async def mini_browser_upload_file(input_data: dict) -> dict:
     if input_data.get("simulated_mode"):
@@ -734,6 +754,8 @@ async def mini_browser_upload_file(input_data: dict) -> dict:
         },
     },
     test_payload={"simulated_mode": True},
+    display_param="login_name",
+    icon="LogIn",
 )
 async def mini_browser_login(input_data: dict) -> dict:
     if input_data.get("simulated_mode"):
@@ -786,6 +808,8 @@ async def mini_browser_login(input_data: dict) -> dict:
         },
     },
     test_payload={"simulated_mode": True},
+    display_param=None,
+    icon="Camera",
 )
 async def mini_browser_screenshot(input_data: dict) -> dict:
     if input_data.get("simulated_mode"):
@@ -857,6 +881,8 @@ async def mini_browser_screenshot(input_data: dict) -> dict:
         "error_code": _ERROR_CODE,
     },
     test_payload={"action": "list", "simulated_mode": True},
+    display_param="action",
+    icon="Layers",
 )
 async def mini_browser_tabs(input_data: dict) -> dict:
     if input_data.get("simulated_mode"):

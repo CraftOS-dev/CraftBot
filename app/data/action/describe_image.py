@@ -42,6 +42,8 @@ from agent_core import action
         "prompt": "Highlight objects, colours and spatial relationships.",
         "simulated_mode": True,
     },
+    display_param="image_path",
+    icon="Image",
 )
 def view_image(input_data: dict) -> dict:
     import os

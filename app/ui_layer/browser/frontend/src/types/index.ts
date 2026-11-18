@@ -187,6 +187,13 @@ export interface ActionItem {
   status: ActionStatus
   itemType: ItemType
   sessionId: string
+  /** The input the action's row shows (its declared display param); null:
+   *  the action shows none. Absent: an action the backend did not know. */
+  displayParam?: string | null
+  /** Lucide icon name shown before the name (an action of no integration). */
+  icon?: string
+  /** Integration id whose logo is shown before the name. */
+  integration?: string
   parentId?: string
   createdAt?: number
   completedAt?: number

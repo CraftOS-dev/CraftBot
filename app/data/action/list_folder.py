@@ -31,6 +31,8 @@ from agent_core import action
         },
     },
     test_payload={"path": "C:/Users/user/Documents", "simulated_mode": True},
+    display_param="path",
+    icon="FolderOpen",
 )
 def list_folder(input_data: dict) -> dict:
     import os

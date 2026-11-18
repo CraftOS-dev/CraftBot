@@ -211,3 +211,39 @@ test('a message that is not sent leaves no bubble behind', async ({ page }) => {
   await send(page, 'agent_stream', { ...update({}), phase: 'end', keep: [] })
   await expect(page.getByText('Will be dropped')).toHaveCount(0)
 })
+
+test('the working label says what the current step is doing', async ({ page }) => {
+  await start(page)
+  const liveLabel = working(page).locator('[class*="workingText"]')
+  const headerLabel = page.locator('button[aria-expanded]').locator('[class*="workingText"]')
+  const dots = working(page).locator('[class*="workingDot"]')
+  // No step has said yet.
+  await expect(liveLabel).toHaveText('Working')
+
+  // The step's line, once complete, replaces it; the dots stay the label's own.
+  await send(page, 'agent_stream', update({ status: 'Searching for weather sites…' }))
+  await expect(liveLabel).toHaveText('Searching for weather sites')
+  await expect(dots).toHaveCount(3)
+
+  // Its actions run in a collapsed work block: the header carries the line.
+  await send(page, 'agent_stream', { ...update({}), phase: 'end', keep: [A1], status: 'Searching for weather sites' })
+  await send(page, 'action_add', { id: A1, name: 'Web search', status: 'running', itemType: 'action', sessionId: S, createdAt: START + 200, input: '{"query": "Tokyo weather"}' })
+  await expect(headerLabel).toHaveText('Searching for weather sites')
+
+  // The next reply keeps it until its own line comes; one without a line
+  // goes back to "Working".
+  await send(page, 'agent_stream', { ...update({}), streamId: 'stream-2' })
+  await settle(page)
+  await expect(headerLabel).toHaveText('Searching for weather sites')
+  await send(page, 'agent_stream', { ...update({}), streamId: 'stream-2', phase: 'end', keep: [], status: null })
+  await expect(headerLabel).toHaveText('Working')
+
+  // A reply that did not stream: its end alone carries the line.
+  await send(page, 'agent_stream', { ...update({}), streamId: 'stream-3', phase: 'end', keep: [], status: 'Finding evidence' })
+  await expect(headerLabel).toHaveText('Finding evidence')
+
+  // The run ends: the next one starts from "Working".
+  await send(page, 'session_busy', { sessionId: S, busy: false, state: 'idle' })
+  await send(page, 'session_busy', { sessionId: S, busy: true, state: 'running' })
+  await expect(headerLabel).toHaveText('Working')
+})

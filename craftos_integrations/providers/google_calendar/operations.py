@@ -273,6 +273,7 @@ def build_operations() -> List[Operation]:
                     "calendar_id": d.get("calendar_id", "primary"),
                     "event_data": d.get("event_data"),
                 },
+                display_param="event_data",
             )
         ),
         client_op(
@@ -302,6 +303,7 @@ def build_operations() -> List[Operation]:
                 "time_min": d.get("time_min"),
                 "time_max": d.get("time_max"),
             },
+            display_param="time_min",
         ),
         Operation(
             name="check_availability_and_schedule",
@@ -347,6 +349,7 @@ def build_operations() -> List[Operation]:
             output_schema=dict(STATUS_OUTPUT),
             fn=_check_availability_and_schedule,
             tags=("google_calendar_events", "google_calendar"),
+            display_param="summary",
         ),
         # ── Events ──────────────────────────────────────────────────────
         _with_post(
@@ -399,6 +402,7 @@ def build_operations() -> List[Operation]:
                     "time_max": d.get("time_max"),
                     "max_results": d.get("max_results", 50),
                 },
+                display_param="time_min",
             ),
             _lean_list_post,
         ),
@@ -434,6 +438,7 @@ def build_operations() -> List[Operation]:
                     "event_id": d["event_id"],
                     "calendar_id": d.get("calendar_id", "primary"),
                 },
+                display_param="event_id",
             ),
             _lean_single_post,
         ),
@@ -481,6 +486,7 @@ def build_operations() -> List[Operation]:
                     "send_updates": d.get("send_updates", "none"),
                     "supports_attachments": bool(d.get("supports_attachments", False)),
                 },
+                display_param="event_data",
             )
         ),
         _pick_event(
@@ -517,6 +523,7 @@ def build_operations() -> List[Operation]:
                     "event_data": d["event_data"],
                     "send_updates": d.get("send_updates", "none"),
                 },
+                display_param="event_data",
             )
         ),
         _pick_event(
@@ -553,6 +560,7 @@ def build_operations() -> List[Operation]:
                     "event_data": d["event_data"],
                     "send_updates": d.get("send_updates", "none"),
                 },
+                display_param="event_data",
             )
         ),
         client_op(
@@ -577,6 +585,7 @@ def build_operations() -> List[Operation]:
                 "event_id": d["event_id"],
                 "calendar_id": d.get("calendar_id", "primary"),
             },
+            display_param="event_id",
         ),
         _pick_event(
             client_op(
@@ -617,6 +626,7 @@ def build_operations() -> List[Operation]:
                     "destination_calendar_id": d["destination_calendar_id"],
                     "send_updates": d.get("send_updates", "none"),
                 },
+                display_param="event_id",
             )
         ),
         _pick_event(
@@ -647,6 +657,7 @@ def build_operations() -> List[Operation]:
                     "text": d["text"],
                     "send_updates": d.get("send_updates", "none"),
                 },
+                display_param="text",
             )
         ),
         _with_post(
@@ -703,6 +714,7 @@ def build_operations() -> List[Operation]:
                     "time_max": d.get("time_max"),
                     "max_results": d.get("max_results", 50),
                 },
+                display_param="event_id",
             ),
             _lean_instances_post,
         ),
@@ -737,6 +749,7 @@ def build_operations() -> List[Operation]:
                     "calendar_id": d.get("calendar_id", "primary"),
                     "event_data": d["event_data"],
                 },
+                display_param="event_data",
             )
         ),
         # ── Calendars (the calendar resources themselves) ───────────────
@@ -751,6 +764,7 @@ def build_operations() -> List[Operation]:
             fail_message="Failed to list calendars.",
             input_schema={},
             arg_map=lambda d: {},
+            display_param=None,
         ),
         client_op(
             "get_google_calendar",
@@ -765,6 +779,7 @@ def build_operations() -> List[Operation]:
                 "calendar_id": dict(_CAL_ID_DEFAULT, required=False),
             },
             arg_map=lambda d: {"calendar_id": d.get("calendar_id", "primary")},
+            display_param="calendar_id",
         ),
         client_op(
             "create_google_calendar",
@@ -808,6 +823,7 @@ def build_operations() -> List[Operation]:
                 "time_zone": d.get("time_zone") or None,
                 "location": d.get("location") or None,
             },
+            display_param="summary",
         ),
         client_op(
             "update_google_calendar",
@@ -859,6 +875,7 @@ def build_operations() -> List[Operation]:
                 "time_zone": d.get("time_zone") or None,
                 "location": d["location"] if "location" in d else None,
             },
+            display_param="summary",
         ),
         client_op(
             "patch_google_calendar",
@@ -907,6 +924,7 @@ def build_operations() -> List[Operation]:
                 "time_zone": d.get("time_zone") or None,
                 "location": d["location"] if "location" in d else None,
             },
+            display_param="summary",
         ),
         client_op(
             "delete_google_calendar",
@@ -928,6 +946,7 @@ def build_operations() -> List[Operation]:
                 },
             },
             arg_map=lambda d: {"calendar_id": d["calendar_id"]},
+            display_param="calendar_id",
         ),
         client_op(
             "clear_google_calendar",
@@ -950,6 +969,7 @@ def build_operations() -> List[Operation]:
                 },
             },
             arg_map=lambda d: {"calendar_id": d.get("calendar_id", "primary")},
+            display_param="calendar_id",
         ),
         # ── CalendarList (subscriptions, colors, visibility) ────────────
         client_op(
@@ -971,6 +991,7 @@ def build_operations() -> List[Operation]:
                 },
             },
             arg_map=lambda d: {"calendar_id": d["calendar_id"]},
+            display_param="calendar_id",
         ),
         client_op(
             "subscribe_google_calendar",
@@ -1024,6 +1045,7 @@ def build_operations() -> List[Operation]:
                 "selected": d["selected"] if "selected" in d else None,
                 "hidden": d["hidden"] if "hidden" in d else None,
             },
+            display_param="calendar_id",
         ),
         client_op(
             "update_google_calendar_list_entry",
@@ -1077,6 +1099,7 @@ def build_operations() -> List[Operation]:
                 "selected": d["selected"] if "selected" in d else None,
                 "hidden": d["hidden"] if "hidden" in d else None,
             },
+            display_param="calendar_id",
         ),
         client_op(
             "unsubscribe_google_calendar",
@@ -1098,6 +1121,7 @@ def build_operations() -> List[Operation]:
                 },
             },
             arg_map=lambda d: {"calendar_id": d["calendar_id"]},
+            display_param="calendar_id",
         ),
         # ── ACL (per-calendar sharing) ──────────────────────────────────
         client_op(
@@ -1111,6 +1135,7 @@ def build_operations() -> List[Operation]:
                 "calendar_id": dict(_CAL_ID_DEFAULT, required=False),
             },
             arg_map=lambda d: {"calendar_id": d.get("calendar_id", "primary")},
+            display_param="calendar_id",
         ),
         client_op(
             "get_google_calendar_acl_rule",
@@ -1137,6 +1162,7 @@ def build_operations() -> List[Operation]:
                 "calendar_id": d.get("calendar_id", "primary"),
                 "rule_id": d["rule_id"],
             },
+            display_param="rule_id",
         ),
         client_op(
             "add_google_calendar_acl_rule",
@@ -1185,6 +1211,7 @@ def build_operations() -> List[Operation]:
                 "role": d["role"],
                 "send_notifications": bool(d.get("send_notifications", True)),
             },
+            display_param="scope_value",
         ),
         client_op(
             "update_google_calendar_acl_rule",
@@ -1240,6 +1267,7 @@ def build_operations() -> List[Operation]:
                 "scope_value": d.get("scope_value") or None,
                 "send_notifications": bool(d.get("send_notifications", True)),
             },
+            display_param="rule_id",
         ),
         client_op(
             "delete_google_calendar_acl_rule",
@@ -1268,6 +1296,7 @@ def build_operations() -> List[Operation]:
                 "calendar_id": d.get("calendar_id", "primary"),
                 "rule_id": d["rule_id"],
             },
+            display_param="rule_id",
         ),
         # ── Settings & colors ───────────────────────────────────────────
         client_op(
@@ -1282,6 +1311,7 @@ def build_operations() -> List[Operation]:
             fail_message="Failed to list settings.",
             input_schema={},
             arg_map=lambda d: {},
+            display_param=None,
         ),
         client_op(
             "get_google_calendar_setting",
@@ -1302,6 +1332,7 @@ def build_operations() -> List[Operation]:
                 },
             },
             arg_map=lambda d: {"setting_id": d["setting_id"]},
+            display_param="setting_id",
         ),
         client_op(
             "get_google_calendar_colors",
@@ -1315,5 +1346,6 @@ def build_operations() -> List[Operation]:
             fail_message="Failed to get colors.",
             input_schema={},
             arg_map=lambda d: {},
+            display_param=None,
         ),
     ]

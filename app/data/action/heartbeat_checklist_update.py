@@ -20,6 +20,8 @@ from agent_core import action
         },
         "message": {"type": "string", "description": "Confirmation message"},
     },
+    display_param="checklist",
+    icon="HeartPulse",
 )
 def heartbeat_checklist_update(input_data: dict) -> dict:
     """Replace the heartbeat checklist."""

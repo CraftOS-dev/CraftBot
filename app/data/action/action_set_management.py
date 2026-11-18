@@ -67,6 +67,8 @@ from agent_core import action
         "action_sets": ["file_operations"],
         "simulated_mode": True,
     },
+    display_param="action_sets",
+    icon="PackagePlus",
 )
 def add_action_sets(input_data: dict) -> dict:
     """Deliver the schemas of action sets into the session's event stream."""
@@ -142,6 +144,8 @@ def add_action_sets(input_data: dict) -> dict:
     test_payload={
         "simulated_mode": True,
     },
+    display_param="sets",
+    icon="Boxes",
 )
 def list_action_sets(input_data: dict) -> dict:
     """List all available action sets and the session's <actions> sets."""

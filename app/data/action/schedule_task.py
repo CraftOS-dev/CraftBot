@@ -112,6 +112,8 @@ from agent_core import action
             "description": "'immediate' or next fire time in ISO format",
         },
     },
+    display_param="name",
+    icon="CalendarPlus",
 )
 async def schedule_task(input_data: dict) -> dict:
     """Add a new scheduled task or queue an immediate trigger."""

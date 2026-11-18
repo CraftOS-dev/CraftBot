@@ -76,6 +76,7 @@ def build_operations() -> List[Operation]:
                 },
             },
             arg_map=lambda d: {"folder_id": d["folder_id"]},
+            display_param="folder_id",
         ),
         client_op(
             "search_drive_files",
@@ -106,6 +107,7 @@ def build_operations() -> List[Operation]:
                 "query": d["query"],
                 "max_results": d.get("max_results", 50),
             },
+            display_param="query",
         ),
         client_op(
             "get_drive_file",
@@ -132,6 +134,7 @@ def build_operations() -> List[Operation]:
                 "file_id": d["file_id"],
                 "fields": d.get("fields") or None,
             },
+            display_param="file_id",
         ),
         client_op(
             "create_drive_folder",
@@ -159,6 +162,7 @@ def build_operations() -> List[Operation]:
                 "name": d["name"],
                 "parent_folder_id": d.get("parent_folder_id"),
             },
+            display_param="name",
         ),
         client_op(
             "upload_drive_file",
@@ -203,6 +207,7 @@ def build_operations() -> List[Operation]:
                 "mime_type": d.get("mime_type") or None,
                 "parent_folder_id": d.get("parent_folder_id") or None,
             },
+            display_param="file_path",
         ),
         client_op(
             "update_drive_file_content",
@@ -240,6 +245,7 @@ def build_operations() -> List[Operation]:
                 "file_path": d["file_path"],
                 "mime_type": d.get("mime_type") or None,
             },
+            display_param="file_path",
         ),
         client_op(
             "download_drive_file",
@@ -269,6 +275,7 @@ def build_operations() -> List[Operation]:
                     "example": "C:/Users/me/downloads/report.pdf",
                 },
             },
+            display_param="save_to",
         ),
         client_op(
             "export_drive_file",
@@ -305,6 +312,7 @@ def build_operations() -> List[Operation]:
                     "example": "application/pdf",
                 },
             },
+            display_param="save_to",
         ),
         client_op(
             "copy_drive_file",
@@ -342,6 +350,7 @@ def build_operations() -> List[Operation]:
                 "name": d.get("name") or None,
                 "parent_folder_id": d.get("parent_folder_id") or None,
             },
+            display_param="name",
         ),
         client_op(
             "move_drive_file",
@@ -376,6 +385,7 @@ def build_operations() -> List[Operation]:
                 "add_parents": d["destination_folder_id"],
                 "remove_parents": d.get("source_folder_id", ""),
             },
+            display_param="file_id",
         ),
         client_op(
             "update_drive_file_metadata",
@@ -427,6 +437,7 @@ def build_operations() -> List[Operation]:
                 "starred": d["starred"] if "starred" in d else None,
                 "trashed": d["trashed"] if "trashed" in d else None,
             },
+            display_param="name",
         ),
         client_op(
             "delete_drive_file",
@@ -449,6 +460,7 @@ def build_operations() -> List[Operation]:
                     "example": "",
                 },
             },
+            display_param="file_id",
         ),
         client_op(
             "empty_drive_trash",
@@ -462,6 +474,7 @@ def build_operations() -> List[Operation]:
             unwrap_envelope=True,
             fail_message="Failed to empty trash.",
             input_schema={},
+            display_param=None,
         ),
         client_op(
             "get_drive_about",
@@ -487,6 +500,7 @@ def build_operations() -> List[Operation]:
             arg_map=lambda d: {
                 "include_metadata": bool(d.get("include_metadata", False)),
             },
+            display_param=None,
         ),
         client_op(
             "find_drive_folder_by_name",
@@ -513,6 +527,7 @@ def build_operations() -> List[Operation]:
                 "name": d["name"],
                 "parent_folder_id": d.get("parent_folder_id"),
             },
+            display_param="name",
         ),
         Operation(
             name="resolve_drive_folder_path",
@@ -528,6 +543,7 @@ def build_operations() -> List[Operation]:
             output_schema=dict(STATUS_OUTPUT),
             fn=_resolve_drive_folder_path,
             tags=("google_drive_files",),
+            display_param="path",
         ),
         # ── Permissions (sharing) ────────────────────────────────────────
         client_op(
@@ -547,6 +563,7 @@ def build_operations() -> List[Operation]:
                     "example": "",
                 },
             },
+            display_param="file_id",
         ),
         client_op(
             "get_drive_permission",
@@ -569,6 +586,7 @@ def build_operations() -> List[Operation]:
                     "example": "",
                 },
             },
+            display_param="permission_id",
         ),
         client_op(
             "add_drive_permission",
@@ -635,6 +653,7 @@ def build_operations() -> List[Operation]:
                 "send_notification": bool(d.get("send_notification", True)),
                 "email_message": d.get("email_message") or None,
             },
+            display_param="email_address",
         ),
         client_op(
             "update_drive_permission",
@@ -665,6 +684,7 @@ def build_operations() -> List[Operation]:
                     "example": "writer",
                 },
             },
+            display_param="role",
         ),
         client_op(
             "remove_drive_permission",
@@ -689,6 +709,7 @@ def build_operations() -> List[Operation]:
                     "example": "",
                 },
             },
+            display_param="permission_id",
         ),
         # ── Comments + replies ───────────────────────────────────────────
         client_op(
@@ -716,6 +737,7 @@ def build_operations() -> List[Operation]:
                 "file_id": d["file_id"],
                 "include_deleted": bool(d.get("include_deleted", False)),
             },
+            display_param="file_id",
         ),
         client_op(
             "get_drive_comment",
@@ -738,6 +760,7 @@ def build_operations() -> List[Operation]:
                     "example": "",
                 },
             },
+            display_param="comment_id",
         ),
         client_op(
             "create_drive_comment",
@@ -775,6 +798,7 @@ def build_operations() -> List[Operation]:
                 "content": d["content"],
                 "anchor": d.get("anchor") or None,
             },
+            display_param="content",
         ),
         client_op(
             "update_drive_comment",
@@ -816,6 +840,7 @@ def build_operations() -> List[Operation]:
                 "content": d["content"] if "content" in d else None,
                 "resolved": d["resolved"] if "resolved" in d else None,
             },
+            display_param="content",
         ),
         client_op(
             "delete_drive_comment",
@@ -840,6 +865,7 @@ def build_operations() -> List[Operation]:
                     "example": "",
                 },
             },
+            display_param="comment_id",
         ),
         client_op(
             "list_drive_comment_replies",
@@ -862,6 +888,7 @@ def build_operations() -> List[Operation]:
                     "example": "",
                 },
             },
+            display_param="comment_id",
         ),
         client_op(
             "create_drive_comment_reply",
@@ -891,6 +918,7 @@ def build_operations() -> List[Operation]:
                     "example": "",
                 },
             },
+            display_param="content",
         ),
         client_op(
             "update_drive_comment_reply",
@@ -926,6 +954,7 @@ def build_operations() -> List[Operation]:
                     "example": "",
                 },
             },
+            display_param="content",
         ),
         client_op(
             "delete_drive_comment_reply",
@@ -956,6 +985,7 @@ def build_operations() -> List[Operation]:
                     "example": "",
                 },
             },
+            display_param="reply_id",
         ),
         # ── Revisions (version history) ──────────────────────────────────
         client_op(
@@ -973,6 +1003,7 @@ def build_operations() -> List[Operation]:
                     "example": "",
                 },
             },
+            display_param="file_id",
         ),
         client_op(
             "get_drive_revision",
@@ -995,6 +1026,7 @@ def build_operations() -> List[Operation]:
                     "example": "",
                 },
             },
+            display_param="revision_id",
         ),
         client_op(
             "update_drive_revision",
@@ -1049,6 +1081,7 @@ def build_operations() -> List[Operation]:
                 "published": d["published"] if "published" in d else None,
                 "publish_auto": d["publish_auto"] if "publish_auto" in d else None,
             },
+            display_param="revision_id",
         ),
         client_op(
             "delete_drive_revision",
@@ -1073,6 +1106,7 @@ def build_operations() -> List[Operation]:
                     "example": "",
                 },
             },
+            display_param="revision_id",
         ),
         # ── Shared drives (formerly Team Drives) ─────────────────────────
         client_op(
@@ -1100,6 +1134,7 @@ def build_operations() -> List[Operation]:
                 "page_size": d.get("page_size", 50),
                 "q": d.get("q") or None,
             },
+            display_param="q",
         ),
         client_op(
             "get_shared_drive",
@@ -1116,6 +1151,7 @@ def build_operations() -> List[Operation]:
                     "example": "",
                 },
             },
+            display_param="drive_id",
         ),
         client_op(
             "create_shared_drive",
@@ -1136,6 +1172,7 @@ def build_operations() -> List[Operation]:
                     "example": "Team project",
                 },
             },
+            display_param="name",
         ),
         client_op(
             "update_shared_drive",
@@ -1170,6 +1207,7 @@ def build_operations() -> List[Operation]:
                 "name": d.get("name") or None,
                 "hidden": d["hidden"] if "hidden" in d else None,
             },
+            display_param="name",
         ),
         client_op(
             "delete_shared_drive",
@@ -1188,6 +1226,7 @@ def build_operations() -> List[Operation]:
                     "example": "",
                 },
             },
+            display_param="drive_id",
         ),
     ]
 

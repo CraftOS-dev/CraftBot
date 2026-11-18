@@ -140,6 +140,7 @@ def build_operations() -> List[Operation]:
             unwrap_envelope=True,
             fail_message="Failed to fetch channel.",
             input_schema={},
+            display_param=None,
         ),
         _lean_op(
             client_op(
@@ -180,6 +181,7 @@ def build_operations() -> List[Operation]:
                     "type_filter": d.get("type", "video"),
                     "max_results": d.get("max_results", 25),
                 },
+                display_param="query",
             ),
             _lean_search,
         ),
@@ -201,6 +203,7 @@ def build_operations() -> List[Operation]:
                     "example": "dQw4w9WgXcQ",
                 },
             },
+            display_param="video_id",
         ),
         _lean_op(
             client_op(
@@ -231,6 +234,7 @@ def build_operations() -> List[Operation]:
                     },
                 },
                 arg_map=lambda d: {"max_results": d.get("max_results", 50)},
+                display_param=None,
             ),
             _lean_subscriptions,
         ),
@@ -262,6 +266,7 @@ def build_operations() -> List[Operation]:
                     },
                 },
                 arg_map=lambda d: {"max_results": d.get("max_results", 50)},
+                display_param=None,
             ),
             _lean_playlists,
         ),
@@ -302,6 +307,7 @@ def build_operations() -> List[Operation]:
                     "playlist_id": d["playlist_id"],
                     "max_results": d.get("max_results", 50),
                 },
+                display_param="playlist_id",
             ),
             _lean_playlist_items,
         ),
@@ -321,6 +327,7 @@ def build_operations() -> List[Operation]:
                     "example": "UC...",
                 },
             },
+            display_param="channel_id",
         ),
         client_op(
             "unsubscribe_from_youtube_channel",
@@ -341,6 +348,7 @@ def build_operations() -> List[Operation]:
                     "example": "abc123...",
                 },
             },
+            display_param="subscription_id",
         ),
         client_op(
             "rate_youtube_video",
@@ -363,6 +371,7 @@ def build_operations() -> List[Operation]:
                     "example": "like",
                 },
             },
+            display_param="rating",
         ),
         client_op(
             "post_youtube_comment",
@@ -388,6 +397,7 @@ def build_operations() -> List[Operation]:
                     "example": "Great video!",
                 },
             },
+            display_param="text",
         ),
         _lean_op(
             client_op(
@@ -427,6 +437,7 @@ def build_operations() -> List[Operation]:
                     "video_id": d["video_id"],
                     "max_results": d.get("max_results", 50),
                 },
+                display_param="video_id",
             ),
             _lean_comments,
         ),

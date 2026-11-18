@@ -28,6 +28,8 @@ from agent_core import action
     },
     requirement=["pyperclip"],
     test_payload={"content": "Test clipboard content", "simulated_mode": True},
+    display_param="content",
+    icon="ClipboardCopy",
 )
 def clipboard_write(input_data: dict) -> dict:
     import sys

@@ -100,6 +100,8 @@ from app.subagent import list_subagent_names, get_subagent_definition
         "query": "What is the capital of France?",
         "simulated_mode": True,
     },
+    display_param="query",
+    icon="Bot",
 )
 async def spawn_subagent(input_data: dict) -> dict:
     # Imports inside the function — required by the action runtime model.

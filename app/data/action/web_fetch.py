@@ -96,6 +96,8 @@ from agent_core import action
         "timeout": 20,
         "simulated_mode": True,
     },
+    display_param="url",
+    icon="Globe",
 )
 def web_fetch(input_data: dict) -> dict:
     """Fetches a URL and returns cleaned text/markdown content."""

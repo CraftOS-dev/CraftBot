@@ -401,6 +401,7 @@ def _attempt():
 REPLY = json.dumps(
     {
         "reasoning": "Check two things, then answer. Braces { } and \"quotes\" stay text.",
+        "status": "Checking the \"notes\" file",
         "actions": [
             {"action_name": "web_search", "parameters": {"query": "a {b}"}},
             {"action_name": "read_file", "parameters": {"file_path": "C:\\x\\y.md"}},
@@ -437,6 +438,26 @@ def test_the_partial_view_grows_with_the_reply():
     assert seen_messages[-1] == final
     # Never shrinks: each partial is a prefix of the final text.
     assert all(final.startswith(m) for m in seen_messages)
+
+
+def test_the_status_line_shows_only_once_complete():
+    parser = ReplyParser()
+    seen = set()
+    for ch in REPLY:
+        parser.feed(ch)
+        seen.add(parser.status)
+    # Never a part of the line: nothing, then the whole of it.
+    assert seen == {None, 'Checking the "notes" file'}
+    assert parser.status is not None and parser.actions[0].start > REPLY.index('"status"')
+
+
+def test_the_status_line_is_its_first_line_trimmed():
+    from agent_core.core.impl.action.reply_stream import status_line
+
+    assert status_line("  Writing the login form \n(then tests)") == "Writing the login form"
+    assert status_line("   ") is None
+    assert status_line(None) is None
+    assert status_line(["Searching"]) is None
 
 
 def test_the_parser_skips_a_fence_and_think_block_and_stops_at_the_first_object():
@@ -503,6 +524,7 @@ def test_complete_actions_start_while_the_reply_is_still_being_written():
     assert stream.reasoning_logged and attempt.has_started
     update = [p for p in published if p["phase"] == "update"][-1]
     assert update["reasoning"]["done"] is True
+    assert update["status"] == 'Checking the "notes" file'
     assert [a["name"] for a in update["actions"]] == ["web_search", "read_file"]
     assert update["messages"][0]["text"].startswith("Line 1\nLine 2")
 
@@ -535,6 +557,24 @@ def test_a_stopped_turn_ends_the_reply_and_cancels_what_it_started():
     assert attempt.sink.cancelled
     assert published[-1]["phase"] == "end"
     assert published[-1]["keep"] == [attempt.run_id_for(0)]
+    # A stopped turn leaves the chat's status line as it is.
+    assert "status" not in published[-1]
+
+
+def test_the_end_of_a_reply_carries_its_status_line_also_unstreamed():
+    async def go(decisions):
+        published = []
+        stream = ReplyStream(session_id="s", publish=published.append)
+        stream.finish(decisions)
+        return published
+
+    # A provider that does not stream: the "end" alone tells the chat.
+    ended = asyncio.run(go([{"action_name": "web_search", "status": " Searching for weather sites\n"}]))
+    assert ended == [
+        {**ended[0], "phase": "end", "keep": [], "status": "Searching for weather sites"}
+    ]
+    # A reply without one: null, so the chat goes back to "Working".
+    assert asyncio.run(go([{"action_name": "web_search"}]))[0]["status"] is None
 
 
 # ─────────────────────────── the router ───────────────────────────
@@ -664,6 +704,8 @@ def test_a_reply_cut_off_after_its_actions_started_is_not_asked_again(monkeypatc
     assert started == ["web_search", "read_file"]
     assert [d["action_name"] for d in decisions] == ["web_search", "read_file"]
     assert all(d["_started"] and d["_run_id"] for d in decisions)
+    # What the reply held of the decision, its status line included.
+    assert all(d["status"] == 'Checking the "notes" file' for d in decisions)
     assert reply_stream.started_tasks(decisions) and len(reply_stream.started_tasks(decisions)) == 2
 
 
@@ -715,3 +757,25 @@ def test_without_early_starts_the_batch_is_validated_as_before(monkeypatch):
     kept = [d for d in decisions if "_error" not in d]
     assert [d["action_name"] for d in kept] == ["wait"]
     assert all(d.get("_run_id") for d in decisions)
+
+
+def test_every_decided_action_carries_the_reply_status_line(monkeypatch):
+    reply = json.dumps(
+        {
+            "reasoning": "r",
+            "status": "Finding evidence",
+            "actions": [
+                {"action_name": "web_search", "parameters": {"query": "x"}},
+                {"action_name": "web_fetch", "parameters": {"url": "y"}},
+            ],
+        }
+    )
+    llm = _StreamingLLM([(reply, None)])
+    router, _ = _router(monkeypatch, llm, {})
+    decisions, _ = _select(router, [])
+    assert [d["status"] for d in decisions] == ["Finding evidence", "Finding evidence"]
+    # A reply without one is no format error: no status, nothing retried.
+    llm = _StreamingLLM([(json.dumps({"reasoning": "r", "actions": [{"action_name": "web_search", "parameters": {}}]}), None)])
+    router, _ = _router(monkeypatch, llm, {})
+    decisions, _ = _select(router, [])
+    assert llm.calls == 1 and decisions[0]["status"] is None

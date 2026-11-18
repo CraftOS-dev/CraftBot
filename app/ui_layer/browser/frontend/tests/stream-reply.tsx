@@ -9,6 +9,7 @@ import { getSocketClient } from '../src/store/socket/socketInstance'
 import type { RawMessageHandler, SocketEnvelope, TypedMessageHandler } from '../src/store/socket/types'
 import { ToastProvider } from '../src/contexts/ToastContext'
 import { WebSocketProvider } from '../src/contexts/WebSocketContext'
+import { ThemeProvider } from '../src/contexts/ThemeContext'
 import { setConnected } from '../src/store/slices/connectionSlice'
 import i18n from '../src/i18n/config'
 import '../src/styles/global.css'
@@ -42,7 +43,7 @@ dispatchInbound({ type: 'chat_history', data: { sessionId: 'dest', messages: [],
 
 Object.assign(window, { fixtureReceive: receive })
 createRoot(document.getElementById('root')!).render(
-  <Provider store={store}><MemoryRouter initialEntries={['/session/dest']}><ToastProvider><WebSocketProvider>
+  <Provider store={store}><ThemeProvider><MemoryRouter initialEntries={['/session/dest']}><ToastProvider><WebSocketProvider>
     <div style={{ height: '100dvh' }}><Chat sessionId="dest" /></div>
-  </WebSocketProvider></ToastProvider></MemoryRouter></Provider>,
+  </WebSocketProvider></ToastProvider></MemoryRouter></ThemeProvider></Provider>,
 )

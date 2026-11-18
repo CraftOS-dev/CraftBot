@@ -87,6 +87,8 @@ from agent_core import action
         "file_path": "C:/path/to/form.pdf",
         "simulated_mode": True,
     },
+    display_param="file_path",
+    icon="FileText",
 )
 def read_pdf_file(input_data: dict) -> dict:
     import os

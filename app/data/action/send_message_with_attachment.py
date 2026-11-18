@@ -64,6 +64,8 @@ from agent_core import action
         "continue_work": False,
         "simulated_mode": True,
     },
+    display_param="message",
+    icon="Paperclip",
 )
 async def send_message_with_attachment(input_data: dict) -> dict:
     message = input_data["message"]

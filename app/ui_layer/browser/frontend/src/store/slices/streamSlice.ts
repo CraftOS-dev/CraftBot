@@ -21,6 +21,10 @@ export interface StreamAction {
   /** The parameters written so far, as JSON. */
   input: string
   done: boolean
+  /** How its row shows it, as the real row will (see ActionItem). */
+  displayParam?: string | null
+  icon?: string
+  integration?: string
 }
 
 export interface StreamMessage {
@@ -55,14 +59,21 @@ interface StreamPayload {
   messages?: StreamMessage[]
   /** On "end": ids of the actions and messages that run. */
   keep?: string[]
+  /** The step's status line, once complete; on "end", null when the reply
+   *  gave none. Absent: no change. */
+  status?: string | null
 }
 
 interface StreamState {
   bySession: Record<string, SessionStream>
+  /** What the run's current step is doing, shown in place of "Working". It
+   *  stays until the next step's line replaces it, and goes with the run. */
+  statusBySession: Record<string, string>
 }
 
 const initialState: StreamState = {
   bySession: {},
+  statusBySession: {},
 }
 
 const streamSlice = createSlice({
@@ -72,6 +83,11 @@ const streamSlice = createSlice({
     received(state, action: PayloadAction<StreamPayload>) {
       const p = action.payload
       if (!p.sessionId) return
+      if (p.status !== undefined) {
+        // Also for a reply that did not stream: its "end" alone carries it.
+        if (p.status) state.statusBySession[p.sessionId] = p.status
+        else if (p.phase === 'end') delete state.statusBySession[p.sessionId]
+      }
       const current = state.bySession[p.sessionId]
       if (p.phase === 'end') {
         if (!current || current.streamId !== p.streamId) return
@@ -108,6 +124,7 @@ const streamSlice = createSlice({
     },
     cleared(state, action: PayloadAction<{ sessionId: string }>) {
       delete state.bySession[action.payload.sessionId]
+      delete state.statusBySession[action.payload.sessionId]
     },
   },
 })
@@ -118,6 +135,9 @@ export default streamSlice.reducer
 
 export const selectSessionStream = (state: RootState, sessionId: string): SessionStream | undefined =>
   state.stream.bySession[sessionId]
+
+export const selectSessionStatus = (state: RootState, sessionId: string): string | undefined =>
+  state.stream.statusBySession[sessionId]
 
 // --- inbound message handlers --------------------------------------------
 

@@ -36,6 +36,8 @@ from agent_core import action
         "job": {"type": "object", "description": "The updated job details"},
         "message": {"type": "string", "description": "Confirmation message"},
     },
+    display_param="job_id",
+    icon="CalendarClock",
 )
 def cron_job_update(input_data: dict) -> dict:
     """Update a cron job."""

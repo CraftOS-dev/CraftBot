@@ -60,6 +60,8 @@ from agent_core import action
         "max_frames": 8,
         "simulated_mode": True,
     },
+    display_param="video_path",
+    icon="Film",
 )
 def understand_video(input_data: dict) -> dict:
     import os

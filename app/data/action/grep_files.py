@@ -94,6 +94,8 @@ _OUTPUT_SCHEMA = {
         "limit": 50,
         "simulated_mode": True,
     },
+    display_param="pattern",
+    icon="TextSearch",
 )
 def grep_files(input_data: dict) -> dict:
     """Search files with ripgrep and return the matching lines."""

@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple
 
 from aiohttp.client_exceptions import ClientConnectionResetError
 
+from agent_core.core.action_framework import action_row_display
 from agent_core.core.impl.memory.tuning import (
     PROCESSING_THRESHOLD_DEFAULT,
     SCHEDULE_HOUR_DEFAULT,
@@ -635,8 +636,12 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
 
     @staticmethod
     def _item_payload(item: ActionItem) -> Dict[str, Any]:
-        """Wire payload for an activity item (always carries sessionId)."""
-        return {
+        """Wire payload for an activity item (always carries sessionId).
+
+        An action item also carries how its row shows it: the action's
+        display_param, icon and integration (ActionMetadata), looked up by
+        name when it is sent, so a stored item shows the same way."""
+        payload = {
             "id": item.id,
             "name": item.name,
             "status": item.status,
@@ -651,6 +656,9 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
             "output": item.output_data,
             "error": item.error_message,
         }
+        if item.item_type == "action":
+            payload.update(action_row_display(item.name))
+        return payload
 
     async def add_item(self, item: ActionItem) -> None:
         """Add item, persist it, and broadcast. Prevents duplicates by ID."""

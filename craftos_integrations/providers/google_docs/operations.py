@@ -81,6 +81,7 @@ def _get_google_doc_op() -> Operation:
         output_schema=dict(STATUS_OUTPUT),
         fn=fn,
         tags=("google_docs_files", "google_docs"),
+        display_param="document_id",
     )
 
 
@@ -105,6 +106,7 @@ def build_operations() -> List[Operation]:
                     "example": "Meeting Notes",
                 },
             },
+            display_param="title",
         ),
         _get_google_doc_op(),
         client_op(
@@ -118,6 +120,7 @@ def build_operations() -> List[Operation]:
             unwrap_envelope=True,
             fail_message="Failed to read document.",
             input_schema={"document_id": dict(_DOC_ID, required=True)},
+            display_param="document_id",
         ),
         client_op(
             "list_google_docs",
@@ -137,6 +140,7 @@ def build_operations() -> List[Operation]:
                 },
             },
             arg_map=lambda d: {"max_results": d.get("max_results", 50)},
+            display_param=None,
         ),
         client_op(
             "search_google_docs",
@@ -163,6 +167,7 @@ def build_operations() -> List[Operation]:
                 "query": d["query"],
                 "max_results": d.get("max_results", 50),
             },
+            display_param="query",
         ),
         client_op(
             "delete_google_doc",
@@ -175,6 +180,7 @@ def build_operations() -> List[Operation]:
             success_message="Document deleted.",
             fail_message="Failed to delete document.",
             input_schema={"document_id": dict(_DOC_ID, required=True)},
+            display_param="document_id",
         ),
         client_op(
             "copy_google_doc",
@@ -198,6 +204,7 @@ def build_operations() -> List[Operation]:
                     "example": "Meeting Notes (copy)",
                 },
             },
+            display_param="new_title",
         ),
         client_op(
             "export_google_doc",
@@ -235,6 +242,7 @@ def build_operations() -> List[Operation]:
                     "example": "/tmp/doc.pdf",
                 },
             },
+            display_param="dest_path",
         ),
         # ── Content: insert / delete text, append, replace ────────────────
         client_op(
@@ -255,6 +263,7 @@ def build_operations() -> List[Operation]:
                     "example": "\\n\\nFollow-up: ...",
                 },
             },
+            display_param="text",
         ),
         client_op(
             "insert_text_into_google_doc",
@@ -283,6 +292,7 @@ def build_operations() -> List[Operation]:
                     "example": 1,
                 },
             },
+            display_param="text",
         ),
         client_op(
             "delete_google_doc_range",
@@ -309,6 +319,7 @@ def build_operations() -> List[Operation]:
                     "example": 30,
                 },
             },
+            display_param="document_id",
         ),
         client_op(
             "replace_google_doc_text",
@@ -348,6 +359,7 @@ def build_operations() -> List[Operation]:
                 "replace": d["replace"],
                 "match_case": d.get("match_case", False),
             },
+            display_param="find",
         ),
         # ── Styling: text + paragraph ─────────────────────────────────────
         client_op(
@@ -446,6 +458,7 @@ def build_operations() -> List[Operation]:
                 "background_color_hex": d.get("background_color_hex") or None,
                 "link_url": d.get("link_url") or None,
             },
+            display_param="document_id",
         ),
         client_op(
             "style_google_doc_paragraph",
@@ -507,6 +520,7 @@ def build_operations() -> List[Operation]:
                 "line_spacing": d.get("line_spacing"),
                 "keep_with_next": d.get("keep_with_next"),
             },
+            display_param="document_id",
         ),
         # ── Lists ─────────────────────────────────────────────────────────
         client_op(
@@ -549,6 +563,7 @@ def build_operations() -> List[Operation]:
                 "end_index": d["end_index"],
                 "bullet_preset": d.get("bullet_preset", "BULLET_DISC_CIRCLE_SQUARE"),
             },
+            display_param="document_id",
         ),
         client_op(
             "delete_google_doc_bullets",
@@ -575,6 +590,7 @@ def build_operations() -> List[Operation]:
                     "example": 60,
                 },
             },
+            display_param="document_id",
         ),
         # ── Tables ────────────────────────────────────────────────────────
         client_op(
@@ -607,6 +623,7 @@ def build_operations() -> List[Operation]:
                     "example": 1,
                 },
             },
+            display_param="document_id",
         ),
         client_op(
             "insert_google_doc_table_row",
@@ -650,6 +667,7 @@ def build_operations() -> List[Operation]:
                 "column_index": d["column_index"],
                 "insert_below": d.get("insert_below", True),
             },
+            display_param="document_id",
         ),
         client_op(
             "insert_google_doc_table_column",
@@ -693,6 +711,7 @@ def build_operations() -> List[Operation]:
                 "column_index": d["column_index"],
                 "insert_right": d.get("insert_right", True),
             },
+            display_param="document_id",
         ),
         client_op(
             "delete_google_doc_table_row",
@@ -724,6 +743,7 @@ def build_operations() -> List[Operation]:
                     "example": 0,
                 },
             },
+            display_param="document_id",
         ),
         client_op(
             "delete_google_doc_table_column",
@@ -755,6 +775,7 @@ def build_operations() -> List[Operation]:
                     "example": 1,
                 },
             },
+            display_param="document_id",
         ),
         client_op(
             "merge_google_doc_table_cells",
@@ -797,6 +818,7 @@ def build_operations() -> List[Operation]:
                     "example": 2,
                 },
             },
+            display_param="document_id",
         ),
         client_op(
             "unmerge_google_doc_table_cells",
@@ -839,6 +861,7 @@ def build_operations() -> List[Operation]:
                     "example": 2,
                 },
             },
+            display_param="document_id",
         ),
         # ── Images ────────────────────────────────────────────────────────
         client_op(
@@ -886,6 +909,7 @@ def build_operations() -> List[Operation]:
                 "width_pt": d.get("width_pt"),
                 "height_pt": d.get("height_pt"),
             },
+            display_param="image_uri",
         ),
         client_op(
             "replace_google_doc_image",
@@ -914,6 +938,7 @@ def build_operations() -> List[Operation]:
                     "example": "https://example.com/new.png",
                 },
             },
+            display_param="image_uri",
         ),
         # ── Structure: page/section breaks, headers/footers, named ranges ─
         client_op(
@@ -934,6 +959,7 @@ def build_operations() -> List[Operation]:
                     "example": 1,
                 },
             },
+            display_param="document_id",
         ),
         client_op(
             "insert_google_doc_section_break",
@@ -966,6 +992,7 @@ def build_operations() -> List[Operation]:
                 "index": d["index"],
                 "section_type": d.get("section_type", "NEXT_PAGE"),
             },
+            display_param="document_id",
         ),
         client_op(
             "create_google_doc_header",
@@ -991,6 +1018,7 @@ def build_operations() -> List[Operation]:
                 "document_id": d["document_id"],
                 "header_type": d.get("header_type", "DEFAULT"),
             },
+            display_param="document_id",
         ),
         client_op(
             "create_google_doc_footer",
@@ -1016,6 +1044,7 @@ def build_operations() -> List[Operation]:
                 "document_id": d["document_id"],
                 "footer_type": d.get("footer_type", "DEFAULT"),
             },
+            display_param="document_id",
         ),
         client_op(
             "delete_google_doc_header",
@@ -1036,6 +1065,7 @@ def build_operations() -> List[Operation]:
                     "example": "kix.xxxx",
                 },
             },
+            display_param="header_id",
         ),
         client_op(
             "delete_google_doc_footer",
@@ -1056,6 +1086,7 @@ def build_operations() -> List[Operation]:
                     "example": "kix.xxxx",
                 },
             },
+            display_param="footer_id",
         ),
         client_op(
             "create_google_doc_named_range",
@@ -1090,6 +1121,7 @@ def build_operations() -> List[Operation]:
                     "example": 50,
                 },
             },
+            display_param="name",
         ),
         client_op(
             "delete_google_doc_named_range",
@@ -1121,5 +1153,6 @@ def build_operations() -> List[Operation]:
                 "name": d.get("name") or None,
                 "named_range_id": d.get("named_range_id") or None,
             },
+            display_param="name",
         ),
     ]

@@ -17,6 +17,8 @@ from agent_core import action
             "description": "Number of enabled schedules",
         },
     },
+    display_param=None,
+    icon="CalendarDays",
 )
 def scheduled_task_list(input_data: dict) -> dict:
     """List all scheduled tasks."""

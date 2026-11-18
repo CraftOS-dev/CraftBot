@@ -29,6 +29,8 @@ from agent_core import action
         "status": {"type": "string", "example": "success"},
         "result": {"type": "object"},
     },
+    display_param=None,
+    integration="lark_calendar",
 )
 async def list_lark_calendars(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -50,6 +52,8 @@ async def list_lark_calendars(input_data: dict) -> dict:
         "status": {"type": "string", "example": "success"},
         "result": {"type": "object"},
     },
+    display_param=None,
+    integration="lark_calendar",
 )
 async def get_lark_primary_calendar(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -73,6 +77,8 @@ async def get_lark_primary_calendar(input_data: dict) -> dict:
         "status": {"type": "string", "example": "success"},
         "result": {"type": "object"},
     },
+    display_param="calendar_id",
+    integration="lark_calendar",
 )
 async def get_lark_calendar(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -123,6 +129,8 @@ async def get_lark_calendar(input_data: dict) -> dict:
         "result": {"type": "object"},
     },
     parallelizable=False,
+    display_param="summary",
+    integration="lark_calendar",
 )
 async def create_lark_calendar(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -178,6 +186,8 @@ async def create_lark_calendar(input_data: dict) -> dict:
         "result": {"type": "object"},
     },
     parallelizable=False,
+    display_param="summary",
+    integration="lark_calendar",
 )
 async def update_lark_calendar(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -220,6 +230,8 @@ async def update_lark_calendar(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="calendar_id",
+    integration="lark_calendar",
 )
 async def delete_lark_calendar(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -252,6 +264,8 @@ async def delete_lark_calendar(input_data: dict) -> dict:
         "status": {"type": "string", "example": "success"},
         "result": {"type": "object"},
     },
+    display_param="query",
+    integration="lark_calendar",
 )
 async def search_lark_calendars(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -282,6 +296,8 @@ async def search_lark_calendars(input_data: dict) -> dict:
         "result": {"type": "object"},
     },
     parallelizable=False,
+    display_param="calendar_id",
+    integration="lark_calendar",
 )
 async def subscribe_to_lark_calendar(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -308,6 +324,8 @@ async def subscribe_to_lark_calendar(input_data: dict) -> dict:
         "result": {"type": "object"},
     },
     parallelizable=False,
+    display_param="calendar_id",
+    integration="lark_calendar",
 )
 async def unsubscribe_from_lark_calendar(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -363,6 +381,8 @@ async def unsubscribe_from_lark_calendar(input_data: dict) -> dict:
         "status": {"type": "string", "example": "success"},
         "result": {"type": "object"},
     },
+    display_param="calendar_id",
+    integration="lark_calendar",
 )
 async def list_lark_calendar_events(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -434,6 +454,8 @@ async def list_lark_calendar_events(input_data: dict) -> dict:
         "status": {"type": "string", "example": "success"},
         "result": {"type": "object"},
     },
+    display_param="event_id",
+    integration="lark_calendar",
 )
 async def get_lark_calendar_event(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -499,6 +521,8 @@ async def get_lark_calendar_event(input_data: dict) -> dict:
         "result": {"type": "object"},
     },
     parallelizable=False,
+    display_param="summary",
+    integration="lark_calendar",
 )
 async def create_lark_calendar_event(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -581,6 +605,8 @@ async def create_lark_calendar_event(input_data: dict) -> dict:
         "result": {"type": "object"},
     },
     parallelizable=False,
+    display_param="summary",
+    integration="lark_calendar",
 )
 async def update_lark_calendar_event(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -636,6 +662,8 @@ async def update_lark_calendar_event(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="event_id",
+    integration="lark_calendar",
 )
 async def delete_lark_calendar_event(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -689,6 +717,8 @@ async def delete_lark_calendar_event(input_data: dict) -> dict:
         "status": {"type": "string", "example": "success"},
         "result": {"type": "object"},
     },
+    display_param="query",
+    integration="lark_calendar",
 )
 async def search_lark_calendar_events(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -730,6 +760,8 @@ async def search_lark_calendar_events(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="rsvp_status",
+    integration="lark_calendar",
 )
 async def rsvp_lark_calendar_event(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -789,6 +821,8 @@ async def rsvp_lark_calendar_event(input_data: dict) -> dict:
         "status": {"type": "string", "example": "success"},
         "result": {"type": "object"},
     },
+    display_param="event_id",
+    integration="lark_calendar",
 )
 async def list_lark_event_instances(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -892,6 +926,8 @@ async def list_lark_event_instances(input_data: dict) -> dict:
         "result": {"type": "object"},
     },
     parallelizable=False,
+    display_param="emails",
+    integration="lark_calendar",
 )
 async def add_lark_event_attendees(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -955,6 +991,8 @@ async def add_lark_event_attendees(input_data: dict) -> dict:
         "status": {"type": "string", "example": "success"},
         "result": {"type": "object"},
     },
+    display_param="event_id",
+    integration="lark_calendar",
 )
 async def list_lark_event_attendees(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1004,6 +1042,8 @@ async def list_lark_event_attendees(input_data: dict) -> dict:
         "result": {"type": "object"},
     },
     parallelizable=False,
+    display_param="event_id",
+    integration="lark_calendar",
 )
 async def remove_lark_event_attendees(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1058,6 +1098,8 @@ async def remove_lark_event_attendees(input_data: dict) -> dict:
         "status": {"type": "string", "example": "success"},
         "result": {"type": "object"},
     },
+    display_param="attendee_id",
+    integration="lark_calendar",
 )
 async def list_lark_event_chat_attendee_members(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1108,6 +1150,8 @@ async def list_lark_event_chat_attendee_members(input_data: dict) -> dict:
         "result": {"type": "object"},
     },
     parallelizable=False,
+    display_param="meeting_room_id",
+    integration="lark_calendar",
 )
 async def book_lark_meeting_room(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1157,6 +1201,8 @@ async def book_lark_meeting_room(input_data: dict) -> dict:
         "status": {"type": "string", "example": "success"},
         "result": {"type": "object"},
     },
+    display_param="calendar_id",
+    integration="lark_calendar",
 )
 async def list_lark_calendar_acls(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1195,6 +1241,8 @@ async def list_lark_calendar_acls(input_data: dict) -> dict:
         "result": {"type": "object"},
     },
     parallelizable=False,
+    display_param="user_id",
+    integration="lark_calendar",
 )
 async def share_lark_calendar_with_user(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -1229,6 +1277,8 @@ async def share_lark_calendar_with_user(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="acl_id",
+    integration="lark_calendar",
 )
 async def revoke_lark_calendar_share(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1275,6 +1325,8 @@ async def revoke_lark_calendar_share(input_data: dict) -> dict:
         "status": {"type": "string", "example": "success"},
         "result": {"type": "object"},
     },
+    display_param="user_ids",
+    integration="lark_calendar",
 )
 async def check_lark_free_busy(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client

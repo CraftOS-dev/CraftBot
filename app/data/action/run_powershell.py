@@ -60,6 +60,8 @@ from agent_core import action
         "background": False,
         "simulated_mode": True,
     },
+    display_param="script",
+    icon="TerminalSquare",
 )
 def powershell_exec_windows(input_data: dict) -> dict:
     import os

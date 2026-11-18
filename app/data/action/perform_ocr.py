@@ -52,6 +52,8 @@ from agent_core import action
         "user_prompt": "Extract all visible text.",
         "simulated_mode": True,
     },
+    display_param="image_path",
+    icon="ScanText",
 )
 def perform_ocr(input_data: dict) -> dict:
     import os

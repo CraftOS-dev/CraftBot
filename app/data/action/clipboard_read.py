@@ -29,6 +29,8 @@ from agent_core import action
     },
     requirement=["pyperclip"],
     test_payload={"simulated_mode": True},
+    display_param=None,
+    icon="ClipboardPaste",
 )
 def clipboard_read(input_data: dict) -> dict:
     import sys

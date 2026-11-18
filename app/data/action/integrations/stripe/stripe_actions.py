@@ -79,6 +79,8 @@ from agent_core import action
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="email",
+    integration="stripe",
 )
 async def list_stripe_customers(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -133,6 +135,8 @@ async def list_stripe_customers(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="customer_id",
+    integration="stripe",
 )
 async def get_stripe_customer(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -243,6 +247,8 @@ async def get_stripe_customer(input_data: dict) -> dict:
         "result": {"type": "object", "description": "Only {id, status}."},
     },
     parallelizable=False,
+    display_param="email",
+    integration="stripe",
 )
 async def create_stripe_customer(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -294,6 +300,8 @@ async def create_stripe_customer(input_data: dict) -> dict:
         "result": {"type": "object", "description": "Only {id, status}."},
     },
     parallelizable=False,
+    display_param="properties",
+    integration="stripe",
 )
 async def update_stripe_customer(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -322,6 +330,8 @@ async def update_stripe_customer(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="customer_id",
+    integration="stripe",
 )
 async def delete_stripe_customer(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -364,6 +374,8 @@ async def delete_stripe_customer(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="query",
+    integration="stripe",
 )
 async def search_stripe_customers(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -440,6 +452,8 @@ async def search_stripe_customers(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="customer",
+    integration="stripe",
 )
 async def list_stripe_payment_intents(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -494,6 +508,8 @@ async def list_stripe_payment_intents(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="payment_intent_id",
+    integration="stripe",
 )
 async def get_stripe_payment_intent(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -619,6 +635,8 @@ async def get_stripe_payment_intent(input_data: dict) -> dict:
         "result": {"type": "object", "description": "Only {id, status}."},
     },
     parallelizable=False,
+    display_param="description",
+    integration="stripe",
 )
 async def create_stripe_payment_intent(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -673,6 +691,8 @@ async def create_stripe_payment_intent(input_data: dict) -> dict:
         "result": {"type": "object", "description": "Only {id, status}."},
     },
     parallelizable=False,
+    display_param="properties",
+    integration="stripe",
 )
 async def update_stripe_payment_intent(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -734,6 +754,8 @@ async def update_stripe_payment_intent(input_data: dict) -> dict:
         "result": {"type": "object", "description": "Only {id, status}."},
     },
     parallelizable=False,
+    display_param="payment_intent_id",
+    integration="stripe",
 )
 async def confirm_stripe_payment_intent(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -786,6 +808,8 @@ async def confirm_stripe_payment_intent(input_data: dict) -> dict:
         "result": {"type": "object", "description": "Only {id, status}."},
     },
     parallelizable=False,
+    display_param="payment_intent_id",
+    integration="stripe",
 )
 async def capture_stripe_payment_intent(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -830,6 +854,8 @@ async def capture_stripe_payment_intent(input_data: dict) -> dict:
         "result": {"type": "object", "description": "Only {id, status}."},
     },
     parallelizable=False,
+    display_param="payment_intent_id",
+    integration="stripe",
 )
 async def cancel_stripe_payment_intent(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -875,6 +901,8 @@ async def cancel_stripe_payment_intent(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="query",
+    integration="stripe",
 )
 async def search_stripe_payment_intents(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -946,6 +974,8 @@ async def search_stripe_payment_intents(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="customer",
+    integration="stripe",
 )
 async def list_stripe_charges(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1000,6 +1030,8 @@ async def list_stripe_charges(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="charge_id",
+    integration="stripe",
 )
 async def get_stripe_charge(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1077,6 +1109,8 @@ async def get_stripe_charge(input_data: dict) -> dict:
         "result": {"type": "object", "description": "Only {id, status}."},
     },
     parallelizable=False,
+    display_param="payment_intent",
+    integration="stripe",
 )
 async def create_stripe_refund(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -1113,6 +1147,8 @@ async def create_stripe_refund(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="refund_id",
+    integration="stripe",
 )
 async def get_stripe_refund(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1176,6 +1212,8 @@ async def get_stripe_refund(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="payment_intent",
+    integration="stripe",
 )
 async def list_stripe_refunds(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1248,6 +1286,8 @@ async def list_stripe_refunds(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="customer",
+    integration="stripe",
 )
 async def list_stripe_payment_methods(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1301,6 +1341,8 @@ async def list_stripe_payment_methods(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="payment_method_id",
+    integration="stripe",
 )
 async def get_stripe_payment_method(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1360,6 +1402,8 @@ async def get_stripe_payment_method(input_data: dict) -> dict:
         "result": {"type": "object", "description": "Only {id, status}."},
     },
     parallelizable=False,
+    display_param="payment_method_id",
+    integration="stripe",
 )
 async def attach_stripe_payment_method(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -1397,6 +1441,8 @@ async def attach_stripe_payment_method(input_data: dict) -> dict:
         "result": {"type": "object", "description": "Only {id, status}."},
     },
     parallelizable=False,
+    display_param="payment_method_id",
+    integration="stripe",
 )
 async def detach_stripe_payment_method(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -1442,6 +1488,8 @@ async def detach_stripe_payment_method(input_data: dict) -> dict:
         "result": {"type": "object", "description": "Only {id, status}."},
     },
     parallelizable=False,
+    display_param="properties",
+    integration="stripe",
 )
 async def update_stripe_payment_method(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -1494,6 +1542,8 @@ async def update_stripe_payment_method(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="ids",
+    integration="stripe",
 )
 async def list_stripe_products(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1547,6 +1597,8 @@ async def list_stripe_products(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="product_id",
+    integration="stripe",
 )
 async def get_stripe_product(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1659,6 +1711,8 @@ async def get_stripe_product(input_data: dict) -> dict:
         "result": {"type": "object", "description": "Only {id, status}."},
     },
     parallelizable=False,
+    display_param="name",
+    integration="stripe",
 )
 async def create_stripe_product(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -1711,6 +1765,8 @@ async def create_stripe_product(input_data: dict) -> dict:
         "result": {"type": "object", "description": "Only {id, status}."},
     },
     parallelizable=False,
+    display_param="properties",
+    integration="stripe",
 )
 async def update_stripe_product(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -1739,6 +1795,8 @@ async def update_stripe_product(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="product_id",
+    integration="stripe",
 )
 async def delete_stripe_product(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1801,6 +1859,8 @@ async def delete_stripe_product(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="product",
+    integration="stripe",
 )
 async def list_stripe_prices(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1857,6 +1917,8 @@ async def list_stripe_prices(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="price_id",
+    integration="stripe",
 )
 async def get_stripe_price(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1970,6 +2032,8 @@ async def get_stripe_price(input_data: dict) -> dict:
         "result": {"type": "object", "description": "Only {id, status}."},
     },
     parallelizable=False,
+    display_param="unit_amount",
+    integration="stripe",
 )
 async def create_stripe_price(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -2022,6 +2086,8 @@ async def create_stripe_price(input_data: dict) -> dict:
         "result": {"type": "object", "description": "Only {id, status}."},
     },
     parallelizable=False,
+    display_param="properties",
+    integration="stripe",
 )
 async def update_stripe_price(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -2098,6 +2164,8 @@ async def update_stripe_price(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="customer",
+    integration="stripe",
 )
 async def list_stripe_invoices(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -2155,6 +2223,8 @@ async def list_stripe_invoices(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="invoice_id",
+    integration="stripe",
 )
 async def get_stripe_invoice(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -2268,6 +2338,8 @@ async def get_stripe_invoice(input_data: dict) -> dict:
         "result": {"type": "object", "description": "Only {id, status}."},
     },
     parallelizable=False,
+    display_param="description",
+    integration="stripe",
 )
 async def create_stripe_invoice(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -2321,6 +2393,8 @@ async def create_stripe_invoice(input_data: dict) -> dict:
         "result": {"type": "object", "description": "Only {id, status}."},
     },
     parallelizable=False,
+    display_param="properties",
+    integration="stripe",
 )
 async def update_stripe_invoice(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -2349,6 +2423,8 @@ async def update_stripe_invoice(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="invoice_id",
+    integration="stripe",
 )
 async def delete_stripe_invoice(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -2392,6 +2468,8 @@ async def delete_stripe_invoice(input_data: dict) -> dict:
         },
     },
     parallelizable=False,
+    display_param="invoice_id",
+    integration="stripe",
 )
 async def finalize_stripe_invoice(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -2432,6 +2510,8 @@ async def finalize_stripe_invoice(input_data: dict) -> dict:
         },
     },
     parallelizable=False,
+    display_param="invoice_id",
+    integration="stripe",
 )
 async def send_stripe_invoice(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -2492,6 +2572,8 @@ async def send_stripe_invoice(input_data: dict) -> dict:
         "result": {"type": "object", "description": "Only {id, status}."},
     },
     parallelizable=False,
+    display_param="invoice_id",
+    integration="stripe",
 )
 async def pay_stripe_invoice(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -2532,6 +2614,8 @@ async def pay_stripe_invoice(input_data: dict) -> dict:
         "result": {"type": "object", "description": "Only {id, status}."},
     },
     parallelizable=False,
+    display_param="invoice_id",
+    integration="stripe",
 )
 async def void_stripe_invoice(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -2568,6 +2652,8 @@ async def void_stripe_invoice(input_data: dict) -> dict:
         "result": {"type": "object", "description": "Only {id, status}."},
     },
     parallelizable=False,
+    display_param="invoice_id",
+    integration="stripe",
 )
 async def mark_stripe_invoice_uncollectible(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -2618,6 +2704,8 @@ async def mark_stripe_invoice_uncollectible(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="customer",
+    integration="stripe",
 )
 async def get_stripe_upcoming_invoice(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -2690,6 +2778,8 @@ async def get_stripe_upcoming_invoice(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="customer",
+    integration="stripe",
 )
 async def list_stripe_invoice_items(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -2802,6 +2892,8 @@ async def list_stripe_invoice_items(input_data: dict) -> dict:
         "result": {"type": "object", "description": "Only {id, status}."},
     },
     parallelizable=False,
+    display_param="description",
+    integration="stripe",
 )
 async def create_stripe_invoice_item(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -2838,6 +2930,8 @@ async def create_stripe_invoice_item(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="invoice_item_id",
+    integration="stripe",
 )
 async def delete_stripe_invoice_item(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -2899,6 +2993,8 @@ async def delete_stripe_invoice_item(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="customer",
+    integration="stripe",
 )
 async def list_stripe_subscriptions(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -2954,6 +3050,8 @@ async def list_stripe_subscriptions(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="subscription_id",
+    integration="stripe",
 )
 async def get_stripe_subscription(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -3085,6 +3183,8 @@ async def get_stripe_subscription(input_data: dict) -> dict:
         "result": {"type": "object", "description": "Only {id, status}."},
     },
     parallelizable=False,
+    display_param="customer",
+    integration="stripe",
 )
 async def create_stripe_subscription(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -3140,6 +3240,8 @@ async def create_stripe_subscription(input_data: dict) -> dict:
         "result": {"type": "object", "description": "Only {id, status}."},
     },
     parallelizable=False,
+    display_param="properties",
+    integration="stripe",
 )
 async def update_stripe_subscription(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -3195,6 +3297,8 @@ async def update_stripe_subscription(input_data: dict) -> dict:
         "result": {"type": "object", "description": "Only {id, status}."},
     },
     parallelizable=False,
+    display_param="subscription_id",
+    integration="stripe",
 )
 async def cancel_stripe_subscription(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -3246,6 +3350,8 @@ async def cancel_stripe_subscription(input_data: dict) -> dict:
         "result": {"type": "object", "description": "Only {id, status}."},
     },
     parallelizable=False,
+    display_param="subscription_id",
+    integration="stripe",
 )
 async def resume_stripe_subscription(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -3311,6 +3417,8 @@ async def resume_stripe_subscription(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="customer",
+    integration="stripe",
 )
 async def list_stripe_checkout_sessions(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -3366,6 +3474,8 @@ async def list_stripe_checkout_sessions(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="session_id",
+    integration="stripe",
 )
 async def get_stripe_checkout_session(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -3491,6 +3601,8 @@ async def get_stripe_checkout_session(input_data: dict) -> dict:
         "result": {"type": "object", "description": "Only {id, status, url}."},
     },
     parallelizable=False,
+    display_param="customer_email",
+    integration="stripe",
 )
 async def create_stripe_checkout_session(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -3539,6 +3651,8 @@ async def create_stripe_checkout_session(input_data: dict) -> dict:
         "result": {"type": "object", "description": "Only {id, status, url}."},
     },
     parallelizable=False,
+    display_param="session_id",
+    integration="stripe",
 )
 async def expire_stripe_checkout_session(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -3579,6 +3693,8 @@ async def expire_stripe_checkout_session(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="session_id",
+    integration="stripe",
 )
 async def list_stripe_checkout_line_items(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -3644,6 +3760,8 @@ async def list_stripe_checkout_line_items(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param=None,
+    integration="stripe",
 )
 async def list_stripe_payment_links(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -3696,6 +3814,8 @@ async def list_stripe_payment_links(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="payment_link_id",
+    integration="stripe",
 )
 async def get_stripe_payment_link(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -3797,6 +3917,8 @@ async def get_stripe_payment_link(input_data: dict) -> dict:
         "result": {"type": "object", "description": "Only {id, status, url}."},
     },
     parallelizable=False,
+    display_param="line_items",
+    integration="stripe",
 )
 async def create_stripe_payment_link(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -3848,6 +3970,8 @@ async def create_stripe_payment_link(input_data: dict) -> dict:
         "result": {"type": "object", "description": "Only {id, status, url}."},
     },
     parallelizable=False,
+    display_param="properties",
+    integration="stripe",
 )
 async def update_stripe_payment_link(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -3903,6 +4027,8 @@ async def update_stripe_payment_link(input_data: dict) -> dict:
         "result": {"type": "object", "description": "Only {id, status, url}."},
     },
     parallelizable=False,
+    display_param="customer",
+    integration="stripe",
 )
 async def create_stripe_billing_portal_session(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -3945,6 +4071,8 @@ async def create_stripe_billing_portal_session(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param=None,
+    integration="stripe",
 )
 async def list_stripe_coupons(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -3996,6 +4124,8 @@ async def list_stripe_coupons(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="coupon_id",
+    integration="stripe",
 )
 async def get_stripe_coupon(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -4103,6 +4233,8 @@ async def get_stripe_coupon(input_data: dict) -> dict:
         "result": {"type": "object", "description": "Only {id, status}."},
     },
     parallelizable=False,
+    display_param="name",
+    integration="stripe",
 )
 async def create_stripe_coupon(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -4154,6 +4286,8 @@ async def create_stripe_coupon(input_data: dict) -> dict:
         "result": {"type": "object", "description": "Only {id, status}."},
     },
     parallelizable=False,
+    display_param="properties",
+    integration="stripe",
 )
 async def update_stripe_coupon(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -4182,6 +4316,8 @@ async def update_stripe_coupon(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="coupon_id",
+    integration="stripe",
 )
 async def delete_stripe_coupon(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -4233,6 +4369,8 @@ async def delete_stripe_coupon(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="code",
+    integration="stripe",
 )
 async def list_stripe_promotion_codes(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -4334,6 +4472,8 @@ async def list_stripe_promotion_codes(input_data: dict) -> dict:
         "result": {"type": "object", "description": "Only {id, status}."},
     },
     parallelizable=False,
+    display_param="code",
+    integration="stripe",
 )
 async def create_stripe_promotion_code(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -4383,6 +4523,8 @@ async def create_stripe_promotion_code(input_data: dict) -> dict:
         "result": {"type": "object", "description": "Only {id, status}."},
     },
     parallelizable=False,
+    display_param="properties",
+    integration="stripe",
 )
 async def update_stripe_promotion_code(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -4435,6 +4577,8 @@ async def update_stripe_promotion_code(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="charge",
+    integration="stripe",
 )
 async def list_stripe_disputes(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -4488,6 +4632,8 @@ async def list_stripe_disputes(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="dispute_id",
+    integration="stripe",
 )
 async def get_stripe_dispute(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -4562,6 +4708,8 @@ async def get_stripe_dispute(input_data: dict) -> dict:
         "result": {"type": "object", "description": "Only {id, status}."},
     },
     parallelizable=False,
+    display_param="dispute_id",
+    integration="stripe",
 )
 async def update_stripe_dispute(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -4601,6 +4749,8 @@ async def update_stripe_dispute(input_data: dict) -> dict:
         "result": {"type": "object", "description": "Only {id, status}."},
     },
     parallelizable=False,
+    display_param="dispute_id",
+    integration="stripe",
 )
 async def close_stripe_dispute(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -4652,6 +4802,8 @@ async def close_stripe_dispute(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="status",
+    integration="stripe",
 )
 async def list_stripe_payouts(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -4700,6 +4852,8 @@ async def list_stripe_payouts(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="payout_id",
+    integration="stripe",
 )
 async def get_stripe_payout(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -4795,6 +4949,8 @@ async def get_stripe_payout(input_data: dict) -> dict:
         "result": {"type": "object", "description": "Only {id, status}."},
     },
     parallelizable=False,
+    display_param="amount",
+    integration="stripe",
 )
 async def create_stripe_payout(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -4833,6 +4989,8 @@ async def create_stripe_payout(input_data: dict) -> dict:
         "result": {"type": "object", "description": "Only {id, status}."},
     },
     parallelizable=False,
+    display_param="payout_id",
+    integration="stripe",
 )
 async def cancel_stripe_payout(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -4852,6 +5010,8 @@ async def cancel_stripe_payout(input_data: dict) -> dict:
     action_sets=["stripe_payouts", "stripe"],
     input_schema={},
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param=None,
+    integration="stripe",
 )
 async def get_stripe_balance(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -4917,6 +5077,8 @@ async def get_stripe_balance(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="type",
+    integration="stripe",
 )
 async def list_stripe_balance_transactions(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -4991,6 +5153,8 @@ async def list_stripe_balance_transactions(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="customer",
+    integration="stripe",
 )
 async def list_stripe_quotes(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -5039,6 +5203,8 @@ async def list_stripe_quotes(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="quote_id",
+    integration="stripe",
 )
 async def get_stripe_quote(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -5146,6 +5312,8 @@ async def get_stripe_quote(input_data: dict) -> dict:
         "result": {"type": "object", "description": "Only {id, status}."},
     },
     parallelizable=False,
+    display_param="description",
+    integration="stripe",
 )
 async def create_stripe_quote(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -5192,6 +5360,8 @@ async def create_stripe_quote(input_data: dict) -> dict:
         "result": {"type": "object", "description": "Only {id, status}."},
     },
     parallelizable=False,
+    display_param="properties",
+    integration="stripe",
 )
 async def update_stripe_quote(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -5235,6 +5405,8 @@ async def update_stripe_quote(input_data: dict) -> dict:
         "result": {"type": "object", "description": "Only {id, status}."},
     },
     parallelizable=False,
+    display_param="quote_id",
+    integration="stripe",
 )
 async def finalize_stripe_quote(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -5272,6 +5444,8 @@ async def finalize_stripe_quote(input_data: dict) -> dict:
         "result": {"type": "object", "description": "Only {id, status}."},
     },
     parallelizable=False,
+    display_param="quote_id",
+    integration="stripe",
 )
 async def accept_stripe_quote(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -5303,6 +5477,8 @@ async def accept_stripe_quote(input_data: dict) -> dict:
         "result": {"type": "object", "description": "Only {id, status}."},
     },
     parallelizable=False,
+    display_param="quote_id",
+    integration="stripe",
 )
 async def cancel_stripe_quote(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -5384,6 +5560,8 @@ async def cancel_stripe_quote(input_data: dict) -> dict:
             "description": "Lean events {id, type, created, data.object.id} + has_more unless include_metadata=true.",
         },
     },
+    display_param="type",
+    integration="stripe",
 )
 async def list_stripe_events(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -5456,6 +5634,8 @@ async def list_stripe_events(input_data: dict) -> dict:
             "description": "Lean {id, type, created, data.object.id} unless include_metadata=true.",
         },
     },
+    display_param="event_id",
+    integration="stripe",
 )
 async def get_stripe_event(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -5508,6 +5688,8 @@ async def get_stripe_event(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param=None,
+    integration="stripe",
 )
 async def list_stripe_webhook_endpoints(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -5559,6 +5741,8 @@ async def list_stripe_webhook_endpoints(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="endpoint_id",
+    integration="stripe",
 )
 async def get_stripe_webhook_endpoint(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -5642,6 +5826,8 @@ async def get_stripe_webhook_endpoint(input_data: dict) -> dict:
         "result": {"type": "object", "description": "Only {id, status, secret}."},
     },
     parallelizable=False,
+    display_param="url",
+    integration="stripe",
 )
 async def create_stripe_webhook_endpoint(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -5689,6 +5875,8 @@ async def create_stripe_webhook_endpoint(input_data: dict) -> dict:
         "result": {"type": "object", "description": "Only {id, status}."},
     },
     parallelizable=False,
+    display_param="properties",
+    integration="stripe",
 )
 async def update_stripe_webhook_endpoint(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -5720,6 +5908,8 @@ async def update_stripe_webhook_endpoint(input_data: dict) -> dict:
         "result": {"type": "object", "description": "Only {id, status}."},
     },
     parallelizable=False,
+    display_param="endpoint_id",
+    integration="stripe",
 )
 async def delete_stripe_webhook_endpoint(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -5772,6 +5962,8 @@ async def delete_stripe_webhook_endpoint(input_data: dict) -> dict:
         "result": {"type": "object", "description": "Only {id, status}."},
     },
     parallelizable=False,
+    display_param="file_path",
+    integration="stripe",
 )
 async def upload_stripe_file(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -5801,6 +5993,8 @@ async def upload_stripe_file(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="file_id",
+    integration="stripe",
 )
 async def get_stripe_file(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -5858,6 +6052,8 @@ async def get_stripe_file(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="purpose",
+    integration="stripe",
 )
 async def list_stripe_files(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -5902,6 +6098,8 @@ async def list_stripe_files(input_data: dict) -> dict:
     action_sets=["stripe"],
     input_schema={},
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param=None,
+    integration="stripe",
 )
 async def get_stripe_account(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client

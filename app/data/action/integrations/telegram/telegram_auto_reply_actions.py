@@ -14,6 +14,8 @@ from agent_core import action
         "status": {"type": "string", "example": "success"},
         "contact_ids": {"type": "array", "example": ["123456789"]},
     },
+    display_param=None,
+    integration="telegram_bot",
 )
 def get_telegram_auto_reply_contacts(input_data: dict) -> dict:
     from agent_core.core.impl.action.context import current_message_origin
@@ -72,6 +74,8 @@ def get_telegram_auto_reply_contacts(input_data: dict) -> dict:
         "message": {"type": "string", "example": "Auto-replies enabled."},
         "contact_ids": {"type": "array", "example": ["123456789"]},
     },
+    display_param="contact_id",
+    integration="telegram_bot",
 )
 def set_telegram_contact_auto_reply(input_data: dict) -> dict:
     from agent_core.core.impl.action.context import current_message_origin
@@ -161,6 +165,8 @@ def set_telegram_contact_auto_reply(input_data: dict) -> dict:
         "message": {"type": "string", "example": "Owner control enabled."},
         "owner_ids": {"type": "array", "example": ["123456789"]},
     },
+    display_param="contact_id",
+    integration="telegram_bot",
 )
 def set_telegram_owner_control(input_data: dict) -> dict:
     from agent_core.core.impl.action.context import current_message_origin

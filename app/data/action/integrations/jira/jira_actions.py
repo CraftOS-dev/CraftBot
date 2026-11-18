@@ -47,6 +47,8 @@ _NO_CRED_MSG = "No Jira credential. Use /jira login first."
             "description": "total + issues. Lean: default field set, status/assignee/priority/issuetype collapsed to names. Full payload when include_metadata=true.",
         },
     },
+    display_param="jql",
+    integration="jira",
 )
 async def search_jira_issues(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -94,6 +96,8 @@ async def search_jira_issues(input_data: dict) -> dict:
             "description": "Lean: default field set, status/assignee/priority/issuetype collapsed to names. Full payload when include_metadata=true.",
         },
     },
+    display_param="issue_key",
+    integration="jira",
 )
 async def get_jira_issue(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -160,6 +164,8 @@ async def get_jira_issue(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="summary",
+    integration="jira",
 )
 async def create_jira_issue(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -211,6 +217,8 @@ async def create_jira_issue(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="issue_key",
+    integration="jira",
 )
 async def update_jira_issue(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -251,6 +259,8 @@ async def update_jira_issue(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="issue_key",
+    integration="jira",
 )
 async def delete_jira_issue(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -276,6 +286,8 @@ async def delete_jira_issue(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="issue_key",
+    integration="jira",
 )
 async def get_jira_transitions(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -311,6 +323,8 @@ async def get_jira_transitions(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="issue_key",
+    integration="jira",
 )
 async def transition_jira_issue(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -345,6 +359,8 @@ async def transition_jira_issue(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="issue_key",
+    integration="jira",
 )
 async def assign_jira_issue(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -378,6 +394,8 @@ async def assign_jira_issue(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="labels",
+    integration="jira",
 )
 async def add_jira_labels(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -412,6 +430,8 @@ async def add_jira_labels(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="labels",
+    integration="jira",
 )
 async def remove_jira_labels(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -439,6 +459,8 @@ async def remove_jira_labels(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="issue_key",
+    integration="jira",
 )
 async def get_jira_issue_watchers(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -466,6 +488,8 @@ async def get_jira_issue_watchers(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="issue_key",
+    integration="jira",
 )
 async def add_jira_issue_watcher(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -498,6 +522,8 @@ async def add_jira_issue_watcher(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="issue_key",
+    integration="jira",
 )
 async def remove_jira_issue_watcher(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -536,6 +562,8 @@ async def remove_jira_issue_watcher(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="body",
+    integration="jira",
 )
 async def add_jira_comment(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -565,6 +593,8 @@ async def add_jira_comment(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="issue_key",
+    integration="jira",
 )
 async def get_jira_comments(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -604,6 +634,8 @@ async def get_jira_comments(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="body",
+    integration="jira",
 )
 async def update_jira_comment(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -637,6 +669,8 @@ async def update_jira_comment(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="issue_key",
+    integration="jira",
 )
 async def delete_jira_comment(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -681,6 +715,8 @@ async def delete_jira_comment(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="issue_key",
+    integration="jira",
 )
 async def add_jira_attachment(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -707,6 +743,8 @@ async def add_jira_attachment(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="attachment_id",
+    integration="jira",
 )
 async def get_jira_attachment(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -730,6 +768,8 @@ async def get_jira_attachment(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="attachment_id",
+    integration="jira",
 )
 async def delete_jira_attachment(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -758,6 +798,8 @@ async def delete_jira_attachment(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="dest_path",
+    integration="jira",
 )
 async def download_jira_attachment(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -814,6 +856,8 @@ async def download_jira_attachment(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="issue_key",
+    integration="jira",
 )
 async def add_jira_worklog(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -842,6 +886,8 @@ async def add_jira_worklog(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="issue_key",
+    integration="jira",
 )
 async def get_jira_worklogs(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -883,6 +929,8 @@ async def get_jira_worklogs(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="issue_key",
+    integration="jira",
 )
 async def update_jira_worklog(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -919,6 +967,8 @@ async def update_jira_worklog(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="issue_key",
+    integration="jira",
 )
 async def delete_jira_worklog(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -969,6 +1019,8 @@ async def delete_jira_worklog(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="inward_issue_key",
+    integration="jira",
 )
 async def create_jira_issue_link(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1008,6 +1060,8 @@ async def create_jira_issue_link(input_data: dict) -> dict:
             "description": "Lean: id, type, inwardIssue/outwardIssue {key, summary, status}. Raw payload when include_metadata=true.",
         },
     },
+    display_param="link_id",
+    integration="jira",
 )
 async def get_jira_issue_link(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1034,6 +1088,8 @@ async def get_jira_issue_link(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="link_id",
+    integration="jira",
 )
 async def delete_jira_issue_link(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1047,6 +1103,8 @@ async def delete_jira_issue_link(input_data: dict) -> dict:
     action_sets=["jira_links"],
     input_schema={},
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param=None,
+    integration="jira",
 )
 async def list_jira_issue_link_types(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1073,6 +1131,8 @@ async def list_jira_issue_link_types(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param=None,
+    integration="jira",
 )
 async def list_jira_projects(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1097,6 +1157,8 @@ async def list_jira_projects(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="project_key",
+    integration="jira",
 )
 async def get_jira_project(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1125,6 +1187,8 @@ async def get_jira_project(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="query",
+    integration="jira",
 )
 async def search_jira_users(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -1143,6 +1207,8 @@ async def search_jira_users(input_data: dict) -> dict:
     action_sets=["jira_projects"],
     input_schema={},
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param=None,
+    integration="jira",
 )
 async def list_jira_priorities(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1156,6 +1222,8 @@ async def list_jira_priorities(input_data: dict) -> dict:
     action_sets=["jira_projects"],
     input_schema={},
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param=None,
+    integration="jira",
 )
 async def list_jira_issue_types(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1176,6 +1244,8 @@ async def list_jira_issue_types(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="project_key",
+    integration="jira",
 )
 async def list_jira_versions(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1224,6 +1294,8 @@ async def list_jira_versions(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="name",
+    integration="jira",
 )
 async def create_jira_version(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1285,6 +1357,8 @@ async def create_jira_version(input_data: dict) -> dict:
         },
     },
     parallelizable=False,
+    display_param="name",
+    integration="jira",
 )
 async def update_jira_version(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -1316,6 +1390,8 @@ async def update_jira_version(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="version_id",
+    integration="jira",
 )
 async def delete_jira_version(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1338,6 +1414,8 @@ async def delete_jira_version(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="project_key",
+    integration="jira",
 )
 async def list_jira_components(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1379,6 +1457,8 @@ async def list_jira_components(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="name",
+    integration="jira",
 )
 async def create_jira_component(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1407,6 +1487,8 @@ async def create_jira_component(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="component_id",
+    integration="jira",
 )
 async def delete_jira_component(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1429,6 +1511,8 @@ async def delete_jira_component(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="project_key",
+    integration="jira",
 )
 async def list_jira_project_statuses(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1469,6 +1553,8 @@ async def list_jira_project_statuses(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="project_key",
+    integration="jira",
 )
 async def list_jira_boards(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1490,6 +1576,8 @@ async def list_jira_boards(input_data: dict) -> dict:
         "board_id": {"type": "integer", "required": True, "description": "Board ID.", "example": 1},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="board_id",
+    integration="jira",
 )
 async def get_jira_board(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1519,6 +1607,8 @@ async def get_jira_board(input_data: dict) -> dict:
             "description": "total + issues. Lean: default field set, status/assignee/priority/issuetype collapsed to names. Full payload when include_metadata=true.",
         },
     },
+    display_param="board_id",
+    integration="jira",
 )
 async def get_jira_board_issues(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1553,6 +1643,8 @@ async def get_jira_board_issues(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="board_id",
+    integration="jira",
 )
 async def get_jira_board_sprints(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1587,6 +1679,8 @@ async def get_jira_board_sprints(input_data: dict) -> dict:
             "description": "total + issues. Lean: default field set, status/assignee/priority/issuetype collapsed to names. Full payload when include_metadata=true.",
         },
     },
+    display_param="board_id",
+    integration="jira",
 )
 async def get_jira_board_backlog(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1608,6 +1702,8 @@ async def get_jira_board_backlog(input_data: dict) -> dict:
         "sprint_id": {"type": "integer", "required": True, "description": "Sprint ID.", "example": 42},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="sprint_id",
+    integration="jira",
 )
 async def get_jira_sprint(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1637,6 +1733,8 @@ async def get_jira_sprint(input_data: dict) -> dict:
             "description": "total + issues. Lean: default field set, status/assignee/priority/issuetype collapsed to names. Full payload when include_metadata=true.",
         },
     },
+    display_param="sprint_id",
+    integration="jira",
 )
 async def get_jira_sprint_issues(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1689,6 +1787,8 @@ async def get_jira_sprint_issues(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="name",
+    integration="jira",
 )
 async def create_jira_sprint(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1734,6 +1834,8 @@ async def create_jira_sprint(input_data: dict) -> dict:
         },
     },
     parallelizable=False,
+    display_param="name",
+    integration="jira",
 )
 async def update_jira_sprint(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -1760,6 +1862,8 @@ async def update_jira_sprint(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="sprint_id",
+    integration="jira",
 )
 async def delete_jira_sprint(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1787,6 +1891,8 @@ async def delete_jira_sprint(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="issue_keys",
+    integration="jira",
 )
 async def move_issues_to_jira_sprint(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1817,6 +1923,8 @@ async def move_issues_to_jira_sprint(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="issue_keys",
+    integration="jira",
 )
 async def move_issues_to_jira_backlog(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1841,6 +1949,8 @@ async def move_issues_to_jira_backlog(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="epic_key",
+    integration="jira",
 )
 async def get_jira_epic(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1874,6 +1984,8 @@ async def get_jira_epic(input_data: dict) -> dict:
             "description": "total + issues. Lean: default field set, status/assignee/priority/issuetype collapsed to names. Full payload when include_metadata=true.",
         },
     },
+    display_param="epic_key",
+    integration="jira",
 )
 async def get_jira_epic_issues(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1907,6 +2019,8 @@ async def get_jira_epic_issues(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="issue_keys",
+    integration="jira",
 )
 async def move_issues_to_jira_epic(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1943,6 +2057,8 @@ async def move_issues_to_jira_epic(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="tag",
+    integration="jira",
 )
 def set_jira_watch_tag(input_data: dict) -> dict:
     try:
@@ -1972,6 +2088,8 @@ def set_jira_watch_tag(input_data: dict) -> dict:
     action_sets=["jira_listener"],
     input_schema={},
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param=None,
+    integration="jira",
 )
 def get_jira_watch_tag(input_data: dict) -> dict:
     try:
@@ -2010,6 +2128,8 @@ def get_jira_watch_tag(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="labels",
+    integration="jira",
 )
 def set_jira_watch_labels(input_data: dict) -> dict:
     try:
@@ -2040,6 +2160,8 @@ def set_jira_watch_labels(input_data: dict) -> dict:
     action_sets=["jira_listener"],
     input_schema={},
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param=None,
+    integration="jira",
 )
 def get_jira_watch_labels(input_data: dict) -> dict:
     try:

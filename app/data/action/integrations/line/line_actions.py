@@ -23,6 +23,8 @@ from agent_core import action
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="text",
+    integration="line",
 )
 def send_line_message(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -48,6 +50,8 @@ def send_line_message(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="text",
+    integration="line",
 )
 def reply_line_message(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -70,6 +74,8 @@ def reply_line_message(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="text",
+    integration="line",
 )
 def multicast_line_message(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -88,6 +94,8 @@ def multicast_line_message(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="text",
+    integration="line",
 )
 def broadcast_line_message(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -116,6 +124,8 @@ def broadcast_line_message(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="messages",
+    integration="line",
 )
 def push_line_messages(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -152,6 +162,8 @@ def push_line_messages(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="messages",
+    integration="line",
 )
 def reply_line_messages(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -182,6 +194,8 @@ def reply_line_messages(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="messages",
+    integration="line",
 )
 def multicast_line_messages(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -211,6 +225,8 @@ def multicast_line_messages(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="messages",
+    integration="line",
 )
 def broadcast_line_messages(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -249,6 +265,8 @@ def broadcast_line_messages(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="original_content_url",
+    integration="line",
 )
 def send_line_image(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -284,6 +302,8 @@ def send_line_image(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="original_content_url",
+    integration="line",
 )
 def send_line_video(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -319,6 +339,8 @@ def send_line_video(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="original_content_url",
+    integration="line",
 )
 def send_line_audio(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -351,6 +373,8 @@ def send_line_audio(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="title",
+    integration="line",
 )
 def send_line_location(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -388,6 +412,8 @@ def send_line_location(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="sticker_id",
+    integration="line",
 )
 def send_line_sticker(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -423,6 +449,8 @@ def send_line_sticker(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="alt_text",
+    integration="line",
 )
 def send_line_flex(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -453,6 +481,8 @@ def send_line_flex(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="alt_text",
+    integration="line",
 )
 def send_line_template(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -496,6 +526,8 @@ def send_line_template(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="alt_text",
+    integration="line",
 )
 def send_line_imagemap(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -527,6 +559,8 @@ def send_line_imagemap(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="dest_path",
+    integration="line",
 )
 def download_line_message_content(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -552,6 +586,8 @@ def download_line_message_content(input_data: dict) -> dict:
         "user_id": {"type": "string", "required": True, "description": "User ID.", "example": "U..."},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="user_id",
+    integration="line",
 )
 def get_line_profile(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -565,6 +601,8 @@ def get_line_profile(input_data: dict) -> dict:
     action_sets=["line"],
     input_schema={},
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param=None,
+    integration="line",
 )
 def get_line_bot_info(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -578,6 +616,8 @@ def get_line_bot_info(input_data: dict) -> dict:
     action_sets=["line"],
     input_schema={},
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param=None,
+    integration="line",
 )
 def get_line_quota(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -603,6 +643,8 @@ def get_line_quota(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="group_id",
+    integration="line",
 )
 def get_line_group_summary(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -618,6 +660,8 @@ def get_line_group_summary(input_data: dict) -> dict:
         "group_id": {"type": "string", "required": True, "description": "Group ID.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="group_id",
+    integration="line",
 )
 def get_line_group_member_count(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -641,6 +685,8 @@ def get_line_group_member_count(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="group_id",
+    integration="line",
 )
 def list_line_group_members(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -662,6 +708,8 @@ def list_line_group_members(input_data: dict) -> dict:
         "user_id": {"type": "string", "required": True, "description": "User ID.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="user_id",
+    integration="line",
 )
 def get_line_group_member_profile(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -683,6 +731,8 @@ def get_line_group_member_profile(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="group_id",
+    integration="line",
 )
 def leave_line_group(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -703,6 +753,8 @@ def leave_line_group(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="room_id",
+    integration="line",
 )
 def get_line_room_member_count(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -721,6 +773,8 @@ def get_line_room_member_count(input_data: dict) -> dict:
         "start": {"type": "string", "required": False, "description": "Pagination cursor.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="room_id",
+    integration="line",
 )
 def list_line_room_members(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -742,6 +796,8 @@ def list_line_room_members(input_data: dict) -> dict:
         "user_id": {"type": "string", "required": True, "description": "User ID.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="user_id",
+    integration="line",
 )
 def get_line_room_member_profile(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -763,6 +819,8 @@ def get_line_room_member_profile(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="room_id",
+    integration="line",
 )
 def leave_line_room(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -789,6 +847,8 @@ def leave_line_room(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="rich_menu",
+    integration="line",
 )
 def create_line_rich_menu(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -811,6 +871,8 @@ def create_line_rich_menu(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="rich_menu_id",
+    integration="line",
 )
 def get_line_rich_menu(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -826,6 +888,8 @@ def get_line_rich_menu(input_data: dict) -> dict:
     action_sets=["line_rich_menus", "line"],
     input_schema={},
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param=None,
+    integration="line",
 )
 def list_line_rich_menus(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -847,6 +911,8 @@ def list_line_rich_menus(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="rich_menu_id",
+    integration="line",
 )
 def delete_line_rich_menu(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -876,6 +942,8 @@ def delete_line_rich_menu(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="file_path",
+    integration="line",
 )
 def upload_line_rich_menu_image(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -902,6 +970,8 @@ def upload_line_rich_menu_image(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="rich_menu_id",
+    integration="line",
 )
 def set_line_default_rich_menu(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -917,6 +987,8 @@ def set_line_default_rich_menu(input_data: dict) -> dict:
     action_sets=["line_rich_menus"],
     input_schema={},
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param=None,
+    integration="line",
 )
 def get_line_default_rich_menu(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -931,6 +1003,8 @@ def get_line_default_rich_menu(input_data: dict) -> dict:
     input_schema={},
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param=None,
+    integration="line",
 )
 def cancel_line_default_rich_menu(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -953,6 +1027,8 @@ def cancel_line_default_rich_menu(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="rich_menu_id",
+    integration="line",
 )
 def link_line_rich_menu_to_user(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -974,6 +1050,8 @@ def link_line_rich_menu_to_user(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="user_id",
+    integration="line",
 )
 def unlink_line_rich_menu_from_user(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -991,6 +1069,8 @@ def unlink_line_rich_menu_from_user(input_data: dict) -> dict:
         "user_id": {"type": "string", "required": True, "description": "User ID.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="user_id",
+    integration="line",
 )
 def get_line_user_rich_menu(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -1018,6 +1098,8 @@ def get_line_user_rich_menu(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="rich_menu_id",
+    integration="line",
 )
 def bulk_link_line_rich_menu(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -1039,6 +1121,8 @@ def bulk_link_line_rich_menu(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="user_ids",
+    integration="line",
 )
 def bulk_unlink_line_rich_menu(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -1092,6 +1176,8 @@ def bulk_unlink_line_rich_menu(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="messages",
+    integration="line",
 )
 def send_line_narrowcast(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -1121,6 +1207,8 @@ def send_line_narrowcast(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="request_id",
+    integration="line",
 )
 def get_line_narrowcast_progress(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -1156,6 +1244,8 @@ def get_line_narrowcast_progress(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="description",
+    integration="line",
 )
 def create_line_user_id_audience(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -1182,6 +1272,8 @@ def create_line_user_id_audience(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="audience_group_id",
+    integration="line",
 )
 def get_line_audience(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -1217,6 +1309,8 @@ def get_line_audience(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="description",
+    integration="line",
 )
 def list_line_audiences(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -1251,6 +1345,8 @@ def list_line_audiences(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="description",
+    integration="line",
 )
 def update_line_audience_description(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -1277,6 +1373,8 @@ def update_line_audience_description(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="audience_group_id",
+    integration="line",
 )
 def delete_line_audience(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -1299,6 +1397,8 @@ def delete_line_audience(input_data: dict) -> dict:
         "date": {"type": "string", "required": True, "description": "YYYYMMDD.", "example": "20260520"},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="date",
+    integration="line",
 )
 def get_line_followers_count(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -1312,6 +1412,8 @@ def get_line_followers_count(input_data: dict) -> dict:
     action_sets=["line_insights"],
     input_schema={},
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param=None,
+    integration="line",
 )
 def get_line_friend_demographics(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -1327,6 +1429,8 @@ def get_line_friend_demographics(input_data: dict) -> dict:
         "date": {"type": "string", "required": True, "description": "YYYYMMDD.", "example": "20260520"},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="date",
+    integration="line",
 )
 def get_line_message_delivery_stats(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -1344,6 +1448,8 @@ def get_line_message_delivery_stats(input_data: dict) -> dict:
         "request_id": {"type": "string", "required": True, "description": "Request ID.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="request_id",
+    integration="line",
 )
 def get_line_message_event_stats(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -1367,6 +1473,8 @@ def get_line_message_event_stats(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="endpoint",
+    integration="line",
 )
 def set_line_webhook_endpoint(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -1382,6 +1490,8 @@ def set_line_webhook_endpoint(input_data: dict) -> dict:
     action_sets=["line_channel"],
     input_schema={},
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param=None,
+    integration="line",
 )
 def get_line_webhook_endpoint(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -1402,6 +1512,8 @@ def get_line_webhook_endpoint(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="endpoint",
+    integration="line",
 )
 def test_line_webhook_endpoint(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -1426,6 +1538,8 @@ def test_line_webhook_endpoint(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="channel_id",
+    integration="line",
 )
 def issue_line_channel_access_token(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -1452,6 +1566,8 @@ def issue_line_channel_access_token(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param=None,
+    integration="line",
 )
 def revoke_line_channel_access_token(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -1474,6 +1590,8 @@ def revoke_line_channel_access_token(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param=None,
+    integration="line",
 )
 def verify_line_access_token(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync

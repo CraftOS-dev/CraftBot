@@ -70,6 +70,8 @@ from agent_core import action
         ],
         "simulated_mode": True,
     },
+    display_param="requirements",
+    icon="ListChecks",
 )
 def set_requirement(input_data: dict) -> dict:
     """Emit the requirement contract into the event stream so the agent reads it back on every subsequent step."""

@@ -33,6 +33,8 @@ from agent_core import action
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="content",
+    integration="discord",
 )
 def send_discord_message(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import (
@@ -109,6 +111,8 @@ def send_discord_message(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="content",
+    integration="discord",
 )
 def edit_discord_message(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -132,6 +136,8 @@ def edit_discord_message(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="message_id",
+    integration="discord",
 )
 def delete_discord_message(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -159,6 +165,8 @@ def delete_discord_message(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="channel_id",
+    integration="discord",
 )
 def bulk_delete_discord_messages(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -186,6 +194,8 @@ def bulk_delete_discord_messages(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="message_id",
+    integration="discord",
 )
 def crosspost_discord_message(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -229,6 +239,8 @@ def crosspost_discord_message(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="channel_id",
+    integration="discord",
 )
 def get_discord_messages(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -253,6 +265,8 @@ def get_discord_messages(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="message_id",
+    integration="discord",
 )
 def pin_discord_message(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -275,6 +289,8 @@ def pin_discord_message(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="message_id",
+    integration="discord",
 )
 def unpin_discord_message(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -307,6 +323,8 @@ def unpin_discord_message(input_data: dict) -> dict:
             "description": "Lean: {messages: [{id, content, author: {id, username, bot}, timestamp, attachments?}], count}.",
         },
     },
+    display_param="channel_id",
+    integration="discord",
 )
 def list_discord_pinned_messages(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -378,6 +396,8 @@ def list_discord_pinned_messages(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="emoji",
+    integration="discord",
 )
 def add_discord_reaction(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -402,6 +422,8 @@ def add_discord_reaction(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="emoji",
+    integration="discord",
 )
 def remove_discord_own_reaction(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -432,6 +454,8 @@ def remove_discord_own_reaction(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="emoji",
+    integration="discord",
 )
 def remove_discord_user_reaction(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -457,6 +481,8 @@ def remove_discord_user_reaction(input_data: dict) -> dict:
         "limit": {"type": "integer", "required": False, "description": "Max users.", "example": 100},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="emoji",
+    integration="discord",
 )
 def list_discord_reaction_users(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -487,6 +513,8 @@ def list_discord_reaction_users(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="message_id",
+    integration="discord",
 )
 def clear_discord_reactions(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -532,6 +560,8 @@ def clear_discord_reactions(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="name",
+    integration="discord",
 )
 def create_discord_thread_from_message(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -580,6 +610,8 @@ def create_discord_thread_from_message(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="name",
+    integration="discord",
 )
 def create_discord_thread(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -611,6 +643,8 @@ def create_discord_thread(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="thread_id",
+    integration="discord",
 )
 def join_discord_thread(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -627,6 +661,8 @@ def join_discord_thread(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="thread_id",
+    integration="discord",
 )
 def leave_discord_thread(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -644,6 +680,8 @@ def leave_discord_thread(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="user_id",
+    integration="discord",
 )
 def add_discord_thread_member(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -666,6 +704,8 @@ def add_discord_thread_member(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="user_id",
+    integration="discord",
 )
 def remove_discord_thread_member(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -686,6 +726,8 @@ def remove_discord_thread_member(input_data: dict) -> dict:
         "thread_id": {"type": "string", "required": True, "description": "Thread ID.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="thread_id",
+    integration="discord",
 )
 def list_discord_thread_members(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -703,6 +745,8 @@ def list_discord_thread_members(input_data: dict) -> dict:
         "guild_id": {"type": "string", "required": True, "description": "Guild ID.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="guild_id",
+    integration="discord",
 )
 def list_discord_active_threads(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -721,6 +765,8 @@ def list_discord_active_threads(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="thread_id",
+    integration="discord",
 )
 def archive_discord_thread(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -739,6 +785,8 @@ def archive_discord_thread(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="thread_id",
+    integration="discord",
 )
 def unarchive_discord_thread(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -778,6 +826,8 @@ def unarchive_discord_thread(input_data: dict) -> dict:
             "description": "Lean: {all_channels: [{id, name, type, parent_id, position?, topic?}]}.",
         },
     },
+    display_param="guild_id",
+    integration="discord",
 )
 def get_discord_channels(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -816,6 +866,8 @@ def get_discord_channels(input_data: dict) -> dict:
         "channel_id": {"type": "string", "required": True, "description": "Channel ID.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="channel_id",
+    integration="discord",
 )
 def get_discord_channel(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -871,6 +923,8 @@ def get_discord_channel(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="name",
+    integration="discord",
 )
 def create_discord_channel(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -936,6 +990,8 @@ def create_discord_channel(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="name",
+    integration="discord",
 )
 def modify_discord_channel(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -964,6 +1020,8 @@ def modify_discord_channel(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="channel_id",
+    integration="discord",
 )
 def delete_discord_channel(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -1001,6 +1059,8 @@ def delete_discord_channel(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="channel_id",
+    integration="discord",
 )
 def set_discord_channel_permissions(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -1031,6 +1091,8 @@ def set_discord_channel_permissions(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="channel_id",
+    integration="discord",
 )
 def delete_discord_channel_permission(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -1051,6 +1113,8 @@ def delete_discord_channel_permission(input_data: dict) -> dict:
         "channel_id": {"type": "string", "required": True, "description": "Channel ID.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="channel_id",
+    integration="discord",
 )
 def list_discord_channel_invites(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -1088,6 +1152,8 @@ def list_discord_channel_invites(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="channel_id",
+    integration="discord",
 )
 def create_discord_invite(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -1112,6 +1178,8 @@ def create_discord_invite(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="invite_code",
+    integration="discord",
 )
 def delete_discord_invite(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -1146,6 +1214,8 @@ def delete_discord_invite(input_data: dict) -> dict:
             "description": "Lean: {webhooks: [{id, name, type, channel_id, guild_id, application_id}], count}. Token is always omitted.",
         },
     },
+    display_param="channel_id",
+    integration="discord",
 )
 def list_discord_webhooks(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -1205,6 +1275,8 @@ def list_discord_webhooks(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="name",
+    integration="discord",
 )
 def create_discord_webhook(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -1238,6 +1310,8 @@ def create_discord_webhook(input_data: dict) -> dict:
             "description": "Lean: {id, name, type, channel_id, guild_id, application_id}. Token is always omitted.",
         },
     },
+    display_param="webhook_id",
+    integration="discord",
 )
 def get_discord_webhook(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -1292,6 +1366,8 @@ def get_discord_webhook(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="name",
+    integration="discord",
 )
 def modify_discord_webhook(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -1315,6 +1391,8 @@ def modify_discord_webhook(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="webhook_id",
+    integration="discord",
 )
 def delete_discord_webhook(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -1364,6 +1442,8 @@ def delete_discord_webhook(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="content",
+    integration="discord",
 )
 def execute_discord_webhook(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -1412,6 +1492,8 @@ def execute_discord_webhook(input_data: dict) -> dict:
             "description": "Lean: {members: [{user: {id, username, global_name?}, nick?, roles, joined_at}]}.",
         },
     },
+    display_param="guild_id",
+    integration="discord",
 )
 def list_discord_guild_members(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -1455,6 +1537,8 @@ def list_discord_guild_members(input_data: dict) -> dict:
         "user_id": {"type": "string", "required": True, "description": "User ID.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="user_id",
+    integration="discord",
 )
 def get_discord_guild_member(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -1482,6 +1566,8 @@ def get_discord_guild_member(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="query",
+    integration="discord",
 )
 def search_discord_guild_members(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -1531,6 +1617,8 @@ def search_discord_guild_members(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="user_id",
+    integration="discord",
 )
 def modify_discord_guild_member(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -1566,6 +1654,8 @@ def modify_discord_guild_member(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="nick",
+    integration="discord",
 )
 def set_discord_bot_nickname(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -1589,6 +1679,8 @@ def set_discord_bot_nickname(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="user_id",
+    integration="discord",
 )
 def add_discord_member_role(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -1613,6 +1705,8 @@ def add_discord_member_role(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="user_id",
+    integration="discord",
 )
 def remove_discord_member_role(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -1636,6 +1730,8 @@ def remove_discord_member_role(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="user_id",
+    integration="discord",
 )
 def kick_discord_member(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -1664,6 +1760,8 @@ def kick_discord_member(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="user_id",
+    integration="discord",
 )
 def ban_discord_member(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -1687,6 +1785,8 @@ def ban_discord_member(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="user_id",
+    integration="discord",
 )
 def unban_discord_member(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -1708,6 +1808,8 @@ def unban_discord_member(input_data: dict) -> dict:
         "limit": {"type": "integer", "required": False, "description": "Max results.", "example": 100},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="guild_id",
+    integration="discord",
 )
 def list_discord_bans(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -1738,6 +1840,8 @@ def list_discord_bans(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param=None,
+    integration="discord",
 )
 def list_discord_guilds(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -1767,6 +1871,8 @@ def list_discord_guilds(input_data: dict) -> dict:
             "description": "Lean: {id, name, description, owner_id, member_count?, approximate_member_count?, premium_tier?, preferred_locale?}.",
         },
     },
+    display_param="guild_id",
+    integration="discord",
 )
 def get_discord_guild(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -1802,6 +1908,8 @@ def get_discord_guild(input_data: dict) -> dict:
         "guild_id": {"type": "string", "required": True, "description": "Guild ID.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="guild_id",
+    integration="discord",
 )
 def list_discord_guild_roles(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -1845,6 +1953,8 @@ def list_discord_guild_roles(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="name",
+    integration="discord",
 )
 def create_discord_role(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -1901,6 +2011,8 @@ def create_discord_role(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="name",
+    integration="discord",
 )
 def modify_discord_role(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -1928,6 +2040,8 @@ def modify_discord_role(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="role_id",
+    integration="discord",
 )
 def delete_discord_role(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -1948,6 +2062,8 @@ def delete_discord_role(input_data: dict) -> dict:
         "guild_id": {"type": "string", "required": True, "description": "Guild ID.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="guild_id",
+    integration="discord",
 )
 def list_discord_emojis(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -1979,6 +2095,8 @@ def list_discord_emojis(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="name",
+    integration="discord",
 )
 def create_discord_emoji(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -2003,6 +2121,8 @@ def create_discord_emoji(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="emoji_id",
+    integration="discord",
 )
 def delete_discord_emoji(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -2023,6 +2143,8 @@ def delete_discord_emoji(input_data: dict) -> dict:
         "guild_id": {"type": "string", "required": True, "description": "Guild ID.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="guild_id",
+    integration="discord",
 )
 def list_discord_stickers(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -2046,6 +2168,8 @@ def list_discord_stickers(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="guild_id",
+    integration="discord",
 )
 def list_discord_scheduled_events(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -2104,6 +2228,8 @@ def list_discord_scheduled_events(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="name",
+    integration="discord",
 )
 def create_discord_scheduled_event(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -2132,6 +2258,8 @@ def create_discord_scheduled_event(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="event_id",
+    integration="discord",
 )
 def delete_discord_scheduled_event(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -2183,6 +2311,8 @@ def delete_discord_scheduled_event(input_data: dict) -> dict:
             "description": "Lean: {audit_log_entries: [{id, action_type, user_id, target_id, reason?, changes?: [{key, old?, new?}]}]}.",
         },
     },
+    display_param="guild_id",
+    integration="discord",
 )
 def get_discord_audit_log(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -2238,6 +2368,8 @@ def get_discord_audit_log(input_data: dict) -> dict:
         "guild_id": {"type": "string", "required": True, "description": "Guild ID.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="guild_id",
+    integration="discord",
 )
 def list_discord_guild_invites(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -2260,6 +2392,8 @@ def list_discord_guild_invites(input_data: dict) -> dict:
         "user_id": {"type": "string", "required": True, "description": "User ID.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="user_id",
+    integration="discord",
 )
 def get_discord_user(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -2273,6 +2407,8 @@ def get_discord_user(input_data: dict) -> dict:
     action_sets=["discord_guild", "discord"],
     input_schema={},
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param=None,
+    integration="discord",
 )
 def get_discord_bot_user(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -2301,6 +2437,8 @@ def get_discord_bot_user(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="content",
+    integration="discord",
 )
 def send_discord_dm(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -2324,6 +2462,8 @@ def send_discord_dm(input_data: dict) -> dict:
     action_sets=["discord_user"],
     input_schema={},
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param=None,
+    integration="discord",
 )
 def get_discord_user_account(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -2347,6 +2487,8 @@ def get_discord_user_account(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="content",
+    integration="discord",
 )
 def send_discord_user_message(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -2365,6 +2507,8 @@ def send_discord_user_message(input_data: dict) -> dict:
     action_sets=["discord_user"],
     input_schema={},
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param=None,
+    integration="discord",
 )
 def get_discord_user_guilds(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -2378,6 +2522,8 @@ def get_discord_user_guilds(input_data: dict) -> dict:
     action_sets=["discord_user"],
     input_schema={},
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param=None,
+    integration="discord",
 )
 def get_discord_user_dm_channels(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -2401,6 +2547,8 @@ def get_discord_user_dm_channels(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="content",
+    integration="discord",
 )
 def send_discord_user_dm(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -2419,6 +2567,8 @@ def send_discord_user_dm(input_data: dict) -> dict:
     action_sets=["discord_user"],
     input_schema={},
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param=None,
+    integration="discord",
 )
 def get_discord_user_relationships(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -2448,6 +2598,8 @@ def get_discord_user_relationships(input_data: dict) -> dict:
             "description": "Lean: {total_results, messages: [{id, channel_id, author: {id, username}, content, timestamp}]}.",
         },
     },
+    display_param="query",
+    integration="discord",
 )
 def search_discord_guild_messages_as_user(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
@@ -2506,6 +2658,8 @@ def search_discord_guild_messages_as_user(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="channel_id",
+    integration="discord",
 )
 async def join_discord_voice_channel(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -2527,6 +2681,8 @@ async def join_discord_voice_channel(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="guild_id",
+    integration="discord",
 )
 async def leave_discord_voice_channel(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -2544,6 +2700,8 @@ async def leave_discord_voice_channel(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="text",
+    integration="discord",
 )
 async def speak_discord_voice_tts(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -2564,6 +2722,8 @@ async def speak_discord_voice_tts(input_data: dict) -> dict:
         "guild_id": {"type": "string", "required": True, "description": "Guild ID.", "example": "123"}
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="guild_id",
+    integration="discord",
 )
 def get_discord_voice_status(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync

@@ -397,6 +397,7 @@ class ActionRouter:
                         "action_name": "",
                         "parameters": {},
                         "reasoning": decision.get("reasoning", ""),
+                        "status": decision.get("status"),
                     }
                 ]
 
@@ -1112,6 +1113,7 @@ class ActionRouter:
             f"```json\n"
             f"{{\n"
             f'  "reasoning": "<your reasoning here>",\n'
+            f'  "status": "<what this step does, for the user>",\n'
             f'  "actions": [\n'
             f"    {{\n"
             f'      "action_name": "<action from available actions>",\n'
@@ -1160,7 +1162,10 @@ class ActionRouter:
         """
         Parse LLM response for parallel action format.
 
-        Expected format: {"reasoning": "...", "actions": [{"action_name": "...", "parameters": {...}}, ...]}
+        Expected format: {"reasoning": "...", "status": "...", "actions": [{"action_name": "...", "parameters": {...}}, ...]}
+
+        Each action carries the reply's reasoning and its status line (what
+        the chat shows while the step runs; optional, never a format error).
 
         Returns:
             Tuple of (actions_list, format_error_message).
@@ -1170,6 +1175,7 @@ class ActionRouter:
             return [], "Response is empty or null"
 
         reasoning = decision.get("reasoning", "")
+        status = decision.get("status")
 
         # Detect common format errors and provide helpful feedback
         format_error = self._detect_format_error(decision)
@@ -1188,6 +1194,7 @@ class ActionRouter:
 
                     if action.get("action_name"):
                         action["reasoning"] = reasoning
+                        action["status"] = status
                         action["parameters"] = self._ensure_parameters(
                             action.get("parameters")
                         )

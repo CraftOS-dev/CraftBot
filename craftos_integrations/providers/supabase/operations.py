@@ -132,6 +132,7 @@ def build_operations() -> List[Operation]:
                 ),
             },
             tags=(_PROJECTS, _UMBRELLA),
+            display_param="organization_slug",
         ),
         client_op(
             "get_supabase_project",
@@ -142,6 +143,7 @@ def build_operations() -> List[Operation]:
             ),
             input_schema={"project_ref": _ref(required=False)},
             tags=(_PROJECTS, _UMBRELLA),
+            display_param="project_ref",
         ),
         client_op(
             "get_supabase_project_keys",
@@ -153,6 +155,7 @@ def build_operations() -> List[Operation]:
             ),
             input_schema={"project_ref": _ref(required=False)},
             tags=(_PROJECTS, _UMBRELLA),
+            display_param="project_ref",
         ),
         client_op(
             "create_supabase_project",
@@ -191,6 +194,7 @@ def build_operations() -> List[Operation]:
             },
             parallelizable=False,
             tags=(_PROJECTS,),
+            display_param="name",
         ),
         client_op(
             "update_supabase_project",
@@ -202,6 +206,7 @@ def build_operations() -> List[Operation]:
             },
             parallelizable=False,
             tags=(_PROJECTS,),
+            display_param="name",
         ),
         client_op(
             "delete_supabase_project",
@@ -222,6 +227,7 @@ def build_operations() -> List[Operation]:
             destructive=True,
             parallelizable=False,
             tags=(_PROJECTS,),
+            display_param="project_ref",
         ),
         client_op(
             "pause_supabase_project",
@@ -235,6 +241,7 @@ def build_operations() -> List[Operation]:
             destructive=True,
             parallelizable=False,
             tags=(_PROJECTS,),
+            display_param="project_ref",
         ),
         client_op(
             "restore_supabase_project",
@@ -247,6 +254,7 @@ def build_operations() -> List[Operation]:
             input_schema={"project_ref": _ref(required=False)},
             parallelizable=False,
             tags=(_PROJECTS,),
+            display_param="project_ref",
         ),
         client_op(
             "restart_supabase_project",
@@ -258,6 +266,7 @@ def build_operations() -> List[Operation]:
             input_schema={"project_ref": _ref(required=False)},
             parallelizable=False,
             tags=(_PROJECTS,),
+            display_param="project_ref",
         ),
         client_op(
             "get_supabase_project_health",
@@ -275,6 +284,7 @@ def build_operations() -> List[Operation]:
                 "project_ref": _ref(required=False),
             },
             tags=(_PROJECTS,),
+            display_param="project_ref",
         ),
         client_op(
             "list_supabase_regions",
@@ -291,6 +301,7 @@ def build_operations() -> List[Operation]:
                 ),
             },
             tags=(_PROJECTS,),
+            display_param="organization_slug",
         ),
         client_op(
             "list_supabase_organizations",
@@ -301,6 +312,7 @@ def build_operations() -> List[Operation]:
             ),
             input_schema={},
             tags=(_PROJECTS,),
+            display_param=None,
         ),
         client_op(
             "list_supabase_organization_members",
@@ -313,6 +325,7 @@ def build_operations() -> List[Operation]:
                 "organization_slug": _s("Organization slug.", "acme-inc", required=True),
             },
             tags=(_PROJECTS,),
+            display_param="organization_slug",
         ),
         client_op(
             "get_supabase_service_config",
@@ -332,6 +345,7 @@ def build_operations() -> List[Operation]:
                 "project_ref": _ref(required=False),
             },
             tags=(_PROJECTS,),
+            display_param="service",
         ),
         client_op(
             "update_supabase_service_config",
@@ -358,6 +372,7 @@ def build_operations() -> List[Operation]:
             },
             parallelizable=False,
             tags=(_PROJECTS,),
+            display_param="service",
         ),
         # ═════════════════════════════════════════════════════════════
         # Database — tag: supabase_database
@@ -382,6 +397,7 @@ def build_operations() -> List[Operation]:
                 "project_ref": _ref(required=False),
             },
             tags=(_DATABASE, _UMBRELLA),
+            display_param="query",
         ),
         client_op(
             "run_supabase_sql",
@@ -410,6 +426,7 @@ def build_operations() -> List[Operation]:
             destructive=True,
             parallelizable=False,
             tags=(_DATABASE, _UMBRELLA),
+            display_param="query",
         ),
         client_op(
             "list_supabase_tables",
@@ -427,6 +444,7 @@ def build_operations() -> List[Operation]:
                 "project_ref": _ref(required=False),
             },
             tags=(_DATABASE, _UMBRELLA),
+            display_param="schemas",
         ),
         client_op(
             "describe_supabase_table",
@@ -442,6 +460,7 @@ def build_operations() -> List[Operation]:
                 "project_ref": _ref(required=False),
             },
             tags=(_DATABASE, _UMBRELLA),
+            display_param="table",
         ),
         client_op(
             "list_supabase_extensions",
@@ -453,6 +472,7 @@ def build_operations() -> List[Operation]:
             ),
             input_schema={"project_ref": _ref(required=False)},
             tags=(_DATABASE,),
+            display_param="project_ref",
         ),
         client_op(
             "generate_supabase_typescript_types",
@@ -467,6 +487,7 @@ def build_operations() -> List[Operation]:
                 "project_ref": _ref(required=False),
             },
             tags=(_DATABASE,),
+            display_param="schemas",
         ),
         client_op(
             "list_supabase_backups",
@@ -478,6 +499,7 @@ def build_operations() -> List[Operation]:
             ),
             input_schema={"project_ref": _ref(required=False)},
             tags=(_DATABASE,),
+            display_param="project_ref",
         ),
         # ═════════════════════════════════════════════════════════════
         # Migrations — tag: supabase_migrations
@@ -491,6 +513,7 @@ def build_operations() -> List[Operation]:
             ),
             input_schema={"project_ref": _ref(required=False)},
             tags=(_MIGRATIONS, _UMBRELLA),
+            display_param="project_ref",
         ),
         client_op(
             "get_supabase_migration",
@@ -505,6 +528,7 @@ def build_operations() -> List[Operation]:
                 "project_ref": _ref(required=False),
             },
             tags=(_MIGRATIONS,),
+            display_param="version",
         ),
         client_op(
             "apply_supabase_migration",
@@ -534,6 +558,7 @@ def build_operations() -> List[Operation]:
             },
             parallelizable=False,
             tags=(_MIGRATIONS, _UMBRELLA),
+            display_param="query",
         ),
         client_op(
             "rollback_supabase_migrations",
@@ -557,6 +582,7 @@ def build_operations() -> List[Operation]:
             destructive=True,
             parallelizable=False,
             tags=(_MIGRATIONS,),
+            display_param="from_version",
         ),
         # ═════════════════════════════════════════════════════════════
         # Rows (PostgREST, service role) — tag: supabase_rows
@@ -592,6 +618,7 @@ def build_operations() -> List[Operation]:
                 "project_ref": _ref(required=False),
             },
             tags=(_ROWS, _UMBRELLA),
+            display_param="table",
         ),
         client_op(
             "insert_supabase_rows",
@@ -620,6 +647,7 @@ def build_operations() -> List[Operation]:
             },
             parallelizable=False,
             tags=(_ROWS, _UMBRELLA),
+            display_param="table",
         ),
         client_op(
             "update_supabase_rows",
@@ -638,6 +666,7 @@ def build_operations() -> List[Operation]:
             },
             parallelizable=False,
             tags=(_ROWS, _UMBRELLA),
+            display_param="table",
         ),
         client_op(
             "delete_supabase_rows",
@@ -656,6 +685,7 @@ def build_operations() -> List[Operation]:
             destructive=True,
             parallelizable=False,
             tags=(_ROWS, _UMBRELLA),
+            display_param="table",
         ),
         client_op(
             "call_supabase_rpc",
@@ -673,6 +703,7 @@ def build_operations() -> List[Operation]:
             },
             parallelizable=False,
             tags=(_ROWS,),
+            display_param="function",
         ),
         # ═════════════════════════════════════════════════════════════
         # Storage — tag: supabase_storage
@@ -686,6 +717,7 @@ def build_operations() -> List[Operation]:
             ),
             input_schema={"project_ref": _ref(required=False)},
             tags=(_STORAGE,),
+            display_param="project_ref",
         ),
         client_op(
             "create_supabase_bucket",
@@ -706,6 +738,7 @@ def build_operations() -> List[Operation]:
             },
             parallelizable=False,
             tags=(_STORAGE,),
+            display_param="name",
         ),
         client_op(
             "update_supabase_bucket",
@@ -723,6 +756,7 @@ def build_operations() -> List[Operation]:
             },
             parallelizable=False,
             tags=(_STORAGE,),
+            display_param="name",
         ),
         client_op(
             "delete_supabase_bucket",
@@ -735,6 +769,7 @@ def build_operations() -> List[Operation]:
             destructive=True,
             parallelizable=False,
             tags=(_STORAGE,),
+            display_param="name",
         ),
         client_op(
             "empty_supabase_bucket",
@@ -747,6 +782,7 @@ def build_operations() -> List[Operation]:
             destructive=True,
             parallelizable=False,
             tags=(_STORAGE,),
+            display_param="name",
         ),
         client_op(
             "list_supabase_files",
@@ -765,6 +801,7 @@ def build_operations() -> List[Operation]:
                 "project_ref": _ref(required=False),
             },
             tags=(_STORAGE, _UMBRELLA),
+            display_param="bucket",
         ),
         client_op(
             "upload_supabase_file",
@@ -788,6 +825,7 @@ def build_operations() -> List[Operation]:
             },
             parallelizable=False,
             tags=(_STORAGE, _UMBRELLA),
+            display_param="path",
         ),
         client_op(
             "download_supabase_file",
@@ -807,6 +845,7 @@ def build_operations() -> List[Operation]:
                 "project_ref": _ref(required=False),
             },
             tags=(_STORAGE, _UMBRELLA),
+            display_param="path",
         ),
         client_op(
             "delete_supabase_files",
@@ -823,6 +862,7 @@ def build_operations() -> List[Operation]:
             destructive=True,
             parallelizable=False,
             tags=(_STORAGE, _UMBRELLA),
+            display_param="paths",
         ),
         client_op(
             "move_supabase_file",
@@ -840,6 +880,7 @@ def build_operations() -> List[Operation]:
             },
             parallelizable=False,
             tags=(_STORAGE,),
+            display_param="from_path",
         ),
         client_op(
             "copy_supabase_file",
@@ -857,6 +898,7 @@ def build_operations() -> List[Operation]:
             },
             parallelizable=False,
             tags=(_STORAGE,),
+            display_param="from_path",
         ),
         client_op(
             "create_supabase_signed_url",
@@ -874,6 +916,7 @@ def build_operations() -> List[Operation]:
             },
             parallelizable=False,
             tags=(_STORAGE,),
+            display_param="path",
         ),
         # ═════════════════════════════════════════════════════════════
         # Auth users — tag: supabase_auth
@@ -892,6 +935,7 @@ def build_operations() -> List[Operation]:
                 "project_ref": _ref(required=False),
             },
             tags=(_AUTH, _UMBRELLA),
+            display_param="project_ref",
         ),
         client_op(
             "get_supabase_user",
@@ -902,6 +946,7 @@ def build_operations() -> List[Operation]:
                 "project_ref": _ref(required=False),
             },
             tags=(_AUTH,),
+            display_param="user_id",
         ),
         client_op(
             "create_supabase_user",
@@ -925,6 +970,7 @@ def build_operations() -> List[Operation]:
             },
             parallelizable=False,
             tags=(_AUTH,),
+            display_param="email",
         ),
         client_op(
             "update_supabase_user",
@@ -948,6 +994,7 @@ def build_operations() -> List[Operation]:
             },
             parallelizable=False,
             tags=(_AUTH,),
+            display_param="user_id",
         ),
         client_op(
             "delete_supabase_user",
@@ -964,6 +1011,7 @@ def build_operations() -> List[Operation]:
             destructive=True,
             parallelizable=False,
             tags=(_AUTH,),
+            display_param="user_id",
         ),
         client_op(
             "invite_supabase_user",
@@ -986,6 +1034,7 @@ def build_operations() -> List[Operation]:
             },
             parallelizable=False,
             tags=(_AUTH,),
+            display_param="email",
         ),
         client_op(
             "generate_supabase_auth_link",
@@ -1012,6 +1061,7 @@ def build_operations() -> List[Operation]:
             },
             parallelizable=False,
             tags=(_AUTH,),
+            display_param="email",
         ),
         # ═════════════════════════════════════════════════════════════
         # Edge functions — tag: supabase_functions
@@ -1025,6 +1075,7 @@ def build_operations() -> List[Operation]:
             ),
             input_schema={"project_ref": _ref(required=False)},
             tags=(_FUNCTIONS, _UMBRELLA),
+            display_param="project_ref",
         ),
         client_op(
             "get_supabase_function",
@@ -1039,6 +1090,7 @@ def build_operations() -> List[Operation]:
                 "project_ref": _ref(required=False),
             },
             tags=(_FUNCTIONS,),
+            display_param="slug",
         ),
         client_op(
             "deploy_supabase_function",
@@ -1078,6 +1130,7 @@ def build_operations() -> List[Operation]:
             },
             parallelizable=False,
             tags=(_FUNCTIONS, _UMBRELLA),
+            display_param="slug",
         ),
         client_op(
             "update_supabase_function",
@@ -1094,6 +1147,7 @@ def build_operations() -> List[Operation]:
             },
             parallelizable=False,
             tags=(_FUNCTIONS,),
+            display_param="slug",
         ),
         client_op(
             "delete_supabase_function",
@@ -1106,6 +1160,7 @@ def build_operations() -> List[Operation]:
             destructive=True,
             parallelizable=False,
             tags=(_FUNCTIONS, _UMBRELLA),
+            display_param="slug",
         ),
         client_op(
             "invoke_supabase_function",
@@ -1124,6 +1179,7 @@ def build_operations() -> List[Operation]:
             },
             parallelizable=False,
             tags=(_FUNCTIONS, _UMBRELLA),
+            display_param="slug",
         ),
         # ═════════════════════════════════════════════════════════════
         # Secrets — tag: supabase_secrets
@@ -1137,6 +1193,7 @@ def build_operations() -> List[Operation]:
             ),
             input_schema={"project_ref": _ref(required=False)},
             tags=(_SECRETS,),
+            display_param="project_ref",
         ),
         client_op(
             "set_supabase_secrets",
@@ -1155,6 +1212,7 @@ def build_operations() -> List[Operation]:
             },
             parallelizable=False,
             tags=(_SECRETS,),
+            display_param="project_ref",
         ),
         client_op(
             "delete_supabase_secrets",
@@ -1167,6 +1225,7 @@ def build_operations() -> List[Operation]:
             destructive=True,
             parallelizable=False,
             tags=(_SECRETS,),
+            display_param="names",
         ),
         # ═════════════════════════════════════════════════════════════
         # Branches — tag: supabase_branches
@@ -1181,6 +1240,7 @@ def build_operations() -> List[Operation]:
             ),
             input_schema={"project_ref": _ref(required=False)},
             tags=(_BRANCHES,),
+            display_param="project_ref",
         ),
         client_op(
             "get_supabase_branch",
@@ -1191,6 +1251,7 @@ def build_operations() -> List[Operation]:
             ),
             input_schema={"branch_id": _branch_id(required=True)},
             tags=(_BRANCHES,),
+            display_param="branch_id",
         ),
         client_op(
             "create_supabase_branch",
@@ -1210,6 +1271,7 @@ def build_operations() -> List[Operation]:
             },
             parallelizable=False,
             tags=(_BRANCHES,),
+            display_param="branch_name",
         ),
         client_op(
             "update_supabase_branch",
@@ -1223,6 +1285,7 @@ def build_operations() -> List[Operation]:
             },
             parallelizable=False,
             tags=(_BRANCHES,),
+            display_param="branch_name",
         ),
         client_op(
             "delete_supabase_branch",
@@ -1232,6 +1295,7 @@ def build_operations() -> List[Operation]:
             destructive=True,
             parallelizable=False,
             tags=(_BRANCHES,),
+            display_param="branch_id",
         ),
         client_op(
             "merge_supabase_branch",
@@ -1247,6 +1311,7 @@ def build_operations() -> List[Operation]:
             },
             parallelizable=False,
             tags=(_BRANCHES,),
+            display_param="branch_id",
         ),
         client_op(
             "reset_supabase_branch",
@@ -1262,6 +1327,7 @@ def build_operations() -> List[Operation]:
             destructive=True,
             parallelizable=False,
             tags=(_BRANCHES,),
+            display_param="branch_id",
         ),
         client_op(
             "diff_supabase_branch",
@@ -1275,6 +1341,7 @@ def build_operations() -> List[Operation]:
                 "schemas": _arr("Schemas to diff. Default: all.", ["public"], required=False),
             },
             tags=(_BRANCHES,),
+            display_param="branch_id",
         ),
         # ═════════════════════════════════════════════════════════════
         # Monitoring — tag: supabase_monitoring
@@ -1298,6 +1365,7 @@ def build_operations() -> List[Operation]:
                 "project_ref": _ref(required=False),
             },
             tags=(_MONITORING, _UMBRELLA),
+            display_param="source",
         ),
         client_op(
             "get_supabase_security_advisors",
@@ -1309,6 +1377,7 @@ def build_operations() -> List[Operation]:
             ),
             input_schema={"project_ref": _ref(required=False)},
             tags=(_MONITORING, _UMBRELLA),
+            display_param="project_ref",
         ),
         client_op(
             "get_supabase_performance_advisors",
@@ -1319,6 +1388,7 @@ def build_operations() -> List[Operation]:
             ),
             input_schema={"project_ref": _ref(required=False)},
             tags=(_MONITORING,),
+            display_param="project_ref",
         ),
         client_op(
             "get_supabase_api_usage",
@@ -1332,6 +1402,7 @@ def build_operations() -> List[Operation]:
                 "project_ref": _ref(required=False),
             },
             tags=(_MONITORING,),
+            display_param="interval",
         ),
     ]
 

@@ -32,6 +32,8 @@ from agent_core import action
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="folder_token",
+    integration="lark_drive",
 )
 async def list_lark_drive_files(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -64,6 +66,8 @@ async def list_lark_drive_files(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="file_tokens",
+    integration="lark_drive",
 )
 async def get_lark_drive_file_metadata(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -96,6 +100,8 @@ async def get_lark_drive_file_metadata(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="name",
+    integration="lark_drive",
 )
 async def create_lark_drive_folder(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -134,6 +140,8 @@ async def create_lark_drive_folder(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="file_path",
+    integration="lark_drive",
 )
 async def upload_lark_drive_file(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -157,6 +165,8 @@ async def upload_lark_drive_file(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="dest_path",
+    integration="lark_drive",
 )
 async def download_lark_drive_file(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -184,6 +194,8 @@ async def download_lark_drive_file(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="file_token",
+    integration="lark_drive",
 )
 async def delete_lark_drive_file(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -215,6 +227,8 @@ async def delete_lark_drive_file(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="search_key",
+    integration="lark_drive",
 )
 async def search_lark_drive_files(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -249,6 +263,8 @@ async def search_lark_drive_files(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="name",
+    integration="lark_drive",
 )
 async def copy_lark_drive_file(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -293,6 +309,8 @@ async def copy_lark_drive_file(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="file_token",
+    integration="lark_drive",
 )
 async def move_lark_drive_file(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -332,6 +350,8 @@ async def move_lark_drive_file(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="file_token",
+    integration="lark_drive",
 )
 async def list_lark_drive_file_versions(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -360,6 +380,8 @@ async def list_lark_drive_file_versions(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="file_token",
+    integration="lark_drive",
 )
 async def get_lark_drive_file_statistics(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -391,6 +413,8 @@ async def get_lark_drive_file_statistics(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="file_token",
+    integration="lark_drive",
 )
 async def list_lark_drive_permissions(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -443,6 +467,8 @@ async def list_lark_drive_permissions(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="member_id",
+    integration="lark_drive",
 )
 async def add_lark_drive_permission(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -489,6 +515,8 @@ async def add_lark_drive_permission(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="member_id",
+    integration="lark_drive",
 )
 async def update_lark_drive_permission(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -522,6 +550,8 @@ async def update_lark_drive_permission(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="member_id",
+    integration="lark_drive",
 )
 async def remove_lark_drive_permission(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -545,6 +575,8 @@ async def remove_lark_drive_permission(input_data: dict) -> dict:
         "file_type": {"type": "string", "required": False, "description": "Doc type.", "example": "docx"},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="file_token",
+    integration="lark_drive",
 )
 async def get_lark_drive_public_permission(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -603,6 +635,8 @@ async def get_lark_drive_public_permission(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="file_token",
+    integration="lark_drive",
 )
 async def update_lark_drive_public_permission(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -651,6 +685,8 @@ async def update_lark_drive_public_permission(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="member_id",
+    integration="lark_drive",
 )
 async def transfer_lark_drive_ownership(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -687,6 +723,8 @@ async def transfer_lark_drive_ownership(input_data: dict) -> dict:
         "page_size": {"type": "integer", "required": False, "description": "Max results.", "example": 100},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="file_token",
+    integration="lark_drive",
 )
 async def list_lark_drive_comments(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -717,6 +755,8 @@ async def list_lark_drive_comments(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="content_elements",
+    integration="lark_drive",
 )
 async def create_lark_drive_comment(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -740,6 +780,8 @@ async def create_lark_drive_comment(input_data: dict) -> dict:
         "file_type": {"type": "string", "required": False, "description": "Doc type.", "example": "docx"},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="comment_id",
+    integration="lark_drive",
 )
 async def get_lark_drive_comment(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -770,6 +812,8 @@ async def get_lark_drive_comment(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="comment_id",
+    integration="lark_drive",
 )
 async def resolve_lark_drive_comment(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -795,6 +839,8 @@ async def resolve_lark_drive_comment(input_data: dict) -> dict:
         "page_size": {"type": "integer", "required": False, "description": "Max results.", "example": 100},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="comment_id",
+    integration="lark_drive",
 )
 async def list_lark_drive_comment_replies(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -827,6 +873,8 @@ async def list_lark_drive_comment_replies(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="content_elements",
+    integration="lark_drive",
 )
 async def update_lark_drive_comment_reply(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -854,6 +902,8 @@ async def update_lark_drive_comment_reply(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="reply_id",
+    integration="lark_drive",
 )
 async def delete_lark_drive_comment_reply(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -911,6 +961,8 @@ async def delete_lark_drive_comment_reply(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="file_name",
+    integration="lark_drive",
 )
 async def import_lark_drive_file(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -939,6 +991,8 @@ async def import_lark_drive_file(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="ticket",
+    integration="lark_drive",
 )
 async def get_lark_drive_import_task(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -982,6 +1036,8 @@ async def get_lark_drive_import_task(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="file_token",
+    integration="lark_drive",
 )
 async def export_lark_drive_file(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1015,6 +1071,8 @@ async def export_lark_drive_file(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="ticket",
+    integration="lark_drive",
 )
 async def get_lark_drive_export_task(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1047,6 +1105,8 @@ async def get_lark_drive_export_task(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="dest_path",
+    integration="lark_drive",
 )
 async def download_lark_drive_export(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1084,6 +1144,8 @@ async def download_lark_drive_export(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="title",
+    integration="lark_drive",
 )
 async def create_lark_doc(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1104,6 +1166,8 @@ async def create_lark_doc(input_data: dict) -> dict:
         "document_id": {"type": "string", "required": True, "description": "Doc ID.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="document_id",
+    integration="lark_drive",
 )
 async def get_lark_doc(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1127,6 +1191,8 @@ async def get_lark_doc(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="document_id",
+    integration="lark_drive",
 )
 async def get_lark_doc_raw_content(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1165,6 +1231,8 @@ async def get_lark_doc_raw_content(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="document_id",
+    integration="lark_drive",
 )
 async def list_lark_doc_blocks(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1217,6 +1285,8 @@ async def list_lark_doc_blocks(input_data: dict) -> dict:
         "block_id": {"type": "string", "required": True, "description": "Block ID.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="block_id",
+    integration="lark_drive",
 )
 async def get_lark_doc_block(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1256,6 +1326,8 @@ async def get_lark_doc_block(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="document_id",
+    integration="lark_drive",
 )
 async def append_lark_doc_blocks(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1296,6 +1368,8 @@ async def append_lark_doc_blocks(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="block_id",
+    integration="lark_drive",
 )
 async def update_lark_doc_block(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1326,6 +1400,8 @@ async def update_lark_doc_block(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="document_id",
+    integration="lark_drive",
 )
 async def batch_update_lark_doc_blocks(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1365,6 +1441,8 @@ async def batch_update_lark_doc_blocks(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="document_id",
+    integration="lark_drive",
 )
 async def delete_lark_doc_blocks(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1399,6 +1477,8 @@ async def delete_lark_doc_blocks(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="title",
+    integration="lark_drive",
 )
 async def create_lark_sheet(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1424,6 +1504,8 @@ async def create_lark_sheet(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="spreadsheet_token",
+    integration="lark_drive",
 )
 async def get_lark_sheet(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1445,6 +1527,8 @@ async def get_lark_sheet(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="title",
+    integration="lark_drive",
 )
 async def rename_lark_sheet(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1465,6 +1549,8 @@ async def rename_lark_sheet(input_data: dict) -> dict:
         "spreadsheet_token": {"type": "string", "required": True, "description": "Token.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="spreadsheet_token",
+    integration="lark_drive",
 )
 async def list_lark_sheet_tabs(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1485,6 +1571,8 @@ async def list_lark_sheet_tabs(input_data: dict) -> dict:
         "sheet_id": {"type": "string", "required": True, "description": "Tab/sheet ID.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="sheet_id",
+    integration="lark_drive",
 )
 async def get_lark_sheet_tab(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1523,6 +1611,8 @@ async def get_lark_sheet_tab(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="range",
+    integration="lark_drive",
 )
 async def read_lark_sheet_values(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1559,6 +1649,8 @@ async def read_lark_sheet_values(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="ranges",
+    integration="lark_drive",
 )
 async def batch_read_lark_sheet_values(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1593,6 +1685,8 @@ async def batch_read_lark_sheet_values(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="range",
+    integration="lark_drive",
 )
 async def write_lark_sheet_values(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1633,6 +1727,8 @@ async def write_lark_sheet_values(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="range",
+    integration="lark_drive",
 )
 async def append_lark_sheet_values(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1662,6 +1758,8 @@ async def append_lark_sheet_values(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="spreadsheet_token",
+    integration="lark_drive",
 )
 async def batch_write_lark_sheet_values(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1708,6 +1806,8 @@ async def batch_write_lark_sheet_values(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="find_text",
+    integration="lark_drive",
 )
 async def find_in_lark_sheet(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1762,6 +1862,8 @@ async def find_in_lark_sheet(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="find_text",
+    integration="lark_drive",
 )
 async def replace_in_lark_sheet(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1815,6 +1917,8 @@ async def replace_in_lark_sheet(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="sheet_id",
+    integration="lark_drive",
 )
 async def insert_lark_sheet_rows_or_cols(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1857,6 +1961,8 @@ async def insert_lark_sheet_rows_or_cols(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="name",
+    integration="lark_drive",
 )
 async def create_lark_bitable(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1883,6 +1989,8 @@ async def create_lark_bitable(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="app_token",
+    integration="lark_drive",
 )
 async def get_lark_bitable(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1913,6 +2021,8 @@ async def get_lark_bitable(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="name",
+    integration="lark_drive",
 )
 async def update_lark_bitable(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1946,6 +2056,8 @@ async def update_lark_bitable(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="app_token",
+    integration="lark_drive",
 )
 async def list_lark_bitable_tables(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1981,6 +2093,8 @@ async def list_lark_bitable_tables(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="name",
+    integration="lark_drive",
 )
 async def create_lark_bitable_table(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -2006,6 +2120,8 @@ async def create_lark_bitable_table(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="table_id",
+    integration="lark_drive",
 )
 async def delete_lark_bitable_table(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -2051,6 +2167,8 @@ async def delete_lark_bitable_table(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="table_id",
+    integration="lark_drive",
 )
 async def list_lark_bitable_records(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -2077,6 +2195,8 @@ async def list_lark_bitable_records(input_data: dict) -> dict:
         "record_id": {"type": "string", "required": True, "description": "Record ID.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="record_id",
+    integration="lark_drive",
 )
 async def get_lark_bitable_record(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -2106,6 +2226,8 @@ async def get_lark_bitable_record(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="fields",
+    integration="lark_drive",
 )
 async def create_lark_bitable_record(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -2136,6 +2258,8 @@ async def create_lark_bitable_record(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="fields",
+    integration="lark_drive",
 )
 async def update_lark_bitable_record(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -2166,6 +2290,8 @@ async def update_lark_bitable_record(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="record_id",
+    integration="lark_drive",
 )
 async def delete_lark_bitable_record(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -2195,6 +2321,8 @@ async def delete_lark_bitable_record(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="table_id",
+    integration="lark_drive",
 )
 async def batch_create_lark_bitable_records(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -2234,6 +2362,8 @@ async def batch_create_lark_bitable_records(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="table_id",
+    integration="lark_drive",
 )
 async def batch_update_lark_bitable_records(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -2268,6 +2398,8 @@ async def batch_update_lark_bitable_records(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="table_id",
+    integration="lark_drive",
 )
 async def batch_delete_lark_bitable_records(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -2326,6 +2458,8 @@ async def batch_delete_lark_bitable_records(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="filter",
+    integration="lark_drive",
 )
 async def search_lark_bitable_records(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -2371,6 +2505,8 @@ async def search_lark_bitable_records(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="table_id",
+    integration="lark_drive",
 )
 async def list_lark_bitable_fields(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -2410,6 +2546,8 @@ async def list_lark_bitable_fields(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="field_name",
+    integration="lark_drive",
 )
 async def create_lark_bitable_field(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -2444,6 +2582,8 @@ async def create_lark_bitable_field(input_data: dict) -> dict:
         "page_size": {"type": "integer", "required": False, "description": "Max.", "example": 100},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="table_id",
+    integration="lark_drive",
 )
 async def list_lark_bitable_views(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -2481,6 +2621,8 @@ async def list_lark_bitable_views(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param=None,
+    integration="lark_drive",
 )
 async def list_lark_wiki_spaces(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -2501,6 +2643,8 @@ async def list_lark_wiki_spaces(input_data: dict) -> dict:
         "space_id": {"type": "string", "required": True, "description": "Space ID.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="space_id",
+    integration="lark_drive",
 )
 async def get_lark_wiki_space(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -2536,6 +2680,8 @@ async def get_lark_wiki_space(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="space_id",
+    integration="lark_drive",
 )
 async def list_lark_wiki_nodes(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -2569,6 +2715,8 @@ async def list_lark_wiki_nodes(input_data: dict) -> dict:
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="token",
+    integration="lark_drive",
 )
 async def get_lark_wiki_node(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -2615,6 +2763,8 @@ async def get_lark_wiki_node(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="title",
+    integration="lark_drive",
 )
 async def create_lark_wiki_node(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -2671,6 +2821,8 @@ async def create_lark_wiki_node(input_data: dict) -> dict:
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="node_token",
+    integration="lark_drive",
 )
 async def move_lark_wiki_node(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client

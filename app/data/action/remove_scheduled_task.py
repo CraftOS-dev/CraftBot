@@ -23,6 +23,8 @@ from agent_core import action
             "description": "True if the schedule was removed, False if not found",
         },
     },
+    display_param="schedule_id",
+    icon="CalendarX",
 )
 def remove_scheduled_task(input_data: dict) -> dict:
     """Remove a scheduled task."""

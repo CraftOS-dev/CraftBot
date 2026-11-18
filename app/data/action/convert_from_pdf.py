@@ -87,6 +87,8 @@ from agent_core import action
         "output_path": "C:/x/out.docx",
         "simulated_mode": True,
     },
+    display_param="source_path",
+    icon="FileOutput",
 )
 def convert_from_pdf(input_data: dict) -> dict:
     import os

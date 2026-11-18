@@ -55,6 +55,8 @@ _OUTPUT_SCHEMA = {
     input_schema=_INPUT_SCHEMA,
     output_schema=_OUTPUT_SCHEMA,
     test_payload={"name_a": "John", "name_b": "CraftBot", "simulated_mode": True},
+    display_param="name_a",
+    icon="Brain",
 )
 def memory_related(input_data: dict) -> dict:
     """

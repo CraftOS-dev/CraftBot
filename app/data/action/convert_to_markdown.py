@@ -33,6 +33,8 @@ from agent_core import action
         "output_md": "C:/Users/user/Documents/output.md",
         "simulated_mode": True,
     },
+    display_param="input_file",
+    icon="FileCode",
 )
 def clean_to_md(input_data: dict) -> dict:
     import os

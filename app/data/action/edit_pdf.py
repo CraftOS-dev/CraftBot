@@ -137,6 +137,8 @@ from agent_core import action
         "operations": [{"type": "watermark", "text": "DRAFT"}],
         "simulated_mode": True,
     },
+    display_param="file_path",
+    icon="FilePen",
 )
 def edit_pdf_file(input_data: dict) -> dict:
     import os

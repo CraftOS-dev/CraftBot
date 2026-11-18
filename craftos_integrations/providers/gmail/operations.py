@@ -77,6 +77,7 @@ def _get_gmail_thread_op() -> Operation:
             "thread_id": d["thread_id"],
             "fmt": d.get("fmt", "metadata"),
         },
+        display_param="thread_id",
     )
     inner = base.fn
 
@@ -148,6 +149,7 @@ def _get_gmail_draft_op() -> Operation:
             "draft_id": d["draft_id"],
             "fmt": d.get("fmt", "metadata"),
         },
+        display_param="draft_id",
     )
     inner = base.fn
 
@@ -232,6 +234,7 @@ def build_operations() -> List[Operation]:
                 "html": bool(d.get("html", False)),
                 "inline_images": d.get("inline_images"),
             },
+            display_param="subject",
         ),
         client_op(
             "list_gmail",
@@ -258,6 +261,7 @@ def build_operations() -> List[Operation]:
                 "n": d.get("count", 5),
                 "unread_only": d.get("unread_only", True),
             },
+            display_param=None,
         ),
         client_op(
             "get_gmail",
@@ -290,6 +294,7 @@ def build_operations() -> List[Operation]:
                     "example": False,
                 },
             },
+            display_param="message_id",
         ),
         client_op(
             "read_top_emails",
@@ -319,6 +324,7 @@ def build_operations() -> List[Operation]:
                 "n": d.get("count", 5),
                 "full_body": d.get("full_body", False),
             },
+            display_param=None,
         ),
         client_op(
             "search_gmail",
@@ -341,6 +347,7 @@ def build_operations() -> List[Operation]:
                     "example": 10,
                 },
             },
+            display_param="query",
         ),
         client_op(
             "reply_gmail",
@@ -374,6 +381,7 @@ def build_operations() -> List[Operation]:
                 "html": _HTML_INPUT,
                 "inline_images": _INLINE_IMAGES_INPUT,
             },
+            display_param="body",
         ),
         client_op(
             "forward_gmail",
@@ -416,6 +424,7 @@ def build_operations() -> List[Operation]:
                 "body": d.get("body", ""),
                 "attachments": d.get("attachments"),
             },
+            display_param="to",
         ),
         client_op(
             "modify_gmail_labels",
@@ -449,6 +458,7 @@ def build_operations() -> List[Operation]:
                     "example": ["UNREAD"],
                 },
             },
+            display_param="message_id",
         ),
         client_op(
             "trash_gmail",
@@ -467,6 +477,7 @@ def build_operations() -> List[Operation]:
                     "example": "18c2f...",
                 },
             },
+            display_param="message_id",
         ),
         client_op(
             "untrash_gmail",
@@ -484,6 +495,7 @@ def build_operations() -> List[Operation]:
                     "example": "",
                 },
             },
+            display_param="message_id",
         ),
         client_op(
             "batch_modify_gmail",
@@ -513,6 +525,7 @@ def build_operations() -> List[Operation]:
                     "example": [],
                 },
             },
+            display_param="message_ids",
         ),
         # ── Threads ──────────────────────────────────────────────────────
         client_op(
@@ -547,6 +560,7 @@ def build_operations() -> List[Operation]:
                 "label_ids": d.get("label_ids"),
                 "max_results": d.get("max_results", 25),
             },
+            display_param="query",
         ),
         _get_gmail_thread_op(),
         client_op(
@@ -577,6 +591,7 @@ def build_operations() -> List[Operation]:
                     "example": [],
                 },
             },
+            display_param="thread_id",
         ),
         client_op(
             "trash_gmail_thread",
@@ -594,6 +609,7 @@ def build_operations() -> List[Operation]:
                     "example": "",
                 },
             },
+            display_param="thread_id",
         ),
         client_op(
             "untrash_gmail_thread",
@@ -611,6 +627,7 @@ def build_operations() -> List[Operation]:
                     "example": "",
                 },
             },
+            display_param="thread_id",
         ),
         # ── Drafts ───────────────────────────────────────────────────────
         client_op(
@@ -638,6 +655,7 @@ def build_operations() -> List[Operation]:
                 "max_results": d.get("max_results", 25),
                 "query": d.get("query") or None,
             },
+            display_param="query",
         ),
         _get_gmail_draft_op(),
         client_op(
@@ -669,6 +687,7 @@ def build_operations() -> List[Operation]:
                 "html": _HTML_INPUT,
                 "inline_images": _INLINE_IMAGES_INPUT,
             },
+            display_param="subject",
         ),
         client_op(
             "update_gmail_draft",
@@ -720,6 +739,7 @@ def build_operations() -> List[Operation]:
                 "html": bool(d.get("html", False)),
                 "inline_images": d.get("inline_images"),
             },
+            display_param="subject",
         ),
         client_op(
             "send_gmail_draft",
@@ -738,6 +758,7 @@ def build_operations() -> List[Operation]:
                     "example": "",
                 },
             },
+            display_param="draft_id",
         ),
         client_op(
             "delete_gmail_draft",
@@ -756,6 +777,7 @@ def build_operations() -> List[Operation]:
                     "example": "",
                 },
             },
+            display_param="draft_id",
         ),
         # ── Labels ───────────────────────────────────────────────────────
         client_op(
@@ -766,6 +788,7 @@ def build_operations() -> List[Operation]:
             unwrap_envelope=True,
             fail_message="Failed to list labels.",
             input_schema={},
+            display_param=None,
         ),
         client_op(
             "get_gmail_label",
@@ -782,6 +805,7 @@ def build_operations() -> List[Operation]:
                     "example": "",
                 },
             },
+            display_param="label_id",
         ),
         client_op(
             "create_gmail_label",
@@ -834,6 +858,7 @@ def build_operations() -> List[Operation]:
                 "background_color": d.get("background_color") or None,
                 "text_color": d.get("text_color") or None,
             },
+            display_param="name",
         ),
         client_op(
             "update_gmail_label",
@@ -889,6 +914,7 @@ def build_operations() -> List[Operation]:
                 "background_color": d.get("background_color") or None,
                 "text_color": d.get("text_color") or None,
             },
+            display_param="name",
         ),
         client_op(
             "delete_gmail_label",
@@ -907,6 +933,7 @@ def build_operations() -> List[Operation]:
                     "example": "",
                 },
             },
+            display_param="label_id",
         ),
         # ── Attachments + profile ────────────────────────────────────────
         client_op(
@@ -948,6 +975,7 @@ def build_operations() -> List[Operation]:
                     "example": "invoice.pdf",
                 },
             },
+            display_param="save_to",
         ),
         client_op(
             "get_gmail_profile",
@@ -960,5 +988,6 @@ def build_operations() -> List[Operation]:
             unwrap_envelope=True,
             fail_message="Failed to get profile.",
             input_schema={},
+            display_param=None,
         ),
     ]

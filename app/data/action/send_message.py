@@ -98,6 +98,8 @@ from agent_core import action
         "continue_work": False,
         "simulated_mode": True,
     },
+    display_param="message",
+    icon="MessageSquare",
 )
 async def send_message(input_data: dict) -> dict:
 

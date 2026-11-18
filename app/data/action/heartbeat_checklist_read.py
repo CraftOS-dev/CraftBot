@@ -16,6 +16,8 @@ from agent_core import action
             "description": "The checklist as markdown ('' when empty)",
         },
     },
+    display_param=None,
+    icon="HeartPulse",
 )
 def heartbeat_checklist_read(input_data: dict) -> dict:
     """Read the heartbeat checklist."""

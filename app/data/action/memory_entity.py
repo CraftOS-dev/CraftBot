@@ -53,6 +53,8 @@ _OUTPUT_SCHEMA = {
     input_schema=_INPUT_SCHEMA,
     output_schema=_OUTPUT_SCHEMA,
     test_payload={"name": "CraftBot", "simulated_mode": True},
+    display_param="name",
+    icon="Brain",
 )
 def memory_entity(input_data: dict) -> dict:
     """

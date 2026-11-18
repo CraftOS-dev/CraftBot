@@ -144,6 +144,7 @@ in its step — pairing it with working actions is contradictory.
 Return ONLY a valid JSON object with this structure and no extra commentary:
 {{
   "reasoning": "<chain-of-thought about the current state and decision>",
+  "status": "<what this step's actions do, shown to the user while they run>",
   "actions": [
     {{
       "action_name": "<name of the chosen action>",
@@ -157,9 +158,15 @@ Return ONLY a valid JSON object with this structure and no extra commentary:
 For parallel actions, include multiple entries in the "actions" array.
 For a single action, use an array with one entry.
 
+"status" is the line the user sees while this step runs: a few words in the
+present continuous, in the user's language, naming what the actions do (e.g.
+"Searching for weather sites", "Finding evidence", "Writing the login form").
+No trailing punctuation.
+
 Example (quick reply — ends the run):
 {{
   "reasoning": "Simple greeting, no work needed. Reply and finish.",
+  "status": "Replying",
   "actions": [
     {{"action_name": "send_message", "parameters": {{"message": "Hi! What can I do for you?"}}}}
   ]
@@ -168,6 +175,7 @@ Example (quick reply — ends the run):
 Example (loading a missing capability):
 {{
   "reasoning": "Need PDF handling which is not loaded — loading document_processing",
+  "status": "Loading PDF tools",
   "actions": [
     {{"action_name": "add_action_sets", "parameters": {{"action_sets": ["document_processing"]}}}}
   ]
