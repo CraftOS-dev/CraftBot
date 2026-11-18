@@ -149,6 +149,26 @@ def run_cli(args: list[str], *, timeout: float, env_overrides=None, **kwargs):
     )
 
 
+def open_cli(args: list[str], *, env_overrides=None, **kwargs) -> subprocess.Popen:
+    """Start the CLI like run_cli, without waiting for it: stdin, stdout and
+    stderr are text pipes, so the caller reads its output as it is written."""
+    command = cli_command()
+    env = cli_environment()
+    env.update(env_overrides or {})
+    env["CLAUDE_CONFIG_DIR"] = str(profile_directory())
+    return subprocess.Popen(
+        [*command, *args],
+        env=env,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+        **kwargs,
+    )
+
+
 def _read_auth_status() -> Dict[str, Any]:
     # An explicit --json makes releases without `claude auth` reject the
     # option instead of sending "auth status" to Claude as a prompt.

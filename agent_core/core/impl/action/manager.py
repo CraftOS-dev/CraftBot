@@ -24,6 +24,7 @@ from agent_core.core.protocols.database import DatabaseInterfaceProtocol
 from agent_core.core.protocols.event_stream import EventStreamManagerProtocol
 from agent_core.core.protocols.context import ContextEngineProtocol
 from agent_core.core.protocols.state import StateManagerProtocol
+from agent_core.core.impl.action.context import current_action_run_id
 from agent_core.core.impl.action.executor import ActionExecutor
 from agent_core.core.impl.action.idempotency import IdempotencyGuard
 from agent_core.core.event_stream.event import SESSION_ID_INPUT_KEY, EventType
@@ -227,6 +228,7 @@ class ActionManager:
         is_gui_task: bool = False,
         *,
         input_data: Optional[Dict] = None,
+        run_id: Optional[str] = None,
     ) -> Dict:
         """
         Execute an action and persist the full run lifecycle.
@@ -240,6 +242,8 @@ class ActionManager:
             is_running_task: Whether part of an active task workflow.
             is_gui_task: Whether this is a GUI task.
             input_data: Pre-resolved action inputs.
+            run_id: The run's id; generated when None. A streamed reply's
+                action passes the id its row already shows.
 
         Returns:
             dict: Final output payload of the action execution.
@@ -273,7 +277,7 @@ class ActionManager:
         # events of one execution is how the UI pairs start/end correctly
         # when multiple parallel calls of the same action fire within the
         # same wall-clock second.
-        run_id = str(uuid.uuid4())
+        run_id = run_id or str(uuid.uuid4())
 
         # ── Idempotency guard for irreversible actions ──
         # BEFORE the side effect: record intent durably, and refuse to
@@ -378,6 +382,7 @@ class ActionManager:
         logger.debug(f"Starting execution of action {action.name}...")
 
         was_cancelled = False
+        run_token = current_action_run_id.set(run_id)
         try:
             # ────────────────────────────────────────────────────────────
             # 2. Execute
@@ -450,6 +455,8 @@ class ActionManager:
             status = "error"
             outputs = {"error": str(e)}
             logger.exception(f"[ERROR] Exception while executing action {action.name}")
+        finally:
+            current_action_run_id.reset(run_token)
 
         ended_at = datetime.utcnow().isoformat()
 
@@ -568,6 +575,7 @@ class ActionManager:
         session_id: Optional[str] = None,
         is_running_task: bool = False,
         is_gui_task: bool = False,
+        run_ids: Optional[List[Optional[str]]] = None,
     ) -> List[Dict]:
         """
         Execute multiple actions in parallel using asyncio.gather.
@@ -582,12 +590,16 @@ class ActionManager:
             session_id: Session identifier for logging.
             is_running_task: Whether part of an active task workflow.
             is_gui_task: Whether this is a GUI task.
+            run_ids: Each action's run id (execute_action); None entries,
+                or no list, generate them.
 
         Returns:
             List[Dict]: List of output payloads from each action execution.
         """
         if not actions:
             return []
+        ids = list(run_ids or [])
+        ids += [None] * (len(actions) - len(ids))
 
         if len(actions) == 1:
             # Single action - use existing method
@@ -601,6 +613,7 @@ class ActionManager:
                 is_running_task=is_running_task,
                 is_gui_task=is_gui_task,
                 input_data=input_data,
+                run_id=ids[0],
             )
             return [result]
 
@@ -612,7 +625,10 @@ class ActionManager:
 
         # Create coroutines for parallel execution
         async def execute_single(
-            action: Action, input_data: Dict, action_session_id: str
+            action: Action,
+            input_data: Dict,
+            action_session_id: str,
+            run_id: Optional[str],
         ) -> Dict:
             return await self.execute_action(
                 action=action,
@@ -623,13 +639,16 @@ class ActionManager:
                 is_running_task=is_running_task,
                 is_gui_task=is_gui_task,
                 input_data=input_data,
+                run_id=run_id,
             )
 
         # All parallel actions run under the parent session_id. Real tasks
         # (not bare coroutines) so a cancelled batch can be awaited below.
         parallel_tasks = [
-            asyncio.ensure_future(execute_single(action, input_data, session_id))
-            for action, input_data in actions
+            asyncio.ensure_future(
+                execute_single(action, input_data, session_id, run_id)
+            )
+            for (action, input_data), run_id in zip(actions, ids)
         ]
 
         # Execute all actions in parallel

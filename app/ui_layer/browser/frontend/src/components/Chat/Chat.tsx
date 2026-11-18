@@ -19,7 +19,9 @@ import { ChatMessageItem } from '../../pages/Chat/ChatMessage'
 import { ChatWorkspace, type PanelLayout } from '../ChatWorkspace/ChatWorkspace'
 import { useChatBrowser } from '../MiniBrowser/useChatBrowser'
 import { TypingIndicatorRow } from '../../pages/Chat/TypingIndicator'
-import { ReasoningBlock, ActionBlock, ChunkHeaderRow } from '../activity/ActivityBlocks'
+import { ReasoningBlock, ActionBlock, ChunkHeaderRow, StreamLiveRow } from '../activity/ActivityBlocks'
+import { selectSessionStream } from '../../store/slices/streamSlice'
+import { DraftWidthGate } from './DraftWidthGate'
 import { normalizeActionName } from '../activity/actionNames'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import type { RootState } from '../../store'
@@ -211,6 +213,8 @@ export function Chat({ sessionId, placeholder, panelLayout = 'side', panelVisibl
 
   const messages = useAppSelector(state => selectSessionMessages(state, sessionId))
   const activity = useAppSelector(state => selectSessionActivity(state, sessionId))
+  // The agent's reply as it is being written (streamSlice).
+  const liveStream = useAppSelector(state => selectSessionStream(state, sessionId))
   // Unanswered agent questions (oldest first). The first one is pinned in a
   // QuestionBox above the composer; answering/dismissing advances the queue.
   const pendingQuestions = useAppSelector(state => selectPendingQuestions(state, sessionId))
@@ -258,6 +262,42 @@ export function Chat({ sessionId, placeholder, panelLayout = 'side', panelVisibl
     () => mergeTimeline(messages, activity),
     [messages, activity],
   )
+
+  // The reply messages being written, as bubbles, until the real message
+  // (clientId = the draft's id) arrives and takes the draft's row (same row
+  // key, so the bubble stays in place). A draft shows once its width is
+  // final (DraftWidthGate) or it is complete, so it never widens on screen.
+  const [settledDrafts, setSettledDrafts] = useState<ReadonlySet<string>>(() => new Set())
+  const settleDraft = useCallback((id: string) => {
+    setSettledDrafts(prev => (prev.has(id) ? prev : new Set(prev).add(id)))
+  }, [])
+  const { shownDrafts, waitingDrafts } = useMemo(() => {
+    const shown: ChatMessage[] = []
+    const waiting: ChatMessage[] = []
+    if (liveStream && liveStream.messages.length > 0) {
+      const arrived = new Set<string>()
+      for (const message of messages) {
+        if (message.clientId) arrived.add(message.clientId)
+      }
+      for (const draft of liveStream.messages) {
+        if (arrived.has(draft.id)) continue
+        const message: ChatMessage = {
+          sender: liveStream.sender,
+          content: draft.text,
+          style: 'agent',
+          timestamp: liveStream.startedAt / 1000,
+          messageId: `stream:${draft.id}`,
+          sessionId,
+          clientId: draft.id,
+          continueWork: draft.continueWork,
+          streaming: !draft.done,
+        }
+        if (draft.done || settledDrafts.has(draft.id)) shown.push(message)
+        else waiting.push(message)
+      }
+    }
+    return { shownDrafts: shown, waitingDrafts: waiting }
+  }, [liveStream, messages, sessionId, settledDrafts])
 
   // Chunk collapse state: the ids (each chunk's first item id) of EXPANDED
   // chunks, persisted per session so it survives navigation. Chunks are
@@ -333,8 +373,27 @@ export function Chat({ sessionId, placeholder, panelLayout = 'side', panelVisibl
       }
     }
     flush(true)
+    for (const message of shownDrafts) {
+      rows.push({ kind: 'message', ts: message.timestamp * 1000, message })
+    }
     return { displayRows: rows, tailChunk: tail as TailChunkInfo | null }
-  }, [timeline, expandedChunks])
+  }, [timeline, expandedChunks, shownDrafts])
+
+  // The reasoning and the actions being prepared of the reply being written
+  // belong to the run's work block: like its recorded rows, they show only
+  // while that block is open (the live status row below its rows), each
+  // until its real row exists (same ids). A collapsed block, or none yet
+  // (the first step after a bubble), shows only its "Working…" state.
+  const streamRows = useMemo(() => {
+    if (!liveStream || !tailChunk?.expanded) return null
+    const recorded = new Set(activity.map(item => item.id))
+    const reasoning = liveStream.reasoning
+    const showReasoning =
+      reasoning !== null && reasoning.text !== '' && !recorded.has(reasoning.id)
+    const actions = liveStream.actions.filter(action => !recorded.has(action.id))
+    if (!showReasoning && actions.length === 0) return null
+    return { reasoning: showReasoning ? reasoning : null, actions }
+  }, [liveStream, activity, tailChunk])
 
   // Stable, content-derived row key shared by the virtualizer's own
   // measurement cache (via getItemKey) and React's key prop. Without this,
@@ -649,6 +708,25 @@ export function Chat({ sessionId, placeholder, panelLayout = 'side', panelVisibl
     overscan: 5,
   })
 
+  // Rows that grow at their bottom while the user reads (a reply being
+  // written, the live status row) never move the view. The virtualizer's
+  // default keeps the view anchored when a row starting above it changes
+  // size, which suits rows settling from their estimate, but a streaming
+  // bubble that starts above the view grows BELOW its top: compensating
+  // there scrolled the view down with every new line, so a user who
+  // scrolled up was dragged back to the bottom. Every other row keeps the
+  // default rule.
+  const growingRowKeysRef = useRef<ReadonlySet<string>>(new Set())
+  growingRowKeysRef.current = new Set([
+    'live-status-row',
+    ...shownDrafts.map(message => message.clientId ?? ''),
+  ])
+  virtualizer.shouldAdjustScrollPositionOnItemSizeChange = (item, _delta, instance) => {
+    if (growingRowKeysRef.current.has(String(item.key))) return false
+    const pending = (instance as unknown as { scrollAdjustments?: number }).scrollAdjustments ?? 0
+    return item.start < (instance.scrollOffset ?? 0) + pending
+  }
+
   // "First unread" divider: frozen on mount so it doesn't chase the user
   // down the timeline as new messages arrive while they read. Dismissed
   // (hidden) as soon as the user engages the input — they've reached the
@@ -781,6 +859,18 @@ export function Chat({ sessionId, placeholder, panelLayout = 'side', panelVisibl
     if (!container) return
 
     let pointerHeld = false
+    // Until when an upward user scroll is in progress (performance.now()).
+    // Its own scroll events pass through the near-bottom zone, and a
+    // streaming reply re-pins every few frames, so re-engaging there yanked
+    // the view straight back down mid-gesture. Scrolling down clears it.
+    let upwardUntil = 0
+    // Until when a downward user scroll is in progress: reaching the
+    // near-bottom zone that way means "follow again". Otherwise only the
+    // true bottom re-engages; a programmatic scroll that happens to land
+    // near it (a row settling, the canvas growing) is not the user's intent.
+    let downwardUntil = 0
+    const GESTURE_HOLD_MS = 500
+    let lastScrollTop = container.scrollTop
 
     // Remember where the user is in this conversation (null = following the
     // newest content), at most once per frame. Skipped until the initial
@@ -799,13 +889,20 @@ export function Chat({ sessionId, placeholder, panelLayout = 'side', panelVisibl
       const scrollTop = container.scrollTop
       const distFromBottom = container.scrollHeight - scrollTop - container.clientHeight
       const nearBottom = distFromBottom < 100
+      const movedUp = scrollTop < lastScrollTop - 1
+      lastScrollTop = scrollTop
 
-      if (nearBottom) {
-        stickToBottomRef.current = true
-      } else if (pointerHeld) {
-        // The only scroll-driven release: the user is actively dragging
-        // the scrollbar away from the bottom.
+      const now = performance.now()
+      if (pointerHeld && (movedUp || !nearBottom)) {
+        // The only scroll-driven release: the user is dragging the
+        // scrollbar up (programmatic pins only ever move down).
         stickToBottomRef.current = false
+      } else if (
+        !pointerHeld &&
+        now > upwardUntil &&
+        (distFromBottom < 2 || (nearBottom && now < downwardUntil))
+      ) {
+        stickToBottomRef.current = true
       }
       setShowScrollToBottom(!nearBottom && !stickToBottomRef.current)
       saveScrollOffset()
@@ -820,6 +917,11 @@ export function Chat({ sessionId, placeholder, panelLayout = 'side', panelVisibl
       // strand the pin released while everything still fits on screen.
       if (e.deltaY < 0 && container.scrollTop > 0) {
         stickToBottomRef.current = false
+        upwardUntil = performance.now() + GESTURE_HOLD_MS
+        downwardUntil = 0
+      } else if (e.deltaY > 0) {
+        upwardUntil = 0
+        downwardUntil = performance.now() + GESTURE_HOLD_MS
       }
     }
 
@@ -832,12 +934,24 @@ export function Chat({ sessionId, placeholder, panelLayout = 'side', panelVisibl
       if (y == null || lastTouchY == null) return
       if (y > lastTouchY && container.scrollTop > 0) {
         stickToBottomRef.current = false
+        upwardUntil = performance.now() + GESTURE_HOLD_MS
+        downwardUntil = 0
+      } else if (y < lastTouchY) {
+        upwardUntil = 0
+        downwardUntil = performance.now() + GESTURE_HOLD_MS
       }
       lastTouchY = y
     }
 
     const handlePointerDown = () => { pointerHeld = true }
-    const handlePointerUp = () => { pointerHeld = false }
+    const handlePointerUp = () => {
+      if (!pointerHeld) return
+      pointerHeld = false
+      // A scrollbar drag that ended at the bottom follows it again.
+      if (container.scrollHeight - container.scrollTop - container.clientHeight < 100) {
+        stickToBottomRef.current = true
+      }
+    }
 
     container.addEventListener('scroll', handleScroll)
     container.addEventListener('wheel', handleWheel, { passive: true })
@@ -923,6 +1037,30 @@ export function Chat({ sessionId, placeholder, panelLayout = 'side', panelVisibl
     if (!hasInitialScrolled.current || !stickToBottomRef.current) return
     pinToBottom()
   }, [totalContentSize, pinToBottom])
+
+  // A reply being written grows its row on every update. Follow it BEFORE
+  // the frame paints. The follow above runs after paint, once the
+  // virtualizer's ResizeObserver re-measured the row and React re-rendered,
+  // so each new line first painted below the fold for one frame: a flicker
+  // at the bubble's bottom edge (traced frame by frame: +21px for one frame
+  // per new line). Here the rows in view are re-measured in the layout
+  // pass, so the canvas grows in this frame (a resize inside a layout
+  // effect re-renders before paint), and both pins land before paint.
+  useLayoutEffect(() => {
+    if (!hasInitialScrolled.current || !stickToBottomRef.current) return
+    const container = parentRef.current
+    if (!container) return
+    for (const item of virtualizer.getVirtualItems()) {
+      const row = container.querySelector<HTMLElement>(`[data-index="${item.index}"]`)
+      if (row) virtualizer.resizeItem(item.index, virtualizer.options.measureElement(row, undefined, virtualizer))
+    }
+    container.scrollTop = container.scrollHeight
+  }, [shownDrafts, streamRows, virtualizer])
+  useLayoutEffect(() => {
+    if (!hasInitialScrolled.current || !stickToBottomRef.current) return
+    const container = parentRef.current
+    if (container) container.scrollTop = container.scrollHeight
+  }, [totalContentSize])
 
   const adjustTextareaHeight = useCallback(() => {
     const textarea = inputRef.current
@@ -1416,8 +1554,17 @@ export function Chat({ sessionId, placeholder, panelLayout = 'side', panelVisibl
                         paddingBottom: 24,
                       }}
                     >
-                      {/* ALWAYS "Working…" — never the action name. */}
-                      <TypingIndicatorRow />
+                      {/* "Working…", or the reply as it is being written:
+                          its reasoning and the actions being prepared. */}
+                      {streamRows ? (
+                        <StreamLiveRow
+                          sessionId={sessionId}
+                          reasoning={streamRows.reasoning}
+                          actions={streamRows.actions}
+                        />
+                      ) : (
+                        <TypingIndicatorRow />
+                      )}
                     </div>
                   )
                 }
@@ -1453,8 +1600,11 @@ export function Chat({ sessionId, placeholder, panelLayout = 'side', panelVisibl
                 const next = virtualItem.index < displayRows.length - 1
                   ? displayRows[virtualItem.index + 1]
                   : null
+                // The step being written (streamRows, in the live row) is
+                // part of the open block above it: same 10px rhythm.
+                const streamFollows = next === null && showLiveRowEffective && streamRows !== null
                 const rowGap = entry.kind === 'activity'
-                  ? (next?.kind === 'activity' ? 10 : 18)
+                  ? (next?.kind === 'activity' || streamFollows ? 10 : 18)
                   : entry.kind === 'chunkHeader'
                     ? (entry.expanded ? 10 : 18)
                     : 0
@@ -1510,6 +1660,7 @@ export function Chat({ sessionId, placeholder, panelLayout = 'side', panelVisibl
                   </div>
                 )
               })}
+              <DraftWidthGate drafts={waitingDrafts} onSettled={settleDraft} />
             </div>
           )}
         </div>

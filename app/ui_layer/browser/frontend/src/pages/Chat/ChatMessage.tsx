@@ -114,7 +114,7 @@ export const ChatMessageItem = memo(function ChatMessageItem({
 
   const bubbleContainer = (
     <div className={styles.messageBubbleContainer}>
-      <div className={`${styles.message} ${styles[message.style]} ${message.pending ? styles.pending : ''}`}>
+      <div className={`${styles.message} ${styles[message.style]} ${message.pending ? styles.pending : ''} ${message.streaming ? styles.streaming : ''}`}>
         <div className={styles.messageHeader}>
           <span className={styles.sender}>
             {ErrorIcon && (
@@ -263,4 +263,5 @@ export const ChatMessageItem = memo(function ChatMessageItem({
   && prev.message.references === next.message.references
   && prev.message.submissionError === next.message.submissionError
   && prev.message.pending === next.message.pending
+  && prev.message.streaming === next.message.streaming
 )

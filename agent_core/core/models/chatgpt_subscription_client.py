@@ -52,10 +52,12 @@ Chat-Completions field names. Both ``response.completed`` and
 ``response.done`` events are watched for the terminal payload — some
 streams emit only one or the other.
 
+Caller-side streaming goes through a sink (agent_core.core.impl.llm.
+streaming) rather than ``stream=True``: the text deltas reach it while the
+call still returns one aggregated response, so the chat_completions
+transport never passes ``stream`` here (``streams_internally``).
+
 What is NOT bridged yet:
-- Caller-side streaming (``stream=True`` from the caller) — we stream
-  internally, but returning chunks to the caller would need a streaming
-  shim of the Chat-Completions chunk shape.
 - Tool calls (``tools=[...]``) — the Responses API exposes them inside
   ``output`` items, not on ``choices[0].message.tool_calls``.
 """
@@ -319,12 +321,27 @@ def _consume_stream(stream: Any) -> Dict[str, Any]:
       - ``response``       — terminal Response object (may have empty output)
       - ``text``           — content string from accumulated deltas
       - ``seen_types``     — every event type observed during the stream
+
+    When the call streams to a sink (agent_core.core.impl.llm.streaming),
+    each text delta also goes to it as it arrives; a sink whose caller
+    stopped the reply ends the stream with LLMStreamAborted.
     """
+    from agent_core.core.impl.llm.streaming import (
+        begin,
+        check_cancelled,
+        current_sink,
+        emit,
+    )
+
+    sink = current_sink()
+    if sink is not None:
+        begin(sink)
     final = None
     failure_payload = None
     seen_types: List[str] = []
     text_parts: List[str] = []
     for event in stream:
+        check_cancelled(sink)
         etype = getattr(event, "type", "") or ""
         seen_types.append(etype)
         if etype in ("response.completed", "response.done"):
@@ -341,6 +358,8 @@ def _consume_stream(stream: Any) -> Dict[str, Any]:
             delta = getattr(event, "delta", "") or ""
             if delta:
                 text_parts.append(delta)
+                if sink is not None:
+                    emit(sink, delta)
     if failure_payload is not None and final is None:
         raise RuntimeError(f"Codex stream failed: {failure_payload}")
     if final is None:
@@ -726,6 +745,10 @@ class ChatGPTSubscriptionClient:
     wrapped SDK client, so the rare callers that touch ``client.responses``
     or ``client.files`` directly still work unchanged.
     """
+
+    #: The backend always streams; a call's sink gets the text deltas here
+    #: (_consume_stream), so callers never ask for ``stream=True``.
+    streams_internally = True
 
     def __init__(self, openai_client: Any):
         self._inner = openai_client

@@ -3,6 +3,7 @@ import { ChevronRight } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { StatusIndicator } from '../ui'
 import type { ActionItem } from '../../types'
+import type { StreamAction, StreamReasoning } from '../../store/slices/streamSlice'
 import { normalizeActionName, extractTodos } from './actionNames'
 import { strField, parseDict } from './parse'
 import styles from './ActivityBlocks.module.css'
@@ -134,6 +135,53 @@ export function ReasoningBlock({ item }: { item: ActionItem }) {
           ? item.output
           : <span className={styles.reasoningPlaceholder}>{t('activity:reasoning.thinking')}</span>}
       </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// The decision reply as the model writes it (streamSlice): its reasoning
+// so far, then each action being prepared, as the same reasoning and
+// action rows the timeline shows once they are real (pending until they
+// start). The live status row renders it in place of "Working…".
+// ─────────────────────────────────────────────────────────────────────
+
+export function StreamLiveRow({
+  sessionId,
+  reasoning,
+  actions,
+}: {
+  sessionId: string
+  reasoning: StreamReasoning | null
+  actions: StreamAction[]
+}) {
+  return (
+    <div className={styles.streamLive} role="status">
+      {reasoning && (
+        <ReasoningBlock
+          item={{
+            id: reasoning.id,
+            name: 'Reasoning',
+            status: 'running',
+            itemType: 'reasoning',
+            sessionId,
+            output: reasoning.text,
+          }}
+        />
+      )}
+      {actions.map(action => (
+        <ActionBlock
+          key={action.id}
+          item={{
+            id: action.id,
+            name: action.name,
+            status: 'pending',
+            itemType: 'action',
+            sessionId,
+            input: action.input,
+          }}
+        />
+      ))}
     </div>
   )
 }

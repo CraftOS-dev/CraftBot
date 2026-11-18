@@ -31,6 +31,7 @@ from agent_core.core.prompts import (
     decision_system_prompt,
 )
 from agent_core.core.impl.llm.interface import LLMContextOverflowError, LLMReply
+from agent_core.core.impl.llm.streaming import streaming_to
 from agent_core.core.event_stream.event import EventType
 from agent_core import get_event_stream_manager
 from agent_core.utils.logger import logger
@@ -190,6 +191,7 @@ class ActionRouter:
         self,
         query: str,
         session_id: Optional[str] = None,
+        reply_stream=None,
     ) -> List[Dict[str, Any]]:
         """
         The one action-selection call for a session turn.
@@ -198,6 +200,11 @@ class ActionRouter:
         Args:
             query: The turn's instruction (the trigger description).
             session_id: Session ID for session-specific state lookup.
+            reply_stream: The turn's ReplyStream (reply_stream.py), which
+                follows the reply as the model writes it and may start
+                complete actions before it ends. Decisions it started carry
+                ``_started``; each decision of a streamed reply carries the
+                ``_run_id`` its run uses.
 
         Returns:
             List[Dict[str, Any]]: List of decision payloads, each with
@@ -207,7 +214,7 @@ class ActionRouter:
             ValueError: If LLM returns invalid format 3 times consecutively.
         """
         async with self._decision_lock(session_id):
-            return await self._select_action(query, session_id)
+            return await self._select_action(query, session_id, reply_stream)
 
     async def fold_session(self, session_id: str) -> int:
         """Fold a session's event stream now, at the user's request (/fold).
@@ -309,7 +316,7 @@ class ActionRouter:
         )
 
     async def _select_action(
-        self, query: str, session_id: Optional[str]
+        self, query: str, session_id: Optional[str], reply_stream=None
     ) -> List[Dict[str, Any]]:
         """select_action_in_session, holding the session's decision lock."""
         # Build the instruction prompt for the LLM
@@ -346,10 +353,22 @@ class ActionRouter:
                 render_prompt=render_prompt,
                 instructions=instructions,
                 correction=correction,
+                reply_stream=reply_stream,
             )
+            # The request whose reply this is, when the reply streamed.
+            reply_attempt = reply_stream.current if reply_stream is not None else None
 
             # Parse parallel action decisions with format error detection
             actions, format_error = self._parse_parallel_action_decisions(decision)
+
+            if format_error and reply_attempt is not None and reply_attempt.has_started:
+                # Asking again would run the started actions a second time.
+                logger.warning(
+                    f"[REPLY STREAM] Reply ended malformed after its actions "
+                    f"started ({format_error}); keeping the started actions"
+                )
+                decision = reply_attempt.salvage()
+                actions, format_error = self._parse_parallel_action_decisions(decision)
 
             if format_error:
                 # LLM returned wrong format - retry with feedback
@@ -381,8 +400,20 @@ class ActionRouter:
                     }
                 ]
 
+            if reply_attempt is not None:
+                self._mark_stream_indices(decision)
             # Validate and filter parallel actions
-            validated_actions = self._validate_parallel_actions(actions, GUI_mode=False)
+            validated_actions = self._validate_parallel_actions(
+                actions,
+                GUI_mode=False,
+                started=reply_attempt.started if reply_attempt is not None else None,
+            )
+            if reply_attempt is not None:
+                # Each action's run carries the id its streamed row shows.
+                for action in validated_actions:
+                    run_id = reply_attempt.run_id_for(action.get("_stream_index"))
+                    if run_id:
+                        action["_run_id"] = run_id
 
             if validated_actions:
                 action_names = [a.get("action_name") for a in validated_actions]
@@ -516,6 +547,7 @@ class ActionRouter:
         render_prompt: Optional[Callable[[], str]] = None,
         instructions: str = "",
         correction: Optional[str] = None,
+        reply_stream=None,
     ) -> Dict[str, Any]:
         """
         Prompt the LLM for an action decision with session caching support.
@@ -535,6 +567,11 @@ class ActionRouter:
                 A session history continues with it as its next turn, after
                 any new events; a full request carries it already (``prompt``
                 ends with it).
+            reply_stream: The turn's ReplyStream: each request streams its
+                reply to a new attempt of it (the decision request only: a
+                fold's summary call never streams). A reply whose actions
+                already started is never asked for again: what it holds is
+                the decision (ReplyAttempt.salvage).
         """
         max_retries = 3
         last_error: Optional[Exception] = None
@@ -600,6 +637,14 @@ class ActionRouter:
             # Anything logged while it is in flight (other code paths write to
             # a session's stream at any time) is left for the next request.
             point = stream.get_event_count() if stream is not None else None
+            # Where this request streams its reply (None: it does not).
+            reply_attempt = (
+                reply_stream.begin_attempt()
+                if reply_stream is not None
+                and call_type == LLMCallType.ACTION_SELECTION
+                else None
+            )
+            reply_sink = reply_attempt.sink if reply_attempt is not None else None
 
             try:
                 # Use session cache if we're in a task context AND session is registered
@@ -698,14 +743,15 @@ class ActionRouter:
                                 logger.info(
                                     f"[SESSION CACHE] Sending delta events for {call_type}"
                                 )
-                                raw_response = await self.llm_interface.generate_response_with_session_async(
-                                    task_id=current_task_id,
-                                    call_type=call_type,
-                                    user_prompt=delta_events,
-                                    system_prompt_for_new_session=history_prompt,
-                                    prompt_name=prompt_name,
-                                    call_metadata={"request": request_kind},
-                                )
+                                with streaming_to(reply_sink):
+                                    raw_response = await self.llm_interface.generate_response_with_session_async(
+                                        task_id=current_task_id,
+                                        call_type=call_type,
+                                        user_prompt=delta_events,
+                                        system_prompt_for_new_session=history_prompt,
+                                        prompt_name=prompt_name,
+                                        call_metadata={"request": request_kind},
+                                    )
                                 sent_prompt = delta_events
                                 recorded = self._mark_sent(
                                     stream,
@@ -741,14 +787,15 @@ class ActionRouter:
                                 # not hold: the prompt ends with the feedback.
                                 metadata["feedback"] = True
                             sent_prompt = full_request(point)
-                            raw_response = await self.llm_interface.generate_response_with_session_async(
-                                task_id=current_task_id,
-                                call_type=call_type,
-                                user_prompt=sent_prompt,
-                                system_prompt_for_new_session=system_prompt,
-                                prompt_name=prompt_name,
-                                call_metadata=metadata,
-                            )
+                            with streaming_to(reply_sink):
+                                raw_response = await self.llm_interface.generate_response_with_session_async(
+                                    task_id=current_task_id,
+                                    call_type=call_type,
+                                    user_prompt=sent_prompt,
+                                    system_prompt_for_new_session=system_prompt,
+                                    prompt_name=prompt_name,
+                                    call_metadata=metadata,
+                                )
                             recorded = self._mark_sent(
                                 stream,
                                 current_task_id,
@@ -759,13 +806,14 @@ class ActionRouter:
                     else:
                         # No session registered (simple task) - use prefix cache / regular response
                         sent_prompt = full_request(point)
-                        raw_response = await self.llm_interface.generate_response_async(
-                            system_prompt,
-                            sent_prompt,
-                            prompt_name=prompt_name,
-                            usage_key=f"{current_task_id}:{call_type}",
-                            call_metadata={"request": "stateless"},
-                        )
+                        with streaming_to(reply_sink):
+                            raw_response = await self.llm_interface.generate_response_async(
+                                system_prompt,
+                                sent_prompt,
+                                prompt_name=prompt_name,
+                                usage_key=f"{current_task_id}:{call_type}",
+                                call_metadata={"request": "stateless"},
+                            )
                         # The prompt carried the stream's first ``point``
                         # events; a later fold may collapse any of them now.
                         if stream is not None:
@@ -773,9 +821,10 @@ class ActionRouter:
                 else:
                     # Not in task context - use regular response
                     sent_prompt = full_request(None)
-                    raw_response = await self.llm_interface.generate_response_async(
-                        system_prompt, sent_prompt, prompt_name=prompt_name
-                    )
+                    with streaming_to(reply_sink):
+                        raw_response = await self.llm_interface.generate_response_async(
+                            system_prompt, sent_prompt, prompt_name=prompt_name
+                        )
 
                 # Validate response before parsing
                 if not raw_response or (
@@ -787,6 +836,17 @@ class ActionRouter:
                     )
 
                 decision, parse_error = self._parse_action_decision(raw_response)
+                if (
+                    decision is None
+                    and reply_attempt is not None
+                    and reply_attempt.has_started
+                ):
+                    # Asking again would run the started actions a second time.
+                    logger.warning(
+                        f"[REPLY STREAM] Reply did not parse after its actions "
+                        f"started ({parse_error}); keeping the started actions"
+                    )
+                    decision, parse_error = reply_attempt.salvage(), None
                 if session_path and stream is not None:
                     # The reply the history now ends with, which the next
                     # delta refers to instead of repeating what it holds.
@@ -828,6 +888,14 @@ class ActionRouter:
                     attempt + 1, raw_response, feedback_error
                 )
             except LLMConsecutiveFailureError:
+                if reply_attempt is not None and reply_attempt.has_started:
+                    # The reply broke off after its actions started: they are
+                    # the decision (the next request meets the failure latch).
+                    logger.warning(
+                        "[REPLY STREAM] Provider failed after the reply's actions "
+                        "started; keeping the started actions"
+                    )
+                    return reply_attempt.salvage()
                 # Fatal: LLM is in a broken state - re-raise immediately, do not retry
                 raise
             except LLMContextOverflowError:
@@ -862,6 +930,13 @@ class ActionRouter:
                 )
                 continue
             except RuntimeError as e:
+                if reply_attempt is not None and reply_attempt.has_started:
+                    # Asking again would run the started actions a second time.
+                    logger.warning(
+                        f"[REPLY STREAM] Provider error after the reply's actions "
+                        f"started ({e}); keeping the started actions"
+                    )
+                    return reply_attempt.salvage()
                 # LLM provider error (empty response, API error, auth failure, etc.)
                 # — a recognized, user-actionable failure, not a code bug. The
                 # attempt-number bookkeeping stays in the log only; the
@@ -895,6 +970,12 @@ class ActionRouter:
                         "LLM provider failed - retrying",
                     )
             except Exception as e:
+                if reply_attempt is not None and reply_attempt.has_started:
+                    logger.warning(
+                        f"[REPLY STREAM] Error after the reply's actions started "
+                        f"({e}); keeping the started actions"
+                    )
+                    return reply_attempt.salvage()
                 # Unexpected error
                 logger.error(
                     f"[ACTION ROUTER] Unexpected error on attempt {attempt + 1}: {e}",
@@ -1205,8 +1286,97 @@ class ActionRouter:
 
         return None
 
+    def early_start_kind(self, action: Dict[str, Any]) -> str:
+        """How a complete action of a streaming reply may start before the
+        reply ends (ReplyStream): "run" when it exists, is visible, and may
+        run alongside others; "block" when it must run alone (nothing after
+        it starts early, so the reply's end decides as without streaming);
+        "hold" when it waits for the reply's end (unknown or hidden)."""
+        action_name = action.get("action_name") or ""
+        act = self.action_library.retrieve_action(action_name) if action_name else None
+        if act is None or not _is_visible_in_mode(act, False):
+            return "hold"
+        if not getattr(act, "parallelizable", True):
+            return "block"
+        return "run"
+
+    @staticmethod
+    def _mark_stream_indices(decision: Dict[str, Any]) -> None:
+        """Number the reply's action objects as its stream did (the n-th
+        object of the "actions" array), so each parsed action finds the run
+        id and early start of its streamed object."""
+        items = decision.get("actions") if isinstance(decision, dict) else None
+        if not isinstance(items, list):
+            return
+        ordinal = 0
+        for item in items:
+            if isinstance(item, dict):
+                item.setdefault("_stream_index", ordinal)
+                ordinal += 1
+
+    def _validate_streamed_actions(
+        self,
+        actions: List[Dict[str, Any]],
+        GUI_mode: bool,
+        started: Dict[int, Any],
+    ) -> List[Dict[str, Any]]:
+        """_validate_parallel_actions for a reply some of whose actions
+        started while it streamed (``started``: their stream indices).
+
+        Those already run, so they are kept (``_started``) and the batch is
+        validated around them: an unknown or hidden action is marked as an
+        error, and a non-parallelizable one cannot run alongside the started
+        ones, so it is dropped with an error saying so.
+        """
+        actions = actions[:20]
+        running = [a for a in actions if a.get("_stream_index") in started]
+        running_names = ", ".join(a.get("action_name", "") for a in running)
+        drop_end_turn = any(
+            a.get("action_name")
+            in ("send_telegram_bot_message", "send_telegram_text_message")
+            for a in actions
+        )
+        validated: List[Dict[str, Any]] = []
+        dropped: List[Dict[str, Any]] = []
+        for action in actions:
+            if action.get("_stream_index") in started:
+                action["_started"] = True
+                validated.append(action)
+                continue
+            action_name = action.get("action_name", "")
+            if not action_name or (drop_end_turn and action_name == "end_turn"):
+                continue
+            act = self.action_library.retrieve_action(action_name)
+            if not act or not _is_visible_in_mode(act, GUI_mode):
+                dropped_action = action.copy()
+                dropped_action["_error"] = (
+                    f"Action '{action_name}' not found or not visible in current mode"
+                )
+                dropped.append(dropped_action)
+                continue
+            if not getattr(act, "parallelizable", True):
+                logger.warning(
+                    f"[PARALLEL] Non-parallelizable '{action_name}' after actions "
+                    f"that already started ({running_names}); dropping it"
+                )
+                dropped_action = action.copy()
+                dropped_action["_error"] = (
+                    f"Action dropped: '{action_name}' cannot run in parallel, and "
+                    f"{running_names} had already started while your reply was "
+                    f"being written, so '{action_name}' did not run. Nothing about "
+                    "it failed: re-issue it ALONE in your next turn, after "
+                    "re-reading any state those actions just changed."
+                )
+                dropped.append(dropped_action)
+                continue
+            validated.append(action)
+        return validated + dropped
+
     def _validate_parallel_actions(
-        self, actions: List[Dict[str, Any]], GUI_mode: bool
+        self,
+        actions: List[Dict[str, Any]],
+        GUI_mode: bool,
+        started: Optional[Dict[int, Any]] = None,
     ) -> List[Dict[str, Any]]:
         """
         Validate and filter parallel actions.
@@ -1219,12 +1389,17 @@ class ActionRouter:
         Args:
             actions: List of parsed action decisions.
             GUI_mode: Whether in GUI mode.
+            started: Stream indices of the actions the reply started while
+                it streamed (_validate_streamed_actions); None or empty when
+                none did.
 
         Returns:
             Validated list of actions (may be reduced to 1 if non-parallelizable detected).
         """
         if not actions:
             return []
+        if started:
+            return self._validate_streamed_actions(actions, GUI_mode, started)
 
         # Cap at 20 actions
         actions = actions[:20]

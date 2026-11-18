@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
 
 import requests
@@ -22,6 +23,13 @@ from agent_core.decorators import profile, OperationCategory
 from agent_core.core.impl.llm import reasoning_wire
 from agent_core.core.impl.llm.cache import get_cache_config, get_cache_metrics
 from agent_core.core.impl.llm.errors import classify_llm_error, provider_display_name
+from agent_core.core.impl.llm.streaming import (
+    LLMStreamAborted,
+    begin,
+    check_cancelled,
+    current_sink,
+    emit,
+)
 from agent_core.core.models.reasoning import ReasoningDecision
 from agent_core.core.models.registry import (
     get_registry as _get_registry,
@@ -42,6 +50,62 @@ _THINK_RE = re.compile(r"<think>.*?</think>\s*", re.DOTALL | re.IGNORECASE)
 
 def _strip_reasoning_tags(text: Optional[str]) -> str:
     return _THINK_RE.sub("", text or "").strip()
+
+
+def _stream_completion(client, request_kwargs: Dict[str, Any], sink) -> Any:
+    """Send the request streamed, hand each text delta to ``sink``, and
+    return the reply in the shape a non-streamed call returns.
+
+    The deltas join into the message content the unstreamed reply carries,
+    and the usage comes from the stream's usage chunk (include_usage), so
+    the caller reads both exactly as it reads an unstreamed response.
+    """
+    begin(sink)
+    stream = client.chat.completions.create(
+        **request_kwargs, stream=True, stream_options={"include_usage": True}
+    )
+    parts: List[str] = []
+    finish_reason = None
+    usage = None
+    saw_choice = False
+    try:
+        for chunk in stream:
+            check_cancelled(sink)
+            if getattr(chunk, "usage", None) is not None:
+                usage = chunk.usage
+            for choice in getattr(chunk, "choices", None) or []:
+                if (getattr(choice, "index", 0) or 0) != 0:
+                    continue
+                saw_choice = True
+                delta = getattr(choice, "delta", None)
+                text = getattr(delta, "content", None) if delta is not None else None
+                if text:
+                    parts.append(text)
+                    emit(sink, text)
+                if getattr(choice, "finish_reason", None):
+                    finish_reason = choice.finish_reason
+    finally:
+        close = getattr(stream, "close", None)
+        if callable(close):
+            try:
+                close()
+            except Exception:
+                pass
+    if not saw_choice:
+        return SimpleNamespace(choices=[], usage=usage)
+    if usage is None:
+        logger.warning(
+            "[OPENAI] Streamed reply carried no usage chunk; token and cache "
+            "counts for this call read as 0"
+        )
+        usage = SimpleNamespace(
+            prompt_tokens=0, completion_tokens=0, prompt_tokens_details=None
+        )
+    message = SimpleNamespace(content="".join(parts))
+    return SimpleNamespace(
+        choices=[SimpleNamespace(message=message, finish_reason=finish_reason)],
+        usage=usage,
+    )
 
 
 @profile("llm_openai_call", OperationCategory.LLM)
@@ -223,8 +287,18 @@ def generate_openai(
         # ChatGPTSubscriptionClient that re-routes chat.completions
         # calls through the Responses API (the only surface the
         # chatgpt.com/backend-api/codex backend exposes). Call-site
-        # stays unchanged.
-        response = iface.client.chat.completions.create(**request_kwargs)
+        # stays unchanged; that client streams internally and hands the
+        # text to the call's sink itself.
+        sink = current_sink()
+        if (
+            sink is not None
+            and not getattr(iface.client, "streams_internally", False)
+            and _profile is not None
+            and _profile.streams_usage
+        ):
+            response = _stream_completion(iface.client, request_kwargs, sink)
+        else:
+            response = iface.client.chat.completions.create(**request_kwargs)
         if not response.choices:
             raise ValueError(f"Provider returned no choices (model={iface.model!r})")
         content = _strip_reasoning_tags(response.choices[0].message.content)
@@ -278,6 +352,8 @@ def generate_openai(
             )
 
         status = "success"
+    except LLMStreamAborted:
+        raise
     except Exception as exc:
         exc_obj = exc
         logger.debug(f"Error calling OpenAI API: {exc}")

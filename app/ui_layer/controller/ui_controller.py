@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from agent_core.core.event_stream.event import EventType
 from agent_core.core.models.reasoning import ReasoningChoice
@@ -318,6 +318,18 @@ class UIController:
         ("stopping" then "idle") come from the agent, not from here.
         """
         return await self._agent.request_run_stop(session_id or "main")
+
+    def publish_agent_stream(self, payload: Dict[str, Any]) -> None:
+        """Send the active adapter an update of a decision reply as the model
+        writes it (ReplyStream). Called on the event loop; never waits."""
+        adapter = self._adapter
+        broadcast = getattr(adapter, "broadcast_agent_stream", None)
+        if broadcast is None:
+            return
+        try:
+            asyncio.get_running_loop().create_task(broadcast(payload))
+        except Exception:
+            logger.debug("[UI] Failed to publish an agent stream update", exc_info=True)
 
     async def notify_session_updated(self, session_id: str) -> None:
         """Tell the active adapter a session's metadata changed (e.g. title)."""

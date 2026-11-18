@@ -43,6 +43,7 @@ from agent_core.core.hooks import (
     RecordLLMCallHook,
 )
 from agent_core.core.impl.llm import transports as _transports
+from agent_core.core.impl.llm.streaming import LLMStreamAborted
 from agent_core.core.impl.llm.types import LLMCallType
 from agent_core.core.models.catalog import (
     CacheLifetime,
@@ -925,6 +926,8 @@ class LLMInterface:
             fb.reset_failure_counter()
             try:
                 content = attempt(fb)
+            except LLMStreamAborted:
+                raise
             except Exception as e:
                 logger.warning(f"[FALLBACK] {candidate} also failed: {e}")
                 continue
@@ -1246,6 +1249,9 @@ class LLMInterface:
             raise
         except LLMContextOverflowError:
             # Nothing was sent; not a provider failure. Do not count or fall back.
+            raise
+        except LLMStreamAborted:
+            # The caller stopped the reply; not a provider failure.
             raise
         except _EmptyResponse as e:
             # Failure already counted above; convert back to RuntimeError for callers.
