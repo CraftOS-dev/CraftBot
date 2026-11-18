@@ -239,6 +239,8 @@ class FrameworkBridge:
         return {
             "permissionRequired": required,
             "needsReview": required and grant.get("reviewedRequest") != review_id,
+            # Allowed before the app changed: the review is of new or changed requests.
+            "changed": grant.get("tasksAllowed") is True and grant.get("capabilityFingerprint") != revision,
             "revision": revision, "reviewId": review_id,
             "requests": sorted({t.get("capability") or "App request" for t in waiting}),
             "error": grant.get("bridgeError"),

@@ -103,17 +103,19 @@ export function FrameworkAppActions({ app, settings }: { app: FrameworkRegistryA
       <AppSettingsToggle label={t('agentapp:triggerConsent.settingsLabel')}
         checked={attachment?.tasksAllowed === true} disabled={disabled || !loaded || !details}
         onChange={allow => void settings.consent(allow, attachment?.ownerToolsAllowed === true)}>
-      <button type="button" className={styles.requestsLink} aria-expanded={requestsOpen} onClick={() => setRequestsOpen(value => !value)}>
-        {requestsOpen ? t('agentapp:triggerConsent.hideRequests') : declaredRequests.length ? t('agentapp:triggerConsent.viewRequests', { count: declaredRequests.length }) : t('agentapp:triggerConsent.aboutRequests')}
-      </button>
+      {declaredRequests.length > 0 && <button type="button" className={styles.requestsLink} aria-expanded={requestsOpen} onClick={() => setRequestsOpen(value => !value)}>
+        {requestsOpen ? t('agentapp:triggerConsent.hideRequests') : t('agentapp:triggerConsent.viewRequests', { count: declaredRequests.length })}
+      </button>}
       </AppSettingsToggle>
-      {requestsOpen && !declaredRequests.length && <p style={appSettingHintStyle}>{t('agentapp:triggerConsent.runtimeRequests')}</p>}
       {requestsOpen && declaredRequests.length > 0 && <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>{declaredRequests.map(([name, capability]) =>
-        <li key={name} style={{ ...appSettingRowStyle, borderTop: '1px solid var(--border-primary)', justifyContent: 'flex-start' }}><MessageSquareText size={14} /><span style={{ fontSize: 'var(--text-sm)' }}>{capability?.description || name}</span></li>)}</ul>}
+        <li key={name} style={{ display: 'flex', alignItems: 'flex-start', gap: 'var(--space-3)', padding: 'var(--space-2) 0', borderTop: '1px solid var(--border-primary)' }}>
+          <MessageSquareText size={14} style={{ flexShrink: 0, marginTop: 3, color: 'var(--text-secondary)' }} aria-hidden />
+          <span style={{ flex: 1, minWidth: 0, fontSize: 'var(--text-sm)', lineHeight: 1.5, color: 'var(--text-primary)', overflowWrap: 'anywhere' }}>{capability?.description || name}</span>
+        </li>)}</ul>}
       {!app.connection && <AppSettingsToggle label="Owner access to local tools" description="Allow the app owner to read and write local files and run commands with CraftBot's permissions."
         checked={attachment?.ownerToolsAllowed === true} disabled={disabled || !loaded || !details || !attachment?.tasksAllowed} divider
         onChange={allow => void settings.consent(true, allow)} />}
-      {attachment?.bridgeError && <p role="alert" style={{ ...appSettingHintStyle, color: 'var(--color-error)' }}>{attachment.bridgeError}</p>}
+      {attachment?.bridgeError && <p role="alert" style={{ margin: 'var(--space-2) 0 0', fontSize: 'var(--text-sm)', color: 'var(--color-error)' }}>{attachment.bridgeError}</p>}
     </AppSettingsSection>
     {!app.connection && <FrameworkMaintenanceControls app={app} settings={settings} />}
     {(error || notice) && <div style={{ padding: 'var(--space-3)', borderTop: '1px solid var(--border-primary)' }}>
