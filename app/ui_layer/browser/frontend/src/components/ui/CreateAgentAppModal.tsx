@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Sparkles, Download, ArrowRight, Loader2, Package, Store, FolderInput, Upload, Search, Link, Hammer } from 'lucide-react'
+import { Box, Download, ArrowRight, Loader2, Package, Store, FolderInput, Upload, Search, Link, Hammer } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Button } from './Button'
 import { Modal } from './Modal'
 import { AgentAppIcon } from './AgentAppIcon'
+import { ResampledImage } from './ResampledImage'
 import { CreateCustomWizard } from './CreateCustomWizard'
 import { tourAnchorProps, useTourEnvAction, type TourAnchorId } from '../../tour'
 import styles from './CreateAgentAppModal.module.css'
@@ -214,7 +215,7 @@ export function CreateAgentAppModal({ isOpen, onClose }: CreateAgentAppModalProp
       closeOnEsc={false}
       title={
         <>
-          <Sparkles size={20} className={styles.headerIcon} />
+          <Box size={20} className={styles.headerIcon} />
           {t('components:createAgentApp.addTitle')}
         </>
       }
@@ -304,7 +305,7 @@ export function CreateAgentAppModal({ isOpen, onClose }: CreateAgentAppModalProp
                       return (
                         <div key={app.id} className={styles.appCard}>
                           {app.preview && !thumbFailures.has(appKey) ? (
-                            <img
+                            <ResampledImage
                               src={app.preview}
                               alt={app.name}
                               referrerPolicy="no-referrer"
