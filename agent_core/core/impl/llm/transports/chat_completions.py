@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
 
 import requests
@@ -22,6 +23,13 @@ from agent_core.decorators import profile, OperationCategory
 from agent_core.core.impl.llm import reasoning_wire
 from agent_core.core.impl.llm.cache import get_cache_config, get_cache_metrics
 from agent_core.core.impl.llm.errors import classify_llm_error, provider_display_name
+from agent_core.core.impl.llm.streaming import (
+    LLMStreamAborted,
+    begin,
+    check_cancelled,
+    current_sink,
+    emit,
+)
 from agent_core.core.models.reasoning import ReasoningDecision
 from agent_core.core.models.registry import (
     get_registry as _get_registry,
@@ -42,6 +50,62 @@ _THINK_RE = re.compile(r"<think>.*?</think>\s*", re.DOTALL | re.IGNORECASE)
 
 def _strip_reasoning_tags(text: Optional[str]) -> str:
     return _THINK_RE.sub("", text or "").strip()
+
+
+def _stream_completion(client, request_kwargs: Dict[str, Any], sink) -> Any:
+    """Send the request streamed, hand each text delta to ``sink``, and
+    return the reply in the shape a non-streamed call returns.
+
+    The deltas join into the message content the unstreamed reply carries,
+    and the usage comes from the stream's usage chunk (include_usage), so
+    the caller reads both exactly as it reads an unstreamed response.
+    """
+    begin(sink)
+    stream = client.chat.completions.create(
+        **request_kwargs, stream=True, stream_options={"include_usage": True}
+    )
+    parts: List[str] = []
+    finish_reason = None
+    usage = None
+    saw_choice = False
+    try:
+        for chunk in stream:
+            check_cancelled(sink)
+            if getattr(chunk, "usage", None) is not None:
+                usage = chunk.usage
+            for choice in getattr(chunk, "choices", None) or []:
+                if (getattr(choice, "index", 0) or 0) != 0:
+                    continue
+                saw_choice = True
+                delta = getattr(choice, "delta", None)
+                text = getattr(delta, "content", None) if delta is not None else None
+                if text:
+                    parts.append(text)
+                    emit(sink, text)
+                if getattr(choice, "finish_reason", None):
+                    finish_reason = choice.finish_reason
+    finally:
+        close = getattr(stream, "close", None)
+        if callable(close):
+            try:
+                close()
+            except Exception:
+                pass
+    if not saw_choice:
+        return SimpleNamespace(choices=[], usage=usage)
+    if usage is None:
+        logger.warning(
+            "[OPENAI] Streamed reply carried no usage chunk; token and cache "
+            "counts for this call read as 0"
+        )
+        usage = SimpleNamespace(
+            prompt_tokens=0, completion_tokens=0, prompt_tokens_details=None
+        )
+    message = SimpleNamespace(content="".join(parts))
+    return SimpleNamespace(
+        choices=[SimpleNamespace(message=message, finish_reason=finish_reason)],
+        usage=usage,
+    )
 
 
 @profile("llm_openai_call", OperationCategory.LLM)
@@ -86,6 +150,7 @@ def generate_openai(
     cached_tokens = 0
     status = "failed"
     content: Optional[str] = None
+    cut_off = False
     exc_obj: Optional[Exception] = None
     config = get_cache_config()
     cache_type = f"automatic_{call_type}" if call_type else "automatic"
@@ -158,10 +223,9 @@ def generate_openai(
         # Build provider-specific cache hints in extra_body.
         # - prompt_cache_key (OpenAI/DeepSeek/OpenRouter/Grok): improves
         #   prefix-cache routing stickiness across alternating call types.
-        #   Grok DOES honor it — verified empirically: without a key a
-        #   repeated identical prefix intermittently missed (routing bounced
-        #   to a cold node); with prompt_cache_key the same prefix stayed a
-        #   consistent hit. The old code skipped grok on a stale assumption.
+        #   Grok's Chat Completions routes cache by the x-grok-conv-id
+        #   header (profile.cache_routing_header), so the same key is also
+        #   sent there.
         # - cache_control (OpenRouter routing to Anthropic Claude only): Anthropic
         #   prompt caching is opt-in. OpenRouter accepts a top-level cache_control
         #   field and applies it to the last cacheable block automatically. For
@@ -186,6 +250,10 @@ def generate_openai(
             prompt_hash = hashlib.sha256(system_prompt.encode()).hexdigest()[:16]
             cache_key = f"{call_type}_{prompt_hash}" if call_type else prompt_hash
             extra_body["prompt_cache_key"] = cache_key
+            if _profile is not None and _profile.cache_routing_header:
+                request_kwargs["extra_headers"] = {
+                    _profile.cache_routing_header: cache_key
+                }
             logger.debug(f"[OPENAI] Using prompt_cache_key: {cache_key}")
 
         if iface.provider == "openrouter" and long_enough:
@@ -219,11 +287,22 @@ def generate_openai(
         # ChatGPTSubscriptionClient that re-routes chat.completions
         # calls through the Responses API (the only surface the
         # chatgpt.com/backend-api/codex backend exposes). Call-site
-        # stays unchanged.
-        response = iface.client.chat.completions.create(**request_kwargs)
+        # stays unchanged; that client streams internally and hands the
+        # text to the call's sink itself.
+        sink = current_sink()
+        if (
+            sink is not None
+            and not getattr(iface.client, "streams_internally", False)
+            and _profile is not None
+            and _profile.streams_usage
+        ):
+            response = _stream_completion(iface.client, request_kwargs, sink)
+        else:
+            response = iface.client.chat.completions.create(**request_kwargs)
         if not response.choices:
             raise ValueError(f"Provider returned no choices (model={iface.model!r})")
         content = _strip_reasoning_tags(response.choices[0].message.content)
+        cut_off = getattr(response.choices[0], "finish_reason", None) == "length"
         token_count_input = response.usage.prompt_tokens
         token_count_output = response.usage.completion_tokens
 
@@ -273,6 +352,8 @@ def generate_openai(
             )
 
         status = "success"
+    except LLMStreamAborted:
+        raise
     except Exception as exc:
         exc_obj = exc
         logger.debug(f"Error calling OpenAI API: {exc}")
@@ -304,6 +385,7 @@ def generate_openai(
     result = {
         "tokens_used": total_tokens or 0,
         "cached_tokens": cached_tokens,
+        "cut_off": cut_off,
     }
 
     if exc_obj:
@@ -348,6 +430,7 @@ def generate_ollama(
     total_tokens = 0
     status = "failed"
     content: Optional[str] = None
+    cut_off = False
     exc_obj: Optional[Exception] = None
 
     try:
@@ -372,6 +455,7 @@ def generate_ollama(
         result = response.json()
 
         content = result.get("response", "").strip()
+        cut_off = result.get("done_reason") == "length"
         token_count_input = result.get("prompt_eval_count", 0)
         token_count_output = result.get("eval_count", 0)
         total_tokens = token_count_input + token_count_output
@@ -394,7 +478,7 @@ def generate_ollama(
         "llm_ollama", "remote", iface.model, token_count_input, token_count_output, 0
     )
 
-    result = {"tokens_used": total_tokens or 0}
+    result = {"tokens_used": total_tokens or 0, "cut_off": cut_off}
     if exc_obj:
         error_str = f"{type(exc_obj).__name__}: {str(exc_obj)}"
         result["error"] = error_str

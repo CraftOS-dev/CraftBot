@@ -7,8 +7,9 @@ and provides platform-aware action lookup.
 """
 
 import functools
+import os
 import platform as platform_lib
-from typing import List, Dict, Any, Optional, Callable, Union
+from typing import List, Dict, Any, Optional, Callable, Tuple, Union
 from dataclasses import dataclass, field
 import logging
 import inspect
@@ -52,6 +53,32 @@ def _strip_decorator(source_code: str) -> str:
         return source_code
 
 
+# Extracted handler source, keyed by handler and revalidated against the
+# source file's mtime: an edited action file still takes effect on its next
+# call, but an unchanged one is no longer re-read and re-parsed on every
+# lookup (the router looks up every candidate action on every turn).
+_SOURCE_CACHE: Dict[Callable, Tuple[int, str]] = {}
+
+
+def _handler_source(handler: Callable) -> str:
+    """Decorator-stripped source of an action handler. Raises like
+    inspect.getsource when the source cannot be found."""
+    code = getattr(handler, "__code__", None)
+    mtime: Optional[int] = None
+    if code is not None:
+        try:
+            mtime = os.stat(code.co_filename).st_mtime_ns
+        except OSError:
+            mtime = None
+    cached = _SOURCE_CACHE.get(handler)
+    if cached is not None and mtime is not None and cached[0] == mtime:
+        return cached[1]
+    source = _strip_decorator(textwrap.dedent(inspect.getsource(handler)))
+    if mtime is not None:
+        _SOURCE_CACHE[handler] = (mtime, source)
+    return source
+
+
 @dataclass
 class ActionMetadata:
     """Holds configuration data defining the action contract."""
@@ -79,6 +106,16 @@ class ActionMetadata:
     # are guarded by the activity ledger: intent is recorded
     # before execution and a completed run is never silently re-executed.
     irreversible: bool = False
+    # How the chat shows a run of this action: one line with an icon, the
+    # action's name, and the value of ``display_param``, the one input
+    # parameter that best says what this call does (the thing it acts on,
+    # or what it sends); None when the action takes no such parameter.
+    # ``integration`` is the integration id whose logo the line shows; an
+    # action of no integration names a lucide icon (``icon``) instead.
+    # Display only: none of these reaches the model.
+    display_param: Optional[str] = None
+    icon: Optional[str] = None
+    integration: Optional[str] = None
 
     @property
     def display_name(self) -> str:
@@ -206,6 +243,28 @@ class ActionRegistry:
         """Returns the entire registry structure for inspection."""
         return self._registry
 
+    def display_meta(self, name: str) -> Optional[Dict[str, Optional[str]]]:
+        """How the chat shows a run of action ``name``: its display_param,
+        icon and integration (ActionMetadata). ``name`` may be the canonical
+        name or its display form ("Web search"); None for an unknown action."""
+        impls = self._registry.get(name)
+        if impls is None:
+            canonical = name.strip().lower().replace(" ", "_").replace("-", "_")
+            impls = self._registry.get(canonical)
+            if impls is None:
+                impls = next(
+                    (v for k, v in self._registry.items() if k.lower() == canonical),
+                    None,
+                )
+        if not impls:
+            return None
+        meta = next(iter(impls.values())).metadata
+        return {
+            "display_param": meta.display_param,
+            "icon": meta.icon,
+            "integration": meta.integration,
+        }
+
     def list_all_actions_as_json(self) -> List[Dict[str, Any]]:
         """
         Returns the registry flattened into JSON-compatible dictionaries matching legacy requirements.
@@ -249,9 +308,7 @@ class ActionRegistry:
             main_code_str = main_impl.handler._mcp_source_code
         else:
             try:
-                raw_code = inspect.getsource(main_impl.handler)
-                dedented_code = textwrap.dedent(raw_code)
-                main_code_str = _strip_decorator(dedented_code)
+                main_code_str = _handler_source(main_impl.handler)
             except Exception as e:
                 logger.error(
                     f"Could not extract source for action '{logical_name}': {e}"
@@ -279,16 +336,15 @@ class ActionRegistry:
 
         # 3. Handle Platform Overrides
         for platform_key, impl in platform_impls.items():
-            if impl == main_impl:
+            # Identity, not ==: the dataclass __eq__ deep-compares schemas.
+            if impl is main_impl:
                 continue
 
             if hasattr(impl.handler, "_mcp_source_code"):
                 override_code_str = impl.handler._mcp_source_code
             else:
                 try:
-                    override_raw = inspect.getsource(impl.handler)
-                    override_dedented = textwrap.dedent(override_raw)
-                    override_code_str = _strip_decorator(override_dedented)
+                    override_code_str = _handler_source(impl.handler)
                 except Exception as e:
                     logger.warning(
                         f"Could not extract override source for {logical_name} on {platform_key}: {e}"
@@ -400,6 +456,22 @@ def install_all_action_requirements():
         logger.error(f"Error during package installation: {e}")
 
 
+def action_row_display(name: str) -> Dict[str, Optional[str]]:
+    """How the chat shows a run of action ``name`` (canonical or display
+    form), as wire fields: ``displayParam`` (null: the action shows no
+    input), plus ``icon`` or ``integration`` when declared. Empty for an
+    unknown action, which the chat shows without a declared input."""
+    meta = registry_instance.display_meta(name)
+    if meta is None:
+        return {}
+    wire: Dict[str, Optional[str]] = {"displayParam": meta["display_param"]}
+    if meta["icon"]:
+        wire["icon"] = meta["icon"]
+    if meta["integration"]:
+        wire["integration"] = meta["integration"]
+    return wire
+
+
 # ==========================================
 # The Decorator Implementation
 # ==========================================
@@ -417,6 +489,9 @@ def action(
     action_sets: Optional[List[str]] = None,
     parallelizable: bool = True,
     irreversible: bool = False,
+    display_param: Optional[str] = None,
+    icon: Optional[str] = None,
+    integration: Optional[str] = None,
 ):
     """
     Decorator used by developers to register functions as actions.
@@ -441,6 +516,15 @@ def action(
                       it reaches the outside world (send email/message, post
                       publicly). Guarded by the activity ledger: a completed
                       run is never silently re-executed after a crash.
+        display_param: The one input parameter whose value the chat shows
+                       next to the action's name: the most informative about
+                       what a call does (what it acts on, or what it sends),
+                       short when two are as informative. None: no parameter
+                       says that (the action takes none).
+        icon: Lucide icon name shown before the action's name, for an action
+              of no integration.
+        integration: Integration id whose logo is shown before the action's
+                     name, for an integration's action.
     """
     # Normalize platforms input to a list of lowercase strings
     if platforms is None:
@@ -466,6 +550,9 @@ def action(
             action_sets=action_sets or [],
             parallelizable=parallelizable,
             irreversible=irreversible,
+            display_param=display_param,
+            icon=icon,
+            integration=integration,
         )
 
         # 2. Create the full registration object

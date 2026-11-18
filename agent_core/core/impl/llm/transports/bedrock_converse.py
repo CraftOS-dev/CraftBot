@@ -14,8 +14,53 @@ from agent_core.decorators import profile, OperationCategory
 from agent_core.core.impl.llm import reasoning_wire
 from agent_core.core.impl.llm.cache import get_cache_config, get_cache_metrics
 from agent_core.core.impl.llm.errors import classify_llm_error
+from agent_core.core.impl.llm.streaming import (
+    LLMStreamAborted,
+    begin,
+    check_cancelled,
+    current_sink,
+    emit,
+)
 from agent_core.core.models.reasoning import ReasoningDecision
 from agent_core.utils.logger import logger
+
+
+def _converse_streamed(client, converse_kwargs: Dict[str, Any], sink) -> Dict[str, Any]:
+    """ConverseStream, handing each text delta to ``sink``; returns the
+    events merged into the response Converse returns (the message's text
+    content, stopReason, and the metadata event's usage)."""
+    begin(sink)
+    response = client.converse_stream(**converse_kwargs)
+    stream = response.get("stream")
+    blocks: Dict[int, List[str]] = {}
+    stop_reason = None
+    usage: Dict[str, Any] = {}
+    try:
+        for event in stream or []:
+            check_cancelled(sink)
+            if "contentBlockDelta" in event:
+                body = event["contentBlockDelta"]
+                text = (body.get("delta") or {}).get("text")
+                if isinstance(text, str):
+                    blocks.setdefault(body.get("contentBlockIndex", 0), []).append(text)
+                    emit(sink, text)
+            elif "messageStop" in event:
+                stop_reason = event["messageStop"].get("stopReason")
+            elif "metadata" in event:
+                usage = event["metadata"].get("usage") or {}
+    finally:
+        close = getattr(stream, "close", None)
+        if callable(close):
+            try:
+                close()
+            except Exception:
+                pass
+    content = [{"text": "".join(blocks[i])} for i in sorted(blocks)]
+    return {
+        "output": {"message": {"role": "assistant", "content": content}},
+        "stopReason": stop_reason,
+        "usage": usage,
+    }
 
 
 @profile("llm_bedrock_call", OperationCategory.LLM)
@@ -59,6 +104,7 @@ def generate(
     cached_tokens = 0
     status = "failed"
     content: Optional[str] = None
+    cut_off = False
     exc_obj: Optional[Exception] = None
     config = get_cache_config()
     cache_type = f"cachepoint_{call_type}" if call_type else "cachepoint"
@@ -117,13 +163,18 @@ def generate(
             else:
                 converse_kwargs["system"] = [{"text": system_prompt}]
 
-        response = iface._bedrock_client.converse(**converse_kwargs)
+        sink = current_sink()
+        if sink is not None:
+            response = _converse_streamed(iface._bedrock_client, converse_kwargs, sink)
+        else:
+            response = iface._bedrock_client.converse(**converse_kwargs)
 
         output_message = response.get("output", {}).get("message", {})
         content_blocks = output_message.get("content", []) or []
         content = "".join(
             block.get("text", "") for block in content_blocks if "text" in block
         ).strip()
+        cut_off = response.get("stopReason") == "max_tokens"
 
         usage = response.get("usage", {}) or {}
         token_count_input = int(usage.get("inputTokens", 0) or 0)
@@ -181,6 +232,8 @@ def generate(
 
         status = "success"
 
+    except LLMStreamAborted:
+        raise
     except Exception as exc:  # pragma: no cover
         exc_obj = exc
         logger.debug(f"Error calling Bedrock Converse API: {exc}")
@@ -207,6 +260,7 @@ def generate(
     result = {
         "tokens_used": total_tokens or 0,
         "cached_tokens": cached_tokens,
+        "cut_off": cut_off,
     }
     if exc_obj:
         error_str = f"{type(exc_obj).__name__}: {str(exc_obj)}"

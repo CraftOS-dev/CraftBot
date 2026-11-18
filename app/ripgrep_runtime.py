@@ -23,8 +23,12 @@ from typing import List, Optional
 # CraftBot ships a dependency lock for.
 TARGETS = {
     ("win32", "x86_64"): "x86_64-pc-windows-msvc",
+    ("win32", "aarch64"): "aarch64-pc-windows-msvc",
     ("darwin", "aarch64"): "aarch64-apple-darwin",
+    ("darwin", "x86_64"): "x86_64-apple-darwin",
+    # musl builds are static, so one binary runs on every distro and glibc.
     ("linux", "x86_64"): "x86_64-unknown-linux-musl",
+    ("linux", "aarch64"): "aarch64-unknown-linux-musl",
 }
 
 # platform.machine() spellings -> the names TARGETS uses.

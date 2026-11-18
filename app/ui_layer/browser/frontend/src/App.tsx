@@ -10,12 +10,12 @@ import { WorkspacePage } from './pages/Workspace'
 import { SettingsPage } from './pages/Settings'
 import { OnboardingPage } from './pages/Onboarding'
 import { AgentAppPage } from './pages/AgentApp'
+import { FrameworkAppPage } from './pages/AgentApp/FrameworkAppPage'
 import { useWebSocket } from './contexts/WebSocketContext'
 import { useAppSelector } from './store/hooks'
 import { selectNeedsHardOnboarding } from './store/selectors/onboarding'
 import { TourProvider } from './tour'
 import { LoadingMascot } from '@mascot'
-import { AgentAppImportToast } from './components/ui/AgentAppImportToast'
 
 // Forces AgentAppPage to remount per-project so useState initializers
 // (theme, custom colors) always start fresh - not carried over from a previous project.
@@ -82,7 +82,7 @@ function App() {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        background: '#191919',
+        background: 'var(--bg-primary)',
         flexDirection: 'column',
         gap: '48px',
         userSelect: 'none',
@@ -107,17 +107,17 @@ function App() {
           <LoadingMascot size={64} />
           {initTimedOut ? (
             <div style={{ maxWidth: '440px', textAlign: 'center' }}>
-              <p style={{ margin: '0 0 8px', color: '#e0e0e0', fontSize: '15px' }}>
+              <p style={{ margin: '0 0 8px', color: 'var(--text-primary)', fontSize: '15px' }}>
                 {t('nav:app.backendUnreachable')}
               </p>
-              <p style={{ margin: '0 0 16px', color: '#8a8a8a', fontSize: '13px', lineHeight: 1.6 }}>
+              <p style={{ margin: '0 0 16px', color: 'var(--text-secondary)', fontSize: '13px', lineHeight: 1.6 }}>
                 {t('nav:app.backendUnreachableHint')}
               </p>
               <button
                 onClick={() => window.location.reload()}
                 style={{
-                  background: 'transparent', color: '#8a8a8a', fontSize: '13px',
-                  border: '1px solid #3a3a3a', borderRadius: '6px',
+                  background: 'transparent', color: 'var(--text-secondary)', fontSize: '13px',
+                  border: '1px solid var(--border-secondary)', borderRadius: '6px',
                   padding: '6px 14px', cursor: 'pointer',
                 }}
               >
@@ -125,7 +125,7 @@ function App() {
               </button>
             </div>
           ) : (
-            <p style={{ margin: 0, color: '#8a8a8a', fontSize: '14px' }}>
+            <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '14px' }}>
               {t('nav:app.wakingUp')}<span className="cb-dots" />
             </p>
           )}
@@ -146,7 +146,6 @@ function App() {
     {/* Root-level: an import outlives the modal that started it, so the
         progress/outcome toast has to be mounted somewhere that never
         unmounts. Renders nothing. */}
-    <AgentAppImportToast />
     <Layout>
       <Routes>
         <Route path="/" element={<ChatPage key="main" sessionId="main" />} />
@@ -157,6 +156,8 @@ function App() {
         <Route path="/workspace" element={<WorkspacePage />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/agent-app/:projectId" element={<AgentAppPageRoute />} />
+        <Route path="/framework-app" element={<FrameworkAppPage />} />
+        <Route path="/apps" element={<Navigate to="/settings?tab=agent_app" replace />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Layout>

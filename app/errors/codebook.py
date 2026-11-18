@@ -90,12 +90,6 @@ _CODEBOOK: Dict[str, _Spec] = {
         title="Proxy request failed",
         message_template="{detail}",
     ),
-    "SUBAGENT_TIMEOUT": _Spec(
-        category=ErrorCategory.CONNECTION,
-        severity=Severity.ERROR,
-        title="Sub-agent call timed out",
-        message_template="The sub-agent LLM call did not respond within {timeout}s.",
-    ),
 }
 
 

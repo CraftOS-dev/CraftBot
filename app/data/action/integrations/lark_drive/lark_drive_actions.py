@@ -14,21 +14,26 @@ from agent_core import action
     input_schema={
         "folder_token": {
             "type": "string",
+            "required": False,
             "description": "Folder token to list inside. Empty string lists the root.",
             "example": "",
         },
         "page_size": {
             "type": "integer",
+            "required": False,
             "description": "Max items (capped at 200).",
             "example": 50,
         },
         "page_token": {
             "type": "string",
+            "required": False,
             "description": "Pagination cursor.",
             "example": "",
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="folder_token",
+    integration="lark_drive",
 )
 async def list_lark_drive_files(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -49,16 +54,20 @@ async def list_lark_drive_files(input_data: dict) -> dict:
     input_schema={
         "file_tokens": {
             "type": "array",
+            "required": True,
             "description": "List of file tokens.",
             "example": ["boxcnabcdef0123"],
         },
         "doc_type": {
             "type": "string",
+            "required": False,
             "description": "'file' (default), 'doc', 'docx', 'sheet', 'bitable', 'mindnote', 'slides'.",
             "example": "file",
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="file_tokens",
+    integration="lark_drive",
 )
 async def get_lark_drive_file_metadata(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -78,17 +87,21 @@ async def get_lark_drive_file_metadata(input_data: dict) -> dict:
     input_schema={
         "name": {
             "type": "string",
+            "required": True,
             "description": "Folder name.",
             "example": "Reports 2026",
         },
         "parent_folder_token": {
             "type": "string",
+            "required": False,
             "description": "Parent folder token. Empty=root.",
             "example": "",
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="name",
+    integration="lark_drive",
 )
 async def create_lark_drive_folder(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -108,22 +121,27 @@ async def create_lark_drive_folder(input_data: dict) -> dict:
     input_schema={
         "file_path": {
             "type": "string",
+            "required": True,
             "description": "Absolute path to the local file.",
             "example": "/home/user/report.pdf",
         },
         "parent_folder_token": {
             "type": "string",
+            "required": True,
             "description": "Destination folder token.",
             "example": "",
         },
         "file_name": {
             "type": "string",
+            "required": False,
             "description": "Name in Drive (defaults to basename).",
             "example": "",
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="file_path",
+    integration="lark_drive",
 )
 async def upload_lark_drive_file(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -142,11 +160,13 @@ async def upload_lark_drive_file(input_data: dict) -> dict:
     description="Download a regular file from Lark Drive to a local path. For Docs/Sheets use export_lark_drive_file.",
     action_sets=["lark_drive_files", "lark_drive"],
     input_schema={
-        "file_token": {"type": "string", "description": "File token.", "example": ""},
-        "dest_path": {"type": "string", "description": "Local path.", "example": ""},
+        "file_token": {"type": "string", "required": True, "description": "File token.", "example": ""},
+        "dest_path": {"type": "string", "required": True, "description": "Local path.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="dest_path",
+    integration="lark_drive",
 )
 async def download_lark_drive_file(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -164,15 +184,18 @@ async def download_lark_drive_file(input_data: dict) -> dict:
     description="Delete a file/folder/doc/etc by token.",
     action_sets=["lark_drive_files", "lark_drive"],
     input_schema={
-        "file_token": {"type": "string", "description": "Token.", "example": ""},
+        "file_token": {"type": "string", "required": True, "description": "Token.", "example": ""},
         "file_type": {
             "type": "string",
+            "required": False,
             "description": "file | folder | doc | docx | sheet | bitable | mindnote | shortcut | slides.",
             "example": "file",
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="file_token",
+    integration="lark_drive",
 )
 async def delete_lark_drive_file(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -192,16 +215,20 @@ async def delete_lark_drive_file(input_data: dict) -> dict:
     input_schema={
         "search_key": {
             "type": "string",
+            "required": True,
             "description": "Query.",
             "example": "Q1 report",
         },
         "count": {
             "type": "integer",
+            "required": False,
             "description": "Max results (capped 50).",
             "example": 20,
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="search_key",
+    integration="lark_drive",
 )
 async def search_lark_drive_files(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -219,21 +246,25 @@ async def search_lark_drive_files(input_data: dict) -> dict:
     description="Copy a file/doc/sheet/etc into a folder. Returns {token, name, url} of the new copy.",
     action_sets=["lark_drive_files", "lark_drive"],
     input_schema={
-        "file_token": {"type": "string", "description": "Source token.", "example": ""},
-        "name": {"type": "string", "description": "Copy name.", "example": ""},
+        "file_token": {"type": "string", "required": True, "description": "Source token.", "example": ""},
+        "name": {"type": "string", "required": True, "description": "Copy name.", "example": ""},
         "folder_token": {
             "type": "string",
+            "required": True,
             "description": "Destination folder token.",
             "example": "",
         },
         "copy_type": {
             "type": "string",
+            "required": False,
             "description": "file | folder | doc | docx | sheet | bitable | mindnote | slides.",
             "example": "file",
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="name",
+    integration="lark_drive",
 )
 async def copy_lark_drive_file(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -262,20 +293,24 @@ async def copy_lark_drive_file(input_data: dict) -> dict:
     description="Move a file/folder/doc to another folder.",
     action_sets=["lark_drive_files", "lark_drive"],
     input_schema={
-        "file_token": {"type": "string", "description": "Token.", "example": ""},
+        "file_token": {"type": "string", "required": True, "description": "Token.", "example": ""},
         "target_folder_token": {
             "type": "string",
+            "required": True,
             "description": "Destination folder token.",
             "example": "",
         },
         "file_type": {
             "type": "string",
+            "required": False,
             "description": "file | folder | doc | docx | sheet | bitable | mindnote | shortcut | slides.",
             "example": "file",
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="file_token",
+    integration="lark_drive",
 )
 async def move_lark_drive_file(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -294,24 +329,29 @@ async def move_lark_drive_file(input_data: dict) -> dict:
     description="List version history for a Doc/Sheet (Docx/Doc/Sheet only).",
     action_sets=["lark_drive_files"],
     input_schema={
-        "file_token": {"type": "string", "description": "Token.", "example": ""},
+        "file_token": {"type": "string", "required": True, "description": "Token.", "example": ""},
         "file_type": {
             "type": "string",
+            "required": False,
             "description": "docx | doc | sheet.",
             "example": "docx",
         },
         "page_size": {
             "type": "integer",
+            "required": False,
             "description": "Max (capped 50).",
             "example": 50,
         },
         "page_token": {
             "type": "string",
+            "required": False,
             "description": "Pagination cursor.",
             "example": "",
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="file_token",
+    integration="lark_drive",
 )
 async def list_lark_drive_file_versions(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -331,14 +371,17 @@ async def list_lark_drive_file_versions(input_data: dict) -> dict:
     description="Get views/likes/comments stats for a file.",
     action_sets=["lark_drive_files"],
     input_schema={
-        "file_token": {"type": "string", "description": "Token.", "example": ""},
+        "file_token": {"type": "string", "required": True, "description": "Token.", "example": ""},
         "file_type": {
             "type": "string",
+            "required": False,
             "description": "docx | doc | sheet | bitable | file.",
             "example": "docx",
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="file_token",
+    integration="lark_drive",
 )
 async def get_lark_drive_file_statistics(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -361,14 +404,17 @@ async def get_lark_drive_file_statistics(input_data: dict) -> dict:
     description="List members with access to a file/doc/etc.",
     action_sets=["lark_drive_permissions", "lark_drive"],
     input_schema={
-        "file_token": {"type": "string", "description": "Token.", "example": ""},
+        "file_token": {"type": "string", "required": True, "description": "Token.", "example": ""},
         "file_type": {
             "type": "string",
+            "required": False,
             "description": "doc | docx | sheet | bitable | file | folder | mindnote | slides.",
             "example": "docx",
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="file_token",
+    integration="lark_drive",
 )
 async def list_lark_drive_permissions(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -386,36 +432,43 @@ async def list_lark_drive_permissions(input_data: dict) -> dict:
     description="Grant access. member_type: email|openid|userid|unionid|chatid|departmentid|openchat|opendepartment|groupid. perm: view|edit|full_access. perm_type: container|single_page.",
     action_sets=["lark_drive_permissions", "lark_drive"],
     input_schema={
-        "file_token": {"type": "string", "description": "Token.", "example": ""},
+        "file_token": {"type": "string", "required": True, "description": "Token.", "example": ""},
         "member_type": {
             "type": "string",
+            "required": True,
             "description": "Member type.",
             "example": "email",
         },
         "member_id": {
             "type": "string",
+            "required": True,
             "description": "Member identifier (email / user_id / etc.).",
             "example": "alice@example.com",
         },
         "perm": {
             "type": "string",
+            "required": True,
             "description": "view | edit | full_access.",
             "example": "view",
         },
-        "file_type": {"type": "string", "description": "Doc type.", "example": "docx"},
+        "file_type": {"type": "string", "required": False, "description": "Doc type.", "example": "docx"},
         "perm_type": {
             "type": "string",
+            "required": False,
             "description": "container | single_page.",
             "example": "container",
         },
         "notify_lark": {
             "type": "boolean",
+            "required": False,
             "description": "Send a Lark notification.",
             "example": False,
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="member_id",
+    integration="lark_drive",
 )
 async def add_lark_drive_permission(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -438,27 +491,32 @@ async def add_lark_drive_permission(input_data: dict) -> dict:
     description="Change a member's permission level.",
     action_sets=["lark_drive_permissions"],
     input_schema={
-        "file_token": {"type": "string", "description": "Token.", "example": ""},
-        "member_id": {"type": "string", "description": "Member ID.", "example": ""},
+        "file_token": {"type": "string", "required": True, "description": "Token.", "example": ""},
+        "member_id": {"type": "string", "required": True, "description": "Member ID.", "example": ""},
         "member_type": {
             "type": "string",
+            "required": True,
             "description": "Member type.",
             "example": "email",
         },
         "perm": {
             "type": "string",
+            "required": True,
             "description": "view | edit | full_access.",
             "example": "edit",
         },
-        "file_type": {"type": "string", "description": "Doc type.", "example": "docx"},
+        "file_type": {"type": "string", "required": False, "description": "Doc type.", "example": "docx"},
         "perm_type": {
             "type": "string",
+            "required": False,
             "description": "container | single_page.",
             "example": "container",
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="member_id",
+    integration="lark_drive",
 )
 async def update_lark_drive_permission(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -480,17 +538,20 @@ async def update_lark_drive_permission(input_data: dict) -> dict:
     description="Revoke a member's access.",
     action_sets=["lark_drive_permissions", "lark_drive"],
     input_schema={
-        "file_token": {"type": "string", "description": "Token.", "example": ""},
-        "member_id": {"type": "string", "description": "Member ID.", "example": ""},
+        "file_token": {"type": "string", "required": True, "description": "Token.", "example": ""},
+        "member_id": {"type": "string", "required": True, "description": "Member ID.", "example": ""},
         "member_type": {
             "type": "string",
+            "required": True,
             "description": "Member type.",
             "example": "email",
         },
-        "file_type": {"type": "string", "description": "Doc type.", "example": "docx"},
+        "file_type": {"type": "string", "required": False, "description": "Doc type.", "example": "docx"},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="member_id",
+    integration="lark_drive",
 )
 async def remove_lark_drive_permission(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -510,10 +571,12 @@ async def remove_lark_drive_permission(input_data: dict) -> dict:
     description="Get public-link settings for a file.",
     action_sets=["lark_drive_permissions"],
     input_schema={
-        "file_token": {"type": "string", "description": "Token.", "example": ""},
-        "file_type": {"type": "string", "description": "Doc type.", "example": "docx"},
+        "file_token": {"type": "string", "required": True, "description": "Token.", "example": ""},
+        "file_type": {"type": "string", "required": False, "description": "Doc type.", "example": "docx"},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="file_token",
+    integration="lark_drive",
 )
 async def get_lark_drive_public_permission(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -531,41 +594,49 @@ async def get_lark_drive_public_permission(input_data: dict) -> dict:
     description="Update public-link settings (sharing scope, comments, security). Values are Lark enums like 'tenant_readable' / 'anyone_readable' / 'closed' / 'anyone_editable' — see Lark docs per field.",
     action_sets=["lark_drive_permissions"],
     input_schema={
-        "file_token": {"type": "string", "description": "Token.", "example": ""},
-        "file_type": {"type": "string", "description": "Doc type.", "example": "docx"},
+        "file_token": {"type": "string", "required": True, "description": "Token.", "example": ""},
+        "file_type": {"type": "string", "required": False, "description": "Doc type.", "example": "docx"},
         "link_share_entity": {
             "type": "string",
+            "required": False,
             "description": "Who can access via link (optional).",
             "example": "closed",
         },
         "share_entity": {
             "type": "string",
+            "required": False,
             "description": "Who can share (optional).",
             "example": "",
         },
         "comment_entity": {
             "type": "string",
+            "required": False,
             "description": "Who can comment (optional).",
             "example": "",
         },
         "security_entity": {
             "type": "string",
+            "required": False,
             "description": "Security setting (optional).",
             "example": "",
         },
         "external_access_entity": {
             "type": "string",
+            "required": False,
             "description": "External access (optional).",
             "example": "",
         },
         "invite_external": {
             "type": "boolean",
+            "required": False,
             "description": "Allow external invites (optional).",
             "example": False,
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="file_token",
+    integration="lark_drive",
 )
 async def update_lark_drive_public_permission(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -591,26 +662,31 @@ async def update_lark_drive_public_permission(input_data: dict) -> dict:
     description="Transfer ownership of a file to another user.",
     action_sets=["lark_drive_permissions"],
     input_schema={
-        "file_token": {"type": "string", "description": "Token.", "example": ""},
+        "file_token": {"type": "string", "required": True, "description": "Token.", "example": ""},
         "member_type": {
             "type": "string",
+            "required": True,
             "description": "email|openid|userid.",
             "example": "email",
         },
         "member_id": {
             "type": "string",
+            "required": True,
             "description": "New owner's identifier.",
             "example": "",
         },
-        "file_type": {"type": "string", "description": "Doc type.", "example": "docx"},
+        "file_type": {"type": "string", "required": False, "description": "Doc type.", "example": "docx"},
         "remove_old_owner": {
             "type": "boolean",
+            "required": False,
             "description": "Strip old owner's access.",
             "example": False,
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="member_id",
+    integration="lark_drive",
 )
 async def transfer_lark_drive_ownership(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -636,16 +712,19 @@ async def transfer_lark_drive_ownership(input_data: dict) -> dict:
     description="List comments on a file.",
     action_sets=["lark_drive_comments", "lark_drive"],
     input_schema={
-        "file_token": {"type": "string", "description": "Token.", "example": ""},
-        "file_type": {"type": "string", "description": "Doc type.", "example": "docx"},
+        "file_token": {"type": "string", "required": True, "description": "Token.", "example": ""},
+        "file_type": {"type": "string", "required": False, "description": "Doc type.", "example": "docx"},
         "is_whole": {
             "type": "boolean",
+            "required": False,
             "description": "Whole-doc comments (true) vs anchored (false).",
             "example": True,
         },
-        "page_size": {"type": "integer", "description": "Max results.", "example": 100},
+        "page_size": {"type": "integer", "required": False, "description": "Max results.", "example": 100},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="file_token",
+    integration="lark_drive",
 )
 async def list_lark_drive_comments(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -665,16 +744,19 @@ async def list_lark_drive_comments(input_data: dict) -> dict:
     description="Post a comment on a file. content_elements is a rich-text array: e.g. [{type:'text_run', text_run:{text:'...'}}].",
     action_sets=["lark_drive_comments", "lark_drive"],
     input_schema={
-        "file_token": {"type": "string", "description": "Token.", "example": ""},
+        "file_token": {"type": "string", "required": True, "description": "Token.", "example": ""},
         "content_elements": {
             "type": "array",
+            "required": True,
             "description": "Rich-text elements.",
             "example": [{"type": "text_run", "text_run": {"text": "Looks good"}}],
         },
-        "file_type": {"type": "string", "description": "Doc type.", "example": "docx"},
+        "file_type": {"type": "string", "required": False, "description": "Doc type.", "example": "docx"},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="content_elements",
+    integration="lark_drive",
 )
 async def create_lark_drive_comment(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -693,11 +775,13 @@ async def create_lark_drive_comment(input_data: dict) -> dict:
     description="Get a single comment.",
     action_sets=["lark_drive_comments"],
     input_schema={
-        "file_token": {"type": "string", "description": "Token.", "example": ""},
-        "comment_id": {"type": "string", "description": "Comment ID.", "example": ""},
-        "file_type": {"type": "string", "description": "Doc type.", "example": "docx"},
+        "file_token": {"type": "string", "required": True, "description": "Token.", "example": ""},
+        "comment_id": {"type": "string", "required": True, "description": "Comment ID.", "example": ""},
+        "file_type": {"type": "string", "required": False, "description": "Doc type.", "example": "docx"},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="comment_id",
+    integration="lark_drive",
 )
 async def get_lark_drive_comment(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -716,17 +800,20 @@ async def get_lark_drive_comment(input_data: dict) -> dict:
     description="Mark a comment resolved (or unresolved).",
     action_sets=["lark_drive_comments"],
     input_schema={
-        "file_token": {"type": "string", "description": "Token.", "example": ""},
-        "comment_id": {"type": "string", "description": "Comment ID.", "example": ""},
+        "file_token": {"type": "string", "required": True, "description": "Token.", "example": ""},
+        "comment_id": {"type": "string", "required": True, "description": "Comment ID.", "example": ""},
         "is_solved": {
             "type": "boolean",
+            "required": False,
             "description": "True=resolve, False=unresolve.",
             "example": True,
         },
-        "file_type": {"type": "string", "description": "Doc type.", "example": "docx"},
+        "file_type": {"type": "string", "required": False, "description": "Doc type.", "example": "docx"},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="comment_id",
+    integration="lark_drive",
 )
 async def resolve_lark_drive_comment(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -746,12 +833,14 @@ async def resolve_lark_drive_comment(input_data: dict) -> dict:
     description="List replies on a comment.",
     action_sets=["lark_drive_comments"],
     input_schema={
-        "file_token": {"type": "string", "description": "Token.", "example": ""},
-        "comment_id": {"type": "string", "description": "Comment ID.", "example": ""},
-        "file_type": {"type": "string", "description": "Doc type.", "example": "docx"},
-        "page_size": {"type": "integer", "description": "Max results.", "example": 100},
+        "file_token": {"type": "string", "required": True, "description": "Token.", "example": ""},
+        "comment_id": {"type": "string", "required": True, "description": "Comment ID.", "example": ""},
+        "file_type": {"type": "string", "required": False, "description": "Doc type.", "example": "docx"},
+        "page_size": {"type": "integer", "required": False, "description": "Max results.", "example": 100},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="comment_id",
+    integration="lark_drive",
 )
 async def list_lark_drive_comment_replies(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -771,18 +860,21 @@ async def list_lark_drive_comment_replies(input_data: dict) -> dict:
     description="Edit a reply.",
     action_sets=["lark_drive_comments"],
     input_schema={
-        "file_token": {"type": "string", "description": "Token.", "example": ""},
-        "comment_id": {"type": "string", "description": "Comment ID.", "example": ""},
-        "reply_id": {"type": "string", "description": "Reply ID.", "example": ""},
+        "file_token": {"type": "string", "required": True, "description": "Token.", "example": ""},
+        "comment_id": {"type": "string", "required": True, "description": "Comment ID.", "example": ""},
+        "reply_id": {"type": "string", "required": True, "description": "Reply ID.", "example": ""},
         "content_elements": {
             "type": "array",
+            "required": True,
             "description": "New rich-text content.",
             "example": [],
         },
-        "file_type": {"type": "string", "description": "Doc type.", "example": "docx"},
+        "file_type": {"type": "string", "required": False, "description": "Doc type.", "example": "docx"},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="content_elements",
+    integration="lark_drive",
 )
 async def update_lark_drive_comment_reply(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -803,13 +895,15 @@ async def update_lark_drive_comment_reply(input_data: dict) -> dict:
     description="Delete a reply.",
     action_sets=["lark_drive_comments"],
     input_schema={
-        "file_token": {"type": "string", "description": "Token.", "example": ""},
-        "comment_id": {"type": "string", "description": "Comment ID.", "example": ""},
-        "reply_id": {"type": "string", "description": "Reply ID.", "example": ""},
-        "file_type": {"type": "string", "description": "Doc type.", "example": "docx"},
+        "file_token": {"type": "string", "required": True, "description": "Token.", "example": ""},
+        "comment_id": {"type": "string", "required": True, "description": "Comment ID.", "example": ""},
+        "reply_id": {"type": "string", "required": True, "description": "Reply ID.", "example": ""},
+        "file_type": {"type": "string", "required": False, "description": "Doc type.", "example": "docx"},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="reply_id",
+    integration="lark_drive",
 )
 async def delete_lark_drive_comment_reply(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -836,32 +930,39 @@ async def delete_lark_drive_comment_reply(input_data: dict) -> dict:
     input_schema={
         "file_extension": {
             "type": "string",
+            "required": True,
             "description": "docx | xlsx | csv | pdf etc.",
             "example": "docx",
         },
         "file_name": {
             "type": "string",
+            "required": True,
             "description": "Target file name.",
             "example": "",
         },
         "file_token": {
             "type": "string",
+            "required": True,
             "description": "Source file token (already uploaded).",
             "example": "",
         },
         "file_type": {
             "type": "string",
+            "required": True,
             "description": "Target type: docx | sheet | bitable.",
             "example": "docx",
         },
         "folder_token": {
             "type": "string",
+            "required": False,
             "description": "Destination folder.",
             "example": "",
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="file_name",
+    integration="lark_drive",
 )
 async def import_lark_drive_file(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -884,11 +985,14 @@ async def import_lark_drive_file(input_data: dict) -> dict:
     input_schema={
         "ticket": {
             "type": "string",
+            "required": True,
             "description": "Ticket from import_lark_drive_file.",
             "example": "",
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="ticket",
+    integration="lark_drive",
 )
 async def get_lark_drive_import_task(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -907,27 +1011,33 @@ async def get_lark_drive_import_task(input_data: dict) -> dict:
     input_schema={
         "file_extension": {
             "type": "string",
+            "required": True,
             "description": "docx | xlsx | csv | pdf.",
             "example": "pdf",
         },
         "file_token": {
             "type": "string",
+            "required": True,
             "description": "Source Doc/Sheet/Bitable token.",
             "example": "",
         },
         "file_type": {
             "type": "string",
+            "required": True,
             "description": "Source type: docx | sheet | bitable.",
             "example": "docx",
         },
         "sub_id": {
             "type": "string",
+            "required": False,
             "description": "Sub-sheet/view ID (optional, for sheets/bitable).",
             "example": "",
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="file_token",
+    integration="lark_drive",
 )
 async def export_lark_drive_file(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -949,16 +1059,20 @@ async def export_lark_drive_file(input_data: dict) -> dict:
     input_schema={
         "ticket": {
             "type": "string",
+            "required": True,
             "description": "Ticket from export_lark_drive_file.",
             "example": "",
         },
         "file_token": {
             "type": "string",
+            "required": True,
             "description": "Original source token (same as passed to export).",
             "example": "",
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="ticket",
+    integration="lark_drive",
 )
 async def get_lark_drive_export_task(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -978,17 +1092,21 @@ async def get_lark_drive_export_task(input_data: dict) -> dict:
     input_schema={
         "result_file_token": {
             "type": "string",
+            "required": True,
             "description": "Token from get_lark_drive_export_task response.",
             "example": "",
         },
         "dest_path": {
             "type": "string",
+            "required": True,
             "description": "Local destination path.",
             "example": "",
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="dest_path",
+    integration="lark_drive",
 )
 async def download_lark_drive_export(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1013,17 +1131,21 @@ async def download_lark_drive_export(input_data: dict) -> dict:
     input_schema={
         "title": {
             "type": "string",
+            "required": False,
             "description": "Doc title.",
             "example": "Meeting notes",
         },
         "folder_token": {
             "type": "string",
+            "required": False,
             "description": "Parent folder (optional, defaults to root).",
             "example": "",
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="title",
+    integration="lark_drive",
 )
 async def create_lark_doc(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1041,9 +1163,11 @@ async def create_lark_doc(input_data: dict) -> dict:
     description="Get a Doc's metadata (title, revision_id, etc.).",
     action_sets=["lark_docs", "lark_drive"],
     input_schema={
-        "document_id": {"type": "string", "description": "Doc ID.", "example": ""},
+        "document_id": {"type": "string", "required": True, "description": "Doc ID.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="document_id",
+    integration="lark_drive",
 )
 async def get_lark_doc(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1058,14 +1182,17 @@ async def get_lark_doc(input_data: dict) -> dict:
     description="Get a Doc's plain-text content (for skimming/summarizing).",
     action_sets=["lark_docs", "lark_drive"],
     input_schema={
-        "document_id": {"type": "string", "description": "Doc ID.", "example": ""},
+        "document_id": {"type": "string", "required": True, "description": "Doc ID.", "example": ""},
         "lang": {
             "type": "integer",
+            "required": False,
             "description": "0=default, 1=en, 2=zh, 3=ja.",
             "example": 0,
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="document_id",
+    integration="lark_drive",
 )
 async def get_lark_doc_raw_content(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1083,24 +1210,29 @@ async def get_lark_doc_raw_content(input_data: dict) -> dict:
     description="List a Doc's blocks (paragraphs, headings, tables, etc.). Returns lean blocks (block_id, block_type, parent_id, text); include_metadata=true for full raw block objects.",
     action_sets=["lark_docs", "lark_drive"],
     input_schema={
-        "document_id": {"type": "string", "description": "Doc ID.", "example": ""},
+        "document_id": {"type": "string", "required": True, "description": "Doc ID.", "example": ""},
         "page_size": {
             "type": "integer",
+            "required": False,
             "description": "Max blocks (capped 500).",
             "example": 500,
         },
         "page_token": {
             "type": "string",
+            "required": False,
             "description": "Pagination cursor.",
             "example": "",
         },
         "include_metadata": {
             "type": "boolean",
+            "required": False,
             "description": "Return full raw block objects (default false = lean).",
             "example": False,
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="document_id",
+    integration="lark_drive",
 )
 async def list_lark_doc_blocks(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1149,10 +1281,12 @@ async def list_lark_doc_blocks(input_data: dict) -> dict:
     description="Get a single block.",
     action_sets=["lark_docs"],
     input_schema={
-        "document_id": {"type": "string", "description": "Doc ID.", "example": ""},
-        "block_id": {"type": "string", "description": "Block ID.", "example": ""},
+        "document_id": {"type": "string", "required": True, "description": "Doc ID.", "example": ""},
+        "block_id": {"type": "string", "required": True, "description": "Block ID.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="block_id",
+    integration="lark_drive",
 )
 async def get_lark_doc_block(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1170,25 +1304,30 @@ async def get_lark_doc_block(input_data: dict) -> dict:
     description="Append child blocks under a parent block. Pass document_id as block_id to add at top level. children is an array of block objects (paragraph / heading / bullet / etc.). Returns {block_ids: [...]} of the new blocks.",
     action_sets=["lark_docs", "lark_drive"],
     input_schema={
-        "document_id": {"type": "string", "description": "Doc ID.", "example": ""},
+        "document_id": {"type": "string", "required": True, "description": "Doc ID.", "example": ""},
         "block_id": {
             "type": "string",
+            "required": True,
             "description": "Parent block ID (or document_id for top level).",
             "example": "",
         },
         "children": {
             "type": "array",
+            "required": True,
             "description": "Block objects to insert.",
             "example": [],
         },
         "index": {
             "type": "integer",
+            "required": False,
             "description": "Insert position (-1 = end).",
             "example": -1,
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="document_id",
+    integration="lark_drive",
 )
 async def append_lark_doc_blocks(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1218,16 +1357,19 @@ async def append_lark_doc_blocks(input_data: dict) -> dict:
     description="Update a block. update_payload uses Docx's update structures, e.g. {update_text_elements: {elements: [...]}} for a paragraph. Returns {block_id}.",
     action_sets=["lark_docs", "lark_drive"],
     input_schema={
-        "document_id": {"type": "string", "description": "Doc ID.", "example": ""},
-        "block_id": {"type": "string", "description": "Block ID.", "example": ""},
+        "document_id": {"type": "string", "required": True, "description": "Doc ID.", "example": ""},
+        "block_id": {"type": "string", "required": True, "description": "Block ID.", "example": ""},
         "update_payload": {
             "type": "object",
+            "required": True,
             "description": "Per-block-type update body.",
             "example": {},
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="block_id",
+    integration="lark_drive",
 )
 async def update_lark_doc_block(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1253,11 +1395,13 @@ async def update_lark_doc_block(input_data: dict) -> dict:
     description="Batch-update multiple blocks in one round-trip. requests is a list of {block_id, ...update_fields}.",
     action_sets=["lark_docs"],
     input_schema={
-        "document_id": {"type": "string", "description": "Doc ID.", "example": ""},
-        "requests": {"type": "array", "description": "Update objects.", "example": []},
+        "document_id": {"type": "string", "required": True, "description": "Doc ID.", "example": ""},
+        "requests": {"type": "array", "required": True, "description": "Update objects.", "example": []},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="document_id",
+    integration="lark_drive",
 )
 async def batch_update_lark_doc_blocks(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1275,25 +1419,30 @@ async def batch_update_lark_doc_blocks(input_data: dict) -> dict:
     description="Delete a contiguous range of children of a parent block. Range is [start_index, end_index) (half-open).",
     action_sets=["lark_docs"],
     input_schema={
-        "document_id": {"type": "string", "description": "Doc ID.", "example": ""},
+        "document_id": {"type": "string", "required": True, "description": "Doc ID.", "example": ""},
         "block_id": {
             "type": "string",
+            "required": True,
             "description": "Parent block ID.",
             "example": "",
         },
         "start_index": {
             "type": "integer",
+            "required": True,
             "description": "Start (inclusive).",
             "example": 0,
         },
         "end_index": {
             "type": "integer",
+            "required": True,
             "description": "End (exclusive).",
             "example": 1,
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="document_id",
+    integration="lark_drive",
 )
 async def delete_lark_doc_blocks(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1318,15 +1467,18 @@ async def delete_lark_doc_blocks(input_data: dict) -> dict:
     description="Create a new Lark Spreadsheet. Returns spreadsheet_token.",
     action_sets=["lark_sheets", "lark_drive"],
     input_schema={
-        "title": {"type": "string", "description": "Spreadsheet title.", "example": ""},
+        "title": {"type": "string", "required": False, "description": "Spreadsheet title.", "example": ""},
         "folder_token": {
             "type": "string",
+            "required": False,
             "description": "Parent folder (optional).",
             "example": "",
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="title",
+    integration="lark_drive",
 )
 async def create_lark_sheet(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1346,11 +1498,14 @@ async def create_lark_sheet(input_data: dict) -> dict:
     input_schema={
         "spreadsheet_token": {
             "type": "string",
+            "required": True,
             "description": "Spreadsheet token.",
             "example": "",
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="spreadsheet_token",
+    integration="lark_drive",
 )
 async def get_lark_sheet(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1367,11 +1522,13 @@ async def get_lark_sheet(input_data: dict) -> dict:
     description="Rename a spreadsheet.",
     action_sets=["lark_sheets"],
     input_schema={
-        "spreadsheet_token": {"type": "string", "description": "Token.", "example": ""},
-        "title": {"type": "string", "description": "New title.", "example": ""},
+        "spreadsheet_token": {"type": "string", "required": True, "description": "Token.", "example": ""},
+        "title": {"type": "string", "required": True, "description": "New title.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="title",
+    integration="lark_drive",
 )
 async def rename_lark_sheet(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1389,9 +1546,11 @@ async def rename_lark_sheet(input_data: dict) -> dict:
     description="List child sheets (tabs) in a spreadsheet.",
     action_sets=["lark_sheets", "lark_drive"],
     input_schema={
-        "spreadsheet_token": {"type": "string", "description": "Token.", "example": ""},
+        "spreadsheet_token": {"type": "string", "required": True, "description": "Token.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="spreadsheet_token",
+    integration="lark_drive",
 )
 async def list_lark_sheet_tabs(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1408,10 +1567,12 @@ async def list_lark_sheet_tabs(input_data: dict) -> dict:
     description="Get info about a single sheet tab (rows, cols, grid_properties).",
     action_sets=["lark_sheets"],
     input_schema={
-        "spreadsheet_token": {"type": "string", "description": "Token.", "example": ""},
-        "sheet_id": {"type": "string", "description": "Tab/sheet ID.", "example": ""},
+        "spreadsheet_token": {"type": "string", "required": True, "description": "Token.", "example": ""},
+        "sheet_id": {"type": "string", "required": True, "description": "Tab/sheet ID.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="sheet_id",
+    integration="lark_drive",
 )
 async def get_lark_sheet_tab(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1429,24 +1590,29 @@ async def get_lark_sheet_tab(input_data: dict) -> dict:
     description="Read a range of cells. range format: '<sheetId>!A1:D10'.",
     action_sets=["lark_sheets", "lark_drive"],
     input_schema={
-        "spreadsheet_token": {"type": "string", "description": "Token.", "example": ""},
+        "spreadsheet_token": {"type": "string", "required": True, "description": "Token.", "example": ""},
         "range": {
             "type": "string",
+            "required": True,
             "description": "Range like 'sheet1!A1:D10'.",
             "example": "",
         },
         "value_render_option": {
             "type": "string",
+            "required": False,
             "description": "ToString | FormattedValue | Formula | UnformattedValue.",
             "example": "ToString",
         },
         "date_time_render_option": {
             "type": "string",
+            "required": False,
             "description": "FormattedString or UnformattedValue.",
             "example": "FormattedString",
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="range",
+    integration="lark_drive",
 )
 async def read_lark_sheet_values(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1468,19 +1634,23 @@ async def read_lark_sheet_values(input_data: dict) -> dict:
     description="Read multiple ranges in one call.",
     action_sets=["lark_sheets"],
     input_schema={
-        "spreadsheet_token": {"type": "string", "description": "Token.", "example": ""},
+        "spreadsheet_token": {"type": "string", "required": True, "description": "Token.", "example": ""},
         "ranges": {
             "type": "array",
+            "required": True,
             "description": "Array of range strings.",
             "example": [],
         },
         "value_render_option": {
             "type": "string",
+            "required": False,
             "description": "Render option.",
             "example": "ToString",
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="ranges",
+    integration="lark_drive",
 )
 async def batch_read_lark_sheet_values(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1499,20 +1669,24 @@ async def batch_read_lark_sheet_values(input_data: dict) -> dict:
     description="Write a 2D values array into a range (overwrites existing cells).",
     action_sets=["lark_sheets", "lark_drive"],
     input_schema={
-        "spreadsheet_token": {"type": "string", "description": "Token.", "example": ""},
+        "spreadsheet_token": {"type": "string", "required": True, "description": "Token.", "example": ""},
         "range": {
             "type": "string",
+            "required": True,
             "description": "Range like 'sheet1!A1'.",
             "example": "",
         },
         "values": {
             "type": "array",
+            "required": True,
             "description": "2D array of cell values.",
             "example": [["A1", "B1"], ["A2", "B2"]],
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="range",
+    integration="lark_drive",
 )
 async def write_lark_sheet_values(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1531,25 +1705,30 @@ async def write_lark_sheet_values(input_data: dict) -> dict:
     description="Append rows after the last filled row. insert_data_option: OVERWRITE | INSERT_ROWS.",
     action_sets=["lark_sheets", "lark_drive"],
     input_schema={
-        "spreadsheet_token": {"type": "string", "description": "Token.", "example": ""},
+        "spreadsheet_token": {"type": "string", "required": True, "description": "Token.", "example": ""},
         "range": {
             "type": "string",
+            "required": True,
             "description": "Range like 'sheet1!A:D' (search range).",
             "example": "",
         },
         "values": {
             "type": "array",
+            "required": True,
             "description": "2D array of rows to append.",
             "example": [],
         },
         "insert_data_option": {
             "type": "string",
+            "required": False,
             "description": "OVERWRITE | INSERT_ROWS.",
             "example": "OVERWRITE",
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="range",
+    integration="lark_drive",
 )
 async def append_lark_sheet_values(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1569,15 +1748,18 @@ async def append_lark_sheet_values(input_data: dict) -> dict:
     description="Write to multiple ranges in one call. value_ranges: [{range, values}, ...].",
     action_sets=["lark_sheets"],
     input_schema={
-        "spreadsheet_token": {"type": "string", "description": "Token.", "example": ""},
+        "spreadsheet_token": {"type": "string", "required": True, "description": "Token.", "example": ""},
         "value_ranges": {
             "type": "array",
+            "required": True,
             "description": "[{range, values}, ...].",
             "example": [],
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="spreadsheet_token",
+    integration="lark_drive",
 )
 async def batch_write_lark_sheet_values(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1595,31 +1777,37 @@ async def batch_write_lark_sheet_values(input_data: dict) -> dict:
     description="Find cells matching a text within a range.",
     action_sets=["lark_sheets"],
     input_schema={
-        "spreadsheet_token": {"type": "string", "description": "Token.", "example": ""},
-        "sheet_id": {"type": "string", "description": "Sheet tab ID.", "example": ""},
-        "find_text": {"type": "string", "description": "Text to find.", "example": ""},
+        "spreadsheet_token": {"type": "string", "required": True, "description": "Token.", "example": ""},
+        "sheet_id": {"type": "string", "required": True, "description": "Sheet tab ID.", "example": ""},
+        "find_text": {"type": "string", "required": True, "description": "Text to find.", "example": ""},
         "range": {
             "type": "string",
+            "required": True,
             "description": "Search range like 'sheet1!A1:Z1000'.",
             "example": "",
         },
         "match_case": {
             "type": "boolean",
+            "required": False,
             "description": "Case sensitive.",
             "example": False,
         },
         "match_entire_cell": {
             "type": "boolean",
+            "required": False,
             "description": "Match whole cell.",
             "example": False,
         },
         "search_by_regex": {
             "type": "boolean",
+            "required": False,
             "description": "Regex mode.",
             "example": False,
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="find_text",
+    integration="lark_drive",
 )
 async def find_in_lark_sheet(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1643,33 +1831,39 @@ async def find_in_lark_sheet(input_data: dict) -> dict:
     description="Find-and-replace across a range.",
     action_sets=["lark_sheets"],
     input_schema={
-        "spreadsheet_token": {"type": "string", "description": "Token.", "example": ""},
-        "sheet_id": {"type": "string", "description": "Sheet tab ID.", "example": ""},
-        "find_text": {"type": "string", "description": "Text to find.", "example": ""},
+        "spreadsheet_token": {"type": "string", "required": True, "description": "Token.", "example": ""},
+        "sheet_id": {"type": "string", "required": True, "description": "Sheet tab ID.", "example": ""},
+        "find_text": {"type": "string", "required": True, "description": "Text to find.", "example": ""},
         "replacement": {
             "type": "string",
+            "required": True,
             "description": "Replacement text.",
             "example": "",
         },
-        "range": {"type": "string", "description": "Search range.", "example": ""},
+        "range": {"type": "string", "required": True, "description": "Search range.", "example": ""},
         "match_case": {
             "type": "boolean",
+            "required": False,
             "description": "Case sensitive.",
             "example": False,
         },
         "match_entire_cell": {
             "type": "boolean",
+            "required": False,
             "description": "Match whole cell.",
             "example": False,
         },
         "search_by_regex": {
             "type": "boolean",
+            "required": False,
             "description": "Regex.",
             "example": False,
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="find_text",
+    integration="lark_drive",
 )
 async def replace_in_lark_sheet(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1694,31 +1888,37 @@ async def replace_in_lark_sheet(input_data: dict) -> dict:
     description="Insert rows or columns into a sheet tab. major_dimension: ROWS | COLUMNS.",
     action_sets=["lark_sheets"],
     input_schema={
-        "spreadsheet_token": {"type": "string", "description": "Token.", "example": ""},
-        "sheet_id": {"type": "string", "description": "Sheet tab ID.", "example": ""},
+        "spreadsheet_token": {"type": "string", "required": True, "description": "Token.", "example": ""},
+        "sheet_id": {"type": "string", "required": True, "description": "Sheet tab ID.", "example": ""},
         "major_dimension": {
             "type": "string",
+            "required": True,
             "description": "ROWS | COLUMNS.",
             "example": "ROWS",
         },
         "start_index": {
             "type": "integer",
+            "required": True,
             "description": "Insert before this index (0-based).",
             "example": 0,
         },
         "end_index": {
             "type": "integer",
+            "required": True,
             "description": "Insert up to (exclusive).",
             "example": 1,
         },
         "inherit_style": {
             "type": "string",
+            "required": False,
             "description": "BEFORE | AFTER.",
             "example": "BEFORE",
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="sheet_id",
+    integration="lark_drive",
 )
 async def insert_lark_sheet_rows_or_cols(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1745,20 +1945,24 @@ async def insert_lark_sheet_rows_or_cols(input_data: dict) -> dict:
     description="Create a new Bitable (multi-dimensional table). Returns app_token.",
     action_sets=["lark_bitable", "lark_drive"],
     input_schema={
-        "name": {"type": "string", "description": "Bitable name.", "example": ""},
+        "name": {"type": "string", "required": False, "description": "Bitable name.", "example": ""},
         "folder_token": {
             "type": "string",
+            "required": False,
             "description": "Parent folder (optional).",
             "example": "",
         },
         "time_zone": {
             "type": "string",
+            "required": False,
             "description": "Time zone.",
             "example": "Asia/Shanghai",
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="name",
+    integration="lark_drive",
 )
 async def create_lark_bitable(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1779,11 +1983,14 @@ async def create_lark_bitable(input_data: dict) -> dict:
     input_schema={
         "app_token": {
             "type": "string",
+            "required": True,
             "description": "Bitable app_token.",
             "example": "",
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="app_token",
+    integration="lark_drive",
 )
 async def get_lark_bitable(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1798,20 +2005,24 @@ async def get_lark_bitable(input_data: dict) -> dict:
     description="Update a Bitable's name or is_advanced flag.",
     action_sets=["lark_bitable"],
     input_schema={
-        "app_token": {"type": "string", "description": "Bitable token.", "example": ""},
+        "app_token": {"type": "string", "required": True, "description": "Bitable token.", "example": ""},
         "name": {
             "type": "string",
+            "required": False,
             "description": "New name (optional).",
             "example": "",
         },
         "is_advanced": {
             "type": "boolean",
+            "required": False,
             "description": "Advanced mode (optional).",
             "example": False,
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="name",
+    integration="lark_drive",
 )
 async def update_lark_bitable(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1830,19 +2041,23 @@ async def update_lark_bitable(input_data: dict) -> dict:
     description="List tables in a Bitable.",
     action_sets=["lark_bitable", "lark_drive"],
     input_schema={
-        "app_token": {"type": "string", "description": "Bitable token.", "example": ""},
+        "app_token": {"type": "string", "required": True, "description": "Bitable token.", "example": ""},
         "page_size": {
             "type": "integer",
+            "required": False,
             "description": "Max (capped 100).",
             "example": 100,
         },
         "page_token": {
             "type": "string",
+            "required": False,
             "description": "Pagination cursor.",
             "example": "",
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="app_token",
+    integration="lark_drive",
 )
 async def list_lark_bitable_tables(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1861,21 +2076,25 @@ async def list_lark_bitable_tables(input_data: dict) -> dict:
     description="Create a new table in a Bitable. Returns {table_id}.",
     action_sets=["lark_bitable", "lark_drive"],
     input_schema={
-        "app_token": {"type": "string", "description": "Bitable token.", "example": ""},
-        "name": {"type": "string", "description": "Table name.", "example": ""},
+        "app_token": {"type": "string", "required": True, "description": "Bitable token.", "example": ""},
+        "name": {"type": "string", "required": True, "description": "Table name.", "example": ""},
         "default_view_name": {
             "type": "string",
+            "required": False,
             "description": "Initial view name (optional).",
             "example": "",
         },
         "fields": {
             "type": "array",
+            "required": False,
             "description": "Initial field schema (optional).",
             "example": [],
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="name",
+    integration="lark_drive",
 )
 async def create_lark_bitable_table(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import pick_result, run_client
@@ -1896,11 +2115,13 @@ async def create_lark_bitable_table(input_data: dict) -> dict:
     description="Delete a table from a Bitable.",
     action_sets=["lark_bitable"],
     input_schema={
-        "app_token": {"type": "string", "description": "Bitable token.", "example": ""},
-        "table_id": {"type": "string", "description": "Table ID.", "example": ""},
+        "app_token": {"type": "string", "required": True, "description": "Bitable token.", "example": ""},
+        "table_id": {"type": "string", "required": True, "description": "Table ID.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="table_id",
+    integration="lark_drive",
 )
 async def delete_lark_bitable_table(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1918,30 +2139,36 @@ async def delete_lark_bitable_table(input_data: dict) -> dict:
     description="List records in a table.",
     action_sets=["lark_bitable", "lark_drive"],
     input_schema={
-        "app_token": {"type": "string", "description": "Bitable token.", "example": ""},
-        "table_id": {"type": "string", "description": "Table ID.", "example": ""},
+        "app_token": {"type": "string", "required": True, "description": "Bitable token.", "example": ""},
+        "table_id": {"type": "string", "required": True, "description": "Table ID.", "example": ""},
         "view_id": {
             "type": "string",
+            "required": False,
             "description": "View ID (optional).",
             "example": "",
         },
         "page_size": {
             "type": "integer",
+            "required": False,
             "description": "Max records (capped 500).",
             "example": 100,
         },
         "page_token": {
             "type": "string",
+            "required": False,
             "description": "Pagination cursor.",
             "example": "",
         },
         "field_names": {
             "type": "array",
+            "required": False,
             "description": "Specific field names to fetch.",
             "example": [],
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="table_id",
+    integration="lark_drive",
 )
 async def list_lark_bitable_records(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1963,11 +2190,13 @@ async def list_lark_bitable_records(input_data: dict) -> dict:
     description="Get a single record.",
     action_sets=["lark_bitable", "lark_drive"],
     input_schema={
-        "app_token": {"type": "string", "description": "Bitable token.", "example": ""},
-        "table_id": {"type": "string", "description": "Table ID.", "example": ""},
-        "record_id": {"type": "string", "description": "Record ID.", "example": ""},
+        "app_token": {"type": "string", "required": True, "description": "Bitable token.", "example": ""},
+        "table_id": {"type": "string", "required": True, "description": "Table ID.", "example": ""},
+        "record_id": {"type": "string", "required": True, "description": "Record ID.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="record_id",
+    integration="lark_drive",
 )
 async def get_lark_bitable_record(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1986,16 +2215,19 @@ async def get_lark_bitable_record(input_data: dict) -> dict:
     description="Create a record in a table. fields is a dict mapping field name → value (per the field's type). Returns {record_id}.",
     action_sets=["lark_bitable", "lark_drive"],
     input_schema={
-        "app_token": {"type": "string", "description": "Bitable token.", "example": ""},
-        "table_id": {"type": "string", "description": "Table ID.", "example": ""},
+        "app_token": {"type": "string", "required": True, "description": "Bitable token.", "example": ""},
+        "table_id": {"type": "string", "required": True, "description": "Table ID.", "example": ""},
         "fields": {
             "type": "object",
+            "required": True,
             "description": "Field-name → value map.",
             "example": {"Name": "Alice"},
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="fields",
+    integration="lark_drive",
 )
 async def create_lark_bitable_record(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -2019,13 +2251,15 @@ async def create_lark_bitable_record(input_data: dict) -> dict:
     description="Update a record. Returns {record_id}.",
     action_sets=["lark_bitable", "lark_drive"],
     input_schema={
-        "app_token": {"type": "string", "description": "Bitable token.", "example": ""},
-        "table_id": {"type": "string", "description": "Table ID.", "example": ""},
-        "record_id": {"type": "string", "description": "Record ID.", "example": ""},
-        "fields": {"type": "object", "description": "Fields to update.", "example": {}},
+        "app_token": {"type": "string", "required": True, "description": "Bitable token.", "example": ""},
+        "table_id": {"type": "string", "required": True, "description": "Table ID.", "example": ""},
+        "record_id": {"type": "string", "required": True, "description": "Record ID.", "example": ""},
+        "fields": {"type": "object", "required": True, "description": "Fields to update.", "example": {}},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="fields",
+    integration="lark_drive",
 )
 async def update_lark_bitable_record(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -2050,12 +2284,14 @@ async def update_lark_bitable_record(input_data: dict) -> dict:
     description="Delete a record.",
     action_sets=["lark_bitable", "lark_drive"],
     input_schema={
-        "app_token": {"type": "string", "description": "Bitable token.", "example": ""},
-        "table_id": {"type": "string", "description": "Table ID.", "example": ""},
-        "record_id": {"type": "string", "description": "Record ID.", "example": ""},
+        "app_token": {"type": "string", "required": True, "description": "Bitable token.", "example": ""},
+        "table_id": {"type": "string", "required": True, "description": "Table ID.", "example": ""},
+        "record_id": {"type": "string", "required": True, "description": "Record ID.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="record_id",
+    integration="lark_drive",
 )
 async def delete_lark_bitable_record(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -2074,16 +2310,19 @@ async def delete_lark_bitable_record(input_data: dict) -> dict:
     description="Create multiple records in one call. records: [{fields: {...}}, ...]. Returns {record_ids: [...]}.",
     action_sets=["lark_bitable", "lark_drive"],
     input_schema={
-        "app_token": {"type": "string", "description": "Bitable token.", "example": ""},
-        "table_id": {"type": "string", "description": "Table ID.", "example": ""},
+        "app_token": {"type": "string", "required": True, "description": "Bitable token.", "example": ""},
+        "table_id": {"type": "string", "required": True, "description": "Table ID.", "example": ""},
         "records": {
             "type": "array",
+            "required": True,
             "description": "[{fields: {...}}, ...].",
             "example": [],
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="table_id",
+    integration="lark_drive",
 )
 async def batch_create_lark_bitable_records(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -2112,16 +2351,19 @@ async def batch_create_lark_bitable_records(input_data: dict) -> dict:
     description="Update multiple records. records: [{record_id, fields}, ...]. Returns {record_ids: [...]}.",
     action_sets=["lark_bitable"],
     input_schema={
-        "app_token": {"type": "string", "description": "Bitable token.", "example": ""},
-        "table_id": {"type": "string", "description": "Table ID.", "example": ""},
+        "app_token": {"type": "string", "required": True, "description": "Bitable token.", "example": ""},
+        "table_id": {"type": "string", "required": True, "description": "Table ID.", "example": ""},
         "records": {
             "type": "array",
+            "required": True,
             "description": "[{record_id, fields}, ...].",
             "example": [],
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="table_id",
+    integration="lark_drive",
 )
 async def batch_update_lark_bitable_records(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -2150,12 +2392,14 @@ async def batch_update_lark_bitable_records(input_data: dict) -> dict:
     description="Delete multiple records.",
     action_sets=["lark_bitable"],
     input_schema={
-        "app_token": {"type": "string", "description": "Bitable token.", "example": ""},
-        "table_id": {"type": "string", "description": "Table ID.", "example": ""},
-        "record_ids": {"type": "array", "description": "Record IDs.", "example": []},
+        "app_token": {"type": "string", "required": True, "description": "Bitable token.", "example": ""},
+        "table_id": {"type": "string", "required": True, "description": "Table ID.", "example": ""},
+        "record_ids": {"type": "array", "required": True, "description": "Record IDs.", "example": []},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="table_id",
+    integration="lark_drive",
 )
 async def batch_delete_lark_bitable_records(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -2174,40 +2418,48 @@ async def batch_delete_lark_bitable_records(input_data: dict) -> dict:
     description="Search records using Bitable's filter+sort syntax. filter_obj: {conjunction:'and'|'or', conditions:[{field_name, operator, value}]}. sort: [{field_name, desc}].",
     action_sets=["lark_bitable", "lark_drive"],
     input_schema={
-        "app_token": {"type": "string", "description": "Bitable token.", "example": ""},
-        "table_id": {"type": "string", "description": "Table ID.", "example": ""},
+        "app_token": {"type": "string", "required": True, "description": "Bitable token.", "example": ""},
+        "table_id": {"type": "string", "required": True, "description": "Table ID.", "example": ""},
         "filter": {
             "type": "object",
+            "required": False,
             "description": "Filter spec (optional).",
             "example": {},
         },
         "sort": {
             "type": "array",
+            "required": False,
             "description": "Sort spec (optional).",
             "example": [],
         },
         "field_names": {
             "type": "array",
+            "required": False,
             "description": "Field names to return (optional).",
             "example": [],
         },
         "view_id": {
             "type": "string",
+            "required": False,
             "description": "View ID (optional).",
             "example": "",
         },
         "page_size": {
             "type": "integer",
+            "required": False,
             "description": "Max (capped 500).",
             "example": 100,
         },
         "page_token": {
             "type": "string",
+            "required": False,
             "description": "Pagination cursor.",
             "example": "",
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="filter",
+    integration="lark_drive",
 )
 async def search_lark_bitable_records(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -2231,25 +2483,30 @@ async def search_lark_bitable_records(input_data: dict) -> dict:
     description="List fields (column definitions) in a table.",
     action_sets=["lark_bitable"],
     input_schema={
-        "app_token": {"type": "string", "description": "Bitable token.", "example": ""},
-        "table_id": {"type": "string", "description": "Table ID.", "example": ""},
+        "app_token": {"type": "string", "required": True, "description": "Bitable token.", "example": ""},
+        "table_id": {"type": "string", "required": True, "description": "Table ID.", "example": ""},
         "view_id": {
             "type": "string",
+            "required": False,
             "description": "View ID (optional).",
             "example": "",
         },
         "page_size": {
             "type": "integer",
+            "required": False,
             "description": "Max (capped 100).",
             "example": 100,
         },
         "page_token": {
             "type": "string",
+            "required": False,
             "description": "Pagination cursor.",
             "example": "",
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="table_id",
+    integration="lark_drive",
 )
 async def list_lark_bitable_fields(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -2270,23 +2527,27 @@ async def list_lark_bitable_fields(input_data: dict) -> dict:
     description="Create a new field. field_type: 1=Text, 2=Number, 3=SingleSelect, 4=MultiSelect, 5=DateTime, 7=Checkbox, 11=User, 13=Phone, 15=URL, 17=Attachment, 18=Link, 19=Lookup, 20=Formula, 22=Location, 23=Group, 1001=CreatedTime, 1002=ModifiedTime, 1003=CreatedUser, 1004=ModifiedUser, 1005=AutoNumber. Returns {field_id, field_name}.",
     action_sets=["lark_bitable"],
     input_schema={
-        "app_token": {"type": "string", "description": "Bitable token.", "example": ""},
-        "table_id": {"type": "string", "description": "Table ID.", "example": ""},
-        "field_name": {"type": "string", "description": "Field name.", "example": ""},
-        "field_type": {"type": "integer", "description": "Type code.", "example": 1},
+        "app_token": {"type": "string", "required": True, "description": "Bitable token.", "example": ""},
+        "table_id": {"type": "string", "required": True, "description": "Table ID.", "example": ""},
+        "field_name": {"type": "string", "required": True, "description": "Field name.", "example": ""},
+        "field_type": {"type": "integer", "required": True, "description": "Type code.", "example": 1},
         "property": {
             "type": "object",
+            "required": False,
             "description": "Field-type-specific property (e.g. options for select).",
             "example": {},
         },
         "description": {
             "type": "object",
+            "required": False,
             "description": "Description object (optional).",
             "example": {},
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="field_name",
+    integration="lark_drive",
 )
 async def create_lark_bitable_field(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -2316,11 +2577,13 @@ async def create_lark_bitable_field(input_data: dict) -> dict:
     description="List views in a table.",
     action_sets=["lark_bitable"],
     input_schema={
-        "app_token": {"type": "string", "description": "Bitable token.", "example": ""},
-        "table_id": {"type": "string", "description": "Table ID.", "example": ""},
-        "page_size": {"type": "integer", "description": "Max.", "example": 100},
+        "app_token": {"type": "string", "required": True, "description": "Bitable token.", "example": ""},
+        "table_id": {"type": "string", "required": True, "description": "Table ID.", "example": ""},
+        "page_size": {"type": "integer", "required": False, "description": "Max.", "example": 100},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="table_id",
+    integration="lark_drive",
 )
 async def list_lark_bitable_views(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -2346,16 +2609,20 @@ async def list_lark_bitable_views(input_data: dict) -> dict:
     input_schema={
         "page_size": {
             "type": "integer",
+            "required": False,
             "description": "Max (capped 50).",
             "example": 50,
         },
         "page_token": {
             "type": "string",
+            "required": False,
             "description": "Pagination cursor.",
             "example": "",
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param=None,
+    integration="lark_drive",
 )
 async def list_lark_wiki_spaces(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -2373,9 +2640,11 @@ async def list_lark_wiki_spaces(input_data: dict) -> dict:
     description="Get info about a Wiki space.",
     action_sets=["lark_wiki"],
     input_schema={
-        "space_id": {"type": "string", "description": "Space ID.", "example": ""},
+        "space_id": {"type": "string", "required": True, "description": "Space ID.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="space_id",
+    integration="lark_drive",
 )
 async def get_lark_wiki_space(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -2390,24 +2659,29 @@ async def get_lark_wiki_space(input_data: dict) -> dict:
     description="List wiki nodes (pages) in a space.",
     action_sets=["lark_wiki", "lark_drive"],
     input_schema={
-        "space_id": {"type": "string", "description": "Space ID.", "example": ""},
+        "space_id": {"type": "string", "required": True, "description": "Space ID.", "example": ""},
         "parent_node_token": {
             "type": "string",
+            "required": False,
             "description": "Parent node (optional, empty=top level).",
             "example": "",
         },
         "page_size": {
             "type": "integer",
+            "required": False,
             "description": "Max (capped 50).",
             "example": 50,
         },
         "page_token": {
             "type": "string",
+            "required": False,
             "description": "Pagination cursor.",
             "example": "",
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="space_id",
+    integration="lark_drive",
 )
 async def list_lark_wiki_nodes(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -2429,16 +2703,20 @@ async def list_lark_wiki_nodes(input_data: dict) -> dict:
     input_schema={
         "token": {
             "type": "string",
+            "required": True,
             "description": "Wiki node token (from a wiki URL).",
             "example": "",
         },
         "obj_type": {
             "type": "string",
+            "required": False,
             "description": "wiki (default) | doc | docx | sheet | bitable | mindnote | file | slides.",
             "example": "wiki",
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="token",
+    integration="lark_drive",
 )
 async def get_lark_wiki_node(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -2456,31 +2734,37 @@ async def get_lark_wiki_node(input_data: dict) -> dict:
     description="Create a new wiki node. obj_type: doc | docx | sheet | bitable | mindnote | file | slides. node_type: origin (new doc) | shortcut (link to existing). Returns {node_token, obj_token}.",
     action_sets=["lark_wiki"],
     input_schema={
-        "space_id": {"type": "string", "description": "Space ID.", "example": ""},
+        "space_id": {"type": "string", "required": True, "description": "Space ID.", "example": ""},
         "obj_type": {
             "type": "string",
+            "required": True,
             "description": "Underlying doc type.",
             "example": "docx",
         },
         "node_type": {
             "type": "string",
+            "required": False,
             "description": "origin | shortcut.",
             "example": "origin",
         },
         "parent_node_token": {
             "type": "string",
+            "required": False,
             "description": "Parent node (optional).",
             "example": "",
         },
         "origin_node_token": {
             "type": "string",
+            "required": False,
             "description": "Source token (for shortcut).",
             "example": "",
         },
-        "title": {"type": "string", "description": "Title (optional).", "example": ""},
+        "title": {"type": "string", "required": False, "description": "Title (optional).", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="title",
+    integration="lark_drive",
 )
 async def create_lark_wiki_node(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -2512,27 +2796,33 @@ async def create_lark_wiki_node(input_data: dict) -> dict:
     input_schema={
         "space_id": {
             "type": "string",
+            "required": True,
             "description": "Current space ID.",
             "example": "",
         },
         "node_token": {
             "type": "string",
+            "required": True,
             "description": "Node token to move.",
             "example": "",
         },
         "target_parent_token": {
             "type": "string",
+            "required": False,
             "description": "New parent (optional).",
             "example": "",
         },
         "target_space_id": {
             "type": "string",
+            "required": False,
             "description": "New space (optional).",
             "example": "",
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="node_token",
+    integration="lark_drive",
 )
 async def move_lark_wiki_node(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client

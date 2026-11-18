@@ -36,6 +36,8 @@ _SESSION_TYPES = frozenset(
 
 # Types with a lane of their own.
 _TYPE_LANES = {
+    # Read-only framework view resolution must not queue behind legacy launches.
+    "agent_app_framework_open": "framework_view",
     # A stop must never wait behind other work for the same session.
     "session_stop": "session_stop",
     "session_list": "sessions",
@@ -97,6 +99,11 @@ GENERAL_LANE = "general"
 def message_lane(message: Mapping[str, Any]) -> str:
     """The lane a browser message runs in (see module docstring)."""
     msg_type = str(message.get("type") or "")
+    if msg_type == "agent_app_framework_request":
+        return f"framework_request:{message.get('requestId') or ''}"
+    if msg_type == "agent_app_framework_lifecycle":
+        # The shared framework binding coordinates per app across connections.
+        return f"framework_lifecycle:{message.get('requestId') or ''}"
     if msg_type in _SESSION_TYPES:
         return f"session:{message.get('sessionId') or 'main'}"
     if msg_type in _TYPE_LANES:

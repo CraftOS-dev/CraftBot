@@ -38,10 +38,13 @@ FORWARDED for cache routing (Codex-specific — the whole reason prefix
 caching works under ``store=false``):
 
 - ``prompt_cache_key`` — sourced from the caller's ``extra_body`` when
-  present, or a stable per-client UUID as fallback. Codex-rs uses
-  ``thread_id`` here; CraftBot's LLM interface uses
-  ``<call_type>_<sha256(system_prompt)>``. Any stable string works;
-  rotating it per turn breaks caching (known anti-pattern).
+  present, or a stable per-client UUID as fallback. CraftBot's LLM
+  interface uses ``<call_type>_<sha256(system_prompt)>``. Any stable
+  string works; rotating it per turn breaks caching (known anti-pattern).
+- ``session-id`` request header: set to the same key. ChatGPT derives
+  cache affinity from this header, not from the body field: without it
+  each request lands on a random shard and finds no cache. Codex-rs sends
+  its prompt cache key as ``session-id`` for the same reason.
 
 Response shape: the SDK ``Response`` object's ``output_text`` is exposed
 as ``choices[0].message.content``; usage fields are re-mapped onto the
@@ -49,10 +52,12 @@ Chat-Completions field names. Both ``response.completed`` and
 ``response.done`` events are watched for the terminal payload — some
 streams emit only one or the other.
 
+Caller-side streaming goes through a sink (agent_core.core.impl.llm.
+streaming) rather than ``stream=True``: the text deltas reach it while the
+call still returns one aggregated response, so the chat_completions
+transport never passes ``stream`` here (``streams_internally``).
+
 What is NOT bridged yet:
-- Caller-side streaming (``stream=True`` from the caller) — we stream
-  internally, but returning chunks to the caller would need a streaming
-  shim of the Chat-Completions chunk shape.
 - Tool calls (``tools=[...]``) — the Responses API exposes them inside
   ``output`` items, not on ``choices[0].message.tool_calls``.
 """
@@ -257,15 +262,15 @@ def _translate_request(
     # context turn-over-turn (backend keeps no state of its own).
     out["include"] = ["reasoning.encrypted_content"]
 
-    # ``prompt_cache_key`` is what turns a cold shard into a warm one.
-    # Codex-rs sets it to ``self.state.thread_id.to_string()`` (a UUID
-    # stable for the entire conversation). Under ``store=false``, this is
-    # the ONLY thing keeping requests landing on the same warm-cache shard;
-    # rotating it per turn (e.g. hashing the growing messages array) is a
-    # known anti-pattern that pegs cache hit at ~10%. We prefer the value
-    # the caller supplied via ``extra_body.prompt_cache_key`` — CraftBot's
-    # LLM interface generates a stable ``<call_type>_<system_prompt_hash>``
-    # there — and fall back to a per-client UUID if the caller omitted it.
+    # ``prompt_cache_key`` names the conversation's cache. It must stay
+    # stable across turns; rotating it per turn (e.g. hashing the growing
+    # messages array) is a known anti-pattern that pegs cache hit at ~10%.
+    # The same key is sent as the ``session-id`` header (see
+    # _CompletionsNamespace.create), which is what actually pins requests
+    # to a warm shard. We prefer the value the caller supplied via
+    # ``extra_body.prompt_cache_key`` (CraftBot's LLM interface generates a
+    # stable ``<call_type>_<system_prompt_hash>`` there) and fall back to a
+    # per-client UUID if the caller omitted it.
     extra_body = kwargs.get("extra_body") or {}
     if isinstance(extra_body, dict) and extra_body.get("prompt_cache_key"):
         out["prompt_cache_key"] = str(extra_body["prompt_cache_key"])
@@ -316,12 +321,27 @@ def _consume_stream(stream: Any) -> Dict[str, Any]:
       - ``response``       — terminal Response object (may have empty output)
       - ``text``           — content string from accumulated deltas
       - ``seen_types``     — every event type observed during the stream
+
+    When the call streams to a sink (agent_core.core.impl.llm.streaming),
+    each text delta also goes to it as it arrives; a sink whose caller
+    stopped the reply ends the stream with LLMStreamAborted.
     """
+    from agent_core.core.impl.llm.streaming import (
+        begin,
+        check_cancelled,
+        current_sink,
+        emit,
+    )
+
+    sink = current_sink()
+    if sink is not None:
+        begin(sink)
     final = None
     failure_payload = None
     seen_types: List[str] = []
     text_parts: List[str] = []
     for event in stream:
+        check_cancelled(sink)
         etype = getattr(event, "type", "") or ""
         seen_types.append(etype)
         if etype in ("response.completed", "response.done"):
@@ -338,6 +358,8 @@ def _consume_stream(stream: Any) -> Dict[str, Any]:
             delta = getattr(event, "delta", "") or ""
             if delta:
                 text_parts.append(delta)
+                if sink is not None:
+                    emit(sink, delta)
     if failure_payload is not None and final is None:
         raise RuntimeError(f"Codex stream failed: {failure_payload}")
     if final is None:
@@ -450,7 +472,7 @@ def _extract_first_json_object(text: str) -> Tuple[str, bool]:
 
     That trips CraftBot's per-call parser ("Extra data: line 1 column
     N"). Truncating to the first well-formed JSON object gives the
-    sub-agent runner exactly what it expects — one action per call — and
+    decision parser exactly what it expects — one decision per call — and
     the model can re-plan the next action on the next call. The chained
     JSONs beyond the first are effectively speculative planning tokens
     that get discarded.
@@ -667,8 +689,14 @@ class _CompletionsNamespace:
             f"cache_key={translated.get('prompt_cache_key')!r}, "
             f"streaming=True)"
         )
+        # ChatGPT routes cache affinity by the ``session-id`` header; the body
+        # ``prompt_cache_key`` alone leaves every request on a random shard
+        # with 0 cached tokens. Codex-rs sends its cache key here too.
         try:
-            stream = self._parent._inner.responses.create(**translated)
+            stream = self._parent._inner.responses.create(
+                **translated,
+                extra_headers={"session-id": translated["prompt_cache_key"]},
+            )
         except Exception as exc:
             logger.error(
                 f"[CHATGPT-SUB] responses.create failed: {type(exc).__name__}: {exc}"
@@ -717,6 +745,10 @@ class ChatGPTSubscriptionClient:
     wrapped SDK client, so the rare callers that touch ``client.responses``
     or ``client.files`` directly still work unchanged.
     """
+
+    #: The backend always streams; a call's sink gets the text deltas here
+    #: (_consume_stream), so callers never ask for ``stream=True``.
+    streams_internally = True
 
     def __init__(self, openai_client: Any):
         self._inner = openai_client

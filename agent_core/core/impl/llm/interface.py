@@ -43,6 +43,7 @@ from agent_core.core.hooks import (
     RecordLLMCallHook,
 )
 from agent_core.core.impl.llm import transports as _transports
+from agent_core.core.impl.llm.streaming import LLMStreamAborted
 from agent_core.core.impl.llm.types import LLMCallType
 from agent_core.core.models.catalog import (
     CacheLifetime,
@@ -87,6 +88,13 @@ _active_session_key: contextvars.ContextVar[Optional[str]] = contextvars.Context
     "_active_session_key", default=None
 )
 
+# How long the consecutive-failure latch blocks calls once it trips. After
+# this, one call is let through to probe the provider: success clears the
+# latch, failure re-arms it. Without the expiry only a user chat message or a
+# reinitialize cleared it, so unattended scheduled runs stayed dead for days
+# after a single outage.
+FAILURE_LATCH_COOLDOWN_S = 300
+
 
 def _call_type_name(task_id: str, key: str) -> str:
     """The call type a session key ("<task_id>:<call_type>") was built from,
@@ -127,6 +135,14 @@ class RequestUsage:
     model: str
 
 
+# What a saved session history holds next to the system prompt it continues
+# on. Bumped when that split changes: a history saved under another format
+# is not restored (the session starts a new prefix). 2: the decision
+# instructions end the system prompt instead of opening the first user
+# message.
+_SAVED_HISTORY_FORMAT = 2
+
+
 @dataclass(frozen=True)
 class _SessionCheckpoint:
     """A session history as of its last synced request.
@@ -141,6 +157,16 @@ class _SessionCheckpoint:
     history_len: int
     marker: Dict[str, Any]
     input_tokens: Optional[int]
+
+
+class LLMReply(str):
+    """A reply's text. ``cut_off``: the provider stopped it at the output
+    limit before it finished."""
+
+    def __new__(cls, text: str, cut_off: bool = False) -> "LLMReply":
+        reply = super().__new__(cls, text)
+        reply.cut_off = cut_off
+        return reply
 
 
 class LLMContextOverflowError(RuntimeError):
@@ -282,6 +308,9 @@ class LLMInterface:
         # Consecutive failure tracking to prevent infinite retry loops
         self._consecutive_failures = 0
         self._max_consecutive_failures = 5
+        # monotonic() when the counter last reached the threshold (None while
+        # the latch is open). See _check_failure_latch.
+        self._latched_at: Optional[float] = None
 
         # Cross-provider fallback (Phase 5, FR-9). Turn-scoped: a fallback
         # serves the current turn only; the next turn retries the primary.
@@ -385,6 +414,9 @@ class LLMInterface:
         # Where each session history stood at its last synced request; what
         # export_session saves so a restart can continue the session.
         self._checkpoints: Dict[str, _SessionCheckpoint] = {}
+        # Whether each session's last call added its exchange to the session
+        # history (session_turn_recorded).
+        self._turn_recorded: Dict[str, bool] = {}
 
         if ctx["byteplus"]:
             self.api_key = ctx["byteplus"]["api_key"]
@@ -672,6 +704,7 @@ class LLMInterface:
                         prompt_name=ctx.get("prompt_name"),
                         call_type=ctx.get("call_type"),
                         task_id=ctx.get("task_id"),
+                        metadata=dict(ctx.get("metadata") or {}),
                     )
                 )
             except Exception as e:
@@ -684,6 +717,7 @@ class LLMInterface:
         task_id: Optional[str] = None,
         thinking_budget: Optional[int] = None,
         reasoning_choice: Optional[ReasoningChoice] = None,
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Stamp per-call identity + start time into the context for capture.
 
@@ -697,6 +731,9 @@ class LLMInterface:
 
         ``reasoning_choice`` (when set) overrides the bound session's choice
         for this call; see ``reasoning_decision``.
+
+        ``metadata`` (when set) is stored with the captured call, e.g. what
+        kind of request a decision call is and why (the profiler's --resets).
         """
         _llm_call_ctx.set(
             {
@@ -705,6 +742,7 @@ class LLMInterface:
                 "task_id": task_id,
                 "thinking_budget": thinking_budget,
                 "reasoning_choice": reasoning_choice,
+                "metadata": metadata,
                 "start": time.perf_counter(),
                 "started_at": time.time(),
             }
@@ -756,11 +794,41 @@ class LLMInterface:
             f"(category={category.value})"
         )
         if self._consecutive_failures >= self._max_consecutive_failures:
+            self._latched_at = time.monotonic()
             raise LLMConsecutiveFailureError(
                 self._consecutive_failures,
                 last_error=raw_error,
                 last_error_info=error_info,
             )
+
+    def _check_failure_latch(self) -> None:
+        """Pre-flight backstop: refuse calls while the failure latch is set.
+
+        The latch expires FAILURE_LATCH_COOLDOWN_S after it tripped: the next
+        call is let through as a probe with the counter one below the
+        threshold, so a single further failure re-arms the latch and a
+        success resets the counter to zero.
+        """
+        if self._consecutive_failures < self._max_consecutive_failures:
+            return
+        latched_at = getattr(self, "_latched_at", None)
+        if (
+            latched_at is not None
+            and time.monotonic() - latched_at >= FAILURE_LATCH_COOLDOWN_S
+        ):
+            logger.info(
+                f"[LLM] Failure latch expired after "
+                f"{FAILURE_LATCH_COOLDOWN_S}s; probing the provider again"
+            )
+            self._consecutive_failures = self._max_consecutive_failures - 1
+            self._latched_at = None
+            return
+        logger.critical(
+            f"[LLM ABORT] Consecutive failure threshold reached "
+            f"({self._consecutive_failures}/{self._max_consecutive_failures}). "
+            f"Aborting to prevent infinite retries."
+        )
+        raise LLMConsecutiveFailureError(self._consecutive_failures)
 
     # ─────────────── Cross-provider fallback (Phase 5, FR-9) ───────────────
 
@@ -858,6 +926,8 @@ class LLMInterface:
             fb.reset_failure_counter()
             try:
                 content = attempt(fb)
+            except LLMStreamAborted:
+                raise
             except Exception as e:
                 logger.warning(f"[FALLBACK] {candidate} also failed: {e}")
                 continue
@@ -925,6 +995,10 @@ class LLMInterface:
         from app.config import get_context_window
 
         return get_context_window(), None
+
+    def context_window(self) -> int:
+        """Context window, in tokens, of the model this interface serves."""
+        return self._context_limits()[0]
 
     def _input_budget(self, reasoning: Optional[ReasoningDecision]) -> int:
         """Input tokens a request with this reasoning decision may carry.
@@ -1066,13 +1140,7 @@ class LLMInterface:
             raise ValueError("`user_prompt` cannot be None.")
 
         # Check if we've hit the consecutive failure threshold
-        if self._consecutive_failures >= self._max_consecutive_failures:
-            logger.critical(
-                f"[LLM ABORT] Consecutive failure threshold reached "
-                f"({self._consecutive_failures}/{self._max_consecutive_failures}). "
-                f"Aborting to prevent infinite retries."
-            )
-            raise LLMConsecutiveFailureError(self._consecutive_failures)
+        self._check_failure_latch()
 
         if log_response:
             logger.info(f"[LLM SEND] system={system_prompt} | user={user_prompt}")
@@ -1174,13 +1242,16 @@ class LLMInterface:
 
             if log_response:
                 logger.info(f"[LLM RECV] {cleaned}")
-            return cleaned
+            return LLMReply(cleaned, bool(response.get("cut_off")))
 
         except LLMConsecutiveFailureError:
             # Re-raise consecutive failure errors without incrementing counter
             raise
         except LLMContextOverflowError:
             # Nothing was sent; not a provider failure. Do not count or fall back.
+            raise
+        except LLMStreamAborted:
+            # The caller stopped the reply; not a provider failure.
             raise
         except _EmptyResponse as e:
             # Failure already counted above; convert back to RuntimeError for callers.
@@ -1226,6 +1297,7 @@ class LLMInterface:
         thinking_budget: Optional[int] = None,
         reasoning_choice: Optional[ReasoningChoice] = None,
         usage_key: Optional[str] = None,
+        call_metadata: Optional[Dict[str, Any]] = None,
     ) -> str:
         """Async wrapper that defers the blocking call to a worker thread.
 
@@ -1244,6 +1316,9 @@ class LLMInterface:
         call is made for when the provider has no session path: its usage is
         recorded under that key, as a session call's is (see last_request).
         It changes nothing that is sent.
+
+        ``call_metadata`` is stored with the captured call; it changes
+        nothing that is sent.
         """
         # Stamp the context here, in the caller's context, so asyncio.to_thread
         # copies it into the worker thread where the capture runs.
@@ -1251,6 +1326,7 @@ class LLMInterface:
             prompt_name=prompt_name,
             thinking_budget=thinking_budget,
             reasoning_choice=reasoning_choice,
+            metadata=call_metadata,
         )
         token = _active_session_key.set(usage_key)
         try:
@@ -1424,6 +1500,7 @@ class LLMInterface:
             if checkpoint is not None:
                 history = self._session_histories.get(key, [])
                 entry["history"] = list(history[: checkpoint.history_len])
+                entry["history_format"] = _SAVED_HISTORY_FORMAT
                 entry["marker"] = checkpoint.marker
                 entry["input_tokens"] = checkpoint.input_tokens
             request = self._last_requests.get(key)
@@ -1439,9 +1516,10 @@ class LLMInterface:
 
         The last request always comes back: it only describes a request that
         was made. The history comes back only if the provider in use built
-        it (message formats differ between providers) and ``stream`` still
-        holds the events it covers (EventStream.restore_sync_point checks);
-        otherwise the session starts a new prefix on its next request.
+        it (message formats differ between providers), it was saved under
+        the current _SAVED_HISTORY_FORMAT, and ``stream`` still holds the
+        events it covers (EventStream.restore_sync_point checks); otherwise
+        the session starts a new prefix on its next request.
 
         Returns the furthest sync point restored, or None if none was.
         """
@@ -1458,6 +1536,8 @@ class LLMInterface:
             history = entry.get("history")
             marker = entry.get("marker")
             if not history or not marker or entry.get("surface") != self.surface():
+                continue
+            if entry.get("history_format") != _SAVED_HISTORY_FORMAT:
                 continue
             if stream is None or not stream.restore_sync_point(call_type, marker):
                 continue
@@ -1497,6 +1577,25 @@ class LLMInterface:
         for call_type in call_types:
             self.reset_session_history(task_id, call_type)
             self._last_requests.pop(f"{prefix}{call_type}", None)
+
+    def remove_session_caches(self, task_id: str) -> None:
+        """Forget everything this interface holds for a deleted session.
+
+        What restart_session drops (histories, input counts, BytePlus's
+        server-side chains, last requests) plus the session's registrations
+        and recorded-turn flags, for every call type. Caches other sessions
+        share stay: Gemini's explicit cache is keyed by the system prompt,
+        which every session of a type sends.
+        """
+        self.restart_session(task_id)
+        prefix = f"{task_id}:"
+        for state in (
+            self._session_system_prompts,
+            self._checkpoints,
+            self._turn_recorded,
+        ):
+            for key in [k for k in state if k.startswith(prefix)]:
+                state.pop(key, None)
 
     def last_input_tokens(self, task_id: str, call_type: str) -> Optional[int]:
         """Input tokens the provider reported for this session's last request."""
@@ -1692,7 +1791,7 @@ class LLMInterface:
         self._set_token_count(current_count + billable_tokens(response))
         if log_response:
             logger.info(f"[LLM RECV] {cleaned}")
-        return cleaned
+        return LLMReply(cleaned, bool(response.get("cut_off")))
 
     def _generate_response_with_session_sync(
         self,
@@ -1701,6 +1800,7 @@ class LLMInterface:
         user_prompt: str,
         system_prompt_for_new_session: Optional[str] = None,
         log_response: bool = True,
+        record: bool = True,
     ) -> str:
         """Generate response using session/explicit cache for the given task and call type.
 
@@ -1727,18 +1827,16 @@ class LLMInterface:
 
         # Stash the in-flight session call so _finalize_session_response can
         # retry this same turn on a fallback provider (Phase 5, FR-9).
-        self._current_session_call = (task_id, call_type, user_prompt)
+        # A side request (record=False) is never retried on a fallback
+        # provider: that would add it to the fallback's history.
+        self._current_session_call = (
+            (task_id, call_type, user_prompt) if record else None
+        )
 
         # Same consecutive-failure backstop as `_generate_response_sync`. The
         # session path previously had none, so a persistent provider error
         # (e.g. out-of-credits) retried forever instead of aborting.
-        if self._consecutive_failures >= self._max_consecutive_failures:
-            logger.critical(
-                f"[LLM ABORT] Consecutive failure threshold reached "
-                f"({self._consecutive_failures}/{self._max_consecutive_failures}). "
-                f"Aborting to prevent infinite retries."
-            )
-            raise LLMConsecutiveFailureError(self._consecutive_failures)
+        self._check_failure_latch()
 
         if log_response:
             logger.info(
@@ -1788,7 +1886,7 @@ class LLMInterface:
             )
 
             assistant_content = response.get("content", "")
-            if assistant_content and not response.get("error"):
+            if record and assistant_content and not response.get("error"):
                 history.append({"role": "user", "parts": [{"text": user_prompt}]})
                 history.append(
                     {"role": "model", "parts": [{"text": assistant_content}]}
@@ -1854,7 +1952,7 @@ class LLMInterface:
                 )
 
                 assistant_content = response.get("content", "")
-                if assistant_content and not response.get("error"):
+                if record and assistant_content and not response.get("error"):
                     history.append({"role": "user", "content": user_prompt})
                     history.append({"role": "assistant", "content": assistant_content})
             else:
@@ -1900,7 +1998,7 @@ class LLMInterface:
                 )
 
                 assistant_content = response.get("content", "")
-                if assistant_content and not response.get("error"):
+                if record and assistant_content and not response.get("error"):
                     history.append({"role": "user", "content": user_prompt})
                     history.append({"role": "assistant", "content": assistant_content})
 
@@ -1985,7 +2083,7 @@ class LLMInterface:
 
             # On success, accumulate the user message + assistant response in history
             assistant_content = response.get("content", "")
-            if assistant_content and not response.get("error"):
+            if record and assistant_content and not response.get("error"):
                 history.append({"role": "user", "content": user_prompt})
                 history.append({"role": "assistant", "content": assistant_content})
 
@@ -2064,7 +2162,7 @@ class LLMInterface:
             # history (without cachePoint — it's re-placed each call).
             assistant_content = response.get("content", "")
             response_has_error = bool(response.get("error"))
-            if assistant_content and not response_has_error:
+            if record and assistant_content and not response_has_error:
                 history.append({"role": "user", "content": [{"text": user_prompt}]})
                 history.append(
                     {"role": "assistant", "content": [{"text": assistant_content}]}
@@ -2073,7 +2171,7 @@ class LLMInterface:
                     f"[BEDROCK SESSION] {session_key}: appended turn → "
                     f"history={len(history)} msgs"
                 )
-            else:
+            elif record:
                 logger.warning(
                     f"[BEDROCK SESSION] {session_key}: SKIPPED history append "
                     f"(content_empty={not assistant_content}, "
@@ -2098,7 +2196,7 @@ class LLMInterface:
             if self._byteplus_cache_manager.has_session(task_id, call_type):
                 # Session exists - use it
                 response = self._generate_byteplus_with_session(
-                    task_id, call_type, user_prompt
+                    task_id, call_type, user_prompt, retry_on_overflow=record
                 )
             else:
                 # No session exists - create one and get first response
@@ -2125,6 +2223,10 @@ class LLMInterface:
                 )
 
         except Exception as e:
+            if not record:
+                # A side request needs the history it was asked to summarize.
+                # Let its caller retry with the actual events, not just this prompt.
+                raise
             logger.warning(f"[SESSION CACHE] Failed: {e}, falling back to standard")
             stored_system_prompt = self._session_system_prompts.get(session_key)
             effective_system_prompt = (
@@ -2280,6 +2382,7 @@ class LLMInterface:
         system_prompt_for_new_session: Optional[str] = None,
         log_response: bool = True,
         prompt_name: Optional[str] = None,
+        call_metadata: Optional[Dict[str, Any]] = None,
     ) -> str:
         """Synchronous session-based response generation.
 
@@ -2290,11 +2393,17 @@ class LLMInterface:
             system_prompt_for_new_session: System prompt to use if creating new session.
             log_response: Whether to log the response.
             prompt_name: Identity of the named prompt, for capture/profiling.
+            call_metadata: Stored with the captured call; changes nothing sent.
         """
-        self._begin_call(prompt_name=prompt_name, call_type=call_type, task_id=task_id)
+        self._begin_call(
+            prompt_name=prompt_name,
+            call_type=call_type,
+            task_id=task_id,
+            metadata=call_metadata,
+        )
         token = _active_session_key.set(f"{task_id}:{call_type}")
         try:
-            return self._generate_response_with_session_sync(
+            return self._session_call(
                 task_id,
                 call_type,
                 user_prompt,
@@ -2313,6 +2422,7 @@ class LLMInterface:
         system_prompt_for_new_session: Optional[str] = None,
         log_response: bool = True,
         prompt_name: Optional[str] = None,
+        call_metadata: Optional[Dict[str, Any]] = None,
     ) -> str:
         """Async wrapper for session-based response generation.
 
@@ -2323,14 +2433,20 @@ class LLMInterface:
             system_prompt_for_new_session: System prompt to use if creating new session.
             log_response: Whether to log the response.
             prompt_name: Identity of the named prompt, for capture/profiling.
+            call_metadata: Stored with the captured call; changes nothing sent.
         """
         # Stamp here (caller's context) so asyncio.to_thread copies it into the
         # worker thread where capture runs.
-        self._begin_call(prompt_name=prompt_name, call_type=call_type, task_id=task_id)
+        self._begin_call(
+            prompt_name=prompt_name,
+            call_type=call_type,
+            task_id=task_id,
+            metadata=call_metadata,
+        )
         token = _active_session_key.set(f"{task_id}:{call_type}")
         try:
             return await to_thread_with_usage(
-                self._generate_response_with_session_sync,
+                self._session_call,
                 task_id,
                 call_type,
                 user_prompt,
@@ -2340,12 +2456,116 @@ class LLMInterface:
         finally:
             _active_session_key.reset(token)
 
+    def _session_turn_marker(self, task_id: str, call_type: str) -> Any:
+        """What grows when a session history records an exchange: the local
+        history's length, or BytePlus' server-side chain head."""
+        if self.provider == "byteplus" and self._byteplus_cache_manager:
+            return self._byteplus_cache_manager.get_session_cache(task_id, call_type)
+        return len(self._session_histories.get(f"{task_id}:{call_type}", ()))
+
+    def _session_call(
+        self,
+        task_id: str,
+        call_type: str,
+        user_prompt: str,
+        system_prompt_for_new_session: Optional[str],
+        log_response: bool,
+    ) -> str:
+        """One session call, noting whether its exchange reached the history
+        (see session_turn_recorded)."""
+        key = f"{task_id}:{call_type}"
+        before = self._session_turn_marker(task_id, call_type)
+        self._turn_recorded[key] = False
+        content = self._generate_response_with_session_sync(
+            task_id,
+            call_type,
+            user_prompt,
+            system_prompt_for_new_session,
+            log_response,
+        )
+        self._turn_recorded[key] = (
+            self._session_turn_marker(task_id, call_type) != before
+        )
+        return content
+
+    def session_turn_recorded(self, task_id: str, call_type: str) -> bool:
+        """Whether this session's last call added its exchange (the request
+        and the reply) to the session history. False when the call failed,
+        or when a fallback provider served it from a history of its own: the
+        request was then never recorded here, so its events are still unsent
+        as far as this session is concerned."""
+        return self._turn_recorded.get(f"{task_id}:{call_type}", False)
+
+    def has_session_history(self, task_id: str, call_type: str) -> bool:
+        """Whether this session has a history a side request can continue:
+        recorded exchanges, or for BytePlus a server-side chain head."""
+        if not self.has_session_cache(task_id, call_type):
+            return False
+        if self.provider == "byteplus" and self._byteplus_cache_manager:
+            return bool(
+                self._byteplus_cache_manager.get_session_cache(task_id, call_type)
+            )
+        return bool(self._session_histories.get(f"{task_id}:{call_type}"))
+
+    def generate_side_response_with_session(
+        self,
+        task_id: str,
+        call_type: str,
+        user_prompt: str,
+        system_prompt: str,
+        prompt_name: Optional[str] = None,
+        call_metadata: Optional[Dict[str, Any]] = None,
+    ) -> Optional[str]:
+        """One request on the session's history that does not become part of
+        it (e.g. the summary written when the session's stream folds).
+
+        Sent as the history plus ``user_prompt`` under ``system_prompt`` (the
+        one the history continues on), so the provider serves the history
+        from its cache. Neither the request nor its reply joins the history,
+        BytePlus' server-side chain keeps its head, a fallback provider never
+        takes it, and the session's last request (the context readout) stays
+        the session's own.
+
+        Returns None when the session has no history to continue. Errors
+        (including LLMContextOverflowError) propagate.
+        """
+        if not self.has_session_history(task_id, call_type):
+            return None
+        self._begin_call(
+            prompt_name=prompt_name,
+            call_type=call_type,
+            task_id=task_id,
+            metadata=call_metadata,
+        )
+        token = _active_session_key.set(None)
+        head = None
+        if self.provider == "byteplus" and self._byteplus_cache_manager:
+            head = self._byteplus_cache_manager.get_session_cache(task_id, call_type)
+        try:
+            return self._generate_response_with_session_sync(
+                task_id,
+                call_type,
+                user_prompt,
+                system_prompt,
+                log_response=False,
+                record=False,
+            )
+        finally:
+            _active_session_key.reset(token)
+            if head is not None:
+                self._byteplus_cache_manager.set_session_cache(task_id, call_type, head)
+
     def _generate_byteplus_with_session(
-        self, task_id: str, call_type: str, user_prompt: str
+        self,
+        task_id: str,
+        call_type: str,
+        user_prompt: str,
+        *,
+        retry_on_overflow: bool = True,
     ) -> Dict[str, Any]:
         """Delegate to the byteplus_responses transport (Phase 2)."""
         return _transports.byteplus_responses.generate_with_session(
-            self, task_id, call_type, user_prompt
+            self, task_id, call_type, user_prompt, retry_on_overflow=retry_on_overflow
         )
 
     # ──────────── Provider-specific delegates (bodies live in transports/) ────────────

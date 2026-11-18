@@ -500,7 +500,7 @@ def subagent_record(
         return None
     if sub is None:
         return None
-    parent = getattr(sub, "parent_task_id", None)
+    parent = getattr(sub, "parent_session_id", None)
     agent_type = getattr(sub, "agent_type", None)
     created: Optional[datetime] = None
     raw = getattr(sub, "created_at", None)

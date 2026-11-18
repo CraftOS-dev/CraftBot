@@ -15,10 +15,11 @@ from typing import Dict, Optional
 from app.ui_layer.events.resource_changes import Resource
 
 RESOURCE_BY_ACTION: Dict[str, Resource] = {
-    # Recurring (proactive) tasks
-    "recurring_add": Resource.PROACTIVE,
-    "recurring_update_task": Resource.PROACTIVE,
-    "recurring_remove": Resource.PROACTIVE,
+    # Cron jobs and the heartbeat checklist (PROACTIVE.md)
+    "cron_job_add": Resource.PROACTIVE,
+    "cron_job_update": Resource.PROACTIVE,
+    "cron_job_remove": Resource.PROACTIVE,
+    "heartbeat_checklist_update": Resource.PROACTIVE,
     # Scheduled tasks
     "schedule_task": Resource.SCHEDULER,
     "schedule_task_toggle": Resource.SCHEDULER,
@@ -28,14 +29,8 @@ RESOURCE_BY_ACTION: Dict[str, Resource] = {
     "disconnect_integration": Resource.INTEGRATIONS,
     "manage_integration_account": Resource.INTEGRATIONS,
     # Agent Apps
-    "agent_app_scaffold": Resource.AGENT_APPS,
-    "agent_app_notify_ready": Resource.AGENT_APPS,
-    "agent_app_restart": Resource.AGENT_APPS,
-    "agent_app_approve_triggers": Resource.AGENT_APPS,
-    "agent_app_marketplace_install": Resource.AGENT_APPS,
-    "agent_app_import_zip": Resource.AGENT_APPS,
-    "agent_app_import": Resource.AGENT_APPS,
-    "agent_app_convert": Resource.AGENT_APPS,
+    "agent_app_framework_workflow": Resource.AGENT_APPS,
+    "agent_app_command": Resource.AGENT_APPS,
 }
 
 

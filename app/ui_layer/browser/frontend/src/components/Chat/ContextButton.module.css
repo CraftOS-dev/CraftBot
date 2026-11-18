@@ -1,0 +1,208 @@
+/* Context window button left of the mic; its menu mirrors the reasoning
+   picker's menu styling. */
+.wrap {
+  position: relative;
+}
+
+.button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 50%;
+  background: transparent;
+  border: 1px solid var(--border-primary);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.button:hover:not(:disabled) {
+  background: var(--bg-tertiary);
+}
+
+.button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* The ring: track plus an arc for the context fill. */
+.ring {
+  display: block;
+}
+
+.ringFolding {
+  animation: contextSpin 0.9s linear infinite;
+}
+
+.ringTrack {
+  fill: none;
+  stroke: var(--border-primary);
+  stroke-width: 2.5;
+}
+
+.ringFill {
+  fill: none;
+  stroke: var(--color-success);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  transition: stroke-dashoffset var(--transition-fast);
+}
+
+.ringFolding .ringFill {
+  stroke: var(--text-secondary);
+}
+
+.menu {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  right: 0;
+  min-width: 220px;
+  padding: 4px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  z-index: 999;
+}
+
+.header {
+  padding: 6px 10px 4px;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Context and cache readout (read-only, not hoverable). */
+.readout {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 4px 10px 8px;
+  font-size: var(--text-xs);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.rowIcon {
+  flex-shrink: 0;
+  color: var(--text-tertiary);
+}
+
+.rowLabel {
+  flex: 1;
+}
+
+.rowValue {
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.rowDetail {
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.bar {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--bg-tertiary);
+  overflow: hidden;
+}
+
+.barFill {
+  height: 100%;
+  border-radius: 2px;
+  background: var(--color-success);
+  transition: width var(--transition-fast);
+}
+
+.barFill.warn {
+  background: var(--color-warning);
+}
+
+.barFill.high {
+  background: var(--color-error);
+}
+
+.ringFill.warn {
+  stroke: var(--color-warning);
+}
+
+.ringFill.high {
+  stroke: var(--color-error);
+}
+
+.caption {
+  margin-top: -2px;
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+
+/* Fold now: below the readout. */
+.actions {
+  padding-top: 4px;
+  border-top: 1px solid var(--border-primary);
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: 7px 10px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+  text-align: left;
+}
+
+.item:hover:not(:disabled) {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.item:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Folding: busy, not unavailable. */
+.item.busy {
+  opacity: 1;
+  cursor: progress;
+}
+
+.itemLabel {
+  flex: 1;
+}
+
+.itemDetail {
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.spin {
+  flex-shrink: 0;
+  animation: contextSpin 1s linear infinite;
+}
+
+@keyframes contextSpin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}

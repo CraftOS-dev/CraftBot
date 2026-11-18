@@ -28,6 +28,7 @@ from agent_core import action
     input_schema={
         "action_sets": {
             "type": "array",
+            "required": True,
             "items": {"type": "string"},
             "example": ["mini_browser"],
             "description": (
@@ -66,6 +67,8 @@ from agent_core import action
         "action_sets": ["file_operations"],
         "simulated_mode": True,
     },
+    display_param="action_sets",
+    icon="PackagePlus",
 )
 def add_action_sets(input_data: dict) -> dict:
     """Deliver the schemas of action sets into the session's event stream."""
@@ -104,12 +107,23 @@ def add_action_sets(input_data: dict) -> dict:
     name="list_action_sets",
     description=(
         "List all available action sets and their descriptions. "
-        "Also shows which sets this session's <actions> list holds."
+        "Also shows which sets this session's <actions> list holds. "
+        "Pass sets to see the actions each of them holds."
     ),
     default=False,
     mode="ALL",
     action_sets=["core"],  # Always available
-    input_schema={},
+    input_schema={
+        "sets": {
+            "type": "array",
+            "required": False,
+            "example": ["gmail_drafts"],
+            "description": (
+                "Optional: action set names whose actions to list (to pick the "
+                "narrowest set that has what the task needs)."
+            ),
+        },
+    },
     output_schema={
         "available_sets": {
             "type": "object",
@@ -122,10 +136,16 @@ def add_action_sets(input_data: dict) -> dict:
                 "session type; add_action_sets does not change it."
             ),
         },
+        "set_actions": {
+            "type": "object",
+            "description": "For each set passed in sets: the names of its actions.",
+        },
     },
     test_payload={
         "simulated_mode": True,
     },
+    display_param="sets",
+    icon="Boxes",
 )
 def list_action_sets(input_data: dict) -> dict:
     """List all available action sets and the session's <actions> sets."""
@@ -147,7 +167,8 @@ def list_action_sets(input_data: dict) -> dict:
 
     try:
         result = iai.InternalActionInterface.list_action_sets(
-            session_id=input_data.get("_session_id")
+            session_id=input_data.get("_session_id"),
+            sets=input_data.get("sets"),
         )
         return result
     except Exception as e:

@@ -139,6 +139,15 @@ async def connect(provider: str) -> Tuple[bool, str]:
     return await backend.run_login()
 
 
+def setup(provider: str) -> Tuple[bool, str]:
+    """Install or update the local tool a subscription sign-in runs through.
+    Only Claude has one: the official Claude Code CLI."""
+    backend = _backend_for(provider)
+    if backend is None or not hasattr(backend, "setup_cli"):
+        return False, f"Subscription setup not supported for '{provider}'"
+    return backend.setup_cli()
+
+
 def disconnect(provider: str) -> Tuple[bool, str]:
     """Disconnect a subscription. Claude Code logs out its dedicated profile;
     other backends remove their stored credential without remote revocation."""

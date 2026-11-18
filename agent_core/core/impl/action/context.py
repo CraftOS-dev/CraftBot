@@ -32,6 +32,13 @@ current_message_origin: ContextVar[Optional[Dict[str, Any]]] = ContextVar(
     "current_message_origin", default=None
 )
 
+# Run id of the action executing in this context (ActionManager.execute_action
+# sets it around the run). A chat message the action records carries it, so
+# the message the chat showed while the reply was written becomes this one.
+current_action_run_id: ContextVar[Optional[str]] = ContextVar(
+    "current_action_run_id", default=None
+)
+
 
 def run_with_input_context(
     function_to_call: Callable[[dict], dict], input_data: dict

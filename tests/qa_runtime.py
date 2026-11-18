@@ -41,8 +41,10 @@ def seed_runtime(code: Path, home: Path) -> None:
                     "*.log",
                 ),
             )
+    # The shipped default, not the checkout's settings.json: that file is
+    # runtime state (untracked, absent on a fresh clone such as CI).
     settings = json.loads(
-        (code / "app/config/settings.json").read_text(encoding="utf-8")
+        (code / "app/config/settings.default.json").read_text(encoding="utf-8")
     )
     # A developer checkout may contain local secrets. Carry only configuration,
     # with all credential containers removed rather than copied into fixtures.

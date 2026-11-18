@@ -12,6 +12,8 @@ import logging
 import time
 from typing import Any, Dict, Optional, TYPE_CHECKING
 
+from agent_core.core.impl.llm.streaming import LLMStreamAborted
+
 from .config import get_cache_config
 
 if TYPE_CHECKING:
@@ -146,6 +148,8 @@ class GeminiCacheManager:
                         json_mode=True,
                         **thinking,
                     )
+                except LLMStreamAborted:
+                    raise
                 except Exception as e:
                     logger.warning(
                         f"[GEMINI CACHE] Cache {cache_name} failed, recreating: {e}"
@@ -181,6 +185,8 @@ class GeminiCacheManager:
                     json_mode=True,
                     **thinking,
                 )
+        except LLMStreamAborted:
+            raise
         except Exception as e:
             logger.warning(
                 f"[GEMINI CACHE] Failed to create cache for {cache_key}: {e}"

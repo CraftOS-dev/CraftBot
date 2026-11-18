@@ -68,6 +68,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "folder_id": {
                     "type": "string",
+                    "required": True,
                     "description": (
                         "Google Drive folder ID. Use 'root' for the user's My Drive."
                     ),
@@ -75,6 +76,7 @@ def build_operations() -> List[Operation]:
                 },
             },
             arg_map=lambda d: {"folder_id": d["folder_id"]},
+            display_param="folder_id",
         ),
         client_op(
             "search_drive_files",
@@ -90,11 +92,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "query": {
                     "type": "string",
+                    "required": True,
                     "description": "Drive q-query.",
                     "example": "name contains 'budget' and trashed = false",
                 },
                 "max_results": {
                     "type": "integer",
+                    "required": False,
                     "description": "Max results.",
                     "example": 50,
                 },
@@ -103,6 +107,7 @@ def build_operations() -> List[Operation]:
                 "query": d["query"],
                 "max_results": d.get("max_results", 50),
             },
+            display_param="query",
         ),
         client_op(
             "get_drive_file",
@@ -114,11 +119,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "file_id": {
                     "type": "string",
+                    "required": True,
                     "description": "File ID.",
                     "example": "",
                 },
                 "fields": {
                     "type": "string",
+                    "required": False,
                     "description": "Comma-separated field list (optional).",
                     "example": "",
                 },
@@ -127,6 +134,7 @@ def build_operations() -> List[Operation]:
                 "file_id": d["file_id"],
                 "fields": d.get("fields") or None,
             },
+            display_param="file_id",
         ),
         client_op(
             "create_drive_folder",
@@ -139,11 +147,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "name": {
                     "type": "string",
+                    "required": True,
                     "description": "Folder name.",
                     "example": "Project Files",
                 },
                 "parent_folder_id": {
                     "type": "string",
+                    "required": False,
                     "description": "Optional parent folder ID.",
                     "example": "",
                 },
@@ -152,6 +162,7 @@ def build_operations() -> List[Operation]:
                 "name": d["name"],
                 "parent_folder_id": d.get("parent_folder_id"),
             },
+            display_param="name",
         ),
         client_op(
             "upload_drive_file",
@@ -167,21 +178,25 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "file_path": {
                     "type": "string",
+                    "required": True,
                     "description": "Absolute path to the local file.",
                     "example": "C:/Users/me/report.pdf",
                 },
                 "name": {
                     "type": "string",
+                    "required": False,
                     "description": "Drive filename (defaults to local filename).",
                     "example": "",
                 },
                 "mime_type": {
                     "type": "string",
+                    "required": False,
                     "description": "MIME type (defaults to autodetect).",
                     "example": "",
                 },
                 "parent_folder_id": {
                     "type": "string",
+                    "required": False,
                     "description": "Target folder ID (defaults to root).",
                     "example": "",
                 },
@@ -192,6 +207,7 @@ def build_operations() -> List[Operation]:
                 "mime_type": d.get("mime_type") or None,
                 "parent_folder_id": d.get("parent_folder_id") or None,
             },
+            display_param="file_path",
         ),
         client_op(
             "update_drive_file_content",
@@ -207,16 +223,19 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "file_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Drive file ID to overwrite.",
                     "example": "",
                 },
                 "file_path": {
                     "type": "string",
+                    "required": True,
                     "description": "Absolute path to the new local content.",
                     "example": "C:/Users/me/report_v2.pdf",
                 },
                 "mime_type": {
                     "type": "string",
+                    "required": False,
                     "description": "MIME type (defaults to autodetect).",
                     "example": "",
                 },
@@ -226,6 +245,7 @@ def build_operations() -> List[Operation]:
                 "file_path": d["file_path"],
                 "mime_type": d.get("mime_type") or None,
             },
+            display_param="file_path",
         ),
         client_op(
             "download_drive_file",
@@ -242,17 +262,20 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "file_id": {
                     "type": "string",
+                    "required": True,
                     "description": "File ID.",
                     "example": "",
                 },
                 "save_to": {
                     "type": "string",
+                    "required": True,
                     "description": (
                         "Local path to save to. Parent directories will be created."
                     ),
                     "example": "C:/Users/me/downloads/report.pdf",
                 },
             },
+            display_param="save_to",
         ),
         client_op(
             "export_drive_file",
@@ -272,20 +295,24 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "file_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Google-native file ID.",
                     "example": "",
                 },
                 "save_to": {
                     "type": "string",
+                    "required": True,
                     "description": "Local path to save to.",
                     "example": "C:/Users/me/report.pdf",
                 },
                 "mime_type": {
                     "type": "string",
+                    "required": True,
                     "description": "Target export MIME type.",
                     "example": "application/pdf",
                 },
             },
+            display_param="save_to",
         ),
         client_op(
             "copy_drive_file",
@@ -301,16 +328,19 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "file_id": {
                     "type": "string",
+                    "required": True,
                     "description": "File ID to copy.",
                     "example": "",
                 },
                 "name": {
                     "type": "string",
+                    "required": False,
                     "description": "Name for the copy (optional).",
                     "example": "",
                 },
                 "parent_folder_id": {
                     "type": "string",
+                    "required": False,
                     "description": "Target folder ID (optional).",
                     "example": "",
                 },
@@ -320,6 +350,7 @@ def build_operations() -> List[Operation]:
                 "name": d.get("name") or None,
                 "parent_folder_id": d.get("parent_folder_id") or None,
             },
+            display_param="name",
         ),
         client_op(
             "move_drive_file",
@@ -332,16 +363,19 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "file_id": {
                     "type": "string",
+                    "required": True,
                     "description": "File ID to move.",
                     "example": "abc123",
                 },
                 "destination_folder_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Destination folder ID.",
                     "example": "def456",
                 },
                 "source_folder_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Current parent folder ID.",
                     "example": "root",
                 },
@@ -351,6 +385,7 @@ def build_operations() -> List[Operation]:
                 "add_parents": d["destination_folder_id"],
                 "remove_parents": d.get("source_folder_id", ""),
             },
+            display_param="file_id",
         ),
         client_op(
             "update_drive_file_metadata",
@@ -366,26 +401,31 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "file_id": {
                     "type": "string",
+                    "required": True,
                     "description": "File ID.",
                     "example": "",
                 },
                 "name": {
                     "type": "string",
+                    "required": False,
                     "description": "New name (optional).",
                     "example": "",
                 },
                 "description": {
                     "type": "string",
+                    "required": False,
                     "description": "New description (optional).",
                     "example": "",
                 },
                 "starred": {
                     "type": "boolean",
+                    "required": False,
                     "description": "Star/unstar (optional).",
                     "example": False,
                 },
                 "trashed": {
                     "type": "boolean",
+                    "required": False,
                     "description": ("Send to trash without deleting (optional)."),
                     "example": False,
                 },
@@ -397,6 +437,7 @@ def build_operations() -> List[Operation]:
                 "starred": d["starred"] if "starred" in d else None,
                 "trashed": d["trashed"] if "trashed" in d else None,
             },
+            display_param="name",
         ),
         client_op(
             "delete_drive_file",
@@ -414,10 +455,12 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "file_id": {
                     "type": "string",
+                    "required": True,
                     "description": "File ID.",
                     "example": "",
                 },
             },
+            display_param="file_id",
         ),
         client_op(
             "empty_drive_trash",
@@ -431,6 +474,7 @@ def build_operations() -> List[Operation]:
             unwrap_envelope=True,
             fail_message="Failed to empty trash.",
             input_schema={},
+            display_param=None,
         ),
         client_op(
             "get_drive_about",
@@ -446,6 +490,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "include_metadata": {
                     "type": "boolean",
+                    "required": False,
                     "description": (
                         "Include exportFormats/importFormats maps (default false)."
                     ),
@@ -455,6 +500,7 @@ def build_operations() -> List[Operation]:
             arg_map=lambda d: {
                 "include_metadata": bool(d.get("include_metadata", False)),
             },
+            display_param=None,
         ),
         client_op(
             "find_drive_folder_by_name",
@@ -466,11 +512,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "name": {
                     "type": "string",
+                    "required": True,
                     "description": "Name.",
                     "example": "Folder",
                 },
                 "parent_folder_id": {
                     "type": "string",
+                    "required": False,
                     "description": "Parent.",
                     "example": "root",
                 },
@@ -479,6 +527,7 @@ def build_operations() -> List[Operation]:
                 "name": d["name"],
                 "parent_folder_id": d.get("parent_folder_id"),
             },
+            display_param="name",
         ),
         Operation(
             name="resolve_drive_folder_path",
@@ -486,6 +535,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "path": {
                     "type": "string",
+                    "required": True,
                     "description": "Path.",
                     "example": "Root/Folder",
                 },
@@ -493,6 +543,7 @@ def build_operations() -> List[Operation]:
             output_schema=dict(STATUS_OUTPUT),
             fn=_resolve_drive_folder_path,
             tags=("google_drive_files",),
+            display_param="path",
         ),
         # ── Permissions (sharing) ────────────────────────────────────────
         client_op(
@@ -507,10 +558,12 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "file_id": {
                     "type": "string",
+                    "required": True,
                     "description": "File or folder ID.",
                     "example": "",
                 },
             },
+            display_param="file_id",
         ),
         client_op(
             "get_drive_permission",
@@ -522,15 +575,18 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "file_id": {
                     "type": "string",
+                    "required": True,
                     "description": "File ID.",
                     "example": "",
                 },
                 "permission_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Permission ID.",
                     "example": "",
                 },
             },
+            display_param="permission_id",
         ),
         client_op(
             "add_drive_permission",
@@ -547,36 +603,43 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "file_id": {
                     "type": "string",
+                    "required": True,
                     "description": "File or folder ID.",
                     "example": "",
                 },
                 "role": {
                     "type": "string",
+                    "required": True,
                     "description": "reader, commenter, writer, or owner.",
                     "example": "reader",
                 },
                 "perm_type": {
                     "type": "string",
+                    "required": False,
                     "description": "user, group, domain, or anyone.",
                     "example": "user",
                 },
                 "email_address": {
                     "type": "string",
+                    "required": False,
                     "description": "Email (for user/group types).",
                     "example": "alice@example.com",
                 },
                 "domain": {
                     "type": "string",
+                    "required": False,
                     "description": "Domain (for domain type).",
                     "example": "",
                 },
                 "send_notification": {
                     "type": "boolean",
+                    "required": False,
                     "description": "Email the grantee.",
                     "example": True,
                 },
                 "email_message": {
                     "type": "string",
+                    "required": False,
                     "description": "Custom notification message (optional).",
                     "example": "",
                 },
@@ -590,6 +653,7 @@ def build_operations() -> List[Operation]:
                 "send_notification": bool(d.get("send_notification", True)),
                 "email_message": d.get("email_message") or None,
             },
+            display_param="email_address",
         ),
         client_op(
             "update_drive_permission",
@@ -603,20 +667,24 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "file_id": {
                     "type": "string",
+                    "required": True,
                     "description": "File ID.",
                     "example": "",
                 },
                 "permission_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Permission ID.",
                     "example": "",
                 },
                 "role": {
                     "type": "string",
+                    "required": True,
                     "description": "New role.",
                     "example": "writer",
                 },
             },
+            display_param="role",
         ),
         client_op(
             "remove_drive_permission",
@@ -630,15 +698,18 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "file_id": {
                     "type": "string",
+                    "required": True,
                     "description": "File ID.",
                     "example": "",
                 },
                 "permission_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Permission ID.",
                     "example": "",
                 },
             },
+            display_param="permission_id",
         ),
         # ── Comments + replies ───────────────────────────────────────────
         client_op(
@@ -651,11 +722,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "file_id": {
                     "type": "string",
+                    "required": True,
                     "description": "File ID.",
                     "example": "",
                 },
                 "include_deleted": {
                     "type": "boolean",
+                    "required": False,
                     "description": "Include soft-deleted comments.",
                     "example": False,
                 },
@@ -664,6 +737,7 @@ def build_operations() -> List[Operation]:
                 "file_id": d["file_id"],
                 "include_deleted": bool(d.get("include_deleted", False)),
             },
+            display_param="file_id",
         ),
         client_op(
             "get_drive_comment",
@@ -675,15 +749,18 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "file_id": {
                     "type": "string",
+                    "required": True,
                     "description": "File ID.",
                     "example": "",
                 },
                 "comment_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Comment ID.",
                     "example": "",
                 },
             },
+            display_param="comment_id",
         ),
         client_op(
             "create_drive_comment",
@@ -699,16 +776,19 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "file_id": {
                     "type": "string",
+                    "required": True,
                     "description": "File ID.",
                     "example": "",
                 },
                 "content": {
                     "type": "string",
+                    "required": True,
                     "description": "Comment text.",
                     "example": "Please review.",
                 },
                 "anchor": {
                     "type": "string",
+                    "required": False,
                     "description": "Optional anchor (structured format).",
                     "example": "",
                 },
@@ -718,6 +798,7 @@ def build_operations() -> List[Operation]:
                 "content": d["content"],
                 "anchor": d.get("anchor") or None,
             },
+            display_param="content",
         ),
         client_op(
             "update_drive_comment",
@@ -730,21 +811,25 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "file_id": {
                     "type": "string",
+                    "required": True,
                     "description": "File ID.",
                     "example": "",
                 },
                 "comment_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Comment ID.",
                     "example": "",
                 },
                 "content": {
                     "type": "string",
+                    "required": False,
                     "description": "New content (optional).",
                     "example": "",
                 },
                 "resolved": {
                     "type": "boolean",
+                    "required": False,
                     "description": "Mark as resolved (optional).",
                     "example": True,
                 },
@@ -755,6 +840,7 @@ def build_operations() -> List[Operation]:
                 "content": d["content"] if "content" in d else None,
                 "resolved": d["resolved"] if "resolved" in d else None,
             },
+            display_param="content",
         ),
         client_op(
             "delete_drive_comment",
@@ -768,15 +854,18 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "file_id": {
                     "type": "string",
+                    "required": True,
                     "description": "File ID.",
                     "example": "",
                 },
                 "comment_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Comment ID.",
                     "example": "",
                 },
             },
+            display_param="comment_id",
         ),
         client_op(
             "list_drive_comment_replies",
@@ -788,15 +877,18 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "file_id": {
                     "type": "string",
+                    "required": True,
                     "description": "File ID.",
                     "example": "",
                 },
                 "comment_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Comment ID.",
                     "example": "",
                 },
             },
+            display_param="comment_id",
         ),
         client_op(
             "create_drive_comment_reply",
@@ -809,20 +901,24 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "file_id": {
                     "type": "string",
+                    "required": True,
                     "description": "File ID.",
                     "example": "",
                 },
                 "comment_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Comment ID.",
                     "example": "",
                 },
                 "content": {
                     "type": "string",
+                    "required": True,
                     "description": "Reply text.",
                     "example": "",
                 },
             },
+            display_param="content",
         ),
         client_op(
             "update_drive_comment_reply",
@@ -835,25 +931,30 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "file_id": {
                     "type": "string",
+                    "required": True,
                     "description": "File ID.",
                     "example": "",
                 },
                 "comment_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Comment ID.",
                     "example": "",
                 },
                 "reply_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Reply ID.",
                     "example": "",
                 },
                 "content": {
                     "type": "string",
+                    "required": True,
                     "description": "New content.",
                     "example": "",
                 },
             },
+            display_param="content",
         ),
         client_op(
             "delete_drive_comment_reply",
@@ -867,20 +968,24 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "file_id": {
                     "type": "string",
+                    "required": True,
                     "description": "File ID.",
                     "example": "",
                 },
                 "comment_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Comment ID.",
                     "example": "",
                 },
                 "reply_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Reply ID.",
                     "example": "",
                 },
             },
+            display_param="reply_id",
         ),
         # ── Revisions (version history) ──────────────────────────────────
         client_op(
@@ -893,10 +998,12 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "file_id": {
                     "type": "string",
+                    "required": True,
                     "description": "File ID.",
                     "example": "",
                 },
             },
+            display_param="file_id",
         ),
         client_op(
             "get_drive_revision",
@@ -908,15 +1015,18 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "file_id": {
                     "type": "string",
+                    "required": True,
                     "description": "File ID.",
                     "example": "",
                 },
                 "revision_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Revision ID.",
                     "example": "",
                 },
             },
+            display_param="revision_id",
         ),
         client_op(
             "update_drive_revision",
@@ -932,16 +1042,19 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "file_id": {
                     "type": "string",
+                    "required": True,
                     "description": "File ID.",
                     "example": "",
                 },
                 "revision_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Revision ID.",
                     "example": "",
                 },
                 "keep_forever": {
                     "type": "boolean",
+                    "required": False,
                     "description": (
                         "Pin this revision (otherwise Drive auto-prunes after "
                         "100 or 30 days, whichever first)."
@@ -950,11 +1063,13 @@ def build_operations() -> List[Operation]:
                 },
                 "published": {
                     "type": "boolean",
+                    "required": False,
                     "description": "Publish state (Google-native files only).",
                     "example": False,
                 },
                 "publish_auto": {
                     "type": "boolean",
+                    "required": False,
                     "description": "Auto-publish subsequent revisions.",
                     "example": False,
                 },
@@ -966,6 +1081,7 @@ def build_operations() -> List[Operation]:
                 "published": d["published"] if "published" in d else None,
                 "publish_auto": d["publish_auto"] if "publish_auto" in d else None,
             },
+            display_param="revision_id",
         ),
         client_op(
             "delete_drive_revision",
@@ -979,15 +1095,18 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "file_id": {
                     "type": "string",
+                    "required": True,
                     "description": "File ID.",
                     "example": "",
                 },
                 "revision_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Revision ID.",
                     "example": "",
                 },
             },
+            display_param="revision_id",
         ),
         # ── Shared drives (formerly Team Drives) ─────────────────────────
         client_op(
@@ -1000,11 +1119,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "page_size": {
                     "type": "integer",
+                    "required": False,
                     "description": "Max results.",
                     "example": 50,
                 },
                 "q": {
                     "type": "string",
+                    "required": False,
                     "description": "Drive search query (optional).",
                     "example": "",
                 },
@@ -1013,6 +1134,7 @@ def build_operations() -> List[Operation]:
                 "page_size": d.get("page_size", 50),
                 "q": d.get("q") or None,
             },
+            display_param="q",
         ),
         client_op(
             "get_shared_drive",
@@ -1024,10 +1146,12 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "drive_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Shared drive ID.",
                     "example": "",
                 },
             },
+            display_param="drive_id",
         ),
         client_op(
             "create_shared_drive",
@@ -1043,10 +1167,12 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "name": {
                     "type": "string",
+                    "required": True,
                     "description": "Shared drive name.",
                     "example": "Team project",
                 },
             },
+            display_param="name",
         ),
         client_op(
             "update_shared_drive",
@@ -1059,16 +1185,19 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "drive_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Shared drive ID.",
                     "example": "",
                 },
                 "name": {
                     "type": "string",
+                    "required": False,
                     "description": "New name (optional).",
                     "example": "",
                 },
                 "hidden": {
                     "type": "boolean",
+                    "required": False,
                     "description": "Hide from UI (optional).",
                     "example": False,
                 },
@@ -1078,6 +1207,7 @@ def build_operations() -> List[Operation]:
                 "name": d.get("name") or None,
                 "hidden": d["hidden"] if "hidden" in d else None,
             },
+            display_param="name",
         ),
         client_op(
             "delete_shared_drive",
@@ -1091,10 +1221,12 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "drive_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Shared drive ID.",
                     "example": "",
                 },
             },
+            display_param="drive_id",
         ),
     ]
 

@@ -36,10 +36,22 @@
     "preparingWorkspace": "正在準備你的工作區…",
     "componentCount_one": "{{count}} 個元件",
     "componentCount_other": "{{count}} 個元件",
-    "collectionCount_one": "{{count}} 個集合",
-    "collectionCount_other": "{{count}} 個集合",
-    "routeCount_one": "{{count}} 個路由",
-    "routeCount_other": "{{count}} 個路由"
+    "taskCount": "已完成 {{done}}/{{total}} 項任務",
+    "fileCount_one": "{{count}} 個檔案",
+    "fileCount_other": "{{count}} 個檔案",
+    "fixing": "正在修正檢查發現的問題",
+    "stage": {
+      "setup": "正在準備專案",
+      "questions": "正在等待你的回答",
+      "requirements": "正在撰寫需求",
+      "review": "正在等待你審閱",
+      "planning": "正在規劃建置",
+      "building": "正在建置應用程式",
+      "buildingTask": "正在建置：{{task}}",
+      "checking": "正在執行檢查",
+      "verifying": "正在瀏覽器中驗證應用程式",
+      "launching": "正在啟動"
+    }
   },
   "themeModal": {
     "title": "選擇主題",

@@ -88,6 +88,10 @@
     "supersededLabel": "置き換え済み（履歴として保持、想起からは除外）",
     "contentPlaceholder": "例: John は簡潔な返信を好む"
   },
+  "entity": {
+    "deleteTitle": "エンティティを削除",
+    "deleteMessage": "「{{name}}」とそのリンクをグラフから削除します。メモリー自体は変更されません。"
+  },
   "files": {
     "title": "エージェントファイル",
     "aboutAria": "ファイルのインデックスについて",
@@ -108,6 +112,7 @@
   },
   "toast": {
     "updateFailed": "インデックスされたファイルの更新に失敗しました",
-    "skipped": "{{path}} をスキップしました: {{reason}}"
+    "skipped": "{{path}} をスキップしました: {{reason}}",
+    "entityDeleteFailed": "エンティティの削除に失敗しました"
   }
 }

@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from agent_core.utils.logger import logger
+from agent_core.utils.windows_process import hidden_console_kwargs
 from agent_core.core.impl.mcp.config import MCPServerConfig
 
 # Default client info - can be overridden
@@ -225,6 +226,7 @@ class StdioTransport(MCPTransport):
                     stderr=asyncio.subprocess.PIPE,
                     env=full_env,
                     cwd=cwd,
+                    **hidden_console_kwargs(),
                     limit=10
                     * 1024
                     * 1024,  # 10MB limit for large MCP responses (e.g., screenshots)
@@ -943,6 +945,14 @@ class MCPServerConnection:
                 }
 
             result = response.get("result", {})
+            status = "error" if result.get("isError") is True else "success"
+            # Presence matters: null, false, zero and empty structured values
+            # are still evidence. Keep the existing result/raw_content shape.
+            metadata = {
+                key: result[key]
+                for key in ("isError", "structuredContent", "_meta")
+                if key in result
+            }
 
             # Extract content from MCP result format
             content = result.get("content", [])
@@ -954,14 +964,16 @@ class MCPServerConnection:
                         text_parts.append(item.get("text", ""))
 
                 return {
-                    "status": "success",
+                    "status": status,
                     "result": "\n".join(text_parts) if text_parts else result,
                     "raw_content": content,
+                    **metadata,
                 }
 
             return {
-                "status": "success",
+                "status": status,
                 "result": result,
+                **metadata,
             }
 
         except Exception as e:

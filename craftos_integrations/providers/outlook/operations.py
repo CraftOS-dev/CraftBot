@@ -45,16 +45,19 @@ def _forward_outlook_email_op() -> Operation:
         input_schema={
             "message_id": {
                 "type": "string",
+                "required": True,
                 "description": "Message ID.",
                 "example": "AAMk...",
             },
             "to_recipients": {
                 "type": "string",
+                "required": True,
                 "description": "Comma-separated recipient emails.",
                 "example": "bob@example.com",
             },
             "comment": {
                 "type": "string",
+                "required": False,
                 "description": "Optional intro comment.",
                 "example": "",
             },
@@ -64,6 +67,7 @@ def _forward_outlook_email_op() -> Operation:
             "to_recipients": _csv_list(d["to_recipients"]),
             "comment": d.get("comment", ""),
         },
+        display_param="to_recipients",
     )
     inner = base.fn
 
@@ -91,11 +95,13 @@ def _get_outlook_mailbox_settings_op() -> Operation:
         input_schema={
             "include_metadata": {
                 "type": "boolean",
+                "required": False,
                 "description": "Return the raw mailboxSettings resource (default false = lean).",
                 "example": False,
             },
         },
         arg_map=lambda d: {},
+        display_param=None,
     )
     inner = base.fn
 
@@ -140,11 +146,13 @@ def _get_outlook_automatic_replies_op() -> Operation:
         input_schema={
             "include_metadata": {
                 "type": "boolean",
+                "required": False,
                 "description": "Return the raw automaticRepliesSetting (default false = lean, HTML stripped).",
                 "example": False,
             },
         },
         arg_map=lambda d: {},
+        display_param=None,
     )
     inner = base.fn
 
@@ -227,21 +235,25 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "to": {
                     "type": "string",
+                    "required": True,
                     "description": "Recipient email address.",
                     "example": "user@example.com",
                 },
                 "subject": {
                     "type": "string",
+                    "required": True,
                     "description": "Email subject.",
                     "example": "Meeting Follow-up",
                 },
                 "body": {
                     "type": "string",
+                    "required": True,
                     "description": "Email body text.",
                     "example": "Hi, here are the notes...",
                 },
                 "cc": {
                     "type": "string",
+                    "required": False,
                     "description": "Optional CC recipients (comma-separated).",
                     "example": "",
                 },
@@ -252,6 +264,7 @@ def build_operations() -> List[Operation]:
                 "body": d["body"],
                 "cc": d.get("cc"),
             },
+            display_param="subject",
         ),
         client_op(
             "list_outlook_emails",
@@ -263,11 +276,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "count": {
                     "type": "integer",
+                    "required": False,
                     "description": "Number of recent emails to list.",
                     "example": 10,
                 },
                 "unread_only": {
                     "type": "boolean",
+                    "required": False,
                     "description": "Only show unread emails.",
                     "example": False,
                 },
@@ -276,6 +291,7 @@ def build_operations() -> List[Operation]:
                 "n": d.get("count", 10),
                 "unread_only": d.get("unread_only", False),
             },
+            display_param=None,
         ),
         client_op(
             "get_outlook_email",
@@ -291,11 +307,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "message_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Outlook message ID.",
                     "example": "AAMk...",
                 },
                 "include_metadata": {
                     "type": "boolean",
+                    "required": False,
                     "description": "Return the HTML body instead of plain text (default false).",
                     "example": False,
                 },
@@ -304,6 +322,7 @@ def build_operations() -> List[Operation]:
                 "message_id": d["message_id"],
                 "include_metadata": bool(d.get("include_metadata", False)),
             },
+            display_param="message_id",
         ),
         client_op(
             "read_top_outlook_emails",
@@ -319,16 +338,19 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "count": {
                     "type": "integer",
+                    "required": False,
                     "description": "Number of emails to read.",
                     "example": 5,
                 },
                 "full_body": {
                     "type": "boolean",
+                    "required": False,
                     "description": "Include full body text.",
                     "example": False,
                 },
                 "include_metadata": {
                     "type": "boolean",
+                    "required": False,
                     "description": "With full_body, return HTML bodies instead of plain text (default false).",
                     "example": False,
                 },
@@ -338,6 +360,7 @@ def build_operations() -> List[Operation]:
                 "full_body": d.get("full_body", False),
                 "include_metadata": bool(d.get("include_metadata", False)),
             },
+            display_param=None,
         ),
         client_op(
             "search_outlook_emails",
@@ -352,16 +375,19 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "query": {
                     "type": "string",
+                    "required": True,
                     "description": "Search text.",
                     "example": "invoice contoso",
                 },
                 "top": {
                     "type": "integer",
+                    "required": False,
                     "description": "Max results.",
                     "example": 25,
                 },
                 "folder": {
                     "type": "string",
+                    "required": False,
                     "description": "Optional folder name (inbox/sentitems/etc.) or ID.",
                     "example": "",
                 },
@@ -371,6 +397,7 @@ def build_operations() -> List[Operation]:
                 "top": d.get("top", 25),
                 "folder": d.get("folder") or None,
             },
+            display_param="query",
         ),
         client_op(
             "reply_outlook_email",
@@ -384,16 +411,19 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "message_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Original message ID.",
                     "example": "AAMk...",
                 },
                 "comment": {
                     "type": "string",
+                    "required": True,
                     "description": "Reply body (plain text).",
                     "example": "Thanks, sounds good.",
                 },
                 "to_recipients": {
                     "type": "string",
+                    "required": False,
                     "description": "Optional comma-separated extra recipients.",
                     "example": "",
                 },
@@ -405,6 +435,7 @@ def build_operations() -> List[Operation]:
                 if d.get("to_recipients")
                 else None,
             },
+            display_param="comment",
         ),
         client_op(
             "reply_all_outlook_email",
@@ -418,15 +449,18 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "message_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Original message ID.",
                     "example": "AAMk...",
                 },
                 "comment": {
                     "type": "string",
+                    "required": True,
                     "description": "Reply body.",
                     "example": "",
                 },
             },
+            display_param="comment",
         ),
         _forward_outlook_email_op(),
         client_op(
@@ -444,11 +478,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "message_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Original message ID.",
                     "example": "AAMk...",
                 },
                 "comment": {
                     "type": "string",
+                    "required": False,
                     "description": "Optional initial reply text.",
                     "example": "",
                 },
@@ -457,6 +493,7 @@ def build_operations() -> List[Operation]:
                 "message_id": d["message_id"],
                 "comment": d.get("comment", ""),
             },
+            display_param="comment",
         ),
         client_op(
             "create_outlook_forward_draft",
@@ -472,16 +509,19 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "message_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Original message ID.",
                     "example": "AAMk...",
                 },
                 "to_recipients": {
                     "type": "string",
+                    "required": False,
                     "description": "Comma-separated recipient emails.",
                     "example": "",
                 },
                 "comment": {
                     "type": "string",
+                    "required": False,
                     "description": "Optional intro.",
                     "example": "",
                 },
@@ -491,6 +531,7 @@ def build_operations() -> List[Operation]:
                 "to_recipients": _csv_list(d.get("to_recipients", "")),
                 "comment": d.get("comment", ""),
             },
+            display_param="to_recipients",
         ),
         client_op(
             "create_outlook_draft",
@@ -506,27 +547,32 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "subject": {
                     "type": "string",
+                    "required": True,
                     "description": "Subject.",
                     "example": "Quick question",
                 },
-                "body": {"type": "string", "description": "Body.", "example": ""},
+                "body": {"type": "string", "required": True, "description": "Body.", "example": ""},
                 "to": {
                     "type": "string",
+                    "required": False,
                     "description": "Comma-separated recipients (optional).",
                     "example": "",
                 },
                 "cc": {
                     "type": "string",
+                    "required": False,
                     "description": "Comma-separated CC (optional).",
                     "example": "",
                 },
                 "bcc": {
                     "type": "string",
+                    "required": False,
                     "description": "Comma-separated BCC (optional).",
                     "example": "",
                 },
                 "html": {
                     "type": "boolean",
+                    "required": False,
                     "description": "Body is HTML.",
                     "example": False,
                 },
@@ -539,6 +585,7 @@ def build_operations() -> List[Operation]:
                 "bcc": _csv_list(d.get("bcc", ""), default=None),
                 "html": bool(d.get("html", False)),
             },
+            display_param="subject",
         ),
         client_op(
             "update_outlook_draft",
@@ -551,41 +598,49 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "message_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Draft ID.",
                     "example": "",
                 },
                 "subject": {
                     "type": "string",
+                    "required": False,
                     "description": "New subject (optional).",
                     "example": "",
                 },
                 "body": {
                     "type": "string",
+                    "required": False,
                     "description": "New body (optional).",
                     "example": "",
                 },
                 "html": {
                     "type": "boolean",
+                    "required": False,
                     "description": "Body is HTML.",
                     "example": False,
                 },
                 "to": {
                     "type": "string",
+                    "required": False,
                     "description": "New comma-separated recipients (optional, replaces).",
                     "example": "",
                 },
                 "cc": {
                     "type": "string",
+                    "required": False,
                     "description": "New CC (optional).",
                     "example": "",
                 },
                 "bcc": {
                     "type": "string",
+                    "required": False,
                     "description": "New BCC (optional).",
                     "example": "",
                 },
             },
             arg_map=_update_draft_args,
+            display_param="subject",
         ),
         client_op(
             "send_outlook_draft",
@@ -599,10 +654,12 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "message_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Draft ID.",
                     "example": "",
                 },
             },
+            display_param="message_id",
         ),
         client_op(
             "delete_outlook_email",
@@ -619,10 +676,12 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "message_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Message ID.",
                     "example": "",
                 },
             },
+            display_param="message_id",
         ),
         client_op(
             "move_outlook_email",
@@ -639,15 +698,18 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "message_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Message ID.",
                     "example": "",
                 },
                 "destination_folder_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Folder ID or well-known name.",
                     "example": "archive",
                 },
             },
+            display_param="destination_folder_id",
         ),
         client_op(
             "copy_outlook_email",
@@ -660,15 +722,18 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "message_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Message ID.",
                     "example": "",
                 },
                 "destination_folder_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Folder ID or well-known name.",
                     "example": "",
                 },
             },
+            display_param="destination_folder_id",
         ),
         client_op(
             "mark_outlook_email_read",
@@ -682,10 +747,12 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "message_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Outlook message ID.",
                     "example": "AAMk...",
                 },
             },
+            display_param="message_id",
         ),
         client_op(
             "mark_outlook_email_unread",
@@ -698,10 +765,12 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "message_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Message ID.",
                     "example": "",
                 },
             },
+            display_param="message_id",
         ),
         client_op(
             "flag_outlook_email",
@@ -717,11 +786,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "message_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Message ID.",
                     "example": "",
                 },
                 "flag_status": {
                     "type": "string",
+                    "required": False,
                     "description": "notFlagged, flagged, or complete.",
                     "example": "flagged",
                 },
@@ -730,6 +801,7 @@ def build_operations() -> List[Operation]:
                 "message_id": d["message_id"],
                 "flag_status": d.get("flag_status", "flagged"),
             },
+            display_param="message_id",
         ),
         client_op(
             "set_outlook_email_categories",
@@ -745,11 +817,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "message_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Message ID.",
                     "example": "",
                 },
                 "categories": {
                     "type": "string",
+                    "required": True,
                     "description": "Comma-separated category display names.",
                     "example": "Personal,Important",
                 },
@@ -758,6 +832,7 @@ def build_operations() -> List[Operation]:
                 "message_id": d["message_id"],
                 "categories": _csv_list(d.get("categories", "")),
             },
+            display_param="categories",
         ),
         # ── Attachments ──────────────────────────────────────────────────
         client_op(
@@ -770,10 +845,12 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "message_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Message ID.",
                     "example": "",
                 },
             },
+            display_param="message_id",
         ),
         client_op(
             "download_outlook_attachment",
@@ -789,20 +866,24 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "message_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Message ID.",
                     "example": "",
                 },
                 "attachment_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Attachment ID.",
                     "example": "",
                 },
                 "save_to": {
                     "type": "string",
+                    "required": True,
                     "description": "Local path to save to.",
                     "example": "C:/Users/me/downloads/file.pdf",
                 },
             },
+            display_param="save_to",
         ),
         client_op(
             "add_outlook_attachment",
@@ -815,16 +896,19 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "message_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Draft message ID.",
                     "example": "",
                 },
                 "file_path": {
                     "type": "string",
+                    "required": True,
                     "description": "Absolute path to the local file.",
                     "example": "",
                 },
                 "content_type": {
                     "type": "string",
+                    "required": False,
                     "description": "MIME type (autodetect if omitted).",
                     "example": "",
                 },
@@ -834,6 +918,7 @@ def build_operations() -> List[Operation]:
                 "file_path": d["file_path"],
                 "content_type": d.get("content_type") or None,
             },
+            display_param="file_path",
         ),
         client_op(
             "delete_outlook_attachment",
@@ -847,15 +932,18 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "message_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Message ID.",
                     "example": "",
                 },
                 "attachment_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Attachment ID.",
                     "example": "",
                 },
             },
+            display_param="attachment_id",
         ),
         # ── Folders ──────────────────────────────────────────────────────
         client_op(
@@ -866,6 +954,7 @@ def build_operations() -> List[Operation]:
             unwrap_envelope=True,
             fail_message="Failed to list folders.",
             input_schema={},
+            display_param=None,
         ),
         client_op(
             "get_outlook_folder",
@@ -877,10 +966,12 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "folder_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Folder ID or well-known name (inbox, drafts, sentitems, etc.).",
                     "example": "inbox",
                 },
             },
+            display_param="folder_id",
         ),
         client_op(
             "create_outlook_folder",
@@ -895,11 +986,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "display_name": {
                     "type": "string",
+                    "required": True,
                     "description": "Folder name.",
                     "example": "Receipts",
                 },
                 "parent_folder_id": {
                     "type": "string",
+                    "required": False,
                     "description": "Parent folder ID or well-known name. Default msgfolderroot.",
                     "example": "msgfolderroot",
                 },
@@ -908,6 +1001,7 @@ def build_operations() -> List[Operation]:
                 "display_name": d["display_name"],
                 "parent_folder_id": d.get("parent_folder_id", "msgfolderroot"),
             },
+            display_param="display_name",
         ),
         client_op(
             "update_outlook_folder",
@@ -920,15 +1014,18 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "folder_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Folder ID.",
                     "example": "",
                 },
                 "display_name": {
                     "type": "string",
+                    "required": True,
                     "description": "New name.",
                     "example": "",
                 },
             },
+            display_param="display_name",
         ),
         client_op(
             "delete_outlook_folder",
@@ -945,10 +1042,12 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "folder_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Folder ID.",
                     "example": "",
                 },
             },
+            display_param="folder_id",
         ),
         client_op(
             "list_outlook_child_folders",
@@ -960,6 +1059,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "folder_id": {
                     "type": "string",
+                    "required": False,
                     "description": "Parent folder ID or well-known name. Default msgfolderroot.",
                     "example": "msgfolderroot",
                 },
@@ -967,6 +1067,7 @@ def build_operations() -> List[Operation]:
             arg_map=lambda d: {
                 "folder_id": d.get("folder_id", "msgfolderroot"),
             },
+            display_param="folder_id",
         ),
         client_op(
             "list_outlook_folder_messages",
@@ -978,16 +1079,19 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "folder_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Folder ID or well-known name.",
                     "example": "inbox",
                 },
                 "count": {
                     "type": "integer",
+                    "required": False,
                     "description": "Max results.",
                     "example": 25,
                 },
                 "unread_only": {
                     "type": "boolean",
+                    "required": False,
                     "description": "Filter to unread.",
                     "example": False,
                 },
@@ -997,6 +1101,7 @@ def build_operations() -> List[Operation]:
                 "n": d.get("count", 25),
                 "unread_only": bool(d.get("unread_only", False)),
             },
+            display_param="folder_id",
         ),
         # ── Mailbox settings + auto-replies + rules + categories ─────────
         _get_outlook_mailbox_settings_op(),
@@ -1015,36 +1120,43 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "status": {
                     "type": "string",
+                    "required": True,
                     "description": "disabled, alwaysEnabled, or scheduled.",
                     "example": "alwaysEnabled",
                 },
                 "internal_reply": {
                     "type": "string",
+                    "required": False,
                     "description": "Reply text shown to internal senders (optional).",
                     "example": "Out of office until Friday.",
                 },
                 "external_reply": {
                     "type": "string",
+                    "required": False,
                     "description": "Reply text shown to external senders (optional).",
                     "example": "",
                 },
                 "external_audience": {
                     "type": "string",
+                    "required": False,
                     "description": "none, contactsOnly, or all.",
                     "example": "all",
                 },
                 "scheduled_start": {
                     "type": "string",
+                    "required": False,
                     "description": "ISO 8601 start (only for status=scheduled).",
                     "example": "",
                 },
                 "scheduled_end": {
                     "type": "string",
+                    "required": False,
                     "description": "ISO 8601 end (only for status=scheduled).",
                     "example": "",
                 },
             },
             arg_map=_update_automatic_replies_args,
+            display_param="internal_reply",
         ),
         client_op(
             "list_outlook_inbox_rules",
@@ -1054,6 +1166,7 @@ def build_operations() -> List[Operation]:
             unwrap_envelope=True,
             fail_message="Failed to list rules.",
             input_schema={},
+            display_param=None,
         ),
         client_op(
             "create_outlook_inbox_rule",
@@ -1071,26 +1184,31 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "display_name": {
                     "type": "string",
+                    "required": True,
                     "description": "Rule name.",
                     "example": "From boss to Important",
                 },
                 "conditions": {
                     "type": "object",
+                    "required": True,
                     "description": "Graph messageRulePredicates object.",
                     "example": {},
                 },
                 "actions": {
                     "type": "object",
+                    "required": True,
                     "description": "Graph messageRuleActions object.",
                     "example": {},
                 },
                 "sequence": {
                     "type": "integer",
+                    "required": False,
                     "description": "Run order (lower runs first).",
                     "example": 1,
                 },
                 "is_enabled": {
                     "type": "boolean",
+                    "required": False,
                     "description": "Enable on create.",
                     "example": True,
                 },
@@ -1102,6 +1220,7 @@ def build_operations() -> List[Operation]:
                 "sequence": d.get("sequence", 1),
                 "is_enabled": bool(d.get("is_enabled", True)),
             },
+            display_param="display_name",
         ),
         client_op(
             "delete_outlook_inbox_rule",
@@ -1115,10 +1234,12 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "rule_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Rule ID.",
                     "example": "",
                 },
             },
+            display_param="rule_id",
         ),
         client_op(
             "list_outlook_categories",
@@ -1131,6 +1252,7 @@ def build_operations() -> List[Operation]:
             unwrap_envelope=True,
             fail_message="Failed to list categories.",
             input_schema={},
+            display_param=None,
         ),
         client_op(
             "create_outlook_category",
@@ -1146,11 +1268,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "display_name": {
                     "type": "string",
+                    "required": True,
                     "description": "Category name.",
                     "example": "Personal",
                 },
                 "color": {
                     "type": "string",
+                    "required": False,
                     "description": "preset0..preset24.",
                     "example": "preset0",
                 },
@@ -1159,6 +1283,7 @@ def build_operations() -> List[Operation]:
                 "display_name": d["display_name"],
                 "color": d.get("color", "preset0"),
             },
+            display_param="display_name",
         ),
         client_op(
             "delete_outlook_category",
@@ -1172,9 +1297,11 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "category_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Category ID.",
                     "example": "",
                 },
             },
+            display_param="category_id",
         ),
     ]

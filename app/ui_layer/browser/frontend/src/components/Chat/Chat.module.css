@@ -764,3 +764,6 @@
   color: var(--color-primary, #f04a00);
   letter-spacing: 0.01em;
 }
+
+.contextSubmenu { position: relative; }
+.submenuArrow { margin-left: auto; color: var(--text-tertiary); }

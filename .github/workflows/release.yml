@@ -27,12 +27,11 @@ jobs:
           - image_suffix: agent
             dockerfile: Dockerfile
             context: .
-          - image_suffix: omniparser
-            dockerfile: docker/omniparser/Dockerfile
-            context: .
           # 'desktop' image removed: app/gui was deleted with GUI mode
-          # (901ad92e) — its Dockerfile no longer exists, and this entry
-          # broke the first tag build afterwards.
+          # (901ad92e). Its Dockerfile no longer exists, and this entry
+          # broke the first tag build afterwards. 'omniparser' removed too:
+          # it served GUI mode only, disabled since V1.2.2, and
+          # docker-compose.yml no longer runs it.
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -122,7 +121,7 @@ jobs:
         run: |
           echo '{"use_conda": false, "gui_mode_enabled": false}' > config.json
 
-      # A missing lock does not break the BUILD — it breaks the user's
+      # A missing lock does not break the BUILD, it breaks the user's
       # install, minutes in and hundreds of MB down. Catch it here instead.
       - name: Require a lock for every platform we ship
         run: python scripts/generate_lock.py --check --require-all
@@ -131,42 +130,256 @@ jobs:
         run: |
           python scripts/package_source.py
 
+      # The launcher installs a CraftBot-src.zip found beside it only when
+      # the VERSION inside matches its own, and craftbot.py reports that
+      # VERSION. It is written from the tag above and is not tracked, so the
+      # git-based file list leaves it out unless it is added here.
+      - name: Stamp VERSION into the payload
+        run: |
+          python - <<'EOF'
+          import zipfile
+          path = "dist/CraftBot-src.zip"
+          with zipfile.ZipFile(path) as zf:
+              present = "VERSION" in zf.namelist()
+          if not present:
+              with zipfile.ZipFile(path, "a", zipfile.ZIP_DEFLATED) as zf:
+                  zf.write("VERSION", "VERSION")
+          with zipfile.ZipFile(path) as zf:
+              print("payload VERSION:", zf.read("VERSION").decode().strip())
+          EOF
+
+      # Every launcher checks the payload it downloads against this file
+      # before extracting it, whichever mirror it came through.
+      - name: Publish the payload checksum
+        working-directory: dist
+        run: |
+          sha256sum CraftBot-src.zip > CraftBot-src.zip.sha256
+          cat CraftBot-src.zip.sha256
+
       - name: Upload source payload
         uses: actions/upload-artifact@v4
         with:
           name: release-source
-          path: dist/CraftBot-src.zip
+          path: |
+            dist/CraftBot-src.zip
+            dist/CraftBot-src.zip.sha256
 
   # ──────────────────────────────────────────────
   # The launcher: one native binary per platform, built from launcher/.
   #
-  # This replaced the old Python/Tk installer window. A native binary is one
-  # process with no bootloader and no unpacking step, which is what fixed the
-  # macOS bundle (two Dock icons, an inactive window, dropped taps). It needs
-  # no Python, Node or web runtime on the user's machine: it downloads the
-  # source payload above plus a portable Python, then runs craftbot.py
-  # install (install.py) and start (run.py) in the installed tree.
+  # A native binary is one process with no bootloader and no unpacking step,
+  # which is what fixed the macOS bundle (two Dock icons, an inactive window,
+  # dropped taps). It needs no Python, Node or web runtime on the user's
+  # machine: it downloads the source payload above plus a portable Python,
+  # then runs craftbot.py install (install.py) and start (run.py) in the
+  # installed tree.
+  #
+  # Signing runs only when its secrets are configured. Without them the
+  # build still ships, unsigned, with a warning, and the release notes give
+  # the extra steps each OS then asks for.
   # ──────────────────────────────────────────────
-  launcher:
-    name: Launcher (${{ matrix.os_label }})
-    runs-on: ${{ matrix.os }}
+
+  # Linux: built inside manylinux_2_28 (glibc 2.28) so the binary starts on
+  # Ubuntu 20.04+, Debian 10+, RHEL 8+ and WSL, then started on several of
+  # them before it ships. See launcher.yml for the same steps on every PR.
+  launcher-linux:
+    name: Launcher (linux-${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    container: quay.io/pypa/manylinux_2_28_${{ matrix.arch }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
-            os_label: linux
-          - os: windows-latest
-            os_label: windows
-          - os: macos-latest
-            os_label: macos
-
+          - arch: x86_64
+            runner: ubuntu-24.04
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
     env:
       # build.rs bakes this into the binary; the launcher downloads the
       # matching CraftBot-src.zip from this tag's release.
       CRAFTBOT_VERSION: ${{ github.ref_name }}
       CARGO_TERM_COLOR: always
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
+      - name: Set up Rust
+        run: |
+          curl --proto '=https' --tlsv1.2 --retry 5 -sSf https://sh.rustup.rs \
+            | sh -s -- -y --profile minimal --default-toolchain stable
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Build prerequisites
+        run: dnf install -y fontconfig-devel libxkbcommon-devel libX11-devel binutils
+
+      # One cache per build environment: the container and the runner ABI
+      # differ, so their artifacts must never be shared.
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: launcher
+          prefix-key: native-manylinux_2_28-${{ matrix.arch }}
+
+      - name: Test
+        working-directory: launcher
+        run: cargo test --release
+
+      - name: Build
+        working-directory: launcher
+        run: cargo build --release
+
+      - name: Check the glibc floor and linked libraries
+        run: bash launcher/packaging/linux/check_binary.sh launcher/target/release/CraftBotInstaller 2.28
+
+      - name: Package
+        run: |
+          mkdir -p dist
+          cp launcher/target/release/CraftBotInstaller dist/CraftBotInstaller-linux-${{ matrix.arch }}
+          chmod +x dist/CraftBotInstaller-linux-${{ matrix.arch }}
+          ls -la dist/
+
+      - name: Upload launcher artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-installer-linux-${{ matrix.arch }}
+          path: dist/CraftBotInstaller-linux-${{ matrix.arch }}
+
+  launcher-linux-distros:
+    name: Launcher starts on Linux distributions (${{ matrix.arch }})
+    needs: launcher-linux
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    steps:
+      - name: Download launcher
+        uses: actions/download-artifact@v4
+        with:
+          name: release-installer-linux-${{ matrix.arch }}
+          path: bin
+
+      - name: Start on each distribution
+        shell: bash
+        run: |
+          set -uo pipefail
+          bin="bin/CraftBotInstaller-linux-${{ matrix.arch }}"
+          chmod +x "$bin"
+          failed=""
+          for image in ubuntu:20.04 ubuntu:22.04 ubuntu:24.04 \
+                       debian:11 debian:12 debian:13 \
+                       almalinux:8 almalinux:9; do
+            echo "::group::$image"
+            out=$(docker run --rm --network none \
+                    --volume "$PWD/$bin:/installer:ro" \
+                    "$image" /installer --headless status 2>&1)
+            code=$?
+            echo "$out"
+            echo "::endgroup::"
+            if [ "$code" -ne 0 ] || ! grep -q NotInstalled <<<"$out"; then
+              echo "::error::the launcher did not start on $image (exit $code)"
+              failed="$failed $image"
+            fi
+          done
+          if [ -n "$failed" ]; then
+            echo "failed on:$failed"
+            exit 1
+          fi
+
+  launcher-windows:
+    name: Launcher (windows)
+    runs-on: windows-latest
+    outputs:
+      signed: ${{ steps.sign-state.outputs.signed }}
+    env:
+      CRAFTBOT_VERSION: ${{ github.ref_name }}
+      CARGO_TERM_COLOR: always
+      HAS_SIGNING: ${{ secrets.AZURE_TENANT_ID != '' && secrets.AZURE_CLIENT_ID != '' && secrets.AZURE_CLIENT_SECRET != '' && secrets.TRUSTED_SIGNING_ENDPOINT != '' && secrets.TRUSTED_SIGNING_ACCOUNT != '' && secrets.TRUSTED_SIGNING_PROFILE != '' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: launcher
+          prefix-key: native-windows-latest
+
+      - name: Build
+        working-directory: launcher
+        run: cargo build --release
+
+      - name: Package
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp launcher/target/release/CraftBotInstaller.exe dist/CraftBotInstaller-windows.exe
+          ls -la dist/
+
+      # Authenticode through Azure Artifact Signing (formerly Trusted
+      # Signing). Unsigned, SmartScreen asks the user to confirm, and Windows
+      # 11 with Smart App Control on blocks the installer outright.
+      - name: Sign (Azure Artifact Signing)
+        if: env.HAS_SIGNING == 'true'
+        uses: azure/artifact-signing-action@v2
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ secrets.TRUSTED_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ secrets.TRUSTED_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ secrets.TRUSTED_SIGNING_PROFILE }}
+          files: ${{ github.workspace }}\dist\CraftBotInstaller-windows.exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+
+      - name: Verify the signature
+        if: env.HAS_SIGNING == 'true'
+        shell: pwsh
+        run: |
+          $sig = Get-AuthenticodeSignature dist\CraftBotInstaller-windows.exe
+          $sig | Format-List Status, StatusMessage, SignerCertificate, TimeStamperCertificate
+          if ($sig.Status -ne 'Valid') { throw "Authenticode signature is $($sig.Status)" }
+
+      - name: Record signing state
+        id: sign-state
+        shell: bash
+        run: |
+          if [ "$HAS_SIGNING" = "true" ]; then
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::Windows installer is NOT signed: set AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, TRUSTED_SIGNING_ENDPOINT, TRUSTED_SIGNING_ACCOUNT and TRUSTED_SIGNING_PROFILE to sign it."
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload launcher artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-installer-windows
+          path: dist/CraftBotInstaller-windows.exe
+
+  launcher-macos:
+    name: Launcher (macos, universal)
+    runs-on: macos-15
+    outputs:
+      notarized: ${{ steps.notarize-state.outputs.notarized }}
+    env:
+      CRAFTBOT_VERSION: ${{ github.ref_name }}
+      CARGO_TERM_COLOR: always
+      HAS_CERT: ${{ secrets.MACOS_CERT_P12_BASE64 != '' && secrets.MACOS_CERT_PASSWORD != '' }}
+      HAS_NOTARY: ${{ secrets.APPLE_ID != '' && secrets.APPLE_TEAM_ID != '' && secrets.APPLE_APP_PASSWORD != '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -174,39 +387,25 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          # Both macOS architectures, so the bundle is a universal binary and
-          # Intel Macs are not left out by macos-latest being arm64.
-          targets: ${{ matrix.os_label == 'macos' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+          # Both architectures, so the bundle is a universal binary and Intel
+          # Macs are not left out by the arm64 build machine.
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: launcher
+          prefix-key: native-macos-15
 
-      # Slint's Linux backend loads these at runtime through dlopen, and its
-      # build has no C dependencies — this is insurance for the few crates
-      # that probe for headers, not a runtime requirement for users.
-      - name: Linux build prerequisites
-        if: matrix.os_label == 'linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libxkbcommon-dev libgl1-mesa-dev libfontconfig1-dev
-
-      - name: Test
-        if: matrix.os_label == 'linux'
-        working-directory: launcher
-        run: cargo test --release
-
-      - name: Build (Linux / Windows)
-        if: matrix.os_label != 'macos'
-        working-directory: launcher
-        run: cargo build --release
-
-      - name: Build (macOS, universal)
-        if: matrix.os_label == 'macos'
+      - name: Build (universal)
         working-directory: launcher
         run: |
           set -euo pipefail
+          # The oldest macOS the binary is built for is the one the launcher
+          # checks for, from the same constant.
+          MACOSX_DEPLOYMENT_TARGET="$(sed -n 's/^pub const MIN_MACOS: &str = "\(.*\)";/\1/p' src/preflight.rs)"
+          export MACOSX_DEPLOYMENT_TARGET
+          echo "MACOSX_DEPLOYMENT_TARGET=$MACOSX_DEPLOYMENT_TARGET"
           cargo build --release --target aarch64-apple-darwin
           cargo build --release --target x86_64-apple-darwin
           mkdir -p target/universal
@@ -218,7 +417,6 @@ jobs:
 
       # sips and iconutil are both part of macOS; nothing to install.
       - name: Build the macOS app icon
-        if: matrix.os_label == 'macos'
         run: |
           set -euo pipefail
           iconset="$RUNNER_TEMP/craftbot.iconset"
@@ -231,44 +429,113 @@ jobs:
           done
           iconutil -c icns "$iconset" -o craftbot_logo_1.icns
 
-      - name: Package
-        shell: bash
+      - name: Import the Developer ID certificate
+        if: env.HAS_CERT == 'true'
+        env:
+          MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
         run: |
           set -euo pipefail
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          keychain_password="$(openssl rand -base64 24)"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          printf '%s' "$MACOS_CERT_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$keychain" \
+            -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign
+          rm -f "$RUNNER_TEMP/cert.p12"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$keychain_password" "$keychain" >/dev/null
+          security list-keychains -d user -s "$keychain" \
+            $(security list-keychains -d user | tr -d '"')
+          identity="$(security find-identity -v -p codesigning "$keychain" \
+            | awk -F'"' '/Developer ID Application/ {print $2; exit}')"
+          if [ -z "$identity" ]; then
+            echo "::error::the certificate holds no 'Developer ID Application' identity"
+            exit 1
+          fi
+          echo "MACOS_SIGN_IDENTITY=$identity" >> "$GITHUB_ENV"
+
+      - name: Bundle
+        run: |
+          set -euo pipefail
+          if [ "$HAS_CERT" != "true" ]; then
+            echo "::warning::macOS app is NOT Developer ID signed: set MACOS_CERT_P12_BASE64 and MACOS_CERT_PASSWORD to sign it. It is ad-hoc signed, and users must allow it in System Settings > Privacy & Security."
+          fi
           mkdir -p dist
-          case "${{ matrix.os_label }}" in
-            linux)
-              cp launcher/target/release/CraftBotInstaller dist/CraftBotInstaller-linux
-              chmod +x dist/CraftBotInstaller-linux
-              ;;
-            windows)
-              cp launcher/target/release/CraftBotInstaller.exe dist/CraftBotInstaller-windows.exe
-              ;;
-            macos)
               REF="${{ github.ref_name }}"
               launcher/packaging/macos/bundle.sh \
                 launcher/target/universal/CraftBotInstaller dist "${REF#v}"
-              # ditto, not zip: it preserves the bundle's extended attributes
-              # and execute bits. A plain zip loses them and the app will not
-              # launch after the user unzips it.
+
+      # Notarized and stapled, the app opens on first launch with only the
+      # usual "downloaded from the internet" confirmation, offline included.
+      - name: Notarize and staple
+        id: notarize
+        if: env.HAS_CERT == 'true' && env.HAS_NOTARY == 'true'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          set -euo pipefail
+          submission="$RUNNER_TEMP/CraftBotInstaller-notarize.zip"
+          ditto -c -k --keepParent dist/CraftBotInstaller.app "$submission"
+          xcrun notarytool submit "$submission" \
+            --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD" \
+            --wait --timeout 30m --output-format json > "$RUNNER_TEMP/notary.json"
+          cat "$RUNNER_TEMP/notary.json"
+          status="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("status", ""))' "$RUNNER_TEMP/notary.json")"
+          if [ "$status" != "Accepted" ]; then
+            id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("id", ""))' "$RUNNER_TEMP/notary.json")"
+            [ -n "$id" ] && xcrun notarytool log "$id" \
+              --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD" || true
+            echo "::error::notarization ended with status '$status'"
+            exit 1
+          fi
+          xcrun stapler staple dist/CraftBotInstaller.app
+          xcrun stapler validate dist/CraftBotInstaller.app
+          spctl --assess --type execute --verbose=2 dist/CraftBotInstaller.app
+          echo "done=true" >> "$GITHUB_OUTPUT"
+
+      - name: Record notarization state
+        id: notarize-state
+        run: |
+          if [ "${{ steps.notarize.outputs.done }}" = "true" ]; then
+            echo "notarized=true" >> "$GITHUB_OUTPUT"
+          else
+            if [ "$HAS_CERT" = "true" ]; then
+              echo "::warning::macOS app is signed but NOT notarized: set APPLE_ID, APPLE_TEAM_ID and APPLE_APP_PASSWORD to notarize it."
+            fi
+            echo "notarized=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Package
+        run: |
+          set -euo pipefail
+          # ditto, not zip: it preserves the bundle's extended attributes,
+          # the stapled ticket and execute bits. A plain zip loses them and
+          # the app will not launch after the user unzips it.
               ditto -c -k --keepParent dist/CraftBotInstaller.app dist/CraftBotInstaller-macos.zip
               rm -rf dist/CraftBotInstaller.app
-              ;;
-          esac
           ls -la dist/
+
+      - name: Remove the signing keychain
+        if: always() && env.HAS_CERT == 'true'
+        run: security delete-keychain "$RUNNER_TEMP/signing.keychain-db" || true
 
       - name: Upload launcher artifact
         uses: actions/upload-artifact@v4
         with:
-          name: release-installer-${{ matrix.os_label }}
-          path: dist/CraftBotInstaller-${{ matrix.os_label }}*
+          name: release-installer-macos
+          path: dist/CraftBotInstaller-macos.zip
 
   # ──────────────────────────────────────────────
   # Create GitHub Release with all artifacts
   # ──────────────────────────────────────────────
   release:
     name: Publish GitHub Release
-    needs: [docker, source, launcher]
+    needs: [docker, source, launcher-linux, launcher-linux-distros, launcher-windows, launcher-macos]
     runs-on: ubuntu-latest
     steps:
       - name: Download all artifacts
@@ -277,35 +544,92 @@ jobs:
           path: release
           merge-multiple: true
 
+      # The install steps depend on what was signed in this run, so the
+      # notes are written here rather than fixed in this file.
+      - name: Write release notes
+        env:
+          WINDOWS_SIGNED: ${{ needs.launcher-windows.outputs.signed }}
+          MACOS_NOTARIZED: ${{ needs.launcher-macos.outputs.notarized }}
+        run: |
+          set -euo pipefail
+          notes=release-notes.md
+          {
+            echo '### Install CraftBot'
+            echo
+            echo 'Download the installer for your computer from the assets below and open it.'
+            echo 'It downloads and sets up everything CraftBot needs, including Python, Node.js'
+            echo 'and all dependencies. You do not need Git, Python or Node.js beforehand. The'
+            echo 'first install takes a few minutes.'
+            echo
+            echo '| Computer | Download |'
+            echo '|---|---|'
+            echo '| Windows 10 or 11 | `CraftBotInstaller-windows.exe` |'
+            echo '| macOS 12 or later, Apple silicon or Intel | `CraftBotInstaller-macos.zip` |'
+            echo '| Linux, x86_64 (Intel or AMD) | `CraftBotInstaller-linux-x86_64` |'
+            echo '| Linux, ARM64 | `CraftBotInstaller-linux-aarch64` |'
+            echo
+            echo '#### Windows'
+            echo
+            echo '1. Open `CraftBotInstaller-windows.exe`.'
+            echo '2. If Microsoft Defender SmartScreen shows "Windows protected your PC", select'
+            echo '   **More info**, then **Run anyway**.'
+            if [ "$WINDOWS_SIGNED" != "true" ]; then
+              echo
+              echo 'This build is not code-signed. On Windows 11 with Smart App Control turned on,'
+              echo 'Windows blocks unsigned installers; install from a terminal with the steps in'
+              echo 'the README instead.'
+            fi
+            echo
+            echo '#### macOS'
+            echo
+            if [ "$MACOS_NOTARIZED" = "true" ]; then
+              echo '1. Open `CraftBotInstaller-macos.zip` to unzip it.'
+              echo '2. Open **CraftBot Setup** and select **Open** when macOS asks to confirm an'
+              echo '   app downloaded from the internet.'
+            else
+              echo '1. Open `CraftBotInstaller-macos.zip` to unzip it, then open **CraftBot Setup**.'
+              echo '   macOS says it cannot verify the app. Select **Done**.'
+              echo '2. Open **System Settings > Privacy & Security** (on macOS 12, **System'
+              echo '   Preferences > Security & Privacy > General**), scroll down to **Security**,'
+              echo '   and select **Open Anyway** next to the message about CraftBot Setup.'
+              echo '3. Confirm with your password when asked. CraftBot Setup then opens.'
+              echo
+              echo 'You only need to do this once. This build is not notarized by Apple.'
+            fi
+            echo
+            echo '#### Linux'
+            echo
+            echo 'In a terminal, in the folder you downloaded it to:'
+            echo
+            echo '```bash'
+            echo 'chmod +x CraftBotInstaller-linux-x86_64 && ./CraftBotInstaller-linux-x86_64'
+            echo '```'
+            echo
+            echo 'On an ARM64 computer, use `CraftBotInstaller-linux-aarch64` in both places. The'
+            echo 'installer runs on any distribution with glibc 2.28 or later (Ubuntu 20.04,'
+            echo 'Debian 10, RHEL 8 and newer) and opens a window, so it needs a desktop session.'
+            echo
+            echo '### Behind a proxy or firewall'
+            echo
+            echo 'The installer uses your system proxy setting and the `HTTPS_PROXY` and'
+            echo '`NO_PROXY` variables. To download through a mirror, set `CRAFTBOT_MIRRORS` to'
+            echo 'semicolon-separated `prefix=replacement` pairs, for example'
+            echo '`https://github.com/=https://mirror.example.com/github/`. The CraftBot'
+            echo 'download is checked against its published SHA-256 checksum, whichever server it'
+            echo 'came from.'
+            echo
+            echo '### If the installer cannot download CraftBot'
+            echo
+            echo 'Download `CraftBot-src.zip` from the assets below and put it in the same folder'
+            echo 'as the installer before you open the installer. It uses that file instead of'
+            echo 'downloading it; Python, Node.js and the dependencies are still downloaded during'
+            echo 'setup. `CraftBot-src.zip.sha256` holds the checksum of `CraftBot-src.zip`.'
+          } > "$notes"
+          cat "$notes"
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: release/**
           generate_release_notes: true
-          body: |
-            ### Installer (Recommended)
-            Download the file for your platform from the assets below and run
-            it. The setup window lets you choose an install location, then
-            downloads `CraftBot-src.zip` from this release and sets up
-            everything it needs — Python, Node.js and all dependencies. You do
-            not need Git, Python or Node installed beforehand.
-
-            | Platform | Download | How to run |
-            |---|---|---|
-            | Windows | `CraftBotInstaller-windows.exe` | Double-click it. |
-            | macOS | `CraftBotInstaller-macos.zip` | Unzip, then **right-click the app and choose Open**. |
-            | Linux | `CraftBotInstaller-linux` | `chmod +x CraftBotInstaller-linux && ./CraftBotInstaller-linux` |
-
-            On macOS the right-click is required the first time: the app is not
-            yet signed with an Apple Developer ID, so double-clicking it shows
-            "cannot be opened because the developer cannot be verified".
-            Right-click → Open gives you an Open button that double-click does
-            not. You only need to do this once.
-
-            First install takes a few minutes while the runtime is prepared.
-
-            ### Manual install
-            If you'd rather skip the window, download both
-            `CraftBotInstaller-<platform>` and `CraftBot-src.zip`, place them
-            in the same folder, and run the installer — it'll use the local
-            payload instead of fetching from GitHub.
+          body_path: release-notes.md

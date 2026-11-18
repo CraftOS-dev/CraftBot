@@ -22,7 +22,7 @@
       "description": "Instala una app lista para usar del marketplace comunitario con un solo clic."
     },
     "agent-app-custom": {
-      "title": "Crear personalizada",
+      "title": "Construir",
       "description": "Describe lo que quieres y el agente lo crea: configura unos pocos aspectos básicos, responde a una breve entrevista y luego escribe la especificación y crea la app."
     },
     "agent-app-import": {

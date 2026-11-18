@@ -10,7 +10,7 @@ MCP handlers must be generated as string templates with values baked in, and the
 source code must be stored for later retrieval by the registry.
 """
 
-from typing import Any, Callable, Dict, List, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from agent_core.utils.logger import logger
 from agent_core.core.action_framework import (
@@ -79,9 +79,8 @@ class MCPActionAdapter:
             if "default" in prop:
                 field["example"] = prop["default"]
 
-            # Mark as required if in required list
-            if name in required:
-                field["required"] = True
+            # Required as the tool's JSON Schema lists it, optional otherwise.
+            field["required"] = name in required
 
             # Handle enum values
             if "enum" in prop:
@@ -101,6 +100,19 @@ class MCPActionAdapter:
             converted[name] = field
 
         return converted
+
+    @staticmethod
+    def _display_param(input_schema: Dict[str, Any]) -> Optional[str]:
+        """The parameter the chat shows next to a tool's name: the first
+        required text parameter, else the first text one (a server's tools
+        carry no display hint of their own)."""
+        text = [
+            name
+            for name, spec in input_schema.items()
+            if isinstance(spec, dict) and spec.get("type") == "string"
+        ]
+        required = [n for n in text if input_schema[n].get("required")]
+        return (required or text or [None])[0]
 
     @staticmethod
     def create_mcp_handler_with_source(
@@ -229,6 +241,8 @@ class MCPActionAdapter:
             requirements=[],  # MCP tools don't have Python requirements
             test_payload=None,  # No test payload for MCP tools
             action_sets=[action_set_name],
+            display_param=MCPActionAdapter._display_param(input_schema),
+            icon="Plug",
         )
 
         return RegisteredAction(handler=handler, metadata=metadata)

@@ -13,6 +13,13 @@ from agent_core.decorators import profile, OperationCategory
 from agent_core.core.impl.llm import reasoning_wire
 from agent_core.core.impl.llm.cache import get_cache_config, get_cache_metrics
 from agent_core.core.impl.llm.errors import classify_llm_error
+from agent_core.core.impl.llm.streaming import (
+    LLMStreamAborted,
+    begin,
+    check_cancelled,
+    current_sink,
+    emit,
+)
 from agent_core.core.models.reasoning import ReasoningDecision
 from agent_core.utils.logger import logger
 
@@ -73,6 +80,7 @@ def generate(
     cache_read = 0
     status = "failed"
     content: Optional[str] = None
+    cut_off = False
     exc_obj: Optional[Exception] = None
     config = get_cache_config()
     cache_type = f"ephemeral_{call_type}" if call_type else "ephemeral"
@@ -130,7 +138,22 @@ def generate(
         if applied.send_temperature:
             message_kwargs["extra_body"] = {"temperature": iface.temperature}
 
-        response = iface._anthropic_client.messages.create(**message_kwargs)
+        # A call streaming to a sink uses the SDK's stream helper, whose
+        # final message is the one create() returns. The Claude Code
+        # subscription client has no stream helper: it streams to the sink
+        # itself inside create().
+        sink = current_sink()
+        stream_messages = getattr(iface._anthropic_client.messages, "stream", None)
+        if sink is not None and callable(stream_messages):
+            begin(sink)
+            with stream_messages(**message_kwargs) as stream:
+                for event in stream:
+                    check_cancelled(sink)
+                    if getattr(event, "type", None) == "text":
+                        emit(sink, event.text)
+                response = stream.get_final_message()
+        else:
+            response = iface._anthropic_client.messages.create(**message_kwargs)
 
         # Extract content from the response
         content = ""
@@ -138,6 +161,7 @@ def generate(
             if block.type == "text":
                 content += block.text
         content = content.strip()
+        cut_off = getattr(response, "stop_reason", None) == "max_tokens"
 
         # Token usage from Anthropic response
         # Anthropic reports input_tokens as non-cached input only.
@@ -176,6 +200,8 @@ def generate(
 
         status = "success"
 
+    except LLMStreamAborted:
+        raise
     except Exception as exc:  # pragma: no cover
         exc_obj = exc
         logger.debug(f"Error calling Anthropic API: {exc}")
@@ -201,7 +227,11 @@ def generate(
         cached_tokens,
     )
 
-    result = {"tokens_used": total_tokens or 0, "cached_tokens": cached_tokens}
+    result = {
+        "tokens_used": total_tokens or 0,
+        "cached_tokens": cached_tokens,
+        "cut_off": cut_off,
+    }
     if exc_obj:
         error_str = f"{type(exc_obj).__name__}: {str(exc_obj)}"
         result["error"] = error_str

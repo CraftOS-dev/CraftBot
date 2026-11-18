@@ -30,6 +30,12 @@ from typing import Any, Dict, List, Optional
 
 SEVERITIES = ("DEBUG", "INFO", "WARN", "ERROR")
 
+# The key the action runtime adds to every action's input
+# (ActionManager.execute_action): the session the action runs in. The model
+# never writes it, so an executed input is compared with the model's
+# parameters without it (EventStream's delta rendering).
+SESSION_ID_INPUT_KEY = "_session_id"
+
 
 class EventType(str, Enum):
     """Closed set of event categories.
@@ -66,6 +72,11 @@ class EventType(str, Enum):
     # add_action_sets (and by skills / runs that declare sets). LLM-facing
     # reference material; `Event.schema_actions` names the actions it covers.
     ACTION_SCHEMAS = "action_schemas"
+    # A skill's instructions, logged when it is loaded into a session (and
+    # its unload marker). The stream keeps the newest instructions of every
+    # loaded skill verbatim across folds; `Event.skill_name` names the skill.
+    SKILL_INSTRUCTIONS = "skill_instructions"
+    SKILL_UNLOADED = "skill_unloaded"
 
 
 # Legacy `kind` → `event_type` mapping. NEW code MUST NOT call this.
@@ -156,6 +167,8 @@ class Event:
             actions whose schemas the message carries. The event stream keeps
             the event across a fold while any of these actions appears in the
             kept tail. None for every other event.
+        skill_name: For SKILL_INSTRUCTIONS and SKILL_UNLOADED events only:
+            the skill they concern. None for every other event.
     """
 
     message: str
@@ -174,6 +187,7 @@ class Event:
     question: Optional[Dict[str, Any]] = None
     ui_artifact: Optional[Dict[str, Any]] = None
     schema_actions: Optional[List[str]] = None
+    skill_name: Optional[str] = None
 
     def display_text(self) -> Optional[str]:
         """
@@ -209,6 +223,7 @@ class Event:
             "question": self.question,
             "ui_artifact": self.ui_artifact,
             "schema_actions": self.schema_actions,
+            "skill_name": self.skill_name,
         }
 
     @classmethod
@@ -251,6 +266,7 @@ class Event:
             question=data.get("question"),
             ui_artifact=data.get("ui_artifact"),
             schema_actions=data.get("schema_actions"),
+            skill_name=data.get("skill_name"),
         )
 
     @property
@@ -308,7 +324,7 @@ class EventRecord:
             repeat_count=data.get("repeat_count", 1),
         )
 
-    def compact_line(self) -> str:
+    def compact_line(self, message: Optional[str] = None) -> str:
         """
         Generate a compact single-line representation of this event.
 
@@ -318,11 +334,15 @@ class EventRecord:
         current-datetime block reports (and with the log files a human reads
         alongside). A naive ts (legacy persisted data) is assumed local.
 
+        Args:
+            message: Shown in place of the event's message (a delta refers to
+                an action input the model's own reply already holds).
+
         Returns:
             Compact string representation
         """
         t = self.ts.astimezone().strftime("%H:%M:%S")
         k = self.event.kind
-        msg = self.event.message
+        msg = self.event.message if message is None else message
         suffix = f" x{self.repeat_count}" if self.repeat_count > 1 else ""
         return f"{t} [{k}]: {msg}{suffix}"

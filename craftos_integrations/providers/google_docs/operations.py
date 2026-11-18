@@ -41,9 +41,10 @@ def _get_google_doc_op() -> Operation:
     """
 
     input_schema = {
-        "document_id": dict(_DOC_ID),
+        "document_id": dict(_DOC_ID, required=True),
         "include_metadata": {
             "type": "boolean",
+            "required": False,
             "description": (
                 "Return the full structured document JSON (default false = plain text)."
             ),
@@ -80,6 +81,7 @@ def _get_google_doc_op() -> Operation:
         output_schema=dict(STATUS_OUTPUT),
         fn=fn,
         tags=("google_docs_files", "google_docs"),
+        display_param="document_id",
     )
 
 
@@ -99,10 +101,12 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "title": {
                     "type": "string",
+                    "required": True,
                     "description": "Title for the new document.",
                     "example": "Meeting Notes",
                 },
             },
+            display_param="title",
         ),
         _get_google_doc_op(),
         client_op(
@@ -115,7 +119,8 @@ def build_operations() -> List[Operation]:
             tags=("google_docs_files", "google_docs"),
             unwrap_envelope=True,
             fail_message="Failed to read document.",
-            input_schema={"document_id": dict(_DOC_ID)},
+            input_schema={"document_id": dict(_DOC_ID, required=True)},
+            display_param="document_id",
         ),
         client_op(
             "list_google_docs",
@@ -129,11 +134,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "max_results": {
                     "type": "integer",
+                    "required": False,
                     "description": "Max number of docs to return.",
                     "example": 50,
                 },
             },
             arg_map=lambda d: {"max_results": d.get("max_results", 50)},
+            display_param=None,
         ),
         client_op(
             "search_google_docs",
@@ -145,11 +152,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "query": {
                     "type": "string",
+                    "required": True,
                     "description": "Title fragment to search for.",
                     "example": "Meeting",
                 },
                 "max_results": {
                     "type": "integer",
+                    "required": False,
                     "description": "Max number of docs to return.",
                     "example": 50,
                 },
@@ -158,6 +167,7 @@ def build_operations() -> List[Operation]:
                 "query": d["query"],
                 "max_results": d.get("max_results", 50),
             },
+            display_param="query",
         ),
         client_op(
             "delete_google_doc",
@@ -169,7 +179,8 @@ def build_operations() -> List[Operation]:
             unwrap_envelope=True,
             success_message="Document deleted.",
             fail_message="Failed to delete document.",
-            input_schema={"document_id": dict(_DOC_ID)},
+            input_schema={"document_id": dict(_DOC_ID, required=True)},
+            display_param="document_id",
         ),
         client_op(
             "copy_google_doc",
@@ -182,15 +193,18 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "document_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Source document ID.",
                     "example": "1abcDEF...",
                 },
                 "new_title": {
                     "type": "string",
+                    "required": True,
                     "description": "Title for the copy.",
                     "example": "Meeting Notes (copy)",
                 },
             },
+            display_param="new_title",
         ),
         client_op(
             "export_google_doc",
@@ -205,11 +219,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "document_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Source document ID.",
                     "example": "1abcDEF...",
                 },
                 "mime_type": {
                     "type": "string",
+                    "required": True,
                     "description": (
                         "Export MIME type. application/pdf | "
                         "application/vnd.openxmlformats-officedocument."
@@ -221,10 +237,12 @@ def build_operations() -> List[Operation]:
                 },
                 "dest_path": {
                     "type": "string",
+                    "required": True,
                     "description": "Local file path to write to.",
                     "example": "/tmp/doc.pdf",
                 },
             },
+            display_param="dest_path",
         ),
         # ── Content: insert / delete text, append, replace ────────────────
         client_op(
@@ -237,13 +255,15 @@ def build_operations() -> List[Operation]:
             success_message="Text appended.",
             fail_message="Failed to append text.",
             input_schema={
-                "document_id": dict(_DOC_ID),
+                "document_id": dict(_DOC_ID, required=True),
                 "text": {
                     "type": "string",
+                    "required": True,
                     "description": "Text to append.",
                     "example": "\\n\\nFollow-up: ...",
                 },
             },
+            display_param="text",
         ),
         client_op(
             "insert_text_into_google_doc",
@@ -258,18 +278,21 @@ def build_operations() -> List[Operation]:
             success_message="Text inserted.",
             fail_message="Failed to insert text.",
             input_schema={
-                "document_id": dict(_DOC_ID_SHORT),
+                "document_id": dict(_DOC_ID_SHORT, required=True),
                 "text": {
                     "type": "string",
+                    "required": True,
                     "description": "Text to insert.",
                     "example": "Introduction\\n",
                 },
                 "index": {
                     "type": "integer",
+                    "required": True,
                     "description": "Position (UTF-16 index). Index 1 = start of body.",
                     "example": 1,
                 },
             },
+            display_param="text",
         ),
         client_op(
             "delete_google_doc_range",
@@ -282,18 +305,21 @@ def build_operations() -> List[Operation]:
             success_message="Range deleted.",
             fail_message="Failed to delete range.",
             input_schema={
-                "document_id": dict(_DOC_ID_SHORT),
+                "document_id": dict(_DOC_ID_SHORT, required=True),
                 "start_index": {
                     "type": "integer",
+                    "required": True,
                     "description": "Start UTF-16 index (inclusive).",
                     "example": 10,
                 },
                 "end_index": {
                     "type": "integer",
+                    "required": True,
                     "description": "End UTF-16 index (exclusive).",
                     "example": 30,
                 },
             },
+            display_param="document_id",
         ),
         client_op(
             "replace_google_doc_text",
@@ -307,19 +333,22 @@ def build_operations() -> List[Operation]:
             unwrap_envelope=True,
             fail_message="Failed to replace text.",
             input_schema={
-                "document_id": dict(_DOC_ID),
+                "document_id": dict(_DOC_ID, required=True),
                 "find": {
                     "type": "string",
+                    "required": True,
                     "description": "Text to find.",
                     "example": "TODO",
                 },
                 "replace": {
                     "type": "string",
+                    "required": True,
                     "description": "Replacement text.",
                     "example": "DONE",
                 },
                 "match_case": {
                     "type": "boolean",
+                    "required": False,
                     "description": "Whether the search is case-sensitive.",
                     "example": False,
                 },
@@ -330,6 +359,7 @@ def build_operations() -> List[Operation]:
                 "replace": d["replace"],
                 "match_case": d.get("match_case", False),
             },
+            display_param="find",
         ),
         # ── Styling: text + paragraph ─────────────────────────────────────
         client_op(
@@ -346,59 +376,70 @@ def build_operations() -> List[Operation]:
             success_message="Text styled.",
             fail_message="Failed to style text.",
             input_schema={
-                "document_id": dict(_DOC_ID_SHORT),
+                "document_id": dict(_DOC_ID_SHORT, required=True),
                 "start_index": {
                     "type": "integer",
+                    "required": True,
                     "description": "Start UTF-16 index.",
                     "example": 10,
                 },
                 "end_index": {
                     "type": "integer",
+                    "required": True,
                     "description": "End UTF-16 index (exclusive).",
                     "example": 30,
                 },
                 "bold": {
                     "type": "boolean",
+                    "required": False,
                     "description": "Toggle bold.",
                     "example": True,
                 },
                 "italic": {
                     "type": "boolean",
+                    "required": False,
                     "description": "Toggle italic.",
                     "example": False,
                 },
                 "underline": {
                     "type": "boolean",
+                    "required": False,
                     "description": "Toggle underline.",
                     "example": False,
                 },
                 "strikethrough": {
                     "type": "boolean",
+                    "required": False,
                     "description": "Toggle strikethrough.",
                     "example": False,
                 },
                 "font_size_pt": {
                     "type": "number",
+                    "required": False,
                     "description": "Font size in points.",
                     "example": 14,
                 },
                 "font_family": {
                     "type": "string",
+                    "required": False,
                     "description": "Font family name.",
                     "example": "Arial",
                 },
                 "foreground_color_hex": {
                     "type": "string",
+                    "required": False,
                     "description": "Foreground color (#RRGGBB).",
                     "example": "#FF0000",
                 },
                 "background_color_hex": {
                     "type": "string",
+                    "required": False,
                     "description": "Background color (#RRGGBB).",
                     "example": "#FFFF00",
                 },
                 "link_url": {
                     "type": "string",
+                    "required": False,
                     "description": "Turn range into a hyperlink to this URL.",
                     "example": "https://example.com",
                 },
@@ -417,6 +458,7 @@ def build_operations() -> List[Operation]:
                 "background_color_hex": d.get("background_color_hex") or None,
                 "link_url": d.get("link_url") or None,
             },
+            display_param="document_id",
         ),
         client_op(
             "style_google_doc_paragraph",
@@ -431,34 +473,40 @@ def build_operations() -> List[Operation]:
             success_message="Paragraph styled.",
             fail_message="Failed to style paragraph.",
             input_schema={
-                "document_id": dict(_DOC_ID_SHORT),
+                "document_id": dict(_DOC_ID_SHORT, required=True),
                 "start_index": {
                     "type": "integer",
+                    "required": True,
                     "description": "Start UTF-16 index.",
                     "example": 1,
                 },
                 "end_index": {
                     "type": "integer",
+                    "required": True,
                     "description": "End UTF-16 index (exclusive).",
                     "example": 20,
                 },
                 "named_style_type": {
                     "type": "string",
+                    "required": False,
                     "description": "NORMAL_TEXT | TITLE | SUBTITLE | HEADING_1..HEADING_6.",
                     "example": "HEADING_1",
                 },
                 "alignment": {
                     "type": "string",
+                    "required": False,
                     "description": "START | CENTER | END | JUSTIFIED.",
                     "example": "CENTER",
                 },
                 "line_spacing": {
                     "type": "number",
+                    "required": False,
                     "description": "Percentage (100 = single).",
                     "example": 150,
                 },
                 "keep_with_next": {
                     "type": "boolean",
+                    "required": False,
                     "description": "Keep with following paragraph.",
                     "example": True,
                 },
@@ -472,6 +520,7 @@ def build_operations() -> List[Operation]:
                 "line_spacing": d.get("line_spacing"),
                 "keep_with_next": d.get("keep_with_next"),
             },
+            display_param="document_id",
         ),
         # ── Lists ─────────────────────────────────────────────────────────
         client_op(
@@ -484,19 +533,22 @@ def build_operations() -> List[Operation]:
             success_message="Bullets created.",
             fail_message="Failed to create bullets.",
             input_schema={
-                "document_id": dict(_DOC_ID_SHORT),
+                "document_id": dict(_DOC_ID_SHORT, required=True),
                 "start_index": {
                     "type": "integer",
+                    "required": True,
                     "description": "Start UTF-16 index.",
                     "example": 10,
                 },
                 "end_index": {
                     "type": "integer",
+                    "required": True,
                     "description": "End UTF-16 index.",
                     "example": 60,
                 },
                 "bullet_preset": {
                     "type": "string",
+                    "required": False,
                     "description": (
                         "BULLET_DISC_CIRCLE_SQUARE | NUMBERED_DECIMAL_NESTED | "
                         "BULLET_CHECKBOX | NUMBERED_DECIMAL_ALPHA_ROMAN | "
@@ -511,6 +563,7 @@ def build_operations() -> List[Operation]:
                 "end_index": d["end_index"],
                 "bullet_preset": d.get("bullet_preset", "BULLET_DISC_CIRCLE_SQUARE"),
             },
+            display_param="document_id",
         ),
         client_op(
             "delete_google_doc_bullets",
@@ -523,18 +576,21 @@ def build_operations() -> List[Operation]:
             success_message="Bullets removed.",
             fail_message="Failed to remove bullets.",
             input_schema={
-                "document_id": dict(_DOC_ID_SHORT),
+                "document_id": dict(_DOC_ID_SHORT, required=True),
                 "start_index": {
                     "type": "integer",
+                    "required": True,
                     "description": "Start UTF-16 index.",
                     "example": 10,
                 },
                 "end_index": {
                     "type": "integer",
+                    "required": True,
                     "description": "End UTF-16 index.",
                     "example": 60,
                 },
             },
+            display_param="document_id",
         ),
         # ── Tables ────────────────────────────────────────────────────────
         client_op(
@@ -547,23 +603,27 @@ def build_operations() -> List[Operation]:
             success_message="Table inserted.",
             fail_message="Failed to insert table.",
             input_schema={
-                "document_id": dict(_DOC_ID_SHORT),
+                "document_id": dict(_DOC_ID_SHORT, required=True),
                 "rows": {
                     "type": "integer",
+                    "required": True,
                     "description": "Number of rows.",
                     "example": 3,
                 },
                 "columns": {
                     "type": "integer",
+                    "required": True,
                     "description": "Number of columns.",
                     "example": 3,
                 },
                 "index": {
                     "type": "integer",
+                    "required": True,
                     "description": "Position to insert at.",
                     "example": 1,
                 },
             },
+            display_param="document_id",
         ),
         client_op(
             "insert_google_doc_table_row",
@@ -574,24 +634,28 @@ def build_operations() -> List[Operation]:
             unwrap_envelope=True,
             fail_message="Failed to insert row.",
             input_schema={
-                "document_id": dict(_DOC_ID_SHORT),
+                "document_id": dict(_DOC_ID_SHORT, required=True),
                 "table_start_index": {
                     "type": "integer",
+                    "required": True,
                     "description": "The table's start index in the document.",
                     "example": 5,
                 },
                 "row_index": {
                     "type": "integer",
+                    "required": True,
                     "description": "Reference cell row (0-based).",
                     "example": 0,
                 },
                 "column_index": {
                     "type": "integer",
+                    "required": True,
                     "description": "Reference cell column (0-based).",
                     "example": 0,
                 },
                 "insert_below": {
                     "type": "boolean",
+                    "required": False,
                     "description": "True = below, False = above.",
                     "example": True,
                 },
@@ -603,6 +667,7 @@ def build_operations() -> List[Operation]:
                 "column_index": d["column_index"],
                 "insert_below": d.get("insert_below", True),
             },
+            display_param="document_id",
         ),
         client_op(
             "insert_google_doc_table_column",
@@ -613,24 +678,28 @@ def build_operations() -> List[Operation]:
             unwrap_envelope=True,
             fail_message="Failed to insert column.",
             input_schema={
-                "document_id": dict(_DOC_ID_SHORT),
+                "document_id": dict(_DOC_ID_SHORT, required=True),
                 "table_start_index": {
                     "type": "integer",
+                    "required": True,
                     "description": "Table start index.",
                     "example": 5,
                 },
                 "row_index": {
                     "type": "integer",
+                    "required": True,
                     "description": "Reference cell row.",
                     "example": 0,
                 },
                 "column_index": {
                     "type": "integer",
+                    "required": True,
                     "description": "Reference cell column.",
                     "example": 0,
                 },
                 "insert_right": {
                     "type": "boolean",
+                    "required": False,
                     "description": "True = right, False = left.",
                     "example": True,
                 },
@@ -642,6 +711,7 @@ def build_operations() -> List[Operation]:
                 "column_index": d["column_index"],
                 "insert_right": d.get("insert_right", True),
             },
+            display_param="document_id",
         ),
         client_op(
             "delete_google_doc_table_row",
@@ -653,23 +723,27 @@ def build_operations() -> List[Operation]:
             unwrap_envelope=True,
             fail_message="Failed to delete row.",
             input_schema={
-                "document_id": dict(_DOC_ID_SHORT),
+                "document_id": dict(_DOC_ID_SHORT, required=True),
                 "table_start_index": {
                     "type": "integer",
+                    "required": True,
                     "description": "Table start index.",
                     "example": 5,
                 },
                 "row_index": {
                     "type": "integer",
+                    "required": True,
                     "description": "Row to delete.",
                     "example": 1,
                 },
                 "column_index": {
                     "type": "integer",
+                    "required": True,
                     "description": "Any column index in the row.",
                     "example": 0,
                 },
             },
+            display_param="document_id",
         ),
         client_op(
             "delete_google_doc_table_column",
@@ -681,23 +755,27 @@ def build_operations() -> List[Operation]:
             unwrap_envelope=True,
             fail_message="Failed to delete column.",
             input_schema={
-                "document_id": dict(_DOC_ID_SHORT),
+                "document_id": dict(_DOC_ID_SHORT, required=True),
                 "table_start_index": {
                     "type": "integer",
+                    "required": True,
                     "description": "Table start index.",
                     "example": 5,
                 },
                 "row_index": {
                     "type": "integer",
+                    "required": True,
                     "description": "Any row index in the column.",
                     "example": 0,
                 },
                 "column_index": {
                     "type": "integer",
+                    "required": True,
                     "description": "Column to delete.",
                     "example": 1,
                 },
             },
+            display_param="document_id",
         ),
         client_op(
             "merge_google_doc_table_cells",
@@ -708,33 +786,39 @@ def build_operations() -> List[Operation]:
             unwrap_envelope=True,
             fail_message="Failed to merge cells.",
             input_schema={
-                "document_id": dict(_DOC_ID_SHORT),
+                "document_id": dict(_DOC_ID_SHORT, required=True),
                 "table_start_index": {
                     "type": "integer",
+                    "required": True,
                     "description": "Table start index.",
                     "example": 5,
                 },
                 "row_index": {
                     "type": "integer",
+                    "required": True,
                     "description": "Top-left cell row.",
                     "example": 0,
                 },
                 "column_index": {
                     "type": "integer",
+                    "required": True,
                     "description": "Top-left cell column.",
                     "example": 0,
                 },
                 "row_span": {
                     "type": "integer",
+                    "required": True,
                     "description": "Rows to span.",
                     "example": 2,
                 },
                 "column_span": {
                     "type": "integer",
+                    "required": True,
                     "description": "Columns to span.",
                     "example": 2,
                 },
             },
+            display_param="document_id",
         ),
         client_op(
             "unmerge_google_doc_table_cells",
@@ -745,33 +829,39 @@ def build_operations() -> List[Operation]:
             unwrap_envelope=True,
             fail_message="Failed to unmerge cells.",
             input_schema={
-                "document_id": dict(_DOC_ID_SHORT),
+                "document_id": dict(_DOC_ID_SHORT, required=True),
                 "table_start_index": {
                     "type": "integer",
+                    "required": True,
                     "description": "Table start index.",
                     "example": 5,
                 },
                 "row_index": {
                     "type": "integer",
+                    "required": True,
                     "description": "Top-left cell row.",
                     "example": 0,
                 },
                 "column_index": {
                     "type": "integer",
+                    "required": True,
                     "description": "Top-left cell column.",
                     "example": 0,
                 },
                 "row_span": {
                     "type": "integer",
+                    "required": True,
                     "description": "Rows in merged region.",
                     "example": 2,
                 },
                 "column_span": {
                     "type": "integer",
+                    "required": True,
                     "description": "Columns in merged region.",
                     "example": 2,
                 },
             },
+            display_param="document_id",
         ),
         # ── Images ────────────────────────────────────────────────────────
         client_op(
@@ -786,24 +876,28 @@ def build_operations() -> List[Operation]:
             success_message="Image inserted.",
             fail_message="Failed to insert image.",
             input_schema={
-                "document_id": dict(_DOC_ID_SHORT),
+                "document_id": dict(_DOC_ID_SHORT, required=True),
                 "image_uri": {
                     "type": "string",
+                    "required": True,
                     "description": "Publicly accessible image URL.",
                     "example": "https://example.com/logo.png",
                 },
                 "index": {
                     "type": "integer",
+                    "required": True,
                     "description": "Insertion index.",
                     "example": 1,
                 },
                 "width_pt": {
                     "type": "number",
+                    "required": False,
                     "description": "Optional width in points.",
                     "example": 200,
                 },
                 "height_pt": {
                     "type": "number",
+                    "required": False,
                     "description": "Optional height in points.",
                     "example": 150,
                 },
@@ -815,6 +909,7 @@ def build_operations() -> List[Operation]:
                 "width_pt": d.get("width_pt"),
                 "height_pt": d.get("height_pt"),
             },
+            display_param="image_uri",
         ),
         client_op(
             "replace_google_doc_image",
@@ -829,18 +924,21 @@ def build_operations() -> List[Operation]:
             success_message="Image replaced.",
             fail_message="Failed to replace image.",
             input_schema={
-                "document_id": dict(_DOC_ID_SHORT),
+                "document_id": dict(_DOC_ID_SHORT, required=True),
                 "image_object_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Inline image object ID.",
                     "example": "kix.xxxx",
                 },
                 "image_uri": {
                     "type": "string",
+                    "required": True,
                     "description": "New image URI.",
                     "example": "https://example.com/new.png",
                 },
             },
+            display_param="image_uri",
         ),
         # ── Structure: page/section breaks, headers/footers, named ranges ─
         client_op(
@@ -853,13 +951,15 @@ def build_operations() -> List[Operation]:
             success_message="Page break inserted.",
             fail_message="Failed to insert page break.",
             input_schema={
-                "document_id": dict(_DOC_ID_SHORT),
+                "document_id": dict(_DOC_ID_SHORT, required=True),
                 "index": {
                     "type": "integer",
+                    "required": True,
                     "description": "Insertion index.",
                     "example": 1,
                 },
             },
+            display_param="document_id",
         ),
         client_op(
             "insert_google_doc_section_break",
@@ -873,14 +973,16 @@ def build_operations() -> List[Operation]:
             success_message="Section break inserted.",
             fail_message="Failed to insert section break.",
             input_schema={
-                "document_id": dict(_DOC_ID_SHORT),
+                "document_id": dict(_DOC_ID_SHORT, required=True),
                 "index": {
                     "type": "integer",
+                    "required": True,
                     "description": "Insertion index.",
                     "example": 1,
                 },
                 "section_type": {
                     "type": "string",
+                    "required": False,
                     "description": "NEXT_PAGE | CONTINUOUS.",
                     "example": "NEXT_PAGE",
                 },
@@ -890,6 +992,7 @@ def build_operations() -> List[Operation]:
                 "index": d["index"],
                 "section_type": d.get("section_type", "NEXT_PAGE"),
             },
+            display_param="document_id",
         ),
         client_op(
             "create_google_doc_header",
@@ -903,9 +1006,10 @@ def build_operations() -> List[Operation]:
             success_message="Header created.",
             fail_message="Failed to create header.",
             input_schema={
-                "document_id": dict(_DOC_ID_SHORT),
+                "document_id": dict(_DOC_ID_SHORT, required=True),
                 "header_type": {
                     "type": "string",
+                    "required": False,
                     "description": "DEFAULT | FIRST_PAGE_HEADER.",
                     "example": "DEFAULT",
                 },
@@ -914,6 +1018,7 @@ def build_operations() -> List[Operation]:
                 "document_id": d["document_id"],
                 "header_type": d.get("header_type", "DEFAULT"),
             },
+            display_param="document_id",
         ),
         client_op(
             "create_google_doc_footer",
@@ -927,9 +1032,10 @@ def build_operations() -> List[Operation]:
             success_message="Footer created.",
             fail_message="Failed to create footer.",
             input_schema={
-                "document_id": dict(_DOC_ID_SHORT),
+                "document_id": dict(_DOC_ID_SHORT, required=True),
                 "footer_type": {
                     "type": "string",
+                    "required": False,
                     "description": "DEFAULT | FIRST_PAGE_FOOTER.",
                     "example": "DEFAULT",
                 },
@@ -938,6 +1044,7 @@ def build_operations() -> List[Operation]:
                 "document_id": d["document_id"],
                 "footer_type": d.get("footer_type", "DEFAULT"),
             },
+            display_param="document_id",
         ),
         client_op(
             "delete_google_doc_header",
@@ -950,13 +1057,15 @@ def build_operations() -> List[Operation]:
             success_message="Header deleted.",
             fail_message="Failed to delete header.",
             input_schema={
-                "document_id": dict(_DOC_ID_SHORT),
+                "document_id": dict(_DOC_ID_SHORT, required=True),
                 "header_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Header ID.",
                     "example": "kix.xxxx",
                 },
             },
+            display_param="header_id",
         ),
         client_op(
             "delete_google_doc_footer",
@@ -969,13 +1078,15 @@ def build_operations() -> List[Operation]:
             success_message="Footer deleted.",
             fail_message="Failed to delete footer.",
             input_schema={
-                "document_id": dict(_DOC_ID_SHORT),
+                "document_id": dict(_DOC_ID_SHORT, required=True),
                 "footer_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Footer ID.",
                     "example": "kix.xxxx",
                 },
             },
+            display_param="footer_id",
         ),
         client_op(
             "create_google_doc_named_range",
@@ -990,23 +1101,27 @@ def build_operations() -> List[Operation]:
             success_message="Named range created.",
             fail_message="Failed to create named range.",
             input_schema={
-                "document_id": dict(_DOC_ID_SHORT),
+                "document_id": dict(_DOC_ID_SHORT, required=True),
                 "name": {
                     "type": "string",
+                    "required": True,
                     "description": "Range name.",
                     "example": "intro_section",
                 },
                 "start_index": {
                     "type": "integer",
+                    "required": True,
                     "description": "Start UTF-16 index.",
                     "example": 1,
                 },
                 "end_index": {
                     "type": "integer",
+                    "required": True,
                     "description": "End UTF-16 index.",
                     "example": 50,
                 },
             },
+            display_param="name",
         ),
         client_op(
             "delete_google_doc_named_range",
@@ -1019,14 +1134,16 @@ def build_operations() -> List[Operation]:
             success_message="Named range deleted.",
             fail_message="Failed to delete named range.",
             input_schema={
-                "document_id": dict(_DOC_ID_SHORT),
+                "document_id": dict(_DOC_ID_SHORT, required=True),
                 "name": {
                     "type": "string",
+                    "required": False,
                     "description": "Range name to delete (one of name or id required).",
                     "example": "intro_section",
                 },
                 "named_range_id": {
                     "type": "string",
+                    "required": False,
                     "description": "Named range ID (alternative to name).",
                     "example": "",
                 },
@@ -1036,5 +1153,6 @@ def build_operations() -> List[Operation]:
                 "name": d.get("name") or None,
                 "named_range_id": d.get("named_range_id") or None,
             },
+            display_param="name",
         ),
     ]
