@@ -40,8 +40,8 @@ PROCESS_POOL = ProcessPoolExecutor()
 THREAD_POOL = ThreadPoolExecutor(max_workers=16)
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
-# Default timeout for action execution (100 minutes, GUI mode might need more time)
-DEFAULT_ACTION_TIMEOUT = 6000
+# Default timeout for action execution (500 minutes, GUI mode might need more time)
+DEFAULT_ACTION_TIMEOUT = 30000
 
 # Persistent venv for sandboxed actions (reused across calls)
 _PERSISTENT_VENV_DIR: Optional[Path] = None
