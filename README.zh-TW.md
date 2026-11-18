@@ -49,7 +49,7 @@
 - **主動型 Agent.** 學習你的偏好、習慣與人生目標,然後主動規劃並發起任務(當然會徵求你的同意),協助你在生活中變得更好。
 - **外部工具整合.** 連接你的應用,例如 Google Workspace、Slack、Notion、Zoom、LinkedIn、Discord、Telegram 等(更多正在路上),支援 OAuth 或使用你自己的金鑰。每個整合都可以連接多個帳號。
 - **Skills 與 MCP.** 已備好 150+ MCP 與 170+ Skills,支援快速安裝新的 Skills 與 MCP,也能從已完成的任務一鍵建立或改進 Skills。
-- **瀏覽器介面與 CLI 支援.** 選擇最適合你的方式使用 CraftBot:日常使用走簡潔的瀏覽器 UI,腳本與無介面環境則走 CLI。
+- **瀏覽器或終端機.** 選擇最適合你的方式使用 CraftBot:日常使用走簡潔的瀏覽器 UI,也可以使用完整的終端機版(`python run.py --tui`),聊天、設定和 Agent App 都一樣。
 
 ---
 
@@ -123,7 +123,7 @@ python craftbot.py restart    # 重新啟動 CraftBot
 python craftbot.py status     # 查看執行狀態以及是否已啟用自動啟動
 python craftbot.py logs       # 顯示最近 50 行記錄(更多:logs -n 200)
 python craftbot.py uninstall  # 停止執行、移除自動啟動並解除安裝套件
-python run.py --cli           # 在終端機中執行,而不是在瀏覽器中
+python run.py --tui           # 在終端機中執行,而不是在瀏覽器中
 ```
 
 使用安裝程式的使用者可以在安裝程式視窗中完成相同的操作(**Start**、**Stop**、**Repair**、**Uninstall**)。

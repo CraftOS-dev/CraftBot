@@ -1,0 +1,120 @@
+{
+  "transcript": {
+    "title": "Transcripción · {{session}}",
+    "count_one": "{{count}} mensaje",
+    "count_other": "{{count}} mensajes",
+    "match": "coincidencia {{index}} de {{count}}",
+    "noMatch": "sin coincidencias para {{query}}",
+    "loadingOlder": "Cargando mensajes anteriores...",
+    "olderAbove": "Los mensajes anteriores se cargan al llegar arriba",
+    "start": "Inicio de la conversación",
+    "empty": "Aún no hay nada en esta conversación.",
+    "reasoning": "Razonamiento",
+    "thinking": "Pensando...",
+    "details": "Detalles",
+    "detailsHidden_one": "Detalles ocultos ({{count}} línea) · Enter los muestra",
+    "detailsHidden_other": "Detalles ocultos ({{count}} líneas) · Enter los muestra",
+    "replyingTo": "Respondiendo a",
+    "you": "Tú",
+    "waiting": "Esperando tu respuesta",
+    "status": {
+      "running": "en ejecución",
+      "waiting": "esperando",
+      "paused": "en pausa",
+      "pending": "en cola",
+      "cancelled": "cancelada"
+    },
+    "copied": "Copiado como Markdown",
+    "copiedTerminal": "Enviado al portapapeles de la terminal (OSC 52)",
+    "copyFailed": "No se pudo copiar: {{error}}",
+    "replyOnlyAgent": "Solo se puede responder a los mensajes del agente",
+    "replyChoose": "Responde a esta con sus opciones en el chat",
+    "editorSaved": "Guardado en {{path}}",
+    "editorFailed": "No se pudo abrir {{editor}}: {{error}}",
+    "searchPlaceholder": "buscar en la transcripción",
+    "dumpEnd": "fin de la transcripción",
+    "hint": {
+      "fold": "plegar",
+      "search": "buscar",
+      "match": "siguiente coincidencia",
+      "copy": "copiar",
+      "reply": "responder",
+      "scrollback": "a la terminal",
+      "editor": "editor",
+      "back": "volver",
+      "keep": "mantener",
+      "clear": "borrar"
+    }
+  },
+  "browser": {
+    "title": "Navegador · {{session}}",
+    "newChat": "Un chat nuevo recibe su navegador con su primer mensaje.",
+    "off": "Apagado. Se abre cuando el agente navega; s lo inicia ahora.",
+    "starting": "Iniciando el navegador...",
+    "installing": "Instalando Chromium...",
+    "installDone": "Chromium instalado. s inicia el navegador.",
+    "installFailed": "Error de instalación: {{error}}",
+    "installHint": "i instala Chromium (una descarga única).",
+    "status": {
+      "starting": "iniciando",
+      "ready": "listo",
+      "stopped": "apagado",
+      "installing": "instalando",
+      "error": "error"
+    },
+    "browsing": "el agente navega",
+    "tabs_one": "{{count}} pestaña",
+    "tabs_other": "{{count}} pestañas",
+    "col": {
+      "owner": "Propietario",
+      "title": "Título",
+      "address": "Dirección",
+      "state": "Estado"
+    },
+    "owner": {
+      "you": "Tú",
+      "agent": "Agente",
+      "subagent": "Subagente",
+      "main": "Principal",
+      "session": "Chat"
+    },
+    "state": {
+      "crashed": "falló",
+      "control": "la controlas tú",
+      "working": "agente trabajando",
+      "loading": "cargando",
+      "idle": "inactiva"
+    },
+    "untitled": "Nueva pestaña",
+    "noTabs": "No hay pestañas abiertas.",
+    "controlNote": "El navegador se ejecuta como una ventana en tu escritorio. Toma el control de la pestaña del agente para usarla allí.",
+    "controlTaken": "Tienes el control: usa la ventana del navegador y luego pulsa t aquí para devolver la pestaña.",
+    "controlReturned": "Pestaña devuelta al agente.",
+    "linkCopied": "Enlace copiado",
+    "linkCopiedTerminal": "Enlace enviado al portapapeles de la terminal (OSC 52)",
+    "copyFailed": "No se pudo copiar: {{error}}",
+    "confirmClose": "{{owner}} está trabajando en {{title}}. ¿Cerrarla de todos modos?",
+    "stopping": "Deteniendo la ejecución del agente...",
+    "notBrowsing": "Ninguna ejecución del agente controla esta pestaña",
+    "event": {
+      "download": "Descargado: {{name}}",
+      "crash": "Una pestaña ha fallado",
+      "blocked": "Se bloqueó una página",
+      "dialog": "La página mostró un cuadro de diálogo",
+      "popup": "La página abrió una ventana emergente",
+      "notice": "Aviso",
+      "problem": "Problema"
+    },
+    "hint": {
+      "control": "tomar el control",
+      "handBack": "devolver al agente",
+      "show": "mostrar",
+      "close": "cerrar pestaña",
+      "copy": "copiar enlace",
+      "stop": "detener agente",
+      "start": "iniciar",
+      "install": "instalar Chromium",
+      "back": "volver"
+    }
+  }
+}

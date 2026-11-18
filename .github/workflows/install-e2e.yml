@@ -82,9 +82,13 @@ jobs:
       - name: Install an old Python 3.8 to launch with
         if: matrix.old_python
         run: |
-          sudo add-apt-repository -y ppa:deadsnakes/ppa
-          sudo apt-get update
-          sudo apt-get install -y python3.8
+          set -euo pipefail
+          # A standalone CPython 3.8 from GitHub (python-build-standalone,
+          # through uv), not the deadsnakes PPA: no Launchpad mirror to go
+          # down, and only python3.8 joins PATH.
+          python3 -m pip install --user --quiet uv
+          python3 -m uv python install 3.8
+          sudo ln -sf "$(python3 -m uv python find 3.8)" /usr/local/bin/python3.8
 
       - name: Prepare
         run: |

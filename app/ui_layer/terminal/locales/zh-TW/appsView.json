@@ -1,0 +1,63 @@
+{
+  "title": "Agent App",
+  "notFound": "此應用程式已不存在。",
+  "loading": "正在載入...",
+  "stopped": "應用程式已停止。按 l 啟動。",
+  "asOwner": "以擁有者身分",
+  "agent": "你的 AI 代理",
+  "agentIdle": "閒置",
+  "agentWorking": "處理中",
+  "status": {
+    "running": "執行中",
+    "ready": "執行中",
+    "stopped": "已停止",
+    "creating": "建置中",
+    "launching": "啟動中",
+    "stopping": "停止中",
+    "error": "錯誤",
+    "created": "未啟動"
+  },
+  "tabs": {
+    "ops": "操作",
+    "records": "記錄",
+    "requests": "請求",
+    "settings": "設定"
+  },
+  "hint": {
+    "back": "返回",
+    "cancel": "取消",
+    "confirm": "確認",
+    "anyKey": "其他任意鍵",
+    "anyKeyBack": "按任意鍵返回",
+    "nextOrRun": "下一個欄位，最後一個時執行",
+    "nextField": "下一個欄位",
+    "open": "開啟",
+    "send": "傳送",
+    "closeChat": "關閉對話",
+    "allOps": "所有操作",
+    "chat": "對話",
+    "screens": "畫面",
+    "stop": "停止",
+    "launch": "啟動"
+  },
+  "fieldError": {
+    "required": "必填",
+    "number": "必須是數字"
+  },
+  "noParams": "不需要填寫資料。按 Enter 執行。",
+  "confirmDestructive": "{{label}} 會永久變更或刪除資料。要執行嗎？",
+  "confirmHint": "y 執行 · 其他任意鍵返回",
+  "destructive": "破壞性",
+  "noActions": "此列沒有可用的操作。",
+  "paletteHint": "輸入以尋找操作",
+  "recordCount_one": "{{count}} 筆記錄",
+  "recordCount_other": "{{count}} 筆記錄",
+  "readOnly": "唯讀（變更需透過操作進行）",
+  "recordsHint": "應用程式的資料，唯讀。按 Enter 開啟集合。",
+  "requestsHint": "應用程式傳給你的 AI 代理的請求。按 Enter 列出。",
+  "viewsInvalid": "views.json 有問題，正在顯示自動產生的畫面：{{problem}}",
+  "actionsOnly": "此區域本身沒有可顯示的內容，請使用下方的操作。",
+  "you": "你",
+  "chatEmpty": "還沒有任何對話。",
+  "chatPlaceholder": "向你的 AI 代理詢問這個應用程式"
+}

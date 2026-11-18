@@ -1,0 +1,223 @@
+{
+  "settings": {
+    "otherTab": "他のタブ",
+    "tabList": "タブ一覧",
+    "tabs": {
+      "general": "一般",
+      "proactive": "プロアクティブ",
+      "memory": "メモリー",
+      "model": "モデル",
+      "mcp": "MCP サーバー",
+      "skills": "スキル",
+      "integrations": "連携",
+      "credentials": "認証情報",
+      "agentApps": "Agent App"
+    }
+  },
+  "actions": {
+    "newChat": "新規チャット",
+    "enhance": "AI で下書きを改善",
+    "effort": "推論の強度",
+    "quit": "終了"
+  },
+  "screens": {
+    "sessions": "セッション",
+    "apps": "Agent App",
+    "memory": "メモリー",
+    "workspace": "ワークスペース",
+    "dashboard": "ダッシュボード",
+    "browser": "ブラウザ",
+    "settings": "設定",
+    "transcript": "会話ログ",
+    "help": "キー操作",
+    "palette": "コマンドパレット"
+  },
+  "session": {
+    "main": "メイン",
+    "newChat": "新規チャット",
+    "untitled": "無題のチャット"
+  },
+  "composer": {
+    "placeholder": "何でも聞いてください · / コマンド · ? キー操作",
+    "moreAbove": "↑ ほか {{count}} 行",
+    "moreBelow": "↓ ほか {{count}} 行",
+    "leaderHint": "s セッション · a アプリ · m メモリー · w ワークスペース · d ダッシュボード · b ブラウザ · , 設定 · n 新規チャット",
+    "invisibleRemoved_one": "メッセージから不可視文字を {{count}} 個削除しました",
+    "invisibleRemoved_other": "メッセージから不可視文字を {{count}} 個削除しました",
+    "sendFailed": "送信できませんでした: {{error}}",
+    "enhanceUnavailable": "先に下書きを入力してから Ctrl+X e を押してください",
+    "enhancing": "下書きを改善中...",
+    "folder": "フォルダー",
+    "replyingTo": "返信先: {{name}} · Esc でキャンセル",
+    "enhanceFailed": "下書きを改善できませんでした",
+    "attached_one": "{{count}} 件のファイルを添付しました",
+    "attached_other": "{{count}} 件のファイルを添付しました",
+    "attachTooMany": "1 つのメッセージに添付できるファイルは最大 {{count}} 件です",
+    "attachTooLarge": "添付ファイルは合計 200 MB までです"
+  },
+  "connect": {
+    "connecting": "CraftBot を起動中...",
+    "waiting": "CraftBot の起動完了を待っています...",
+    "greeting": "接続しました。チャットを読み込み中...",
+    "unresponsive": "CraftBot が応答していません。",
+    "seeLog": "ログ: {{path}}",
+    "stopHint": "Ctrl+C で終了してから、次を実行してください: python craftbot.py stop",
+    "legacyConsole": "これは従来の Windows コンソールです。CraftBot は Windows Terminal のほうが快適に動作します（再描画が滑らか、Shift+Enter、貼り付けに対応）。",
+    "wrongEdition": "CraftBot は {{edition}} エディションとして実行中です。ターミナル版で再起動してください: python craftbot.py restart --tui"
+  },
+  "working": {
+    "label": "作業中",
+    "stopping": "停止中",
+    "stopHint": "esc 停止",
+    "waiting": "回答を待っています",
+    "moreDone_one": "ほか {{count}} 件完了",
+    "moreDone_other": "ほか {{count}} 件完了",
+    "subagent_one": "サブエージェント {{name}} · {{count}} 件のアクション",
+    "subagent_other": "サブエージェント {{name}} · {{count}} 件のアクション"
+  },
+  "question": {
+    "title": "{{name}} からの質問 · {{index}} / {{total}}",
+    "choiceTitle": "続け方を選んでください",
+    "recommended": "推奨",
+    "hint": "回答を入力するか、Tab で選択肢を選びます",
+    "choiceHint": "Tab で選択",
+    "focusedHint": "1-9 か矢印キーで選択 · Enter 送信 · x 閉じる（タスクを停止） · Esc 入力に戻る",
+    "focusedChoiceHint": "1-9 か矢印キーで選択 · Enter 確定 · Esc 入力に戻る",
+    "dismissed": "質問を閉じました"
+  },
+  "notify": {
+    "question": "{{session}} があなたの回答を待っています",
+    "done": "{{session}} が完了しました",
+    "needsYou": "{{count}} 件が対応待ち"
+  },
+  "firstRun": {
+    "keys": "Enter 送信 · Ctrl+J 改行 · Esc 停止 · / コマンド · Ctrl+X 画面 · Ctrl+P パレット · ? キー操作 · Ctrl+C 2 回で終了"
+  },
+  "quit": {
+    "pressAgain": "もう一度 Ctrl+C を押すと終了します"
+  },
+  "status": {
+    "moreSessions_one": "+{{count}} 件",
+    "moreSessions_other": "+{{count}} 件",
+    "effort": "推論 {{value}}",
+    "cache": "キャッシュ {{value}}%",
+    "apps_one": "{{count}} 個のアプリが実行中",
+    "apps_other": "{{count}} 個のアプリが実行中",
+    "offline": "再接続中",
+    "backendBusy": "CraftBot は処理中です",
+    "help": "? キー操作"
+  },
+  "todo": {
+    "title": "ToDo {{done}}/{{total}}"
+  },
+  "transcript": {
+    "actions_one": "{{count}} 件のアクション",
+    "actions_other": "{{count}} 件のアクション",
+    "failed_one": "{{count}} 件失敗",
+    "failed_other": "{{count}} 件失敗",
+    "stopped": "停止",
+    "earlier_one": "以前の項目 {{count}} 件 · Ctrl+O ですべて表示",
+    "earlier_other": "以前の項目 {{count}} 件 · Ctrl+O ですべて表示",
+    "interactiveOutput": "インタラクティブ出力 · {{title}} · rev {{revision}} · ブラウザ版で開いてください",
+    "detailsHint": "詳細は会話ログで確認できます (Ctrl+O)",
+    "error": "エラー",
+    "system": "システム"
+  },
+  "help": {
+    "chat": "チャット",
+    "send": "送信",
+    "newline": "改行",
+    "stop": "実行中のタスクを停止、ポップアップを閉じる",
+    "history": "以前の入力（先頭行または最終行で）",
+    "focusQuestion": "固定された質問の選択肢を選ぶ",
+    "commands": "コマンドとスキル",
+    "todos": "ToDo リストの表示を切り替え",
+    "redraw": "画面を再描画",
+    "clearOrQuit": "入力をクリア、2 回で終了",
+    "leader": "画面（Ctrl+X の後にキー）",
+    "screensTitle": "画面内",
+    "move": "移動",
+    "open": "開く",
+    "back": "1 つ前に戻る",
+    "closeAll": "チャットに戻る",
+    "filter": "絞り込み",
+    "addEditDelete": "追加、編集、削除",
+    "refresh": "更新",
+    "panesTabs": "次のペイン、前後のタブ",
+    "apps": "Agent App 一覧",
+    "appOpen": "アプリを開く",
+    "appLaunchStop": "起動、停止",
+    "appAdd": "アプリを追加（マーケットプレイス、作成、インポート）",
+    "appThemeSettings": "テーマ、アプリの設定",
+    "appDelete": "停止中のアプリを削除",
+    "appReorder": "アプリを下へ、上へ移動",
+    "appView": "アプリ内",
+    "appScreens": "次の画面、前、次",
+    "appRows": "行の移動、次のテーブル",
+    "appRow": "行の詳細とアクション",
+    "appOps": "アプリのすべての操作",
+    "appChat": "アプリについて AI エージェントとチャット",
+    "appRefreshRecords": "更新、アプリのレコード（読み取り専用）",
+    "editing": "編集",
+    "lineEnds": "行頭と行末",
+    "wordMove": "単語単位で移動",
+    "deleteWord": "前の単語を削除",
+    "killLine": "行頭または行末まで削除"
+  },
+  "hint": {
+    "back": "戻る",
+    "open": "開く",
+    "move": "移動",
+    "run": "実行",
+    "scroll": "スクロール",
+    "filter": "絞り込み",
+    "rename": "名前を変更",
+    "clear": "クリア",
+    "delete": "削除",
+    "makeSkill": "スキルを作成",
+    "confirm": "y 確定 · その他のキーでキャンセル",
+    "help": "ヘルプ"
+  },
+  "sessions": {
+    "count_one": "{{count}} 件の会話",
+    "count_other": "{{count}} 件の会話",
+    "mainNote": "メインには、自動的に発生することがすべて届きます: スケジュール、連携、お知らせ。",
+    "confirmClear": "{{title}} のメッセージをすべてクリアしますか？",
+    "confirmDelete": "{{title}} を完全に削除しますか？",
+    "skillRequested": "この会話をスキルに変換中..."
+  },
+  "palette": {
+    "placeholder": "入力して画面、チャット、アプリ、コマンドを検索",
+    "count_one": "{{count}} 件一致",
+    "count_other": "{{count}} 件一致",
+    "screen": "画面",
+    "action": "アクション",
+    "session": "チャット",
+    "app": "アプリ",
+    "command": "コマンド",
+    "skill": "スキル"
+  },
+  "onboarding": {
+    "title": "CraftBot のセットアップ",
+    "loading": "セットアップを読み込み中...",
+    "continue": "続ける",
+    "next": "次へ",
+    "nextField": "次の項目",
+    "skip": "スキップ",
+    "apiKey": "API キー",
+    "ollamaUrl": "Ollama のアドレス",
+    "agentNamePlaceholder": "エージェントに名前を付けてください",
+    "via": "接続方法: {{via}}（Tab で切り替え）",
+    "viaDirect": "プロバイダーに直接",
+    "subscriptionHint": "キーの代わりに {{label}} を使えます: セットアップ後に 設定 > モデル で利用できます。",
+    "imageLater": "画像は後で設定から追加できます",
+    "working": "保存中..."
+  },
+  "welcome": {
+    "commands": "コマンド",
+    "help": "ヘルプ",
+    "sessions": "セッション",
+    "transcript": "履歴",
+    "tagline": "何でも聞いてください。/ でコマンド、@ でファイルを添付します。"
+  }
+}

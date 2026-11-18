@@ -1,0 +1,63 @@
+{
+  "title": "Agent App",
+  "notFound": "此应用已不存在。",
+  "loading": "正在加载...",
+  "stopped": "应用已停止。按 l 启动。",
+  "asOwner": "以所有者身份",
+  "agent": "你的 AI 智能体",
+  "agentIdle": "空闲",
+  "agentWorking": "工作中",
+  "status": {
+    "running": "运行中",
+    "ready": "运行中",
+    "stopped": "已停止",
+    "creating": "构建中",
+    "launching": "启动中",
+    "stopping": "停止中",
+    "error": "错误",
+    "created": "未启动"
+  },
+  "tabs": {
+    "ops": "操作",
+    "records": "记录",
+    "requests": "请求",
+    "settings": "设置"
+  },
+  "hint": {
+    "back": "返回",
+    "cancel": "取消",
+    "confirm": "确认",
+    "anyKey": "其他任意键",
+    "anyKeyBack": "按任意键返回",
+    "nextOrRun": "下一个字段，最后一个时运行",
+    "nextField": "下一个字段",
+    "open": "打开",
+    "send": "发送",
+    "closeChat": "关闭对话",
+    "allOps": "所有操作",
+    "chat": "对话",
+    "screens": "界面",
+    "stop": "停止",
+    "launch": "启动"
+  },
+  "fieldError": {
+    "required": "必填",
+    "number": "必须是数字"
+  },
+  "noParams": "无需填写信息。按 Enter 运行。",
+  "confirmDestructive": "{{label}} 会永久更改或删除数据。要运行吗？",
+  "confirmHint": "y 运行 · 其他任意键返回",
+  "destructive": "破坏性",
+  "noActions": "此行没有可用操作。",
+  "paletteHint": "输入以查找操作",
+  "recordCount_one": "{{count}} 条记录",
+  "recordCount_other": "{{count}} 条记录",
+  "readOnly": "只读（更改需通过操作进行）",
+  "recordsHint": "应用的数据，只读。按 Enter 打开集合。",
+  "requestsHint": "应用发给你的 AI 智能体的请求。按 Enter 列出。",
+  "viewsInvalid": "views.json 有问题，正在显示自动生成的界面：{{problem}}",
+  "actionsOnly": "此区域本身没有可显示的内容，请使用下方的操作。",
+  "you": "你",
+  "chatEmpty": "还没有任何对话。",
+  "chatPlaceholder": "向你的 AI 智能体询问这个应用"
+}

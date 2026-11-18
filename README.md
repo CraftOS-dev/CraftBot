@@ -49,7 +49,7 @@ Aside from being an AI agent that can create and operate its own SaaS tools, Cra
 - **Proactive Agent.** Learn your preferences, habits, and life goals. Then, perform planning and initiate tasks (with approval, of course) to help you improve in life.
 - **External Tools Integration.** Connect to your apps like Google Workspace, Slack, Notion, Zoom, LinkedIn, Discord, Telegram and more (more to come!) with OAuth support or your own key. You can connect multiple accounts to each integration.
 - **Skills and MCP.** 150+ MCP and 170+ Skills ready. Quick installation of new Skills and MCPs. Create/improve Skills from completed tasks with one click.
-- **Browser interface and CLI support.** Use CraftBot the way it fits: through a simple browser UI for everyday interaction, or via the CLI for scripting and headless environments.
+- **Browser or terminal.** Use CraftBot the way it fits: a simple browser UI for everyday interaction, or the full terminal edition (`python run.py --tui`) with the same chats, settings and Agent Apps.
 
 ---
 
@@ -126,7 +126,7 @@ python craftbot.py autostart disable  # Don't launch automatically at future log
 python craftbot.py autostart enable   # Restore automatic startup at login
 python craftbot.py autostart status   # Check automatic startup registration
 python craftbot.py uninstall  # Stop, remove auto-start, and uninstall packages
-python run.py --cli           # Run in the terminal instead of the browser
+python run.py --tui           # Run in the terminal instead of the browser
 ```
 
 Installer users can do the same from the installer window (**Start**, **Stop**, **Repair**, **Uninstall**).

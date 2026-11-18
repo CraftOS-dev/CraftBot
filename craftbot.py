@@ -13,6 +13,9 @@ Commands:
     python craftbot.py restart [options]  Stop then start
     python craftbot.py status             Show if CraftBot is running
     python craftbot.py logs [-n N]        Show last N log lines (default: 50)
+    python craftbot.py tui [options]      Open the terminal edition in this console,
+                                          starting CraftBot in the background first
+                                          if it is not running
     python craftbot.py install [options]  Register for auto-start on boot/login
     python craftbot.py autostart enable   Enable automatic startup at login
     python craftbot.py autostart disable  Disable automatic startup (keep installed)
@@ -26,6 +29,8 @@ When running as a frozen EXE (CraftBot.exe with no args), the wizard opens
 automatically. Subcommands work the same as in source mode.
 
 Options passed to 'start' / 'install':
+    --tui                   Run the terminal edition instead of the browser (the
+                            backend runs in the background; open it with `tui`)
     --no-open-browser       Don't open browser automatically (default for service)
     --frontend-port PORT    Frontend port (default: 7925, or the next free pair)
     --backend-port PORT     Backend port (default: 7926, or the next free pair)
@@ -34,12 +39,11 @@ Options passed to 'start' / 'install':
     --no-conda              Don't use conda
     --no-autostart          Install without automatic startup at login
 
-'start' waits until CraftBot answers (or prints why it stopped). The CLI
-interface needs a terminal, so it is not started in the background: run
-`python run.py --cli` instead.
+'start' waits until CraftBot answers (or prints why it stopped).
 
 Examples:
     python craftbot.py start                   # Start in background (browser mode)
+    python craftbot.py tui                     # Open the terminal edition
     python craftbot.py install                 # Auto-start on login (browser mode)
     python craftbot.py install --no-open-browser  # Auto-start without opening browser
     python craftbot.py stop
@@ -327,7 +331,8 @@ def _installed_python() -> str:
 def _python_exe() -> str:
     """Return the Python executable to use for the service process."""
     python = _installed_python()
-    # On Windows prefer pythonw.exe (no console window) when not in CLI mode
+    # On Windows prefer pythonw.exe (no console window): the service never
+    # talks to a console (the terminal edition's client is `craftbot.py tui`)
     if _PLATFORM == "win32":
         pythonw = os.path.join(os.path.dirname(python), "pythonw.exe")
         if os.path.isfile(pythonw):
@@ -608,7 +613,6 @@ def _stop_orphan_listeners(args: Optional[List[str]] = None) -> int:
     from app.process_ledger import kill_tree
 
     stopped = 0
-    failures = []
     for pid, description in orphans:
         print(
             f"  {ORANGE}▸{RESET} {WHITE}STOPPING ORPHANED CRAFTBOT{RESET}"
@@ -619,11 +623,6 @@ def _stop_orphan_listeners(args: Optional[List[str]] = None) -> int:
             stopped += 1
         except Exception as e:
             print(f"  {DIM}(could not stop pid {pid}: {e}){RESET}")
-            failures.append(str(pid))
-    if failures:
-        raise RuntimeError(
-            "Could not stop orphaned CraftBot pids: " + ", ".join(failures)
-        )
     return stopped
 
 
@@ -645,13 +644,16 @@ def _build_run_args(extra: List[str], service_mode: bool = True) -> List[str]:
     """Build the argument list for run.py.
 
     Adds --no-open-browser by default in service mode (auto-start at boot
-    should not pop open a browser without the user asking).
+    should not pop open a browser without the user asking). The terminal
+    edition's service serves the backend only: a background process has no
+    console for the terminal client, which `craftbot.py tui` attaches.
     """
     args = list(extra)
-    # CLI mode doesn't use the browser flag
-    if service_mode and "--cli" not in args:
-        if "--no-open-browser" not in args:
-            args.append("--no-open-browser")
+    if "--tui" in args:
+        if "--backend-only" not in args:
+            args.append("--backend-only")
+    elif service_mode and "--no-open-browser" not in args:
+        args.append("--no-open-browser")
     return args
 
 
@@ -670,12 +672,10 @@ def _open_browser_detached(url: str) -> None:
         print(f"  {DIM}Could not open a browser ({e}). Open {url} yourself.{RESET}")
 
 
-#: Shown when a background start or an auto-start registration asks for the
-#: terminal interface, which needs the terminal it was started from.
-_CLI_IN_BACKGROUND = (
-    "The CLI interface runs in your terminal, so it cannot run in the "
-    "background or start on login.\n"
-    "  Start it in this terminal instead:  python run.py --cli"
+_CLI_RETIRED = (
+    "The CLI was replaced by the terminal edition.\n"
+    "  Run it in this terminal:  python run.py --tui\n"
+    "  Or as a service:  python craftbot.py start --tui, then python craftbot.py tui"
 )
 
 
@@ -702,16 +702,17 @@ def cmd_start(extra_args: List[str]) -> bool:
     log lines and the log path are printed.
     """
     if "--cli" in extra_args:
-        print(f"  {RED}✗{RESET} {WHITE}{_CLI_IN_BACKGROUND}{RESET}")
+        print(f"  {RED}✗{RESET} {WHITE}{_CLI_RETIRED}{RESET}")
         return False
 
     # Unconditional, not `if _owned_pid()`: the thing most likely to be
     # holding our port is the CraftBot this install has no PID file for.
     cmd_stop(quiet=True, args=extra_args)
 
-    # Always pass --no-open-browser to run.py; craftbot.py handles opening the browser
     run_args = _build_run_args(extra_args, service_mode=False)
-    if "--no-open-browser" not in run_args:
+    terminal_edition = "--tui" in run_args
+    # Always pass --no-open-browser to run.py; craftbot.py handles opening the browser
+    if not terminal_edition and "--no-open-browser" not in run_args:
         run_args.append("--no-open-browser")
 
     if IS_FROZEN:
@@ -794,13 +795,18 @@ def cmd_start(extra_args: List[str]) -> bool:
         print(
             f"  {GREEN}▸{RESET} {WHITE}CRAFTBOT IS STILL STARTING{RESET}  {DIM}PID {pid}{RESET}"
         )
+        where = "with: python craftbot.py tui" if terminal_edition else f"at {browser_url}"
         print(
-            f"  {DIM}It will be available at {browser_url} when it finishes. "
+            f"  {DIM}It will be available {where} when it finishes. "
             f"Follow its progress with: python craftbot.py logs{RESET}"
         )
         return True
 
     print(f"  {GREEN}▸{RESET} {WHITE}CRAFTBOT STARTED{RESET}  {DIM}PID {pid}{RESET}")
+    if terminal_edition:
+        # No web UI and no desktop icon: the client is `craftbot.py tui`.
+        print(f"  {DIM}░░{RESET} {WHITE}Open it with: python craftbot.py tui{RESET}")
+        return True
     print(f"  {DIM}░░{RESET} {ORANGE}{browser_url}{RESET}")
 
     # Create a desktop shortcut so the user can reopen the browser anytime
@@ -813,6 +819,64 @@ def cmd_start(extra_args: List[str]) -> bool:
         _open_browser_detached(browser_url)
 
     return True
+
+
+def cmd_tui(extra_args: List[str]) -> int:
+    """Open the terminal edition in this console.
+
+    Attaches to the CraftBot this state root is running, whichever edition its
+    backend serves, on the port its ui.json names. When none runs, starts the
+    terminal edition in the background first. Quitting the client leaves the
+    service running, so scheduled and proactive work goes on; `craftbot.py
+    stop` stops it.
+    """
+    from app import edition, node_runtime
+
+    ui = _instance.read_ui()
+    if ui is None or not _instance.http_answers(str(ui["url"])):
+        if _owned_pid() is not None and _wait_for_running(
+            _owned_pid(), extra_args, lambda text: None
+        ):
+            ui = _instance.read_ui()
+        else:
+            start_args = list(extra_args)
+            if "--tui" not in start_args:
+                start_args.append("--tui")
+            if not cmd_start(start_args):
+                return 1
+            ui = _instance.read_ui()
+    port = (
+        int(ui["backend_port"])
+        if ui and isinstance(ui.get("backend_port"), int)
+        else _parse_port_arg(extra_args, "--backend-port", DEFAULT_BACKEND_PORT)
+    )
+
+    bundle = edition.terminal_client_bundle()
+    node = node_runtime.node_cmd()
+    if not node:
+        print(f"  {RED}✗{RESET} {WHITE}Node.js 24 or later is required{RESET}")
+        print(f"  {DIM}Run `python craftbot.py install` to set it up.{RESET}")
+        return 1
+    if not bundle.is_file():
+        print(f"  {RED}✗{RESET} {WHITE}The terminal client is not built{RESET}")
+        print(f"  {DIM}Restart it: python craftbot.py restart --tui{RESET}")
+        return 1
+    try:
+        return subprocess.run(
+            [
+                node,
+                str(bundle),
+                "--port",
+                str(port),
+                "--state-dir",
+                str(paths.STATE_ROOT),
+                "--log",
+                LOG_FILE,
+            ],
+            env=node_runtime.child_env(),
+        ).returncode
+    except KeyboardInterrupt:
+        return 130
 
 
 def _running_ui_url(args: List[str]) -> Optional[str]:
@@ -949,9 +1013,8 @@ def cmd_open(extra_args: List[str]) -> bool:
     from the icon there is no console, so progress and any failure are shown
     in a small window instead; from a terminal they are printed.
     """
-    if IS_FROZEN or "--cli" in extra_args:
-        # The legacy installer EXE has no run.py next to it to start, and the
-        # terminal interface needs the terminal it is started from.
+    if IS_FROZEN:
+        # The legacy installer EXE has no run.py next to it to start.
         _open_browser_detached(_current_url(extra_args))
         return True
 
@@ -1026,9 +1089,16 @@ def cmd_stop(quiet: bool = False, args: Optional[List[str]] = None) -> bool:
 def _kill_owned_pid(pid: int) -> None:
     """Terminate a pid already verified as ours, with its whole tree."""
     if _PLATFORM == "win32":
-        from app.process_ledger import kill_tree
-
-        kill_tree(pid)
+        try:
+            subprocess.run(
+                ["taskkill", "/PID", str(pid), "/F", "/T"],
+                capture_output=True,
+                timeout=15,
+                # The desktop icon runs windowless: no console flash.
+                **_quiet_windows_flags(),
+            )
+        except Exception as e:
+            print(f"Warning: taskkill failed — {e}")
     else:
         try:
             # Kill the entire process group so child processes also die
@@ -1981,7 +2051,7 @@ def _startup_options(extra_args: List[str]) -> tuple:
 def _configure_autostart(enabled: bool, run_args: List[str]) -> bool:
     """Refresh OS registration on every install/repair, honoring an opt-out."""
     if enabled and "--cli" in run_args:
-        print(f"  {RED}✗{RESET} {WHITE}{_CLI_IN_BACKGROUND}{RESET}")
+        print(f"  {RED}✗{RESET} {WHITE}{_CLI_RETIRED}{RESET}")
         return False
     try:
         if enabled:
@@ -2071,7 +2141,7 @@ def _full_install_frozen(
 
     Args:
         target_dir: Directory to install the source into.
-        extra_args: User-supplied flags (--cli, --browser, etc.).
+        extra_args: User-supplied flags (--tui, --conda, etc.).
         progress_cb: Optional download-progress callback (bytes_read, total_or_none).
     """
     if not IS_FROZEN:
@@ -2165,7 +2235,7 @@ def _full_install_frozen(
     #    root plus the interpreter, because there is no longer an EXE to point
     #    at. installer/metadata.launch_command() is the only place that turns
     #    this back into a command.
-    mode = "cli" if "--cli" in extra_args else "browser"
+    mode = "tui" if "--tui" in extra_args else "browser"
     write_install_metadata(
         src_root, mode, python=resolved_python, version=_read_bundled_version()
     )
@@ -2216,9 +2286,8 @@ def cmd_install(extra_args: List[str]) -> bool:
     """Install dependencies (source mode) or copy-and-register (frozen mode),
     then start the service."""
     if "--cli" in extra_args:
-        print(f"  {RED}✗{RESET} {WHITE}{_CLI_IN_BACKGROUND}{RESET}")
+        print(f"  {RED}✗{RESET} {WHITE}{_CLI_RETIRED}{RESET}")
         return False
-
     if IS_FROZEN:
         # Frozen mode: skip pip, run the full installer in the default location.
         # The wizard provides a UI for picking a custom location; the CLI just
@@ -2524,7 +2593,7 @@ def cmd_repair(
     is pinned to a newer agent version, and Repair fetches that version.
 
     Args:
-        extra_args: User flags (--cli, etc.).
+        extra_args: User flags (--tui, etc.).
         progress_cb: Optional download-progress callback (bytes_read, total_or_none).
     """
     if not IS_FROZEN:
@@ -2560,7 +2629,7 @@ def cmd_repair(
     _stop_running_agent_if_alive()
 
     # Re-run the install flow at the existing location with the existing mode
-    mode_flag_map = {"cli": ["--cli"], "browser": []}
+    mode_flag_map = {"tui": ["--tui"], "browser": []}
     mode_args = mode_flag_map.get(meta.get("mode", "browser"), [])
     _full_install_frozen(target_dir, mode_args + extra_args, progress_cb=progress_cb)
     print("\n  REPAIR COMPLETE")
@@ -2683,6 +2752,9 @@ def main() -> None:
         if not cmd_restart(rest):
             _hold_console_on_failure()
             sys.exit(1)
+
+    elif command == "tui":
+        sys.exit(cmd_tui(rest))
 
     elif command == "status":
         cmd_status()

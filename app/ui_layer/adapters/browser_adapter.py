@@ -143,7 +143,7 @@ from app.ui_layer.commands.executor import CommandExecutor
 from app.ui_layer.onboarding import OnboardingFlowController
 from app.ui_layer.metrics import MetricsCollector
 from app.ui_layer.diagnostics import LoopStallMonitor
-from app.ui_layer.adapters.ws_channel import ClientChannel
+from app.ui_layer.adapters.ws_channel import CLIENT_PROTOCOL, ClientChannel
 from app.ui_layer.adapters.ws_lanes import message_lane
 from app.ui_layer.adapters.ws_auth import WS_PROTOCOL, WsAuth
 from app.ui_layer.adapters.session_buffer import (
@@ -1016,6 +1016,30 @@ class BrowserAdapter(InterfaceAdapter):
         else:
             self._framework_host.changed = self._framework_changed
 
+        # Sub-agent activity arrives under its own stream id (sub_*); clients
+        # that read subagent_link learn which session it belongs to.
+        from app.subagent.manager import add_lifecycle_observer
+
+        add_lifecycle_observer(self._on_subagent_lifecycle)
+
+    def _on_subagent_lifecycle(self, event: str, sub: Any) -> None:
+        """Tell capable clients a sub-agent started or ended (any thread)."""
+        from app.state.agent_state import STATE
+
+        loop = getattr(STATE, "main_loop", None)
+        if loop is None or loop.is_closed():
+            return
+        message = {
+            "type": "subagent_link",
+            "data": {
+                "subId": sub.id,
+                "parentId": sub.parent_session_id,
+                "agentType": sub.agent_type,
+                "state": "running" if event == "spawn" else str(sub.status),
+            },
+        }
+        loop.call_soon_threadsafe(self._broadcast_capable, "subagent_link", message)
+
     @property
     def theme_adapter(self) -> ThemeAdapter:
         return self._theme_adapter
@@ -1225,9 +1249,13 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         # Agent App host services: language model, integration actions, requests
         self._integration_bridge.register_routes(self._app)
 
-        # Serve Vite-built frontend (production)
+        # Serve Vite-built frontend (production). The terminal edition has no
+        # web UI: its client is the Ink app, which only needs /ws and /api.
+        from app import edition
+
+        serve_web_ui = not edition.is_terminal()
         frontend_dist = Path(__file__).parent.parent / "browser" / "frontend" / "dist"
-        if frontend_dist.exists():
+        if serve_web_ui and frontend_dist.exists():
             # Serve static assets from /assets/
             assets_path = frontend_dist / "assets"
             if assets_path.exists():
@@ -1239,14 +1267,18 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             self._app.router.add_get(
                 "/{path:.*}", _make_static_or_spa(frontend_dist, self._port)
             )
-        else:
+        elif serve_web_ui:
             # Fallback to inline HTML for development without build
             self._app.router.add_get("/", self._index_handler)
             self._app.router.add_get("/{path:.*}", self._index_handler)
+        else:
+            # A browser that lands here (the desktop icon, the launcher's
+            # "Open CraftBot") learns where the terminal edition is opened.
+            self._app.router.add_get("/", self._terminal_edition_page)
 
         # Serve static files if they exist (legacy)
         static_path = Path(__file__).parent.parent / "browser" / "static"
-        if static_path.exists():
+        if serve_web_ui and static_path.exists():
             self._app.router.add_static("/static/", static_path)
 
         self._runner = web.AppRunner(self._app)
@@ -1465,6 +1497,8 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                             # Liveness probe, answered by the reader itself: the
                             # reply only fails to arrive when the loop is blocked.
                             channel.send_json({"type": "pong"})
+                        elif data.get("type") == "client_hello":
+                            self._handle_client_hello(channel, data)
                         else:
                             self._dispatch_in_lane(ws, data)
                     elif msg.type == WSMsgType.ERROR:
@@ -1510,6 +1544,41 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 del self._lane_locks[key]
 
         return ws
+
+    def _handle_client_hello(self, channel: ClientChannel, data: Dict[str, Any]) -> None:
+        """A client introduces itself and declares the extra frames it reads.
+
+        Only the terminal client says hello; the browser never does, so it
+        never receives a capability-gated frame (``_broadcast_capable``).
+        """
+        from app import edition
+        from app.config import get_app_version
+
+        client = data.get("client")
+        capabilities = data.get("capabilities")
+        channel.declare(
+            client if isinstance(client, str) else "",
+            capabilities if isinstance(capabilities, list) else [],
+        )
+        channel.send_json(
+            {
+                "type": "client_hello",
+                "data": {
+                    "protocol": CLIENT_PROTOCOL,
+                    "edition": edition.current(),
+                    "version": get_app_version(),
+                    "capabilities": sorted(channel.capabilities),
+                },
+            }
+        )
+
+    def _broadcast_capable(self, capability: str, message: Dict[str, Any]) -> None:
+        """Queue a message for every client that declared ``capability``."""
+        text = None
+        for channel in list(self._channels.values()):
+            if capability in channel.capabilities:
+                text = text or json.dumps(message)
+                channel.send_text(text)
 
     def _dispatch_in_lane(self, ws: Any, data: Dict[str, Any]) -> None:
         """Handle a browser message as its own task, serialized only with
@@ -9330,6 +9399,18 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         else:
             # Fallback to inline HTML
             return web.Response(text=self._get_index_html(), content_type="text/html")
+
+    async def _terminal_edition_page(self, request: "web.Request") -> "web.Response":
+        """What a browser sees at the terminal edition's address."""
+        from aiohttp import web
+
+        return web.Response(
+            text=(
+                "CraftBot is running as the terminal edition.\n"
+                "Open it in a terminal with: python craftbot.py tui\n"
+            ),
+            content_type="text/plain",
+        )
 
     async def _index_handler(self, request: "web.Request") -> "web.Response":
         """Serve the main HTML page (fallback when no build exists)."""
