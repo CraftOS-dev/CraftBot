@@ -53,7 +53,10 @@
     "attached_one": "{{count}} archivo adjunto",
     "attached_other": "{{count}} archivos adjuntos",
     "attachTooMany": "Como máximo {{count}} archivos por mensaje",
-    "attachTooLarge": "Los adjuntos tienen un límite de 200 MB en total"
+    "attachTooLarge": "Los adjuntos tienen un límite de 200 MB en total",
+    "refChat": "chat",
+    "refApp": "Agent App",
+    "references": "Con: {{list}}  (Retroceso quita el último)"
   },
   "connect": {
     "connecting": "Iniciando CraftBot...",
@@ -121,7 +124,8 @@
     "interactiveOutput": "Salida interactiva · {{title}} · rev {{revision}} · ábrela en la edición de navegador",
     "detailsHint": "Detalles en la transcripción (Ctrl+O)",
     "error": "Error",
-    "system": "Sistema"
+    "system": "Sistema",
+    "references": "Con: {{list}}"
   },
   "help": {
     "chat": "Chat",
@@ -209,7 +213,6 @@
     "agentNamePlaceholder": "Ponle nombre a tu agente",
     "via": "Conectar mediante {{via}} (Tab cambia)",
     "viaDirect": "el proveedor directamente",
-    "subscriptionHint": "{{label}} en lugar de una clave: disponible en Ajustes > Modelo después de la configuración.",
     "imageLater": "añade una imagen más tarde en Ajustes",
     "working": "Guardando..."
   },
@@ -219,5 +222,15 @@
     "sessions": "sesiones",
     "transcript": "transcripción",
     "tagline": "Pregunta lo que quieras. Escribe / para comandos, @ para adjuntar archivos."
+  },
+  "rejected": {
+    "title": "No enviado: {{error}}",
+    "keys": "Tab, luego r reintentar · e editar",
+    "focusedKeys": "r reintentar · e editar · Esc volver"
+  },
+  "fold": {
+    "hint": "plegar",
+    "action": "Plegar el contexto ahora",
+    "running": "Plegando el contexto..."
   }
 }

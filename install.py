@@ -16,6 +16,8 @@ After installation completes, CraftBot will automatically launch in browser mode
 To use the terminal edition instead, run: python run.py --tui
 """
 
+from __future__ import annotations
+
 import math
 import multiprocessing
 import os
@@ -86,272 +88,6 @@ def _enable_windows_vtp() -> None:
         k32.SetConsoleMode(h, m.value | 0x0004)  # ENABLE_VIRTUAL_TERMINAL_PROCESSING
     except Exception:
         pass
-
-
-def _download_progress(count: int, block_size: int, total_size: int) -> None:
-    """urllib reporthook that draws a retro progress bar."""
-    if total_size <= 0:
-        return
-    pct = min(100, int(count * block_size * 100 / total_size))
-    filled = int(40 * pct / 100)
-    bar = f"{ORANGE}{'▓' * filled}{DIM}{'░' * (40 - filled)}{RESET}"
-    sys.stdout.write(f"\r  Downloading  {bar}  {ORANGE}[ {pct:3d}% ]{RESET}")
-    sys.stdout.flush()
-
-
-def _auto_install_python_310() -> None:
-    """Download and silently install Python 3.10 (tries recent patch versions in order), then re-launch install.py with it."""
-    import urllib.request
-
-    # Try recent patch versions in descending order.
-    PYTHON_VERSION_CANDIDATES = [
-        "3.10.17",
-        "3.10.16",
-        "3.10.15",
-        "3.10.14",
-        "3.10.13",
-        "3.10.12",
-        "3.10.11",
-    ]
-
-    if sys.platform == "win32":
-        is_64bit = sys.maxsize > 2**32
-
-        installer = None
-        chosen_version = None
-        for version in PYTHON_VERSION_CANDIDATES:
-            suffix = "-amd64.exe" if is_64bit else ".exe"
-            filename = f"python-{version}{suffix}"
-            url = f"https://www.python.org/ftp/python/{version}/{filename}"
-            dest = os.path.join(BASE_DIR, filename)
-            print(f"\n  {WHITE}Trying Python {version}...{RESET}")
-            print(f"  Source : {url}")
-            print("  Size   : ~25 MB\n")
-            try:
-                urllib.request.urlretrieve(url, dest, reporthook=_download_progress)
-                print()  # newline after progress bar
-                installer = dest
-                chosen_version = version
-                break
-            except Exception as exc:
-                print(f"\n  {RED}✗{RESET} Download failed: {exc}")
-                try:
-                    os.remove(dest)
-                except Exception:
-                    pass
-
-        if installer is None or chosen_version is None:
-            print(
-                f"\n  {RED}✗{RESET} {WHITE}Could not download Python automatically.{RESET}"
-            )
-            print("  All download attempts failed (HTTP 404 or network error).")
-            print("\n  Please install Python 3.10 manually:")
-            print("  1. Go to: https://www.python.org/downloads/")
-            print("  2. Download the latest Python 3.10 installer for Windows")
-            print("  3. Run the installer (check 'Add Python to PATH')")
-            print("  4. Open a NEW terminal and run: python install.py")
-            sys.exit(1)
-
-        print(
-            f"\n  {WHITE}Installing Python {chosen_version} (this window may briefly flash)...{RESET}"
-        )
-        result = subprocess.run(
-            [
-                installer,
-                "/passive",  # minimal UI — shows a small progress dialog
-                "InstallAllUsers=0",  # current user only (no admin needed)
-                "PrependPath=1",  # adds python to PATH
-                "AssociateFiles=1",
-                "Include_pip=1",
-                "Include_launcher=1",
-            ],
-            timeout=300,
-        )
-
-        try:
-            os.remove(installer)
-        except Exception:
-            pass
-
-        if result.returncode != 0:
-            print(f"\n  {RED}✗{RESET} Installer exited with code {result.returncode}.")
-            print("\n  Please install Python 3.10 manually:")
-            print("  1. Go to: https://www.python.org/downloads/")
-            print("  2. Download the latest Python 3.10 installer for Windows")
-            print("  3. Run the installer (check 'Add Python to PATH')")
-            print("  4. Open a NEW terminal and run: python install.py")
-            sys.exit(1)
-
-        print(f"\n  {GREEN}✓{RESET} {WHITE}Python {chosen_version} installed!{RESET}")
-
-        # Locate the freshly installed interpreter (probe-verified).
-        new_python310 = python_runtime.find_python()
-
-        if new_python310:
-            print(f"\n  {ORANGE}▸{RESET} Re-launching installer with Python 3.10...\n")
-            cmd = [new_python310, __file__]
-            # Pass --skip-python-check so the re-launched process skips the
-            # version gate and doesn't loop back into auto-install again.
-            # Keep ALL flags — dropping --no-launch here made a craftbot.py
-            # install boot the agent in the foreground mid-install.
-            extra = list(sys.argv[1:])
-            result = subprocess.run(cmd + extra + ["--skip-python-check"])
-            sys.exit(result.returncode)
-        else:
-            print(
-                f"\n  {ORANGE}▸{RESET} {WHITE}Python 3.10 installed — please open a NEW terminal and run:{RESET}"
-            )
-            print(f"  {ORANGE}python install.py{RESET}")
-            print("  (The new terminal will pick up Python 3.10 automatically.)")
-
-        # Only the could-not-relaunch path reaches here: dependencies were NOT
-        # installed, so signal failure to any orchestrating caller.
-        sys.exit(1)
-
-    elif sys.platform == "darwin":
-        installer = None
-        chosen_version = None
-        for version in PYTHON_VERSION_CANDIDATES:
-            url = f"https://www.python.org/ftp/python/{version}/python-{version}-macos11.pkg"
-            dest = os.path.join(BASE_DIR, f"python-{version}.pkg")
-            print(f"\n  {WHITE}Trying Python {version}...{RESET}")
-            print(f"  Source : {url}")
-            try:
-                urllib.request.urlretrieve(url, dest, reporthook=_download_progress)
-                print()
-                installer = dest
-                chosen_version = version
-                break
-            except Exception as exc:
-                print(f"\n  {RED}✗{RESET} Download failed: {exc}")
-                try:
-                    os.remove(dest)
-                except Exception:
-                    pass
-
-        if installer is None or chosen_version is None:
-            print(
-                f"\n  {RED}✗{RESET} {WHITE}Could not download Python automatically.{RESET}"
-            )
-            print("\n  Please install Python 3.10 manually:")
-            print("  1. Go to: https://www.python.org/downloads/")
-            print("  2. Download the latest Python 3.10 macOS installer")
-            print("  3. Run the installer")
-            print("  4. Open a NEW terminal and run: python3.10 install.py")
-            sys.exit(1)
-
-        print(f"\n  {WHITE}Installing (sudo required)...{RESET}")
-        result = subprocess.run(
-            ["sudo", "installer", "-pkg", installer, "-target", "/"], timeout=300
-        )
-        try:
-            os.remove(installer)
-        except Exception:
-            pass
-        if result.returncode != 0:
-            print(f"\n  {RED}✗{RESET} Installation failed.")
-            print(
-                "\n  Please install Python 3.10 manually from: https://www.python.org/downloads/"
-            )
-            sys.exit(1)
-        print(f"\n  {GREEN}✓{RESET} {WHITE}Python {chosen_version} installed!{RESET}")
-        _mac_candidates = [
-            shutil.which("python3.10"),
-            "/Library/Frameworks/Python.framework/Versions/3.10/bin/python3.10",
-            "/usr/local/bin/python3.10",
-            "/opt/homebrew/bin/python3.10",
-        ]
-        new_python = next((p for p in _mac_candidates if p and os.path.isfile(p)), None)
-        if new_python:
-            print(f"\n  {ORANGE}▸{RESET} Re-launching with Python 3.10...\n")
-            os.execv(new_python, [new_python, __file__] + sys.argv[1:])
-        else:
-            print("\n  Please open a new terminal and run: python3.10 install.py")
-        sys.exit(0)
-
-    else:  # Linux — try multiple package managers in order
-
-        def _run_step(cmd: list) -> bool:
-            print(f"  {DIM}▸ {' '.join(cmd)}{RESET}")
-            return subprocess.run(cmd).returncode == 0
-
-        installed = False
-
-        if shutil.which("apt-get") or shutil.which("apt"):
-            apt = shutil.which("apt-get") or shutil.which("apt")
-            print("  Detected apt — installing Python 3.10 (sudo required)...\n")
-
-            # Step 1: try direct install first (works on Kali, Debian 12, Ubuntu 22.04+)
-            _run_step(["sudo", apt, "update", "-qq"])
-            ok = _run_step(
-                ["sudo", apt, "install", "-y", "python3.10", "python3.10-venv"]
-            )
-
-            if not ok:
-                # Step 2: add deadsnakes PPA (Ubuntu/Mint where direct install fails)
-                print("\n  Direct install failed — trying deadsnakes PPA...\n")
-                _run_step(["sudo", apt, "install", "-y", "software-properties-common"])
-                _run_step(["sudo", "add-apt-repository", "-y", "ppa:deadsnakes/ppa"])
-                _run_step(["sudo", apt, "update", "-qq"])
-                ok = _run_step(
-                    ["sudo", apt, "install", "-y", "python3.10", "python3.10-venv"]
-                )
-
-            if ok:
-                # python3.10-distutils was removed in Ubuntu 23.04+ — ignore failure
-                subprocess.run(
-                    ["sudo", apt, "install", "-y", "python3.10-distutils"],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
-                installed = True
-
-        elif shutil.which("dnf"):
-            print(
-                "  Detected dnf (Fedora/RHEL) — installing Python 3.10 (sudo required)...\n"
-            )
-            installed = _run_step(["sudo", "dnf", "install", "-y", "python3.10"])
-
-        elif shutil.which("pacman"):
-            # Arch ships Python 3.11+ as 'python'; 3.10 available via AUR or python310 package
-            print(
-                "  Detected pacman (Arch) — installing python3.10 (sudo required)...\n"
-            )
-            installed = _run_step(["sudo", "pacman", "-Sy", "--noconfirm", "python310"])
-            if not installed:
-                # Fallback: current python package (3.11+) is still compatible
-                installed = _run_step(
-                    ["sudo", "pacman", "-Sy", "--noconfirm", "python"]
-                )
-
-        elif shutil.which("zypper"):
-            print(
-                "  Detected zypper (openSUSE) — installing Python 3.10 (sudo required)...\n"
-            )
-            installed = _run_step(["sudo", "zypper", "install", "-y", "python310"])
-
-        if not installed:
-            print(
-                f"\n  {RED}✗{RESET} Could not install Python 3.10 automatically on this system."
-            )
-            print(
-                "\n  Please install Python 3.10 manually using pyenv (works on any distro):"
-            )
-            print("    curl https://pyenv.run | bash")
-            print("    pyenv install 3.10.17")
-            print("    pyenv local 3.10.17")
-            print("    python install.py")
-            sys.exit(1)
-
-        new_python = shutil.which("python3.10")
-        if new_python:
-            print(f"\n  {GREEN}✓{RESET} {WHITE}Python 3.10 installed!{RESET}")
-            print(f"\n  {ORANGE}▸{RESET} Re-launching installer with Python 3.10...\n")
-            os.execv(new_python, [new_python, __file__] + sys.argv[1:])
-        else:
-            print(f"\n  {GREEN}✓{RESET} {WHITE}Python 3.10 installed!{RESET}")
-            print("\n  Please open a new terminal and run: python3.10 install.py")
-            sys.exit(0)
 
 
 _force_utf8_stdio()
@@ -531,123 +267,6 @@ def _wrap_windows_bat(cmd_list: list[str]) -> list[str]:
 # ==========================================
 # DISK SPACE CHECKING (for Kali & other systems)
 # ==========================================
-def get_disk_space(path: str = ".") -> Tuple[float, float, float]:
-    """
-    Get disk space info for a path (total, used, free in GB).
-    Returns: (total_gb, used_gb, free_gb)
-    Silent failure - returns (0, 0, 0) if unable to check
-    """
-    try:
-        if sys.platform == "win32":
-            import ctypes
-
-            free_bytes = ctypes.c_ulonglong(0)
-            ctypes.windll.kernel32.GetDiskFreeSpaceEx(
-                ctypes.c_wchar_p(path), None, None, ctypes.pointer(free_bytes)
-            )
-            free_gb = free_bytes.value / (1024**3)
-            # For Windows, we'll estimate total as free + a reasonable amount
-            total_gb = free_gb + 50  # Estimate
-            used_gb = 0
-        else:
-            # Unix/Linux/Mac
-            st = os.statvfs(path)
-            free_gb = (st.f_bavail * st.f_frsize) / (1024**3)
-            total_gb = (st.f_blocks * st.f_frsize) / (1024**3)
-            used_gb = ((st.f_blocks - st.f_bfree) * st.f_frsize) / (1024**3)
-
-        return total_gb, used_gb, free_gb
-    except Exception:
-        # Silently fail - disk space check is not critical
-        return 0, 0, 0
-
-
-def check_disk_space_for_installation(min_free_gb: float = 5.0) -> bool:
-    """
-    Check if there's enough disk space for installation.
-    Returns True if OK, False if insufficient space.
-    """
-    home_free_gb = get_disk_space(os.path.expanduser("~"))[2]
-    home_total_gb = get_disk_space(os.path.expanduser("~"))[0]
-    home_used_gb = get_disk_space(os.path.expanduser("~"))[1]
-
-    if home_total_gb == 0:  # Couldn't get info
-        return True  # Assume it's okay
-
-    percent_used = (home_used_gb / home_total_gb * 100) if home_total_gb > 0 else 0
-
-    print("\n" + "=" * 60)
-    print(" 📊 Disk Space Check")
-    print("=" * 60)
-    print(f"Home directory: {os.path.expanduser('~')}")
-    print(f"Total space:   {home_total_gb:.1f} GB")
-    print(f"Used space:    {home_used_gb:.1f} GB ({percent_used:.1f}%)")
-    print(f"Free space:    {home_free_gb:.1f} GB")
-
-    if home_free_gb < min_free_gb:
-        print(
-            f"\n⚠️  WARNING: Low disk space ({home_free_gb:.1f} GB free, need {min_free_gb:.1f} GB)"
-        )
-        print("\nRecommended fixes:")
-        print("\n1. Clean up pip cache:")
-        print("   pip cache purge")
-        print("\n2. Clean up npm cache (if Node.js installed):")
-        print("   npm cache clean --force")
-        print("\n3. Remove old files/packages:")
-        print("   rm -rf ~/.cache/*  # On Linux/Mac")
-        print("   rmdir /s %LocalAppData%\\pip  # On Windows")
-        print("\n4. Use a different disk with more space:")
-        mkdir_path = (
-            "/mnt/large-disk/pip-tmp" if sys.platform != "win32" else "D:/pip-tmp"
-        )
-        print(f"   mkdir -p {mkdir_path}")
-        print(f"   TMPDIR={mkdir_path} python install.py")
-        print("\n5. Or continue anyway (may fail): ", end="")
-
-        choice = input("Continue? (y/n): ").strip().lower()
-        if choice != "y":
-            print("Installation cancelled. Please free up disk space and try again.")
-            return False
-        else:
-            print("\nAttempting installation anyway...\n")
-
-    print("=" * 60 + "\n")
-    return True
-
-
-def suggest_cleanup_steps():
-    """Show cleanup steps if disk is full."""
-    print("\n" + "=" * 60)
-    print(" 🧹 Disk Space Cleanup Guide (for Kali & other systems)")
-    print("=" * 60)
-    print("\nTo free up disk space:\n")
-
-    print("1. Clear pip cache (usually 1-5 GB):")
-    print("   pip cache purge\n")
-
-    print("2. Clear npm cache (if Node.js installed):")
-    print("   npm cache clean --force\n")
-
-    print("3. Clear system caches (Linux/Mac):")
-    print("   sudo apt-get clean      # Apt packages")
-    print("   sudo pacman -Sc         # Pacman packages")
-    print("   rm -rf ~/.cache/*       # User cache\n")
-
-    print("4. Remove temporary files:")
-    print("   rm -rf /tmp/*           # System temp (Linux/Mac)")
-    print("   rmdir /s /q %temp%      # Windows temp\n")
-
-    print("5. Check what's using space:")
-    print("   du -sh ~/*              # Home directory breakdown (Linux/Mac)")
-    print("   dir /-s C:\\             # Windows directory sizes\n")
-
-    print("6. Use alternate location with more space:")
-    print("   mkdir -p /mnt/external-drive/pip-tmp")
-    print("   TMPDIR=/mnt/external-drive/pip-tmp python install.py\n")
-
-    print("=" * 60 + "\n")
-
-
 def load_config() -> Dict[str, Any]:
     """
     Load configuration from file safely.
@@ -656,7 +275,7 @@ def load_config() -> Dict[str, Any]:
     This ensures atomic read operation.
     """
     try:
-        with open(CONFIG_FILE, "r") as f:
+        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
     except FileNotFoundError:
         # File doesn't exist - return empty config
@@ -673,7 +292,7 @@ def save_config_value(key: str, value: Any) -> None:
     config = load_config()
     config[key] = value
     try:
-        with open(CONFIG_FILE, "w") as f:
+        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
             json.dump(config, f, indent=4)
     except IOError:
         pass  # Silently fail if config can't be saved
@@ -741,7 +360,7 @@ def run_command(
 # ENVIRONMENT SETUP
 # ==========================================
 def is_conda_installed() -> Tuple[bool, str, Optional[str]]:
-    conda_exe = shutil.which("conda")
+    conda_exe = shutil.which("conda") or _conda_in_known_homes()
     if conda_exe:
         conda_base_path = os.path.dirname(os.path.dirname(conda_exe))
         return True, f"Found at {conda_exe}", conda_base_path
@@ -781,7 +400,7 @@ def is_conda_installed() -> Tuple[bool, str, Optional[str]]:
 
 def get_env_name_from_yml(yml_path: str = YML_FILE) -> str:
     try:
-        with open(yml_path, "r") as f:
+        with open(yml_path, "r", encoding="utf-8") as f:
             for line in f:
                 stripped = line.strip()
                 if stripped.startswith("name:"):
@@ -793,83 +412,99 @@ def get_env_name_from_yml(yml_path: str = YML_FILE) -> str:
     sys.exit(1)
 
 
-def install_miniconda():
-    """Auto-install Miniconda for the current platform."""
-    import urllib.request
-    import subprocess as sp
+#: Where a conda distribution is normally installed, newest-preferred.
+_CONDA_HOMES = (
+    "miniforge3",
+    "Miniforge3",
+    "miniconda3",
+    "Miniconda3",
+    "anaconda3",
+    "Anaconda3",
+)
 
-    print("\n🔧 Auto-installing Miniconda...\n")
 
-    # Detect OS and architecture
+def _conda_in_known_homes() -> Optional[str]:
+    """conda's executable in a standard install folder, on any OS."""
+    roots = [os.path.expanduser("~")]
     if sys.platform == "win32":
-        # Windows
-        if sys.maxsize > 2**32:
-            url = "https://repo.anaconda.com/miniconda/Miniconda3-latest-Windows-x86_64.exe"
-            installer = os.path.join(BASE_DIR, "Miniconda-installer.exe")
-        else:
-            url = (
-                "https://repo.anaconda.com/miniconda/Miniconda3-latest-Windows-x86.exe"
-            )
-            installer = os.path.join(BASE_DIR, "Miniconda-installer.exe")
-    elif sys.platform == "linux":
-        # Linux
-        if sys.maxsize > 2**32:
-            url = (
-                "https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh"
-            )
-        else:
-            url = "https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86.sh"
-        installer = os.path.join(BASE_DIR, "miniconda-installer.sh")
-    elif sys.platform == "darwin":
-        # macOS
-        if sys.maxsize > 2**32:
-            url = (
-                "https://repo.anaconda.com/miniconda/Miniconda3-latest-MacOSX-x86_64.sh"
-            )
-        else:
-            url = (
-                "https://repo.anaconda.com/miniconda/Miniconda3-latest-MacOSX-arm64.sh"
-            )
-        installer = os.path.join(BASE_DIR, "miniconda-installer.sh")
-    else:
-        print(f"❌ Unsupported platform: {sys.platform}")
+        roots += ["C:\\", os.environ.get("PROGRAMDATA", "C:\\ProgramData")]
+    for root in roots:
+        for home in _CONDA_HOMES:
+            if sys.platform == "win32":
+                candidate = os.path.join(root, home, "condabin", "conda.bat")
+            else:
+                candidate = os.path.join(root, home, "bin", "conda")
+            if os.path.isfile(candidate):
+                return candidate
+    return None
+
+
+def install_miniconda():
+    """Install Miniforge (conda-forge's distribution) for this platform.
+
+    Miniforge rather than Miniconda: Miniconda's defaults channel now refuses
+    to work until Anaconda's Terms of Service are accepted interactively,
+    which an unattended install cannot do, and environment.yml only uses
+    conda-forge anyway. Installed per user, no admin rights needed.
+    """
+    import platform
+    import subprocess as sp
+    import urllib.request
+
+    machine = platform.machine().lower()
+    arch = {
+        "amd64": "x86_64",
+        "x86_64": "x86_64",
+        "arm64": "arm64",
+        "aarch64": "aarch64",
+    }.get(machine)
+    if sys.platform == "darwin" and arch == "aarch64":
+        arch = "arm64"
+    if sys.platform == "linux" and arch == "arm64":
+        arch = "aarch64"
+    system = {"win32": "Windows", "linux": "Linux", "darwin": "MacOSX"}.get(
+        sys.platform
+    )
+    if not arch or not system or (system == "Windows" and arch != "x86_64"):
+        print(f"Conda auto-install is not available for {sys.platform}/{machine}.")
+        print("Install Miniforge from https://conda-forge.org/download/ and run again.")
         return False
+
+    ext = "exe" if system == "Windows" else "sh"
+    url = (
+        "https://github.com/conda-forge/miniforge/releases/latest/download/"
+        f"Miniforge3-{system}-{arch}.{ext}"
+    )
+    installer = os.path.join(BASE_DIR, f"Miniforge3-installer.{ext}")
+    target = os.path.join(os.path.expanduser("~"), "miniforge3")
 
     try:
-        print(f"📥 Downloading Miniconda ({os.path.basename(url)})...")
+        print(f"Downloading Miniforge ({os.path.basename(url)})...")
         urllib.request.urlretrieve(url, installer)
-        print(f"✓ Downloaded to {installer}\n")
-
-        if sys.platform == "win32":
-            print("🔧 Running Miniconda installer...")
-            print("   An installation dialog will appear. Select:")
-            print("   - Add Miniconda to PATH (important!)")
-            print("   - Install for current user\n")
-            sp.run([installer], check=True)
-            print("\n✓ Miniconda installed!")
-            print("   Please restart your terminal and run the installation again.\n")
-            os.remove(installer)
-            return True
-        else:
-            print("🔧 Running Miniconda installer...")
+        print("Installing Miniforge for the current user...")
+        if system == "Windows":
             sp.run(
-                ["bash", installer, "-b", "-p", os.path.expanduser("~/miniconda3")],
+                [
+                    installer,
+                    "/InstallationType=JustMe",
+                    "/RegisterPython=0",
+                    "/S",
+                    f"/D={target}",
+                ],
                 check=True,
             )
-            print("✓ Miniconda installed!")
-            print(
-                "   Please add conda to PATH, then restart terminal and run installation again.\n"
-            )
-            os.remove(installer)
-            return True
+        else:
+            sp.run(["bash", installer, "-b", "-p", target], check=True)
+        print(f"Miniforge installed at {target}")
+        return True
     except Exception as e:
-        print(f"❌ Miniconda installation failed: {e}")
-        if os.path.exists(installer):
-            try:
-                os.remove(installer)
-            except Exception:
-                pass
+        print(f"Miniforge installation failed: {e}")
         return False
+    finally:
+        try:
+            os.remove(installer)
+        except OSError:
+            pass
 
 
 def get_conda_command() -> str:
@@ -880,8 +515,8 @@ def get_conda_command() -> str:
         if shutil.which("mamba"):
             return "mamba"
 
-    # First try to find conda in PATH
-    conda_exe = shutil.which("conda")
+    # First try to find conda in PATH, then its standard install folders.
+    conda_exe = shutil.which("conda") or _conda_in_known_homes()
     if conda_exe:
         return conda_exe
 
@@ -1419,11 +1054,12 @@ def launch_agent_after_install(install_gui: bool, use_conda: bool):
         env_name = get_env_name_from_yml()
         cmd = [conda_cmd, "run", "-n", env_name, "python", "-u", main_script] + args
     else:
-        cmd = [sys.executable, "-u", main_script] + args
+        python = python_runtime.resolve(refresh=True) or sys.executable
+        cmd = [python, "-u", main_script] + args
 
     # Launch the agent
     try:
-        subprocess.run(cmd, cwd=BASE_DIR)
+        subprocess.run(cmd, cwd=BASE_DIR, env=python_runtime.isolated_env())
     except KeyboardInterrupt:
         print("\n\n✓ CraftBot stopped")
         sys.exit(0)
@@ -1449,11 +1085,18 @@ def launch_agent_after_install(install_gui: bool, use_conda: bool):
 # ==========================================
 # API KEY SETUP
 # ==========================================
+def _pinned_python_placeholder() -> str:
+    """What to record before the python stage runs: the pinned interpreter
+    when there is one, else nothing usable (an empty value is ignored by
+    app/python_runtime.recorded())."""
+    return os.environ.get("CRAFTBOT_PYTHON", "").strip()
+
+
 def check_api_keys() -> bool:
     """Check if required API keys are set in settings.json."""
     settings_path = os.path.join(BASE_DIR, "app", "config", "settings.json")
     try:
-        with open(settings_path, "r") as f:
+        with open(settings_path, "r", encoding="utf-8") as f:
             settings = json.load(f)
         api_keys = settings.get("api_keys", {})
         # Check if any API key is configured
@@ -1494,169 +1137,28 @@ def show_api_setup_instructions():
 
 
 # ==========================================
-# LINUX PYTHON COMPATIBILITY CHECK
-# ==========================================
-def _check_linux_python() -> None:
-    """
-    Warn Linux users who are running an old or system-managed Python.
-
-    Common problem scenarios:
-    - Python < 3.9  (Ubuntu 20.04 default is 3.8)
-    - System Python used directly without a venv, which triggers PEP 668
-      "externally-managed-environment" errors on newer distros
-    """
-    ver = sys.version_info
-
-    # Already gated to >= 3.9 above, but warn hard about 3.9 since
-    # it's the bare minimum — 3.10+ is recommended.
-    if ver < (3, 10):
-        print("\n" + "=" * 62)
-        print(f" ⚠  Python {ver.major}.{ver.minor} detected — upgrade recommended")
-        print("=" * 62)
-        print(f"\n  You are running Python {ver.major}.{ver.minor}.{ver.micro}.")
-        print("  CraftBot works on 3.9+ but runs best on Python 3.10 or newer.")
-        print("\n  Recommended: use Python 3.10.17")
-        print("=" * 62)
-        print(
-            f"\n  {ORANGE}[y]{RESET} Continue with Python {ver.major}.{ver.minor} anyway"
-        )
-        print(
-            f"  {GREEN}[i]{RESET} Auto-install Python 3.10.17 and re-launch  {DIM}(recommended){RESET}"
-        )
-        print(f"  {RED}[n]{RESET} Cancel")
-        choice = input("\n  Your choice (y/i/n): ").strip().lower()
-        if choice == "i":
-            _auto_install_python_310()
-        elif choice != "y":
-            print("\n  Installation cancelled. Please upgrade Python and try again.\n")
-            sys.exit(1)
-        print()
-
-
-# ==========================================
-# MAC PYTHON COMPATIBILITY CHECK
-# ==========================================
-def _check_mac_python() -> None:
-    """
-    Warn Mac users who are running a problematic Python interpreter.
-
-    Common bad interpreters on macOS:
-    - Xcode bundled Python  (/Applications/Xcode.app/...)
-    - macOS system Python   (/usr/bin/python3)
-
-    Both are difficult to install packages into and are intended as OS
-    tooling, not for running user applications.  Homebrew or python.org
-    Python is recommended instead.
-    """
-    exe = sys.executable or ""
-    is_xcode = "Xcode.app" in exe or "Python3.framework" in exe
-    is_system = exe.startswith("/usr/bin/python")
-
-    if not (is_xcode or is_system):
-        return  # Running a proper Python — nothing to warn about
-
-    ver = sys.version_info
-    label = "Xcode's built-in Python" if is_xcode else "macOS system Python"
-
-    print("\n" + "=" * 62)
-    print(" ⚠  WARNING: Wrong Python interpreter detected")
-    print("=" * 62)
-    print(f"\n  You are using {label}:")
-    print(f"  {exe}")
-    print(
-        f"\n  This Python ({ver.major}.{ver.minor}.{ver.micro}) is reserved for macOS"
-    )
-    print("  system tools. Installing packages into it can be unreliable")
-    print("  and may break system components.")
-    print("\n  Recommended: use Python 3.10.17 (official python.org build)")
-    print("=" * 62)
-    print(f"\n  {ORANGE}[y]{RESET} Continue with the current interpreter anyway")
-    print(
-        f"  {GREEN}[i]{RESET} Auto-install Python 3.10.17 and re-launch  {DIM}(recommended){RESET}"
-    )
-    print(f"  {RED}[n]{RESET} Cancel")
-
-    choice = input("\n  Your choice (y/i/n): ").strip().lower()
-    if choice == "i":
-        _auto_install_python_310()
-    elif choice != "y":
-        print("\n  Installation cancelled. Please use a python.org Python 3.10.\n")
-        sys.exit(1)
-    print()
-
-
-# ==========================================
 # MAIN
 # ==========================================
 if __name__ == "__main__":
-    # ── Python version gate ────────────────────────────────────────────────
-    _ver = sys.version_info
-    # --skip-python-check is passed by _auto_install_python_310 when it
-    # re-launches install.py after installing Python 3.10, so we don't loop
-    # back into the auto-install prompt again.
-    _skip_python_check = "--skip-python-check" in sys.argv
+    from app import paths, provision
+    from app.provision.default_agent_app import is_new_install, prepare_install
 
-    if _ver < (3, 9):
-        print(f"\n❌ Python {_ver.major}.{_ver.minor} is not supported.")
-        print("   CraftBot requires Python 3.9 or newer.")
-        if sys.platform == "darwin":
-            print("\n   Recommended fix:")
-            print("   1. Install Homebrew: https://brew.sh")
-            print("   2. Run: brew install python@3.11")
-            print("   3. Re-run: /opt/homebrew/bin/python3.11 install.py")
-        else:
-            print(
-                "\n   Please install Python 3.9+ from https://www.python.org/downloads/"
-            )
+    # Capture this before saving config or creating the runtime. A receipt
+    # lets a failed first install resume without treating upgrades as new.
+    _new_install = is_new_install(str(paths.STATE_ROOT), BASE_DIR)
+    _ctx = provision.default_context(new_install=_new_install)
+    prepare_install(_ctx)
+
+    # Any Python 3.8+ can run this script: it only provisions. CraftBot itself
+    # runs on a private Python 3.10 that the pipeline below downloads (or on
+    # the interpreter named by CRAFTBOT_PYTHON / an activated conda env), so
+    # the version the user happened to type does not matter and is never
+    # asked about.
+    if sys.version_info < (3, 8):
+        print("\nCraftBot's installer needs Python 3.8 or newer to start.")
+        print("No Python at all? Use the installer from")
+        print("https://github.com/CraftOS-dev/CraftBot/releases/latest")
         sys.exit(1)
-
-    # ── Wrong-version Python: hop to the project's interpreter if one exists
-    # (recorded install / known 3.10 location; an activated conda env is
-    # never hijacked — see app/python_runtime.py). Returns only when there
-    # is nothing to hop to; the prompt below then offers to install one.
-    if not _skip_python_check:
-        python_runtime.reexec_if_needed()
-    if (_ver >= (3, 14) or _ver < (3, 10)) and not _skip_python_check:
-        if _ver >= (3, 14):
-            _reason = f"Python {_ver.major}.{_ver.minor} is a pre-release version"
-            _detail = (
-                f"  You are running Python {_ver.major}.{_ver.minor}.{_ver.micro}.\n"
-                "  Pre-release Python versions are not yet supported by all\n"
-                "  packages CraftBot depends on and may cause install failures."
-            )
-        else:
-            _reason = f"Python {_ver.major}.{_ver.minor} is older than recommended"
-            _detail = (
-                f"  You are running Python {_ver.major}.{_ver.minor}.{_ver.micro}.\n"
-                "  CraftBot works best on Python 3.10 or newer."
-            )
-        print("\n" + "=" * 62)
-        print(f" ⚠  {_reason}")
-        print("=" * 62)
-        print(f"\n{_detail}")
-        print("\n  Recommended: use Python 3.10.17")
-        print("=" * 62)
-        print(
-            f"\n  {ORANGE}[y]{RESET} Continue with Python {_ver.major}.{_ver.minor} anyway"
-        )
-        print(
-            f"  {GREEN}[i]{RESET} Auto-install Python 3.10.17 and re-launch  {DIM}(recommended){RESET}"
-        )
-        print(f"  {RED}[n]{RESET} Cancel")
-        _choice = input("\n  Your choice (y/i/n): ").strip().lower()
-        if _choice == "i":
-            _auto_install_python_310()
-        elif _choice != "y":
-            print("\n  Installation cancelled. Please use Python 3.10.17.\n")
-            sys.exit(1)
-        print()
-
-    # ── platform-specific interpreter checks ──────────────────────────────
-    if not _skip_python_check:
-        if sys.platform == "darwin":
-            _check_mac_python()
-        elif sys.platform == "linux":
-            _check_linux_python()
 
     args = set(sys.argv[1:])
 
@@ -1704,31 +1206,27 @@ if __name__ == "__main__":
     print(_BE)
     print(f"{_BB}\n")
 
-    # Pre-flight check: Disk space (especially important for Kali)
-    min_space_needed = (
-        8.0 if install_gui else 5.0
-    )  # GUI mode needs more space for torch
-    if not check_disk_space_for_installation(min_free_gb=min_space_needed):
-        sys.exit(1)
-
     # Step 1: Install core dependencies
     if use_conda:
         is_installed, reason, conda_base = is_conda_installed()
         if not is_installed:
             print("❌ Error: Conda not found")
             print("\nOptions:")
-            print("  1. Auto-install Miniconda (recommended)")
+            print("  1. Auto-install Miniforge (recommended)")
             print("  2. Install manually from https://conda.io/")
             print("  3. Use without conda: python install.py\n")
 
             # Ask user if they want to auto-install
-            choice = input("Select option (1-3): ").strip()
+            try:
+                choice = input("Select option (1-3): ").strip()
+            except EOFError:
+                choice = "3"  # unattended: continue without conda
             if choice == "1":
                 install_miniconda()
                 # Refresh conda detection after installation
                 is_installed, reason, conda_base = is_conda_installed()
                 if not is_installed:
-                    print("❌ Miniconda installation failed. Please install manually.")
+                    print("❌ Miniforge installation failed. Please install manually.")
                     sys.exit(1)
             elif choice == "3":
                 print("✓ Proceeding with pip installation (no conda)\n")
@@ -1762,7 +1260,7 @@ if __name__ == "__main__":
     # Placeholder — overwritten below with whatever the python stage actually
     # resolved, which may be a downloaded sidecar rather than the interpreter
     # running this script.
-    save_config_value("python_executable", sys.executable)
+    save_config_value("python_executable", _pinned_python_placeholder())
 
     # Native prerequisites + proof the memory stack loads in the SERVICE
     # interpreter. Hard stop on failure: the backend cannot boot without it,
@@ -1777,17 +1275,15 @@ if __name__ == "__main__":
     # installer never ran the Node sidecar download at all, so an
     # installer-only machine had no Node and Agent App could not start.
     # See docs/plans/unified-install-architecture.md.
-    from app import provision
-
-    _service_python = (
-        [get_conda_command(), "run", "-n", env_name, "python"]
-        if use_conda
-        else [sys.executable]
-    )
-    _ctx = provision.default_context(
-        service_python=_service_python,
-        conda_env=env_name if use_conda else None,
-    )
+    _pinned = os.environ.get("CRAFTBOT_PYTHON", "").strip()
+    if use_conda:
+        _service_python = [get_conda_command(), "run", "-n", env_name, "python"]
+    elif _pinned:
+        _service_python = [_pinned]
+    else:
+        _service_python = None  # the python stage provisions the private one
+    _ctx.service_python = _service_python
+    _ctx.conda_env = env_name if use_conda else None
     _report = provision.install(log=print, ctx=_ctx)
 
     # The python stage may have resolved a DIFFERENT interpreter than the one
@@ -1797,6 +1293,17 @@ if __name__ == "__main__":
     _resolved = dict(_report.results).get("python")
     if _resolved is not None and _resolved.data.get("python"):
         save_config_value("python_executable", _resolved.data["python"])
+
+    # Background services (Task Scheduler, launchd, systemd) start with a
+    # minimal PATH that cannot see Homebrew/nodejs.org Node or conda, so the
+    # absolute paths resolved here are recorded and resolved first later.
+    _node = dict(_report.results).get("node")
+    if _node is not None and _node.data.get("node"):
+        save_config_value("node_executable", _node.data["node"])
+    if use_conda:
+        save_config_value(
+            "conda_executable", shutil.which(get_conda_command()) or get_conda_command()
+        )
 
     if not _report.ok:
         print(f"\n  {RED}[x]{RESET} {WHITE}Setup incomplete.{RESET}\n")
@@ -1808,13 +1315,7 @@ if __name__ == "__main__":
         # Only a required stage is fatal. An optional one (Playwright, the
         # WhatsApp bridge) degrades a feature; taking the whole install down
         # for it would be worse than starting without it.
-        _required_failed = [
-            name
-            for name, res in _report.results
-            if not res.ok
-            and name in ("python", "python-deps", "native-runtime", "smoke", "frontend")
-        ]
-        if _required_failed:
+        if _report.required_failures:
             sys.exit(1)
 
     # Step 2: Install GUI components (optional)

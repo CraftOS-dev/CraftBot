@@ -56,32 +56,80 @@
 
 ## 🧰 快速開始
 
-環境需求: Python 3.10+ · 瀏覽器模式需要 Node.js 18+
+**環境需求**
+
+- Windows 10 或 11(x64)、macOS 12 或更新版本(Apple Silicon 或 Intel),或 Linux(x86_64 或 ARM64)
+- 至少 5 GB 可用磁碟空間
+- 一組 LLM 服務商的 API 金鑰(例如 OpenAI、Anthropic、Google Gemini 或 OpenRouter),或透過 Ollama 執行的本機模型
+- 僅原始碼安裝需要:Python 3.8 或更新版本。不需要安裝 Node.js。
+
+### 方式一:安裝程式(建議,不需要 Python 或 Git)
+
+從[最新發布頁面](https://github.com/CraftOS-dev/CraftBot/releases/latest)下載適合你系統的檔案:
+
+| 系統 | 檔案 |
+|---|---|
+| Windows(x64) | `CraftBotInstaller-windows.exe` |
+| macOS(Apple Silicon 與 Intel) | `CraftBotInstaller-macos.zip` |
+| Linux(x86_64) | `CraftBotInstaller-linux-x86_64` |
+| Linux(ARM64) | `CraftBotInstaller-linux-aarch64` |
+
+開啟後點選 **Install CraftBot**。安裝程式會下載 CraftBot 需要的所有內容,啟動 CraftBot,並在瀏覽器中開啟。
+
+安裝程式目前尚未進行程式碼簽署,因此第一次啟動需要多一個步驟:
+
+- **Windows:** 如果 SmartScreen 顯示「Windows 已保護您的電腦」,點選 **其他資訊**(More info),再點選 **仍要執行**(Run anyway)。
+- **macOS:** 解壓縮後開啟 `CraftBotInstaller.app`。在 macOS 15 或更新版本上,第一次開啟會被阻擋:開啟 **系統設定 > 隱私權與安全性**,在關於 CraftBotInstaller 的訊息旁點選 **強制打開**(Open Anyway)並確認。在 macOS 12 至 14 上,請在 App 上按右鍵並選擇 **打開**(Open)。
+- **Linux:** 為檔案加上執行權限,然後在桌面工作階段中執行(沒有桌面環境的伺服器請使用原始碼安裝):
+  ```bash
+  chmod +x CraftBotInstaller-linux-x86_64
+  ./CraftBotInstaller-linux-x86_64
+  ```
+
+### 方式二:從原始碼安裝
+
+電腦上已有的任何 Python 3.8 或更新版本都可以。CraftBot 會下載自己專用的 Python 3.10 與 Node.js 24,不會更動系統中已安裝的 Python 或 Node.js。
 
 ```bash
-# 1. 複製儲存庫
-git clone https://github.com/CraftOS-dev/CraftBot.git
+git clone --depth 1 https://github.com/CraftOS-dev/CraftBot.git
 cd CraftBot
-
-# 2. 安裝、註冊自動啟動並執行 CraftBot
-python craftbot.py install
 ```
 
-就這麼簡單。終端機會自動關閉,CraftBot 會在背景執行,瀏覽器也會自動開啟。同時還會建立一個**桌面捷徑**,方便你隨時重新打開瀏覽器。
+接著執行對應系統的安裝指令:
 
-**安裝完成後管理服務:**
+```bash
+# Windows
+python craftbot.py install        # 或:py craftbot.py install
+
+# macOS 與 Linux
+python3 craftbot.py install
+```
+
+- **沒有 Git?** 在[儲存庫頁面](https://github.com/CraftOS-dev/CraftBot)點選 **Code > Download ZIP**,解壓縮後在該資料夾開啟終端機,執行相同的指令。
+- **沒有 Python,或版本低於 3.8?** 請使用安裝程式(方式一)。
+
+第一次安裝約需下載 1 GB,在一般網路環境下需要幾分鐘。完成後,CraftBot 會在背景執行,在瀏覽器開啟 http://localhost:7925,並建立桌面捷徑。如果 7925 或 7926 連接埠已被占用,CraftBot 會改用下一個可用的連接埠,並顯示要開啟的網址。
+
+第一次啟動時,瀏覽器中的引導流程會請你輸入 LLM API 金鑰。CraftBot 會將金鑰儲存在 `app/config/settings.json`(之後可在設定中修改),不會從 `.env` 檔案讀取 API 金鑰。
+
+### 管理 CraftBot
+
+使用與安裝時相同的 `python` 或 `python3` 指令:
 
 ```bash
 python craftbot.py start      # 在背景啟動 CraftBot
 python craftbot.py stop       # 停止 CraftBot
-python craftbot.py restart    # 重啟 CraftBot
+python craftbot.py restart    # 重新啟動 CraftBot
 python craftbot.py status     # 查看執行狀態以及是否已啟用自動啟動
-python craftbot.py logs       # 查看最近的日誌輸出
-python craftbot.py uninstall  # 停止執行、移除自動啟動並解除安裝相依套件
+python craftbot.py logs       # 顯示最近 50 行記錄(更多:logs -n 200)
+python craftbot.py uninstall  # 停止執行、移除自動啟動並解除安裝套件
+python run.py --tui           # 在終端機中執行,而不是在瀏覽器中
 ```
 
+使用安裝程式的使用者可以在安裝程式視窗中完成相同的操作(**Start**、**Stop**、**Repair**、**Uninstall**)。
+
 > [!TIP]
-> 執行 `install` 或 `start` 之後,系統會自動建立 **CraftBot 桌面捷徑**。如果關閉了瀏覽器,雙擊捷徑即可重新打開。
+> 執行 `install` 或 `start` 之後,系統會自動建立 **CraftBot 桌面捷徑**。如果關閉了瀏覽器,雙擊捷徑即可重新開啟。
 
 ---
 
@@ -149,63 +197,136 @@ CraftBot 嵌入在每一個 Agent App 中,並且**對其狀態保持感知**:
 
 ## 🔧 疑難排解與常見問題
 
-### 缺少 Node.js (瀏覽器模式)
-如果執行 `python run.py` 時看到 **「npm not found in PATH」**:
-1. 從 [nodejs.org](https://nodejs.org/) 下載(選擇 LTS 版本)
-2. 安裝完成後重啟終端機
-3. 再次執行 `python run.py`
+**先查看記錄。** `python craftbot.py logs` 會顯示最近 50 行記錄(更多:`logs -n 200`)。`install` 或 `start` 失敗時,會顯示記錄的最後幾行並以錯誤狀態結束。`python craftbot.py doctor` 會逐一檢查每個安裝步驟,不做任何變更。在安裝程式中可點選 **Open log**。
 
-**終端機版:** 更喜歡終端機?也可以在終端機裡執行 CraftBot(同樣需要 Node.js):
+**重新執行安裝是安全的。** `python craftbot.py install` 會略過已經成功的步驟,只重試其餘步驟。在安裝程式中可點選 **Repair**。
+
+### 7925 或 7926 連接埠已被占用
+
+CraftBot 會改用下一個可用的連接埠,並顯示要開啟的網址。若要自行指定連接埠:
+
 ```bash
-python run.py --tui
+python craftbot.py start --frontend-port 8925 --backend-port 8926
 ```
 
-### 安裝時相依套件失敗
-安裝程式現在會提供更詳細的錯誤訊息與解決方法。若安裝失敗:
-- **檢查 Python 版本:** 確認已安裝 Python 3.10 以上(`python --version`)
-- **檢查網路連線:** 安裝過程需要下載相依套件
-- **清除 pip 快取:** 執行 `pip install --upgrade pip` 之後再試一次
+### Proxy 或公司網路
 
-### Playwright 安裝問題
-Playwright Chromium 的安裝為選用項目。即使失敗:
-- Agent 在其他任務上**仍可正常運作**
-- 可以先略過,稍後再用 `playwright install chromium` 安裝
-- 只有在使用 WhatsApp Web 整合時才需要
+所有下載(Python、pip、npm、Node.js)都會使用標準的 Proxy 環境變數。請在安裝前於同一個終端機中設定:
 
-更完整的排解請參考 [INSTALLATION_FIX.md](INSTALLATION_FIX.md)。
+```bash
+# macOS 與 Linux
+export HTTPS_PROXY=http://proxy.example.com:8080
+export HTTP_PROXY=http://proxy.example.com:8080
+export NO_PROXY=localhost,127.0.0.1
+python3 craftbot.py install
+```
+
+```powershell
+# Windows PowerShell
+$env:HTTPS_PROXY = "http://proxy.example.com:8080"
+$env:HTTP_PROXY = "http://proxy.example.com:8080"
+$env:NO_PROXY = "localhost,127.0.0.1"
+python craftbot.py install
+```
+
+會檢查 TLS 流量的網路不需要額外設定:CraftBot 會信任作業系統憑證存放區中的憑證。
+
+### 下載緩慢或無法連線(例如在中國大陸)
+
+安裝前將下載來源指向鏡像站:
+
+| 變數 | 用途 | 範例 |
+|---|---|---|
+| `PIP_INDEX_URL` | Python 套件 | `https://pypi.tuna.tsinghua.edu.cn/simple` |
+| `npm_config_registry` | npm 套件 | `https://registry.npmmirror.com` |
+| `HF_ENDPOINT` | 嵌入模型 | `https://hf-mirror.com` |
+| `CRAFTBOT_MIRRORS` | Python、Node.js、PocketBase 與嵌入模型的下載 | 見下方 |
+
+`CRAFTBOT_MIRRORS` 是以分號分隔的 `prefix=replacement`(前綴=替換網址)URL 改寫規則:
+
+```bash
+export CRAFTBOT_MIRRORS="https://github.com/=https://<your-github-proxy>/https://github.com/;https://nodejs.org/dist/=https://npmmirror.com/mirrors/node/"
+```
+
+Python 套件和記憶嵌入模型仍會以固定的 SHA-256 檢查碼驗證,因此鏡像站無法改變它們。Python 和 Node.js 執行環境沒有固定檢查碼,請只為它們使用你信任的鏡像站。在 Windows PowerShell 中,請用 `$env:NAME = "value"` 取代 `export` 來設定變數。
+
+### 沒有桌面環境的伺服器
+
+在伺服器上從原始碼安裝,且不開啟瀏覽器:
+
+```bash
+python3 craftbot.py install --no-open-browser
+```
+
+CraftBot 只監聽 `localhost`,並且只接受以 `localhost` 連線的瀏覽器。若要從自己的電腦使用,請建立以相同連接埠號碼轉送兩個連接埠的 SSH 通道,然後在自己的電腦上開啟 http://localhost:7925:
+
+```bash
+ssh -L 7925:localhost:7925 -L 7926:localhost:7926 user@server
+```
+
+`CRAFTBOT_BIND_HOST` 可讓 CraftBot 監聽其他網路介面(Docker 映像檔使用 `0.0.0.0`)。遠端存取仍應透過 SSH 通道進行。
+
+### Linux:重新開機後 CraftBot 沒有自動啟動
+
+自動啟動是一個 systemd 使用者服務,因此需要 systemd 使用者工作階段。若要在開機時不需登入即可啟動 CraftBot,並在登出後繼續執行,請執行一次:
+
+```bash
+loginctl enable-linger $USER
+```
+
+在沒有 systemd 的環境中(例如未啟用 systemd 的 WSL),請在每次開機後執行 `python3 craftbot.py start`。
+
+### macOS:安裝程式被阻擋
+
+安裝程式尚未進行程式碼簽署。在 macOS 15 或更新版本上,先嘗試開啟一次,然後開啟 **系統設定 > 隱私權與安全性** 並點選 **強制打開**(Open Anyway)。在 macOS 12 至 14 上,請在 App 上按右鍵並選擇 **打開**(Open)。
+
+### Windows:SmartScreen 阻擋安裝程式
+
+點選 **其他資訊**(More info),再點選 **仍要執行**(Run anyway)。出現這個警告是因為安裝程式尚未進行程式碼簽署。
+
+### Windows:輸入 `python` 卻開啟了 Microsoft Store
+
+表示系統中沒有安裝 Python。請使用安裝程式,或從 [python.org](https://www.python.org/downloads/) 安裝 Python 後執行 `py craftbot.py install`。
+
+### 將 CraftBot 的資料存放在其他位置
+
+安裝前將 `CRAFTBOT_HOME` 設為某個資料夾(例如容量較大的磁碟上的資料夾),CraftBot 的所有資料與下載的執行環境都會存放在那裡。自動啟動會保留這項設定。
+
+### 瀏覽器功能(Playwright)
+
+Mini Browser 與瀏覽器自動化使用 Playwright 的 Chromium。即使它下載失敗,CraftBot 的其他功能仍可正常使用。之後重新執行 `python craftbot.py install` 即可重試。
 
 ---
+
 ## 🐳 使用容器執行
 
-儲存庫根目錄包含一份 Docker 設定,內含 Python 3.10、關鍵系統套件(含用於 OCR 的 Tesseract),以及 `requirements.txt` 中定義的所有 Python 相依套件,讓 Agent 在隔離環境中也能穩定運作。
+Docker 映像檔以瀏覽器模式執行 CraftBot,所需元件皆已預先安裝:Python 3.10 及其鎖定的相依套件、Node.js 24、瀏覽器介面、PocketBase 與 Playwright 的 Chromium。
 
-以下是使用容器執行 Agent 的步驟。
-
-### 建立映像檔
-
-從儲存庫根目錄執行:
+在儲存庫根目錄執行:
 
 ```bash
-docker build -t craftbot .
+docker compose up -d
 ```
 
-### 執行容器
+第一次建置需要幾分鐘。完成後開啟 http://localhost:7925,並在引導流程中輸入你的 LLM API 金鑰。
 
-映像檔預設會以 `python -m app.main` 啟動 Agent。如要互動式執行:
+設定與 API 金鑰、Agent 檔案、記憶與記錄都保存在 `craftbot-data` 磁碟區中,重新啟動容器或重新建置映像檔後依然保留。
 
 ```bash
-docker run --rm -it craftbot
+docker compose logs -f craftbot              # 即時查看記錄
+docker compose ps                            # 查看狀態(含健康檢查)
+docker compose down                          # 停止(資料磁碟區會保留)
+git pull && docker compose up -d --build     # 更新到最新版本
 ```
 
-需要傳入環境變數時,可以指定一個 env 檔案(例如以 `.env.example` 為基礎):
-
-```bash
-docker run --rm -it --env-file .env craftbot
-```
-
-透過 `-v` 掛載需要持久化到容器外的目錄(例如資料或快取資料夾),並依部署需求調整 port 或其他參數。映像檔內建了 OCR(`tesseract`)所需的系統套件以及常見的 HTTP 客戶端,讓 Agent 可以直接在容器中處理檔案和網路 API。
-
-映像檔預設使用 Python 3.10,並打包好 `requirements.txt` 中的相依套件,所以 `python -m app.main` 可以直接運作。
+- 連接埠只發布在 `127.0.0.1` 上,因為 CraftBot 介面本身沒有登入機制。在遠端伺服器上請維持這個設定,並透過「疑難排解」中說明的 SSH 通道連線。主機連接埠請維持 7925 與 7926:CraftBot 只接受以 `localhost` 連線到這兩個連接埠的瀏覽器。
+- 在 shell 或 `docker-compose.yml` 同一資料夾的 `.env` 檔案中設定的 Proxy 與鏡像變數(`HTTPS_PROXY`、`PIP_INDEX_URL`、`HF_ENDPOINT`、`CRAFTBOT_MIRRORS`,以及 `.env.example` 中列出的其他變數)會傳入容器。
+- Agent App 在容器內的 3100 至 3199 連接埠執行,目前還無法從主機的瀏覽器開啟。若要使用 Agent App,請使用安裝程式或原始碼安裝。
+- 不使用 Compose 時:
+  ```bash
+  docker build -t craftbot .
+  docker run -d --name craftbot -p 127.0.0.1:7925:7925 -p 127.0.0.1:7926:7926 --shm-size 1g -v craftbot-data:/data craftbot
+  ```
 
 ---
 

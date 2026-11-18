@@ -36,7 +36,7 @@ class Action:
     """
 
     DEFAULT_TIMEOUT: int = (
-        6000  # 100 minutes max timeout (GUI mode might need more time)
+        30000  # 500 minutes max timeout (GUI mode might need more time)
     )
 
     def __init__(
@@ -92,7 +92,7 @@ class Action:
                 keyed by lowercase platform name.
             requirements: List of pip package names required by this action.
                 These will be auto-installed before execution if not already present.
-            timeout: Maximum execution time in seconds. Defaults to 6000 (100 minutes).
+            timeout: Maximum execution time in seconds. Defaults to 30000 (500 minutes).
                 Actions exceeding this timeout will be terminated.
             parallelizable: Whether this action can be executed in parallel with others.
                 Defaults to True. Set to False for write operations, GUI actions,

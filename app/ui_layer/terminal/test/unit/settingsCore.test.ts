@@ -3,13 +3,18 @@ import { join } from 'node:path'
 import {
   ASCII_METER,
   changedLines,
+  checklistLines,
   cleanPath,
+  clockParts,
   contextLevel,
-  describeCron,
   dispositionFilename,
+  filterJobs,
   filterOptions,
   formatBytes,
   formatRemaining,
+  groupJobs,
+  intervalLabel,
+  jobWhen,
   labelWidth,
   meter,
   normalizeEdited,
@@ -19,6 +24,7 @@ import {
   quoteWindowsArg,
   resolveExportPath,
   runsToday,
+  scheduleUpdate,
   scrollTop,
 } from '../../src/screens/settings/coreLogic'
 import { resolveCursor, stepCursor, type FormRow } from '../../src/screens/settings/coreForm'
@@ -71,20 +77,67 @@ describe('time text', () => {
     expect(runsToday('03:00', now)).toBe(false)
   })
 
-  it('describes cron schedules like the browser', () => {
-    expect(describeCron('0,30 * * * *', t, 'en')).toBe('cron.timesHourly {"count":2}')
-    expect(describeCron('15 * * * *', t, 'en')).toBe('cron.hourly {"minute":"15"}')
-    expect(describeCron('*/10 * * * *', t, 'en')).toBe('cron.everyMinutes {"count":10}')
-    expect(describeCron('0 8 * * *', t, 'en')).toMatch(/^cron\.daily /)
-    expect(describeCron('0 17 * * 0', t, 'en')).toMatch(/^cron\.weekly .*cron\.days\.sun/)
-    expect(describeCron('0 8 1 * *', t, 'en')).toMatch(/^cron\.monthly \{"day":"1"/)
-    expect(describeCron('every day at 7am', t, 'en')).toBe('every day at 7am')
-  })
-
   it('maps priority values to levels', () => {
     expect(priorityLevel(30)).toBe('high')
     expect(priorityLevel(50)).toBe('medium')
     expect(priorityLevel(70)).toBe('low')
+  })
+
+  it('reads clock parts, missing parts as zero', () => {
+    expect(clockParts('07:05')).toEqual([7, 5])
+    expect(clockParts('9')).toEqual([9, 0])
+    expect(clockParts('')).toEqual([0, 0])
+  })
+
+  it('says when a recurring task runs within its group, as the scheduler reads it', () => {
+    expect(jobWhen({ name: 'a', frequency: 'hourly', time: '13:15' }, t)).toBe(':15')
+    expect(jobWhen({ name: 'a', frequency: 'daily', time: '8:00' }, t)).toBe('08:00')
+    expect(jobWhen({ name: 'a', frequency: 'daily' }, t)).toBe('00:00')
+    expect(jobWhen({ name: 'a', frequency: 'weekly', time: '17:00', day: 'Friday' }, t)).toBe(
+      'proactive.dayTime {"day":"proactive.days.friday","time":"17:00"}',
+    )
+    expect(jobWhen({ name: 'a', frequency: 'weekly', day: 'someday' }, t)).toMatch(/proactive\.days\.monday/)
+    expect(jobWhen({ name: 'a', frequency: 'monthly', time: '09:00', day: '15' }, t)).toMatch(/proactive\.monthDay \{\\"day\\":15\}/)
+    expect(jobWhen({ name: 'a', frequency: 'monthly' }, t)).toMatch(/proactive\.monthDay \{\\"day\\":1\}/)
+  })
+
+  it('groups recurring tasks by frequency, by time then name', () => {
+    const jobs = [
+      { name: 'b', frequency: 'daily', time: '09:00', instruction: 'x' },
+      { name: 'a', frequency: 'daily', time: '09:00', instruction: 'x' },
+      { name: 'c', frequency: 'daily', time: '07:00', instruction: 'x' },
+      { name: 'w', frequency: 'weekly', instruction: 'x' },
+      { name: 'h', frequency: 'hourly', instruction: 'Check MAIL' },
+    ]
+    const groups = groupJobs(jobs)
+    expect(groups.map(g => g.frequency)).toEqual(['hourly', 'daily', 'weekly'])
+    expect(groups[1].jobs.map(j => j.name)).toEqual(['c', 'a', 'b'])
+    expect(filterJobs(jobs, ' mail ').map(j => j.name)).toEqual(['h'])
+    expect(filterJobs(jobs, 'W').map(j => j.name)).toEqual(['w'])
+    expect(filterJobs(jobs, '')).toBe(jobs)
+  })
+
+  it('labels heartbeat intervals and counts checklist items', () => {
+    expect(intervalLabel(30, t)).toBe('proactive.everyMinutes {"count":30}')
+    expect(intervalLabel(120, t)).toBe('proactive.everyHours {"count":2}')
+    expect(checklistLines('- a\r\n\n  \n- b')).toEqual(['- a', '- b'])
+    expect(checklistLines('')).toEqual([])
+  })
+
+  it('builds the schedule update from the edited controls only', () => {
+    expect(scheduleUpdate({ heartbeat: 60 })).toEqual({ update: { heartbeatMinutes: 60 }, sent: { heartbeat: 60 } })
+    expect(scheduleUpdate({ day: '07:30', week: { day: 'friday', time: '17:05' }, month: { day: 31, time: '08:00' } }).update).toEqual({
+      dayPlannerHour: 7,
+      dayPlannerMinute: 30,
+      weekPlannerDay: 'friday',
+      weekPlannerHour: 17,
+      weekPlannerMinute: 5,
+      monthPlannerDay: 31,
+      monthPlannerHour: 8,
+      monthPlannerMinute: 0,
+    })
+    // A planner without a time is not sent, as in the browser.
+    expect(scheduleUpdate({ day: '', week: { day: 'monday', time: '' } })).toEqual({ update: {}, sent: {} })
   })
 
   it('formats byte counts', () => {

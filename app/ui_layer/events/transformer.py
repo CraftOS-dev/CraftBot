@@ -117,6 +117,9 @@ class EventTransformer:
                 "continue_work": bool(event.continue_work),
                 "question": event.question,
                 "ui_artifact": event.ui_artifact,
+                # The run of the action that sent it: the chat matches it to
+                # the message it showed while the reply was written.
+                "client_id": event.action_id,
             },
             timestamp=ts,
             task_id=session_id,
@@ -156,7 +159,11 @@ class EventTransformer:
     def _build_reasoning(
         cls, event: "Event", message: str, ts: datetime, session_id: Optional[str]
     ) -> Optional[UIEvent]:
-        reasoning_id = f"{session_id or 'main'}:reasoning:{ts.timestamp()}"
+        # A streamed reply's reasoning carries the id its row had while the
+        # reply was written.
+        reasoning_id = (
+            event.action_id or f"{session_id or 'main'}:reasoning:{ts.timestamp()}"
+        )
         return UIEvent(
             type=UIEventType.REASONING,
             data={
@@ -290,6 +297,9 @@ def _install_dispatch() -> None:
         EventType.TRIGGER: EventTransformer._build_hidden,
         # Action schemas are prompt material for the model, not chat content.
         EventType.ACTION_SCHEMAS: EventTransformer._build_hidden,
+        # So are a loaded skill's instructions and its unload marker.
+        EventType.SKILL_INSTRUCTIONS: EventTransformer._build_hidden,
+        EventType.SKILL_UNLOADED: EventTransformer._build_hidden,
     }
 
 

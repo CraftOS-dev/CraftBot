@@ -44,6 +44,17 @@ export interface ImportSummary {
   agent_app_renamed?: string[]
 }
 
+export interface FrameworkInstallError {
+  package: { from?: string }
+  error: string
+}
+
+/** The summary, plus the bundle's Agent App packages, which install in the background. */
+export interface ImportResult extends ImportSummary {
+  framework_install_message?: string
+  framework_install_errors?: FrameworkInstallError[]
+}
+
 /** The folder an export is offered into: Downloads when it exists, else home. */
 export function defaultExportFolder(): string {
   const downloads = join(homedir(), 'Downloads')
@@ -104,13 +115,23 @@ export async function inspectProfile(file: string): Promise<Inspected> {
 }
 
 /** Apply an inspected bundle. */
-export async function importProfile(token: string, mode: ImportMode): Promise<ImportSummary> {
+export async function importProfile(token: string, mode: ImportMode): Promise<ImportResult> {
   const resp = await fetch(`${getApiBaseUrl()}/api/profile/import`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ bundle_token: token, mode }),
   })
-  const data = (await resp.json().catch(() => ({}))) as { success?: boolean; error?: string; summary?: ImportSummary }
+  const data = (await resp.json().catch(() => ({}))) as {
+    success?: boolean
+    error?: string
+    summary?: ImportSummary
+    framework_install_message?: string
+    framework_install_errors?: FrameworkInstallError[]
+  }
   if (!resp.ok || !data.success) throw new Error(data.error || `HTTP ${resp.status}`)
-  return data.summary ?? {}
+  return {
+    ...(data.summary ?? {}),
+    framework_install_message: data.framework_install_message,
+    framework_install_errors: data.framework_install_errors,
+  }
 }

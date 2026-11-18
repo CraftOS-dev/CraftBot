@@ -60,8 +60,28 @@ GIT_PROBE_TIMEOUT = 15
 
 # Version file lookup on the remote branch, mirroring the order used by
 # config.get_app_version so the reported version matches what the updated
-# checkout will report once it restarts.
-REMOTE_VERSION_SOURCES = ("VERSION", "app/config/settings.json")
+# checkout will report once it restarts. settings.json is the user's runtime
+# copy and is not tracked; the shipped default carries the version.
+REMOTE_VERSION_SOURCES = ("VERSION", "app/config/settings.default.json")
+
+
+#: Why perform_update refuses outside a git checkout (shown by the UI and
+#: the /update command through their "update failed" message).
+NOT_SELF_UPDATABLE = (
+    "This copy of CraftBot was not installed from a git checkout, so it "
+    "cannot update itself. Install the new version the same way you "
+    "installed this one."
+)
+
+
+def can_self_update(project_root: Path) -> bool:
+    """True when the code root is a git work tree.
+
+    The update path is `git pull` (scripts/updater.*). A Docker image, a ZIP
+    download and a launcher-managed install have no .git, and the pull could
+    only fail there, after CraftBot had already shut down for it.
+    """
+    return (Path(project_root) / ".git").exists()
 
 
 async def check_for_update() -> UpdateStatus:
@@ -80,6 +100,10 @@ async def check_for_update() -> UpdateStatus:
 
     current = get_app_version()
     project_root = Path(__file__).resolve().parent.parent
+
+    # Never offer an update this installation cannot apply.
+    if not can_self_update(project_root):
+        return UpdateStatus(False, current, current)
 
     source_update = await _check_source_update(project_root, current)
     if source_update is not None:
@@ -268,6 +292,9 @@ async def perform_update(
             await progress_callback(msg)
 
     project_root = Path(__file__).resolve().parent.parent
+
+    if not can_self_update(project_root):
+        raise RuntimeError(NOT_SELF_UPDATABLE)
 
     target_branch = UPDATE_BRANCH
     updater_script = _updater_script_path(project_root)

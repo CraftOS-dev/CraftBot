@@ -2,20 +2,19 @@
   "title": "Agent App",
   "notFound": "このアプリはもう存在しません。",
   "loading": "読み込み中...",
-  "stopped": "アプリは停止しています。l で起動します。",
+  "stopped": "アプリは停止しています。l で開始します。",
   "asOwner": "オーナーとして",
   "agent": "AI エージェント",
   "agentIdle": "待機中",
   "agentWorking": "作業中",
   "status": {
     "running": "実行中",
-    "ready": "実行中",
     "stopped": "停止",
-    "creating": "構築中",
-    "launching": "起動中",
     "stopping": "停止中",
-    "error": "エラー",
-    "created": "未起動"
+    "building": "ビルド中",
+    "starting": "開始中",
+    "missing": "見つかりません",
+    "unreachable": "到達不可"
   },
   "tabs": {
     "ops": "操作",
@@ -38,11 +37,14 @@
     "chat": "チャット",
     "screens": "画面",
     "stop": "停止",
-    "launch": "起動"
+    "launch": "起動",
+    "allow": "許可",
+    "decline": "許可しない"
   },
   "fieldError": {
     "required": "必須",
-    "number": "数値を入力してください"
+    "number": "数値を入力してください",
+    "json": "有効な JSON にしてください"
   },
   "noParams": "入力は不要です。Enter で実行します。",
   "confirmDestructive": "{{label}} はデータを変更、または完全に削除します。実行しますか？",
@@ -52,12 +54,37 @@
   "paletteHint": "入力して操作を検索",
   "recordCount_one": "{{count}} 件のレコード",
   "recordCount_other": "{{count}} 件のレコード",
-  "readOnly": "読み取り専用（変更は操作から行います）",
-  "recordsHint": "アプリのデータ（読み取り専用）。Enter でコレクションを開きます。",
-  "requestsHint": "アプリが AI エージェントに送ったリクエストです。Enter で一覧を表示します。",
-  "viewsInvalid": "views.json に問題があるため、生成された画面を表示しています: {{problem}}",
+  "recordsHint": "アプリのデータ（読み取り専用）。Enter で一覧を開きます。",
+  "requestsHint": "このアプリが AI エージェントに依頼した作業。r で再読み込み。",
   "actionsOnly": "このエリア単体で表示する内容はありません。下のアクションを使ってください。",
   "you": "あなた",
   "chatEmpty": "まだ会話はありません。",
-  "chatPlaceholder": "このアプリについて AI エージェントに質問"
+  "chatPlaceholder": "このアプリについて AI エージェントに質問",
+  "missing": "このアプリのフォルダがありません。Agent Apps から削除すると一覧から外れます。",
+  "unreachable": "別のプログラムがこのアプリのポートを使用しています。",
+  "remoteOffline": "このアプリには現在アクセスできません。",
+  "remote": "リモート",
+  "disconnected": "AI エージェントに接続していません。",
+  "cannotChange": "このアプリは今は開始も停止もできません。",
+  "lifecycleFailed": "アプリを開始または停止できませんでした。",
+  "chatFailed": "このアプリのチャットを開けませんでした：{{error}}",
+  "noEntities": "このアプリは独自のデータを宣言していません。",
+  "listHint": "複数の値をカンマで区切って入力",
+  "jsonHint": "JSON の値",
+  "requests": {
+    "title": "このアプリが AI エージェントへのリクエスト送信を求めています",
+    "intro": "許可すると、{{name}} はいつでも AI エージェントに次のことを依頼できます：",
+    "more": "他 {{count}} 件",
+    "keys": "y 許可 · n 許可しない（設定で変更できます）",
+    "saving": "保存中...",
+    "off": "AI エージェントへのリクエストは、確認して許可するまでオフです。",
+    "pendingChanges": "新しいまたは変更されたリクエストは、確認するまでオフです。",
+    "reviewKey": "v 確認",
+    "allowed": "リクエストを許可しました。待機中のリクエストを AI エージェントが処理します。",
+    "allowedRetry": "リクエストを許可しました。アプリで操作をもう一度お試しください。",
+    "waitingOff_other": "{{count}} 種類のリクエストが許可を待っています。",
+    "consentOk": "許可を待っているものはありません。",
+    "none": "まだリクエストはありません。"
+  },
+  "recordKeys": "Enter でレコードと実行できる操作を開きます"
 }

@@ -23,6 +23,8 @@ mod install;
 mod logger;
 mod paths;
 mod payload;
+mod preflight;
+mod proxy;
 mod python;
 mod record;
 mod state;
@@ -32,6 +34,7 @@ use record::InstallRecord;
 use slint::{ComponentHandle, SharedString};
 use state::{Phase, Snapshot};
 use std::cell::{Cell, RefCell};
+use std::cmp::Ordering;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -57,6 +60,11 @@ struct App {
     status_hold: Cell<Option<Instant>>,
     uninstall_armed: Cell<Option<Instant>>,
     close_armed: Cell<Option<Instant>>,
+    /// The running job's label, so a failure knows what failed.
+    job: Cell<Option<&'static str>>,
+    /// The last install or repair failed: the tree on disk is not a working
+    /// install, and Repair is what to offer.
+    setup_failed: Cell<bool>,
     events_tx: Sender<Event>,
     events_rx: Receiver<Event>,
     states_rx: Receiver<Snapshot>,
@@ -79,6 +87,18 @@ fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.first().map(String::as_str) == Some("--headless") {
         std::process::exit(headless(&args[1..]));
+    }
+
+    // A basic Windows display driver can create a window but fail later
+    // when femtovg requests OpenGL symbols. Slint's automatic fallback does
+    // not catch that event-loop failure. This small setup UI needs no GPU.
+    let mut backend = slint::BackendSelector::new();
+    if std::env::var_os("SLINT_BACKEND").is_none() {
+        backend = backend.renderer_name("software".into());
+    }
+    if let Err(e) = backend.select() {
+        logger::log(&format!("could not initialize the window backend: {e}"));
+        std::process::exit(1);
     }
 
     let ui = match InstallerWindow::new() {
@@ -118,6 +138,8 @@ fn main() {
         status_hold: Cell::new(None),
         uninstall_armed: Cell::new(None),
         close_armed: Cell::new(None),
+        job: Cell::new(None),
+        setup_failed: Cell::new(false),
         events_tx,
         events_rx,
         states_rx,
@@ -131,6 +153,11 @@ fn main() {
         format!("Version {version}").into()
     });
     app.show_target();
+    if let Err(reason) = preflight::check() {
+        logger::log(&format!("preflight: {reason}"));
+        app.set_status(&reason, Tone::Red);
+        app.hold_status(Duration::from_secs(24 * 3600));
+    }
 
     // ── Callbacks ───────────────────────────────────────────────────────
     {
@@ -143,7 +170,7 @@ fn main() {
     }
     {
         let app = app.clone();
-        ui.on_repair_clicked(move || app.start_job(Job::Repair));
+        ui.on_repair_clicked(move || app.repair());
     }
     {
         let app = app.clone();
@@ -179,6 +206,7 @@ fn main() {
     logger::log("entering event loop");
     if let Err(e) = ui.run() {
         logger::log(&format!("event loop ended with error: {e}"));
+        std::process::exit(1);
     }
     logger::log("window closed");
 }
@@ -192,7 +220,11 @@ fn headless(args: &[String]) -> i32 {
                 .map(PathBuf::from)
                 .unwrap_or_else(paths::default_install_dir),
         },
-        Some("repair") => Job::Repair,
+        Some("repair") => Job::Repair {
+            target: InstallRecord::load_any()
+                .map(|r| r.install_dir)
+                .unwrap_or_else(paths::default_install_dir),
+        },
         Some("uninstall") => Job::Uninstall,
         Some("start") => Job::Start,
         Some("stop") => Job::Stop,
@@ -227,7 +259,11 @@ fn headless(args: &[String]) -> i32 {
             Event::Working => {}
             Event::Finished(Ok(())) => code = 0,
             Event::Finished(Err(e)) => {
-                eprintln!("FAILED: {e}");
+                let mut lines = e.lines();
+                eprintln!("FAILED: {}", lines.next().unwrap_or_default());
+                for line in lines {
+                    eprintln!("  | {line}");
+                }
                 code = 1;
             }
         }
@@ -248,24 +284,43 @@ impl App {
             return;
         }
         let phase = self.snapshot.borrow().as_ref().map(|s| s.phase);
+        if self.update_available() && phase != Some(Phase::InstalledStarting) {
+            self.repair();
+            return;
+        }
         match phase {
             Some(Phase::InstalledRunning) => {
-                if let Err(e) = open::that(paths::BROWSER_URL) {
+                let url = paths::browser_url();
+                if let Err(e) = open::that(&url) {
                     logger::log(&format!("could not open the browser: {e}"));
-                    self.set_status(
-                        &format!("Open {} in your browser", paths::BROWSER_URL),
-                        Tone::Dim,
-                    );
+                    self.set_status(&format!("Open {url} in your browser"), Tone::Dim);
                     self.hold_status(CONFIRM_WINDOW);
                 }
             }
             Some(Phase::InstalledStopped) => self.start_job(Job::Start),
             Some(Phase::InstalledStarting) | None => {}
+            Some(Phase::NotInstalled) if self.setup_failed.get() => self.repair(),
             Some(Phase::NotInstalled) => {
                 let target = self.target_dir.borrow().clone();
                 self.start_job(Job::Install { target });
             }
         }
+    }
+
+    /// Install again over the current location: repair, finish a failed
+    /// setup, or update to this launcher's version. One code path for all.
+    fn repair(&self) {
+        let target = self.target_dir.borrow().clone();
+        self.start_job(Job::Repair { target });
+    }
+
+    /// Whether this launcher is newer than the CraftBot it installed.
+    fn update_available(&self) -> bool {
+        let snap = self.snapshot.borrow();
+        snap.as_ref()
+            .and_then(|s| s.record.as_ref())
+            .map(|r| payload::compare_with_installed(&r.version) == Some(Ordering::Greater))
+            .unwrap_or(false)
     }
 
     fn on_uninstall(&self) {
@@ -334,9 +389,11 @@ impl App {
             return;
         }
         self.busy.set(true);
+        self.job.set(Some(job.label()));
         self.status_hold.set(None);
         self.uninstall_armed.set(None);
         let ui = self.ui();
+        ui.set_details(SharedString::new());
         ui.set_busy(true);
         ui.set_progress_visible(true);
         ui.set_progress_indeterminate(true);
@@ -400,18 +457,27 @@ impl App {
                 ui.set_busy(false);
                 ui.set_progress_visible(false);
                 ui.set_progress(0.0);
+                let setup_job = matches!(self.job.take(), Some("install" | "repair"));
                 match result {
                     Ok(()) => {
                         // The next snapshot writes the real state.
                         self.status_hold.set(None);
+                        if setup_job {
+                            self.setup_failed.set(false);
+                        }
                     }
                     Err(e) => {
                         // Keep the error on screen until the user does
                         // something else; the state poll must not replace
                         // it with a cheerful "Installed · not running".
-                        let first = e.lines().next().unwrap_or("Something went wrong");
+                        let mut lines = e.lines();
+                        let first = lines.next().unwrap_or("Something went wrong");
                         self.set_status(first, Tone::Red);
                         self.hold_status(Duration::from_secs(24 * 3600));
+                        ui.set_details(details_text(lines).into());
+                        if setup_job {
+                            self.setup_failed.set(true);
+                        }
                     }
                 }
             }
@@ -438,25 +504,45 @@ impl App {
             .get()
             .map(|t| Instant::now() < t)
             .unwrap_or(false);
+        // A failed setup leaves no record: the tree on disk is not a working
+        // install. A newer launcher over an older install offers the update.
+        let failed = self.setup_failed.get() && matches!(phase, Phase::NotInstalled);
+        let older = snap
+            .record
+            .as_ref()
+            .filter(|r| payload::compare_with_installed(&r.version) == Some(Ordering::Greater))
+            .map(|r| r.version.clone());
         if !busy && !held {
-            match phase {
-                Phase::InstalledStarting => self.set_status("Starting CraftBot…", Tone::Amber),
-                Phase::InstalledRunning => {
+            match (phase, &older) {
+                (Phase::InstalledStarting, _) => self.set_status("Starting CraftBot…", Tone::Amber),
+                (Phase::InstalledRunning | Phase::InstalledStopped, Some(old)) => self.set_status(
+                    &format!("Version {old} installed · {} available", payload::VERSION),
+                    Tone::Amber,
+                ),
+                (Phase::InstalledRunning, None) => {
                     let text = match snap.pid {
                         Some(pid) => format!("Running · PID {pid}"),
                         None => "Running".to_string(),
                     };
                     self.set_status(&text, Tone::Green);
                 }
-                Phase::InstalledStopped => self.set_status("Installed · not running", Tone::Amber),
-                Phase::NotInstalled => self.set_status("Not installed", Tone::Dim),
+                (Phase::InstalledStopped, None) => {
+                    self.set_status("Installed · not running", Tone::Amber)
+                }
+                (Phase::NotInstalled, _) if failed => self.set_status(
+                    "Setup did not finish. Use Repair to try again.",
+                    Tone::Amber,
+                ),
+                (Phase::NotInstalled, _) => self.set_status("Not installed", Tone::Dim),
             }
         }
 
         let (label, enabled) = match phase {
             Phase::InstalledStarting => ("Starting…", false),
+            _ if older.is_some() => ("Update CraftBot", true),
             Phase::InstalledRunning => ("Open CraftBot", true),
             Phase::InstalledStopped => ("Start CraftBot", true),
+            Phase::NotInstalled if failed => ("Repair CraftBot", true),
             Phase::NotInstalled => ("Install CraftBot", true),
         };
         ui.set_primary_label(label.into());
@@ -465,9 +551,9 @@ impl App {
         let installed = !matches!(phase, Phase::NotInstalled);
         let running = matches!(phase, Phase::InstalledRunning | Phase::InstalledStarting);
         ui.set_stop_enabled(running && !busy);
-        ui.set_repair_enabled(installed && !busy);
+        ui.set_repair_enabled((installed || failed) && !busy);
         ui.set_uninstall_enabled(installed && !busy);
-        ui.set_change_enabled(!installed && !busy);
+        ui.set_change_enabled(!installed && !failed && !busy);
 
         // Any busy stage gets a bar; a measured download upgrades it to a
         // real percentage. Never over the top of a live download, though.
@@ -513,6 +599,25 @@ impl App {
         ui.set_status(text.into());
         ui.set_status_color(color);
     }
+}
+
+/// The error panel's text: the output lines after the status line, each
+/// shortened so the panel never needs to scroll sideways.
+fn details_text<'a>(lines: impl Iterator<Item = &'a str>) -> String {
+    const WIDTH: usize = 78;
+    lines
+        .map(|line| {
+            let line = line.trim_end();
+            if line.chars().count() > WIDTH {
+                let mut short: String = line.chars().take(WIDTH - 1).collect();
+                short.push('…');
+                short
+            } else {
+                line.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 #[derive(Clone, Copy)]
@@ -578,6 +683,18 @@ mod tests {
         payload::mark_managed(&root).unwrap();
         assert!(root.join(paths::MANAGED_MARKER).is_file());
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn details_are_shortened_per_line() {
+        let long = "x".repeat(200);
+        let text = details_text(["a", long.as_str(), "b  "].into_iter());
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines.len(), 3);
+        assert_eq!(lines[0], "a");
+        assert_eq!(lines[1].chars().count(), 78);
+        assert!(lines[1].ends_with('…'));
+        assert_eq!(lines[2], "b");
     }
 
     #[test]

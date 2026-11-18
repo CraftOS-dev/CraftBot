@@ -157,7 +157,6 @@
     "sections_one": "{{count}} 个章节",
     "sections_other": "{{count}} 个章节",
     "meta": {
-      "category": "类别",
       "saved": "保存时间",
       "links": "链接",
       "file": "文件",
@@ -168,6 +167,7 @@
     "moreNeighbours": "还有 {{count}} 个",
     "readOnly": "来自已索引文件（只读）",
     "notEditable": "只能编辑对话记忆",
+    "notDeletable": "只能删除对话记忆和实体",
     "form": {
       "addTitle": "添加记忆",
       "editTitle": "编辑记忆",
@@ -183,6 +183,9 @@
     "saved": "记忆已保存",
     "deleted": "记忆已删除",
     "failed": "无法更新记忆：{{error}}",
+    "confirmDeleteEntity": "删除实体 {{name}} 及其链接？记忆不会改变。",
+    "entityDeleted": "已删除实体 {{name}}",
+    "entityDeleteFailed": "无法删除实体 {{name}}",
     "files": {
       "hint": "勾选的文件会被索引：你的 AI 智能体可以搜索其中的章节。",
       "chunks_one": "{{count}} 个章节",
@@ -228,7 +231,6 @@
     "previewEmpty": "空文件",
     "previewLoading": "正在读取...",
     "selectHint": "选择文件以预览",
-    "previewFocus": "Tab 返回列表",
     "prompt": {
       "rename": "重命名为",
       "newFile": "新文件名",

@@ -51,7 +51,7 @@ CRITICAL_IMPORTS = [
     "bs4",
     "trafilatura",
     "ddgs",
-    "docling",
+    "rapidocr",
     "onnxruntime",
     "playwright",
     "cv2",
@@ -151,17 +151,28 @@ def _embedding_model() -> Dict[str, Any]:
     between bge-small and ChromaDB's bundled MiniLM is invisible at rest but
     changes every retrieval score."""
     configured = os.environ.get("MEMORY_EMBEDDING_MODEL", "BAAI/bge-small-en-v1.5")
-    loadable = False
     try:
-        loadable = importlib.util.find_spec("sentence_transformers") is not None and (
-            importlib.util.find_spec("transformers") is not None
+        runtime_loadable = importlib.util.find_spec("onnxruntime") is not None and (
+            importlib.util.find_spec("tokenizers") is not None
         )
     except (ImportError, ValueError):
-        loadable = False
+        runtime_loadable = False
+    try:
+        from app import embedding_model
+
+        files_present = not embedding_model.missing()
+    except Exception:
+        files_present = False
     return {
         "configured": configured,
-        "sentence_transformers_loadable": loadable,
-        "effective": configured if (loadable or configured == "default") else "default",
+        "onnx_runtime_loadable": runtime_loadable,
+        "model_files_present": files_present,
+        # What compare() checks: the model this install's packages can run.
+        # File presence is install state (the model is fetched by its own
+        # stage), not a pip-vs-conda difference, so it is reported only.
+        "effective": configured
+        if (runtime_loadable or configured == "default")
+        else "default",
     }
 
 

@@ -35,6 +35,7 @@ Composition over inheritance: the per-service Client subclasses
 
 from __future__ import annotations
 
+import asyncio
 import time
 from dataclasses import dataclass
 from typing import Dict, Optional, Tuple
@@ -255,6 +256,12 @@ class GoogleApiClientMixin:
 
     def _auth_header(self) -> Dict[str, str]:
         return {"Authorization": f"Bearer {self._ensure_token()}"}
+
+    async def _async_auth_header(self) -> Dict[str, str]:
+        """``_auth_header`` for coroutines. An expired token is refreshed over
+        a blocking HTTP call and written back to the credential store, so the
+        check runs in a worker thread instead of on the event loop."""
+        return await asyncio.to_thread(self._auth_header)
 
 
 __all__ = [

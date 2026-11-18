@@ -4,8 +4,8 @@
 
   "model_no_model_specified": "No se ha especificado ningún modelo",
   "model_test_failed": "La prueba falló",
+  "model_api_key_in_use": "Esta clave es la única credencial de {provider}, tu proveedor de modelos activo. Elige otro proveedor antes de quitarla.",
 
-  "agentapp_name_desc_required": "El nombre y la descripción son obligatorios",
   "agentapp_project_created": "Proyecto creado, iniciando el desarrollo...",
   "agentapp_dev_run_failed": "Error al iniciar la ejecución de desarrollo",
   "agentapp_launch_failed": "Error al iniciar el servidor de Agent App",

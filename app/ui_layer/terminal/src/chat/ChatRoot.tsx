@@ -8,7 +8,9 @@
  * renderer never falls back to clearing the screen.
  *
  * One input handler routes every key: global shortcuts first, then the
- * slash popup, the question box when it has focus, and the composer.
+ * slash and @ popup, the question box or a rejected message when it has
+ * focus, and the composer. `@` offers other chats and Agent Apps (given to
+ * the agent as context with the message) before files on this computer.
  */
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { Box, Text, useApp, useInput, usePaste, useStdout, useWindowSize, type Key } from 'ink'
@@ -20,17 +22,20 @@ import { armQuit, dismissToast, expireToasts, openScreen, pushToast, toggleTodoP
 import { send } from '../state/hooks'
 import { onInboundMessage } from '../../../browser/frontend/src/store/socket/socketMiddleware'
 import { mentionAt, mentionedFiles, pathSuggestions } from '../input/attachments'
-import { describeFile, MAX_ATTACHMENTS, MAX_TOTAL_BYTES } from './intents'
+import { describeFile, MAX_ATTACHMENTS, MAX_TOTAL_BYTES, type Reference } from './intents'
+import { referenceCatalog, referenceKey, searchReferences } from '../../../browser/frontend/src/components/References/references'
 import { clearReplyTarget, getReplyTarget, subscribeReplyTarget } from '../screens/transcriptReply'
 import { takeTranscriptDump } from '../screens/TranscriptScreen'
 import { selectLastMessageIdBySession } from '../../../browser/frontend/src/store/selectors/messages'
 import { clearPendingPrefill, setDraftText } from '../../../browser/frontend/src/store/slices/chatInputSlice'
 import { RESOURCES, useResource } from '../../../browser/frontend/src/store/resources'
 import { markSeen, sendChat, stopSession } from './intents'
-import { choiceKey, useSessionLive } from './sessionLive'
+import { choiceKey, rejectedKey, useSessionLive } from './sessionLive'
+import { RejectedBlock, REJECTED_ROWS } from './RejectedBlock'
 import { latestTodos } from './activity'
 import { pendingScrollback, reopenActiveSession } from './transcriptWriter'
 import { WorkingBlock, workingBlockHeight } from './WorkingBlock'
+import { DraftReplyBlock, draftReplyHeight } from './DraftReply'
 import { ChoiceBox, choiceBoxHeight } from './ChoiceBox'
 import { StatusLine } from './StatusLine'
 import { COMPOSER_CHROME_ROWS, ComposerView, composerTextColumns } from '../input/ComposerView'
@@ -46,15 +51,21 @@ import { requestQuit, startNewChat } from '../runtime/actions'
 const QUIT_WINDOW_MS = 800
 const FIRST_RUN_KEY = 'craftbot-terminal-first-message-sent'
 
-/** One row of the popup above the composer: a slash command or an @path. */
+/** One row of the popup above the composer: a slash command, a chat or app to reference, or an @path. */
 interface PopupItem {
   value: string
   label: string
   description: string
-  kind: 'slash' | 'path'
-  /** Where an @path mention starts (it alone is replaced on accept). */
+  kind: 'slash' | 'path' | 'ref'
+  /** Where an @ mention starts (it alone is replaced on accept). */
   start: number
+  reference?: Reference
 }
+
+/** The most references one message carries (the browser's limit). */
+const MAX_REFERENCES = 8
+/** A mention that reads as a path: it goes to files, not to chats and apps. */
+const PATH_LIKE = /^(\.|~|[A-Za-z]:|.*[\\/])/
 
 export function ChatRoot() {
   const { t } = useTranslation('tui')
@@ -65,7 +76,9 @@ export function ChatRoot() {
   const { columns, rows } = useWindowSize()
 
   const sessionId = useAppSelector(s => s.tui.activeSessionId)
-  const { activity, runState, busy, running, choice, choiceCount, runStart, subagents: subagentRows } = useSessionLive(sessionId)
+  const { activity, runState, busy, running, choice, choiceCount, runStart, subagents: subagentRows, stepStatus, drafts, preparing, rejected } = useSessionLive(sessionId)
+  const sessions = useAppSelector(s => s.sessions.sessions)
+  const registryApps = useAppSelector(s => s.agentApp.framework.apps)
   const toasts = useAppSelector(s => s.tui.toasts)
   const todoOpen = useAppSelector(s => s.tui.todoPanelOpen)
   const quitArmedAt = useAppSelector(s => s.tui.quitArmedAt)
@@ -90,6 +103,9 @@ export function ChatRoot() {
   const [popupIndex, setPopupIndex] = useState(0)
   const [popupClosed, setPopupClosed] = useState(false)
   const [questionFocus, setQuestionFocus] = useState(false)
+  const [rejectedFocus, setRejectedFocus] = useState(false)
+  // Chats and apps given as context with the next message.
+  const [references, setReferences] = useState<Reference[]>([])
   const [optionIndex, setOptionIndex] = useState(0)
   const leaderAt = useRef<number | null>(null)
   const [leaderArmed, setLeaderArmed] = useState(false)
@@ -104,6 +120,8 @@ export function ChatRoot() {
     lastSession.current = sessionId
     setModel(modelFromText(store.getState().chatInput.drafts[sessionId] ?? ''))
     setQuestionFocus(false)
+    setRejectedFocus(false)
+    setReferences([])
   }, [sessionId, dispatch, setModel, store])
 
   // --- scrollback ------------------------------------------------------------
@@ -165,10 +183,27 @@ export function ChatRoot() {
   // --- derived live state ----------------------------------------------------
   const todos = todoOpen ? latestTodos(activity) : null
   const mention = mentionAt(model.buffer.text, model.buffer.cursor)
+  const referenceItems: PopupItem[] =
+    mention && !PATH_LIKE.test(mention.path) && references.length < MAX_REFERENCES
+      ? searchReferences(referenceCatalog(sessions, registryApps, sessionId), mention.path)
+          .filter(r => !references.some(x => referenceKey(x) === referenceKey(r)))
+          .slice(0, 5)
+          .map(r => ({
+            value: referenceKey(r),
+            label: r.label,
+            description: r.kind === 'session' ? t('composer.refChat') : t('composer.refApp'),
+            kind: 'ref' as const,
+            start: mention.start,
+            reference: { kind: r.kind, targetId: r.targetId, label: r.label },
+          }))
+      : []
   const popupItems: PopupItem[] = popupClosed
     ? []
     : mention
-      ? pathSuggestions(mention.path).map(p => ({ value: p.value, description: p.isDir ? t('composer.folder') : '', label: p.label, kind: 'path' as const, start: mention.start }))
+      ? [
+          ...referenceItems,
+          ...pathSuggestions(mention.path).map(p => ({ value: p.value, description: p.isDir ? t('composer.folder') : '', label: p.label, kind: 'path' as const, start: mention.start })),
+        ].slice(0, 8)
       : [
           // The backend's commands and skills first; the terminal's own
           // screen commands fill what room is left.
@@ -188,12 +223,17 @@ export function ChatRoot() {
     if (!choice) setQuestionFocus(false)
     setOptionIndex(0)
   }, [choice?.messageId])
+  useEffect(() => {
+    if (!rejected) setRejectedFocus(false)
+  }, [rejected?.clientId])
 
   // --- actions -----------------------------------------------------------------
   const submit = useCallback(async (raw: string) => {
     const { text, removed } = submittedText({ ...modelRef.current, buffer: { text: raw, cursor: raw.length } })
     const trimmed = text.trim()
-    if (!trimmed) return
+    const refs = references
+    // References alone make a message too (the backend names them as its text).
+    if (!trimmed && refs.length === 0) return
     remember(trimmed)
     if (showFirstRun) {
       localStorage.setItem(FIRST_RUN_KEY, '1')
@@ -203,7 +243,7 @@ export function ChatRoot() {
     dispatch(setDraftText({ sessionId, text: '' }))
     if (removed > 0) dispatch(pushToast(t('composer.invisibleRemoved', { count: removed }), 'info'))
 
-    const local = trimmed.startsWith('/') ? LOCAL_COMMANDS.find(c => `/${c.name}` === trimmed.split(/\s+/)[0]) : undefined
+    const local = trimmed.startsWith('/') && refs.length === 0 ? LOCAL_COMMANDS.find(c => `/${c.name}` === trimmed.split(/\s+/)[0]) : undefined
     if (local) {
       if (local.screen) dispatch(openScreen({ id: local.screen }))
       else if (local.action === 'newChat') startNewChat()
@@ -226,12 +266,13 @@ export function ChatRoot() {
       if (files.length) dispatch(pushToast(t('composer.attached', { count: files.length }), 'info'))
       // A reply armed in the transcript (key r) goes with this message.
       const reply = getReplyTarget(sessionId)
-      await sendChat(text, sessionId, files, reply?.originalContent)
+      setReferences([])
+      await sendChat(text, sessionId, files, reply?.originalContent, refs)
       if (reply) clearReplyTarget()
     } catch (err) {
       dispatch(pushToast(t('composer.sendFailed', { error: String((err as Error).message ?? err) }), 'error'))
     }
-  }, [dispatch, sessionId, setModel, t, exit, showFirstRun])
+  }, [dispatch, sessionId, setModel, t, exit, showFirstRun, references])
 
   const runLeader = useCallback((input: string) => {
     const binding = LEADER_BINDINGS.find(b => b.key === input)
@@ -338,6 +379,15 @@ export function ChatRoot() {
         setPopupIndex(i => (i + 1) % popupItems.length)
         return
       }
+      if (selectedSuggestion?.kind === 'ref' && selectedSuggestion.reference && (key.tab || key.return)) {
+        // The @query goes; the chat or app joins the message's references.
+        const buf = modelRef.current.buffer
+        const text = buf.text.slice(0, selectedSuggestion.start) + buf.text.slice(buf.cursor)
+        setModel({ ...modelRef.current, buffer: { text, cursor: selectedSuggestion.start } })
+        const reference = selectedSuggestion.reference
+        setReferences(prev => (prev.some(r => referenceKey(r) === referenceKey(reference)) ? prev : [...prev, reference]))
+        return
+      }
       if (selectedSuggestion?.kind === 'path' && (key.tab || key.return)) {
         // Replace just the @mention under the caret; a folder keeps completing.
         const buf = modelRef.current.buffer
@@ -366,9 +416,28 @@ export function ChatRoot() {
       else if (result.kind === 'blur' || result.kind === 'done') setQuestionFocus(false)
       return
     }
+    // So does a rejected message: r sends it again, e brings it back to edit.
+    if (rejectedFocus && rejected) {
+      const result = rejectedKey(rejected, input, key)
+      if (result.kind === 'edit') {
+        setModel(modelFromText(result.text))
+        setReferences(result.references)
+      }
+      if (result.kind !== 'none') setRejectedFocus(false)
+      return
+    }
 
     if (key.tab && choice && !popupOpen) {
       setQuestionFocus(true)
+      return
+    }
+    if (key.tab && rejected && !popupOpen) {
+      setRejectedFocus(true)
+      return
+    }
+    // Backspace in an empty composer takes back the last reference.
+    if (key.backspace && !modelRef.current.buffer.text && references.length > 0) {
+      setReferences(prev => prev.slice(0, -1))
       return
     }
     if (key.escape && getReplyTarget(sessionId)) {
@@ -391,7 +460,7 @@ export function ChatRoot() {
       setPopupClosed(false)
     }
     if (result.effect?.kind === 'submit') void submit(result.effect.text)
-  }, [busy, choice, columns, dispatch, exit, optionIndex, popupItems, popupOpen, questionFocus, quitArmedAt, redraw, runLeader, runState, selectedSuggestion, sessionId, setModel, submit, t])
+  }, [busy, choice, columns, dispatch, exit, optionIndex, popupItems, popupOpen, questionFocus, quitArmedAt, redraw, references, rejected, rejectedFocus, runLeader, runState, selectedSuggestion, sessionId, setModel, submit, t])
 
   useInput(handleKey)
   usePaste(text => {
@@ -413,7 +482,7 @@ export function ChatRoot() {
   }, [model.buffer.text, sessionId, dispatch])
 
   // --- layout --------------------------------------------------------------------
-  // Top to bottom: the working block, the to-do list, the pinned question,
+  // Top to bottom: the reply being written, the working block, the to-do list, the pinned question,
   // toasts (or the slash popup while it is open), the composer rule and
   // text, the footer. The popup sits above the rule, so the composer never
   // moves. The region stays well under the viewport: the composer gets what
@@ -421,26 +490,33 @@ export function ChatRoot() {
   const g = glyphs()
   const budget = Math.max(10, Math.min(22, Math.floor(rows * 0.5)))
   const choiceBody = Math.max(2, Math.min(8, rows - 16))
-  const workingRows = busy ? workingBlockHeight(running?.items ?? [], subagentRows.length) : 0
+  const workingItems = [...(running?.items ?? []), ...preparing]
+  const workingRows = busy ? workingBlockHeight(workingItems, subagentRows.length) : 0
+  const draftMax = Math.max(2, Math.min(6, Math.floor(rows / 4)))
+  const draftRows = draftReplyHeight(drafts, columns, draftMax)
   const choiceRows = choice ? choiceBoxHeight(choice, columns, choiceBody) : 0
   const todoRows = todos ? Math.min(6, todos.length + 1) : 0
   const toastRows = popupOpen ? 0 : toasts.length
   const firstRunRows = showFirstRun && !popupOpen ? 1 : 0
   const replyRows = replyTarget ? 1 : 0
+  const rejectedRows = rejected ? REJECTED_ROWS : 0
+  const referenceRows = references.length > 0 ? 1 : 0
   const popupRows = popupOpen ? popupItems.length : 0
-  const above = 1 + workingRows + todoRows + choiceRows + toastRows + popupRows + firstRunRows + replyRows
+  const above = 1 + draftRows + workingRows + todoRows + choiceRows + rejectedRows + toastRows + popupRows + firstRunRows + replyRows + referenceRows
   const composerRows = Math.max(1, Math.min(6, budget - above - 1 - COMPOSER_CHROME_ROWS))
   const quitHint = quitArmedAt !== null && Date.now() - quitArmedAt < QUIT_WINDOW_MS
   const labelWidth = Math.min(26, Math.max(10, ...popupItems.map(item => width(item.label))) + 2)
 
   return (
     <Box flexDirection="column" width={columns} paddingTop={1}>
+      {draftRows ? <DraftReplyBlock drafts={drafts} columns={columns} maxRows={draftMax} /> : null}
       {busy ? (
         <WorkingBlock
           startedAt={runStart}
           stopping={runState === 'stopping'}
           waiting={!!choice}
-          items={running?.items ?? []}
+          status={stepStatus}
+          items={workingItems}
           subagents={subagentRows}
           columns={columns}
         />
@@ -477,6 +553,7 @@ export function ChatRoot() {
           maxBodyLines={choiceBody}
         />
       ) : null}
+      {rejected ? <RejectedBlock message={rejected} focused={rejectedFocus} columns={columns} /> : null}
       {popupOpen ? (
         <Box flexDirection="column">
           {popupItems.map((item, i) => {
@@ -507,12 +584,20 @@ export function ChatRoot() {
           </Text>
         </Text>
       ) : null}
+      {references.length > 0 ? (
+        <Text>
+          <Text color={ink.border}>{`  ${g.vbar} `}</Text>
+          <Text color={ink.muted}>
+            {truncate(t('composer.references', { list: references.map(r => r.label.replace(/\s+/g, ' ')).join(', ') }), columns - 5)}
+          </Text>
+        </Text>
+      ) : null}
       <ComposerView
         buffer={model.buffer}
         columns={columns}
         placeholder={t('composer.placeholder')}
         maxRows={composerRows}
-        focused={!questionFocus}
+        focused={!questionFocus && !rejectedFocus}
         offsetTop={above}
       />
       <StatusLine

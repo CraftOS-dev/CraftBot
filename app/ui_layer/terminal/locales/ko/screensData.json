@@ -157,7 +157,6 @@
     "sections_one": "섹션 {{count}}개",
     "sections_other": "섹션 {{count}}개",
     "meta": {
-      "category": "카테고리",
       "saved": "저장 시각",
       "links": "링크",
       "file": "파일",
@@ -168,6 +167,7 @@
     "moreNeighbours": "+{{count}}개 더",
     "readOnly": "인덱싱된 파일에서 가져옴 (읽기 전용)",
     "notEditable": "대화 메모리만 편집할 수 있습니다",
+    "notDeletable": "대화 메모리와 엔티티만 삭제할 수 있습니다",
     "form": {
       "addTitle": "메모리 추가",
       "editTitle": "메모리 편집",
@@ -183,6 +183,9 @@
     "saved": "메모리를 저장했습니다",
     "deleted": "메모리를 삭제했습니다",
     "failed": "메모리를 업데이트하지 못했습니다: {{error}}",
+    "confirmDeleteEntity": "엔티티 {{name}}와(과) 해당 링크를 삭제할까요? 메모리는 변경되지 않습니다.",
+    "entityDeleted": "엔티티 {{name}}을(를) 삭제했습니다",
+    "entityDeleteFailed": "엔티티 {{name}}을(를) 삭제하지 못했습니다",
     "files": {
       "hint": "선택한 파일은 인덱싱되어 AI 에이전트가 해당 섹션을 검색할 수 있습니다.",
       "chunks_one": "섹션 {{count}}개",
@@ -228,7 +231,6 @@
     "previewEmpty": "빈 파일",
     "previewLoading": "읽는 중...",
     "selectHint": "파일을 선택하면 미리 볼 수 있습니다",
-    "previewFocus": "Tab 목록으로 돌아가기",
     "prompt": {
       "rename": "새 이름",
       "newFile": "새 파일 이름",

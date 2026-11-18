@@ -1,56 +1,49 @@
 /**
- * The Marketplace tab of Add Agent App: search, tag filters (most used
- * first), "Installed xN" badges, and an app's page with its setup questions
- * as a form before installing. Installs run in hostJobs, so they finish (and
+ * The Marketplace tab of Add Agent App: the framework's catalogue with
+ * search, tag filters (most used first), "Installed" badges, and an app's
+ * page to install it from. Installs run in hostJobs, so they finish (and
  * report) even after the screen closes.
  *
  * Keys on the list: j/k move, / search, f tag filters, Enter opens an app,
- * r reloads the catalog. On an app's page: Tab or Up/Down move between setup
- * fields, Enter installs (from the last field), Esc goes back.
+ * r reloads the catalogue. On an app's page: Enter installs, Esc goes back.
  */
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Box, Text, type Key } from 'ink'
 import { TextField, fieldKey } from '../../ui/TextField'
+import { useAppSelector } from '../../state/hooks'
 import { clampList, listKey, LIST_START } from '../../ui/list'
 import { useTicker } from '../../ui/useTicker'
 import * as TB from '../../input/TextBuffer'
 import { glyphs, ink, spinnerFrames } from '../../theme/theme'
 import { padEnd, truncate, width } from '../../text/width'
-import { defaultFieldValues, filterMarketplace, marketKey, tagsByFrequency, type MarketplaceApp } from './hostModel'
-import { fetchMarketplace, installMarketplaceApp, useMarketplace } from './hostJobs'
-import { FormRow, type TabController, type TabProps, wrapProse } from './hostTab'
+import { filterMarketplace, installedFrom, tagsByFrequency, type MarketplaceApp } from './hostModel'
+import { fetchMarketplace, installMarketplaceApp, useJobs, useMarketplace } from './hostJobs'
+import { type TabController, type TabProps, wrapProse } from './hostTab'
 
 type Focus = 'list' | 'search' | 'tags'
 
 interface Detail {
   app: MarketplaceApp
-  values: Record<string, string>
-  field: number
 }
 
-export function useMarketTab({ t, columns, height, active, onOpenProject }: TabProps): TabController {
+export function useMarketTab({ t, columns, height, active }: TabProps): TabController {
   const market = useMarketplace()
+  const { jobs } = useJobs()
+  const registry = useAppSelector(s => s.agentApp.framework.apps)
+  const installed = useMemo(() => installedFrom(registry, market.source), [registry, market.source])
+  const installing = (app: MarketplaceApp) => market.starting.includes(app.id) || jobs.some(j => j.sourceId === app.id && j.status === 'running')
   const [focus, setFocus] = useState<Focus>('list')
   const [query, setQuery] = useState<TB.Buffer>(TB.EMPTY)
   const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set())
   const [tagCursor, setTagCursor] = useState(0)
   const [list, setList] = useState(LIST_START)
   const [detail, setDetail] = useState<Detail | null>(null)
-  const tick = useTicker(120, market.loading || market.installing.length > 0)
+  const tick = useTicker(120, market.loading || market.starting.length > 0 || jobs.some(j => j.status === 'running'))
   const g = glyphs()
 
   useEffect(() => {
     if (active) fetchMarketplace()
   }, [active])
-
-  // A finished install moves on to the new app, but only one finished after this screen opened.
-  const seenInstall = useRef(market.installed?.seq ?? 0)
-  useEffect(() => {
-    if (market.installed && market.installed.seq > seenInstall.current) {
-      seenInstall.current = market.installed.seq
-      onOpenProject(market.installed.projectId)
-    }
-  }, [market.installed, onOpenProject])
 
   const tags = useMemo(() => tagsByFrequency(market.apps), [market.apps])
   const apps = useMemo(() => filterMarketplace(market.apps, query.text, selectedTags), [market.apps, query.text, selectedTags])
@@ -72,38 +65,14 @@ export function useMarketTab({ t, columns, height, active, onOpenProject }: TabP
   }
 
   const install = (d: Detail) => {
-    installMarketplaceApp(d.app, d.values)
+    if (!installing(d.app)) installMarketplaceApp(d.app)
     setDetail(null)
   }
 
   const handleKey = (input: string, key: Key): boolean => {
     if (detail) {
-      const fields = detail.app.customizable ?? []
-      if (key.escape) {
-        setDetail(null)
-        return true
-      }
-      if (fields.length === 0) {
-        if (key.return) install(detail)
-        return true
-      }
-      const field = fields[detail.field]
-      if (key.tab || key.downArrow) {
-        const delta = key.shift ? -1 : 1
-        setDetail({ ...detail, field: (detail.field + delta + fields.length) % fields.length })
-        return true
-      }
-      if (key.upArrow) {
-        setDetail({ ...detail, field: Math.max(0, detail.field - 1) })
-        return true
-      }
-      if (key.return) {
-        if (detail.field < fields.length - 1) setDetail({ ...detail, field: detail.field + 1 })
-        else install(detail)
-        return true
-      }
-      const next = fieldKey(TB.fromText(detail.values[field.key] ?? ''), input, key)
-      if (next) setDetail({ ...detail, values: { ...detail.values, [field.key]: next.text } })
+      if (key.escape) setDetail(null)
+      else if (key.return) install(detail)
       return true
     }
 
@@ -156,20 +125,17 @@ export function useMarketTab({ t, columns, height, active, onOpenProject }: TabP
       return true
     }
     if (key.return && selected) {
-      if (market.installing.includes(marketKey(selected))) return true
-      setDetail({ app: selected, values: defaultFieldValues(selected), field: 0 })
+      setDetail({ app: selected })
       return true
     }
     return false
   }
 
-  const detailFields = detail?.app.customizable ?? []
-  const textFocus = focus === 'search' || (!!detail && detailFields.length > 0)
+  const textFocus = focus === 'search'
 
   const hints = detail
     ? [
-        ...(detailFields.length > 1 ? [{ keys: 'Tab', label: t('appsHost:hint.nextField') }] : []),
-        { keys: 'Enter', label: t('appsHost:hint.install') },
+        ...(installing(detail.app) ? [] : [{ keys: 'Enter', label: t('appsHost:hint.install') }]),
         { keys: 'Esc', label: t('appsHost:hint.back') },
       ]
     : focus === 'search'
@@ -196,40 +162,22 @@ export function useMarketTab({ t, columns, height, active, onOpenProject }: TabP
 
   // ── the app's page ──
   const renderDetail = (d: Detail) => {
-    const fields = d.app.customizable ?? []
-    const labelWidth = Math.min(24, Math.max(10, Math.max(0, ...fields.map(f => width(f.label))) + 2))
     const metaParts = [d.app.version ? `v${d.app.version}` : '', (d.app.tags ?? []).join(', ')].filter(Boolean)
-    const installed = market.counts[marketKey(d.app)] ?? 0
-    const descRows = Math.max(1, height - 4 - (fields.length ? fields.length + 2 : 1))
+    const descRows = Math.max(1, height - 4)
     const desc = wrapProse(d.app.description || '', columns).slice(0, descRows)
+    const busy = installing(d.app)
     return (
       <Box flexDirection="column">
         <Box>
           <Text bold color={ink.brand}>{truncate(d.app.name, Math.max(8, columns - 20))}</Text>
-          {installed > 0 ? <Text color={ink.success}>{'  ' + t('appsHost:market.installed', { count: installed })}</Text> : null}
+          {busy ? <Text color={ink.brand}>{`  ${spin} ${t('appsHost:market.installingBadge')}`}</Text> : installed.has(d.app.id) ? <Text color={ink.success}>{'  ' + t('appsHost:market.installedBadge')}</Text> : null}
         </Box>
-        <Text color={ink.muted}>{truncate(metaParts.join('  ·  '), columns)}</Text>
+        <Text color={ink.muted}>{truncate(metaParts.join(`  ${g.sep}  `), columns)}</Text>
         {desc.map((line, i) => (
           <Text key={i}>{line}</Text>
         ))}
         <Text> </Text>
-        {fields.length > 0 ? (
-          <>
-            <Text bold>{truncate(t('appsHost:market.setup'), columns)}</Text>
-            {fields.map((field, i) => (
-              <FormRow key={field.key} label={field.label} labelWidth={labelWidth} focused={i === d.field}>
-                <TextField
-                  buffer={TB.fromText(d.values[field.key] ?? '')}
-                  focused={i === d.field}
-                  width={Math.max(8, columns - labelWidth - 2)}
-                  placeholder={field.placeholder || field.default || ''}
-                />
-              </FormRow>
-            ))}
-          </>
-        ) : (
-          <Text color={ink.muted}>{truncate(t('appsHost:market.noSetup'), columns)}</Text>
-        )}
+        <Text color={ink.muted}>{truncate(busy ? t('appsHost:market.installingHint') : installed.has(d.app.id) ? t('appsHost:market.installAgain') : t('appsHost:market.installHint'), columns)}</Text>
       </Box>
     )
   }
@@ -291,16 +239,14 @@ export function useMarketTab({ t, columns, height, active, onOpenProject }: TabP
         {apps.slice(view.top, view.top + listHeight).map((app, i) => {
           const index = view.top + i
           const isSelected = index === view.index && active
-          const key = marketKey(app)
-          const installing = market.installing.includes(key)
-          const count = market.counts[key] ?? 0
-          const badge = installing ? `${spin} ${t('appsHost:market.installing')}` : count > 0 ? `${g.done} ${t('appsHost:market.installed', { count })}` : ''
+          const busy = installing(app)
+          const badge = busy ? `${spin} ${t('appsHost:market.installingBadge')}` : installed.has(app.id) ? `${g.done} ${t('appsHost:market.installedBadge')}` : ''
           return (
             <Box key={app.id}>
               <Text color={isSelected ? ink.focus : undefined}>{isSelected ? `${g.pointer} ` : '  '}</Text>
               <Text bold={isSelected}>{padEnd(app.name, nameWidth)}</Text>
               <Text color={ink.muted}>{padEnd(app.version ? `v${app.version}` : '', versionWidth)}</Text>
-              <Text color={installing ? ink.brand : ink.success}>{padEnd(badge, badgeWidth)}</Text>
+              <Text color={busy ? ink.brand : ink.success}>{padEnd(badge, badgeWidth)}</Text>
               {tagWidth ? <Text color={ink.muted}>{padEnd((app.tags ?? []).join(', '), tagWidth)}</Text> : null}
             </Box>
           )

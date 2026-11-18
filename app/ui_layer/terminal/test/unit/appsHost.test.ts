@@ -1,12 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import type { Key } from 'ink'
 import * as TB from '../../src/input/TextBuffer'
+import type { FrameworkRegistryApp, SessionInfo } from '../../../browser/frontend/src/types'
 import {
   answersPayload,
-  appPhase,
-  canDelete,
-  canLaunch,
-  canStop,
   clampKeep,
   coalesceEvents,
   composeAnswer,
@@ -14,22 +11,17 @@ import {
   cycleIcon,
   cycleValue,
   deriveProgress,
-  dispositionFilename,
   filterMarketplace,
   humanBytes,
-  importAmount,
   importName,
   indeterminateBar,
-  isTransitional,
+  installedFrom,
   isZipPath,
-  moveId,
   nextPaced,
   normalizeIconName,
-  orderApps,
   pickOption,
   progressBar,
-  pushProgressLine,
-  snippetTail,
+  readablePartA,
   tagsByFrequency,
   validateConfig,
   BACKUP_INTERVALS,
@@ -37,11 +29,13 @@ import {
   type InterviewQuestion,
   type MarketplaceApp,
 } from '../../src/screens/apps/hostModel'
+import { appPhase, canChangeState, isTransitional, moveId, orderEntries, orderIdOf, pendingOrderId, type AppEntry } from '../../src/apps/framework'
+import { removalKind } from '../../src/apps/removal'
 import {
   DEFAULT_THEME,
   THEME_PACKS,
+  appThemeId,
   openThemePicker,
-  projectThemeId,
   themeName,
   themePickerKey,
 } from '../../src/screens/apps/hostThemes'
@@ -71,29 +65,32 @@ const key = (over: Partial<Key> = {}): Key => ({
   ...over,
 })
 
+const app = (over: Partial<FrameworkRegistryApp> = {}): FrameworkRegistryApp => ({ id: 'a1', name: 'Notes', path: '/apps/notes', status: 'stopped', ...over })
+const connection = { appId: 'r1', name: 'CRM', origin: 'https://crm.example.com', credentialId: 'c', principalName: 'Ana', principal: 'p', status: 'online' as const }
+
 describe('app status', () => {
-  it('maps store statuses to the six shown states', () => {
-    expect(appPhase('creating')).toBe('creating')
-    expect(appPhase('launching')).toBe('launching')
-    expect(appPhase('running')).toBe('running')
-    expect(appPhase('stopping')).toBe('stopping')
-    expect(appPhase('error')).toBe('error')
-    expect(appPhase('stopped')).toBe('stopped')
-    // Built but not running, and anything unknown, read as stopped.
-    expect(appPhase('ready')).toBe('stopped')
-    expect(appPhase(undefined)).toBe('stopped')
+  it('shows the registry status, or the start or stop on its way', () => {
+    expect(appPhase(app({ status: 'running' }), undefined)).toBe('running')
+    expect(appPhase(app({ status: 'missing' }), undefined)).toBe('missing')
+    expect(appPhase(app(), { status: 'running', operation: 'start' })).toBe('starting')
+    expect(appPhase(app({ status: 'running' }), { status: 'running', operation: 'stop' })).toBe('stopping')
+    // A finished or failed operation leaves the registry's word.
+    expect(appPhase(app(), { status: 'error', operation: 'start' })).toBe('stopped')
+    expect(isTransitional('starting') && isTransitional('stopping')).toBe(true)
+    expect(isTransitional('running') || isTransitional('missing')).toBe(false)
   })
 
-  it('offers lifecycle actions only where they make sense', () => {
-    expect(isTransitional('creating') && isTransitional('launching') && isTransitional('stopping')).toBe(true)
-    expect(isTransitional('running')).toBe(false)
-    expect(canLaunch('stopped') && canLaunch('error')).toBe(true)
-    expect(canLaunch('running') || canLaunch('creating')).toBe(false)
-    expect(canStop('running')).toBe(true)
-    expect(canStop('stopped')).toBe(false)
-    // Delete only while stopped (or failed), never mid-build or running.
-    expect(canDelete('stopped') && canDelete('error')).toBe(true)
-    expect(canDelete('running') || canDelete('creating') || canDelete('launching') || canDelete('stopping')).toBe(false)
+  it('starts and stops only local apps the host can see', () => {
+    expect(canChangeState(app()) && canChangeState(app({ status: 'running' }))).toBe(true)
+    expect(canChangeState(app({ status: 'missing' })) || canChangeState(app({ status: 'unreachable' }))).toBe(false)
+    expect(canChangeState(app({ status: 'running', connection }))).toBe(false)
+  })
+
+  it('deletes, forgets or disconnects by what the app is', () => {
+    expect(removalKind(app(), false)).toBe('remove')
+    expect(removalKind(app(), true)).toBe('forget')
+    expect(removalKind(app({ status: 'missing' }), false)).toBe('forget')
+    expect(removalKind(app({ connection }), false)).toBe('disconnect')
   })
 })
 
@@ -157,21 +154,26 @@ describe('build feed', () => {
     expect(nextPaced(0, 3)).toEqual({ count: 1, delay: 750 })
   })
 
-  it('shows the last lines of a snippet, cleaned for the terminal', () => {
-    const snippet = 'line1\n\tline2\r\nline3\u0007\nline4\n\n'
-    expect(snippetTail(snippet, 2)).toEqual(['line3', 'line4'])
-    expect(snippetTail(snippet, 10)).toEqual(['line1', '  line2', 'line3', 'line4'])
-    expect(snippetTail(snippet, 0)).toEqual([])
-  })
 })
 
 describe('ordering', () => {
-  const items = [{ id: 'a' }, { id: 'b' }, { id: 'c' }, { id: 'd' }]
+  const a = app({ id: 'a', path: '/a' })
+  const b = app({ id: 'b', path: '/b' })
+  const session = { id: 's1' } as SessionInfo
+  const entries: AppEntry[] = [
+    { kind: 'app', orderId: orderIdOf(a), app: a },
+    { kind: 'app', orderId: orderIdOf(b), app: b },
+    { kind: 'pending', orderId: pendingOrderId('s1'), session },
+  ]
 
-  it('follows the saved order with new apps last', () => {
-    expect(orderApps(items, ['c', 'a']).map(i => i.id)).toEqual(['c', 'a', 'b', 'd'])
-    expect(orderApps(items, []).map(i => i.id)).toEqual(['a', 'b', 'c', 'd'])
-    expect(orderApps(items, ['zz']).map(i => i.id)).toEqual(['a', 'b', 'c', 'd'])
+  it('keys apps by path and id, and builds by session, as the sidebar does', () => {
+    expect(orderIdOf(a)).toBe('framework:["/a","a"]')
+    expect(pendingOrderId('s1')).toBe('pending:s1')
+  })
+
+  it('follows the saved order with the rest after it', () => {
+    expect(orderEntries(entries, ['pending:s1', orderIdOf(b)]).map(e => e.orderId)).toEqual(['pending:s1', orderIdOf(b), orderIdOf(a)])
+    expect(orderEntries(entries, []).map(e => e.orderId)).toEqual(entries.map(e => e.orderId))
   })
 
   it('moves one place and refuses past the ends', () => {
@@ -193,6 +195,18 @@ describe('marketplace', () => {
 
   it('sorts tags by use, then name', () => {
     expect(tagsByFrequency(apps)).toEqual(['productivity', 'finance', 'food', 'tasks'])
+  })
+
+  it('knows what is installed from this catalogue', () => {
+    const source = { location: 'github:CraftOS-dev/Agent-App-Marketplace', ref: 'main' }
+    const apps = [
+      { status: 'running', marketplace: { id: 'kanban', location: source.location, ref: 'main' } },
+      { status: 'missing', marketplace: { id: 'budget', location: source.location, ref: 'main' } },
+      { status: 'stopped', marketplace: { id: 'recipes', location: 'elsewhere' } },
+      { status: 'stopped' },
+    ]
+    expect([...installedFrom(apps, source)]).toEqual(['kanban'])
+    expect(installedFrom(apps, undefined).size).toBe(0)
   })
 
   it('filters by text across name, description and tags, and by any selected tag', () => {
@@ -243,14 +257,21 @@ describe('create wizard', () => {
   })
 
   it('joins or replaces with typed text, as Continue does', () => {
-    expect(composeAnswer(single, ['A'], '  mine ')).toEqual(['mine'])
-    expect(composeAnswer(multi, ['A'], 'mine')).toEqual(['A', 'mine'])
-    expect(composeAnswer(multi, ['A', 'C'], '  ')).toEqual(['A', 'C'])
-    expect(composeAnswer(single, [], '')).toEqual([])
+    expect(composeAnswer(single, ['A'], '  mine ')).toEqual({ choices: [], other: 'mine' })
+    expect(composeAnswer(multi, ['A'], 'mine')).toEqual({ choices: ['A'], other: 'mine' })
+    expect(composeAnswer(multi, ['A', 'C'], '  ')).toEqual({ choices: ['A', 'C'], other: '' })
   })
 
-  it('sends only answered questions, options joined', () => {
-    expect(answersPayload([single, multi], { q2: ['A', 'mine'], q1: [] })).toEqual([{ id: 'q2', question: 'Pick any', answer: 'A, mine' }])
+  it('answers every question; skipped ones are left to the builder', () => {
+    expect(answersPayload([single, multi], { q2: { choices: ['A'], other: 'mine' } })).toEqual([
+      { id: 'q1', choices: [] },
+      { id: 'q2', choices: ['A'], other: 'mine' },
+    ])
+  })
+
+  it('reads Part A without its marker and approval section, wrapped lines joined', () => {
+    const partA = ['PART A (requirements)', '# Goals', 'Track notes', 'by tag.', '- one', '- two', '## Approval', 'Approved by: nobody'].join('\n')
+    expect(readablePartA(partA)).toBe(['# Goals', 'Track notes by tag.', '- one', '- two'].join('\n'))
   })
 })
 
@@ -264,28 +285,10 @@ describe('import', () => {
     expect(isZipPath('https://github.com/a/b')).toBe(false)
   })
 
-  it('formats progress amounts', () => {
-    expect(importAmount({ phase: 'starting' })).toBe('')
-    expect(importAmount({ phase: 'copying', done: 0, total: 0 })).toBe('')
-    expect(importAmount({ phase: 'copying', done: 1200, total: 5000, unit: 'files' }, 'en')).toBe('1,200 / 5,000 (24%)')
-    expect(importAmount({ phase: 'downloading', done: 3 * 1024 * 1024, total: 0, unit: 'bytes' })).toBe('3.0 MB')
+  it('measures sizes', () => {
     expect(humanBytes(0)).toBe('0 B')
     expect(humanBytes(512)).toBe('512 B')
     expect(humanBytes(1536)).toBe('1.5 KB')
-  })
-
-  it('keeps one progress line per phase', () => {
-    let lines = pushProgressLine([], { phase: 'download', text: '1' })
-    lines = pushProgressLine(lines, { phase: 'download', text: '2' })
-    lines = pushProgressLine(lines, { phase: 'extract', text: '3' })
-    expect(lines).toEqual([
-      { phase: 'download', text: '2' },
-      { phase: 'extract', text: '3' },
-    ])
-    let many: { phase: string; text: string }[] = []
-    for (let i = 0; i < 12; i++) many = pushProgressLine(many, { phase: `p${i}`, text: '' }, 8)
-    expect(many).toHaveLength(8)
-    expect(many[0].phase).toBe('p4')
   })
 })
 
@@ -299,11 +302,6 @@ describe('settings panel helpers', () => {
     expect(clampKeep(7.4)).toBe(7)
   })
 
-  it('takes a safe file name from Content-Disposition', () => {
-    expect(dispositionFilename('attachment; filename="Expense_tracker.zip"', 'x.zip')).toBe('Expense_tracker.zip')
-    expect(dispositionFilename('attachment; filename="a/b:c.zip"', 'x.zip')).toBe('a_b_c.zip')
-    expect(dispositionFilename(null, 'x.zip')).toBe('x.zip')
-  })
 })
 
 describe('theme packs', () => {
@@ -313,10 +311,10 @@ describe('theme packs', () => {
     expect(new Set(THEME_PACKS.map(p => p.id)).size).toBe(16)
   })
 
-  it('prefers the saved pick over the build-time style pack', () => {
-    expect(projectThemeId({ uiTheme: { themeId: 'ocean' }, stylePack: 'forest' })).toBe('ocean')
-    expect(projectThemeId({ uiTheme: null, stylePack: 'forest' })).toBe('forest')
-    expect(projectThemeId(undefined)).toBe(DEFAULT_THEME)
+  it('shows the saved pick, else the baseline', () => {
+    expect(appThemeId({ uiTheme: { themeId: 'ocean' } })).toBe('ocean')
+    expect(appThemeId({ uiTheme: null })).toBe(DEFAULT_THEME)
+    expect(appThemeId(undefined)).toBe(DEFAULT_THEME)
   })
 
   it('never shows the product name for the baseline pack', () => {

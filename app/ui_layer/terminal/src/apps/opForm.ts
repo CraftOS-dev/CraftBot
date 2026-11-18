@@ -1,11 +1,13 @@
 /**
  * A form for one declared operation, generated from its typed parameters:
  * strings are text fields, numbers are checked as numbers, booleans toggle
- * with Space, enums cycle with Left/Right. Required fields must be filled
- * before it runs. Pure state + key handling, so it is unit tested.
+ * with Space, enums cycle with Left/Right, lists take comma-separated values
+ * and json is checked as JSON. Required fields must be filled before it runs.
+ * Pure state + key handling, so it is unit tested.
  */
 import type { Key } from 'ink'
-import type { Operation, OpParam } from '../../../../../agent-app/view/src/index.ts'
+import type { Operation, OpParam } from './view'
+import { coerceParam } from './engine'
 import * as TB from '../input/TextBuffer'
 import { fieldKey } from '../ui/TextField'
 
@@ -26,7 +28,7 @@ export function initForm(op: Operation, prefill: Record<string, string> = {}): F
   const fields = Object.entries(op.params ?? {}).map(([name, param]) => {
     let initial = prefill[name] ?? ''
     if (!initial && param.type === 'boolean') initial = 'false'
-    if (!initial && param.enum?.length && param.required) initial = String(param.enum[0])
+    if (!initial && param.type === 'enum' && param.values?.length && param.required) initial = param.values[0]
     return { name, param, value: TB.fromText(initial) }
   })
   // Start on the first field the person still has to fill.
@@ -40,18 +42,30 @@ export function validateForm(state: FormState): Record<string, string> {
     const v = f.value.text.trim()
     if (f.param.required && !v) errors[f.name] = 'required'
     else if (v && f.param.type === 'number' && !Number.isFinite(Number(v))) errors[f.name] = 'number'
+    else if (v && f.param.type === 'json') {
+      try {
+        JSON.parse(v)
+      } catch {
+        errors[f.name] = 'json'
+      }
+    }
   }
   return errors
 }
 
-/** The params to send: filled fields only (optional empty ones are left out). */
-export function formParams(state: FormState): Record<string, string> {
-  const out: Record<string, string> = {}
+/** The params to send, typed as declared: filled fields only (optional empty ones are left out). */
+export function formParams(state: FormState): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
   for (const f of state.fields) {
     const v = f.value.text.trim()
-    if (v || f.param.type === 'boolean') out[f.name] = v || 'false'
+    if (v || f.param.type === 'boolean') out[f.name] = coerceParam(f.param, v || 'false')
   }
   return out
+}
+
+/** The choices a field cycles through: an enum's values, or nothing. */
+export function fieldChoices(param: OpParam): string[] {
+  return param.type === 'enum' ? (param.values ?? []) : []
 }
 
 export type FormResult = { state: FormState; submit?: boolean; cancel?: boolean }
@@ -89,9 +103,9 @@ export function formKey(state: FormState, input: string, key: Key): FormResult {
     if (input === ' ' || key.leftArrow || key.rightArrow) return set(field.value.text === 'true' ? 'false' : 'true')
     return { state }
   }
-  if (field.param.enum?.length) {
+  if (fieldChoices(field.param).length) {
     if (key.leftArrow || key.rightArrow || input === ' ') {
-      const options = field.param.enum.map(String)
+      const options = fieldChoices(field.param)
       const current = options.indexOf(field.value.text)
       const next = options[(current + (key.leftArrow ? -1 : 1) + options.length) % options.length] ?? ''
       return set(next)

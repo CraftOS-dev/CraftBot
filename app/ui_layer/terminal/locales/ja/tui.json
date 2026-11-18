@@ -53,7 +53,10 @@
     "attached_one": "{{count}} 件のファイルを添付しました",
     "attached_other": "{{count}} 件のファイルを添付しました",
     "attachTooMany": "1 つのメッセージに添付できるファイルは最大 {{count}} 件です",
-    "attachTooLarge": "添付ファイルは合計 200 MB までです"
+    "attachTooLarge": "添付ファイルは合計 200 MB までです",
+    "refChat": "チャット",
+    "refApp": "Agent App",
+    "references": "添付：{{list}}（Backspace で最後を削除）"
   },
   "connect": {
     "connecting": "CraftBot を起動中...",
@@ -121,7 +124,8 @@
     "interactiveOutput": "インタラクティブ出力 · {{title}} · rev {{revision}} · ブラウザ版で開いてください",
     "detailsHint": "詳細は会話ログで確認できます (Ctrl+O)",
     "error": "エラー",
-    "system": "システム"
+    "system": "システム",
+    "references": "添付：{{list}}"
   },
   "help": {
     "chat": "チャット",
@@ -209,7 +213,6 @@
     "agentNamePlaceholder": "エージェントに名前を付けてください",
     "via": "接続方法: {{via}}（Tab で切り替え）",
     "viaDirect": "プロバイダーに直接",
-    "subscriptionHint": "キーの代わりに {{label}} を使えます: セットアップ後に 設定 > モデル で利用できます。",
     "imageLater": "画像は後で設定から追加できます",
     "working": "保存中..."
   },
@@ -219,5 +222,15 @@
     "sessions": "セッション",
     "transcript": "履歴",
     "tagline": "何でも聞いてください。/ でコマンド、@ でファイルを添付します。"
+  },
+  "rejected": {
+    "title": "送信されませんでした：{{error}}",
+    "keys": "Tab の後 r 再試行 · e 編集",
+    "focusedKeys": "r 再試行 · e 編集 · Esc 戻る"
+  },
+  "fold": {
+    "hint": "折りたたむ",
+    "action": "今すぐコンテキストを折りたたむ",
+    "running": "コンテキストを折りたたみ中..."
   }
 }

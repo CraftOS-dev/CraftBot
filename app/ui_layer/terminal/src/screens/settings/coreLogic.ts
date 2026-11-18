@@ -93,36 +93,6 @@ export function runsToday(hhmm: string, now: Date): boolean {
 
 type Translate = (key: string, options?: Record<string, unknown>) => string
 
-const CRON_DAYS: Record<string, string> = {
-  '0': 'sun', '7': 'sun', '1': 'mon', '2': 'tue', '3': 'wed', '4': 'thu', '5': 'fri', '6': 'sat',
-}
-
-/**
- * A five-field cron expression in words, with the same cases as the
- * browser's Proactive tab. `t` resolves `cron.*` keys of settingsCore.
- */
-export function describeCron(cron: string, t: Translate, locale: string): string {
-  const parts = cron.trim().split(/\s+/)
-  if (parts.length !== 5) return cron
-  const [minute, hour, dayOfMonth, month, dayOfWeek] = parts
-  const clock = () => localClock(`${parseInt(hour, 10) || 0}:${String(parseInt(minute, 10) || 0).padStart(2, '0')}`, locale)
-  const everyDay = dayOfMonth === '*' && month === '*' && dayOfWeek === '*'
-  if (hour === '*' && everyDay) {
-    if (minute.startsWith('*/')) return t('cron.everyMinutes', { count: Number(minute.slice(2)) || 1 })
-    if (minute.includes(',')) return t('cron.timesHourly', { count: minute.split(',').length })
-    return t('cron.hourly', { minute: minute.padStart(2, '0') })
-  }
-  if (hour.startsWith('*/') && everyDay) return t('cron.everyHours', { count: Number(hour.slice(2)) || 1 })
-  if (!/^\d+$/.test(hour) || !/^\d+$/.test(minute)) return t('cron.raw', { cron })
-  if (everyDay) return t('cron.daily', { time: clock() })
-  if (dayOfMonth === '*' && month === '*') {
-    const day = CRON_DAYS[dayOfWeek]
-    return t('cron.weekly', { day: day ? t(`cron.days.${day}`) : dayOfWeek, time: clock() })
-  }
-  if (month === '*' && dayOfWeek === '*') return t('cron.monthly', { day: dayOfMonth, time: clock() })
-  return t('cron.raw', { cron })
-}
-
 // ── Proactive tasks ─────────────────────────────────────────────────────
 
 export type PriorityLevel = 'high' | 'medium' | 'low'
@@ -137,6 +107,115 @@ export function priorityLevel(value: number): PriorityLevel {
 
 export const FREQUENCIES = ['hourly', 'daily', 'weekly', 'monthly'] as const
 export const WEEKDAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] as const
+
+// ── Recurring tasks, heartbeat and planners ─────────────────────────────
+
+/** Hours and minutes of "HH:MM" (a missing part is 0). */
+export function clockParts(time: string): [number, number] {
+  const [h, m] = time.split(':').map(n => parseInt(n, 10) || 0)
+  return [h ?? 0, m ?? 0]
+}
+
+const pad2 = (n: number) => String(n).padStart(2, '0')
+
+export interface JobSchedule {
+  name: string
+  frequency: string
+  time?: string
+  day?: string
+}
+
+/**
+ * When a recurring task runs within its frequency group, as the browser
+ * shows it: ":15", "13:00", "Friday, 17:00", "Day 1, 09:00". Read as the
+ * scheduler does: no time is 00:00, no weekday Monday, no day the 1st.
+ * `t` resolves `proactive.*` keys of settingsCore.
+ */
+export function jobWhen(job: JobSchedule, t: Translate): string {
+  const [h, m] = clockParts(job.time || '00:00')
+  const time = `${pad2(h)}:${pad2(m)}`
+  if (job.frequency === 'hourly') return `:${pad2(m)}`
+  if (job.frequency === 'weekly') {
+    const day = WEEKDAYS.find(d => d === job.day?.toLowerCase()) ?? 'monday'
+    return t('proactive.dayTime', { day: t(`proactive.days.${day}`), time })
+  }
+  if (job.frequency === 'monthly') {
+    return t('proactive.dayTime', { day: t('proactive.monthDay', { day: Number(job.day) || 1 }), time })
+  }
+  return time
+}
+
+/** Within a group: time of day, then name. */
+export function compareJobs(a: JobSchedule, b: JobSchedule): number {
+  return (a.time || '00:00').localeCompare(b.time || '00:00') || a.name.localeCompare(b.name)
+}
+
+/** Tasks whose name or instruction contains `query`, in any case. */
+export function filterJobs<T extends { name: string; instruction: string }>(jobs: T[], query: string): T[] {
+  const q = query.trim().toLowerCase()
+  if (!q) return jobs
+  return jobs.filter(j => j.name.toLowerCase().includes(q) || j.instruction.toLowerCase().includes(q))
+}
+
+/** One group per frequency (hourly first), each sorted; empty groups are left out. */
+export function groupJobs<T extends JobSchedule>(jobs: T[]): { frequency: (typeof FREQUENCIES)[number]; jobs: T[] }[] {
+  return FREQUENCIES.map(frequency => ({ frequency, jobs: jobs.filter(j => j.frequency === frequency).sort(compareJobs) })).filter(
+    group => group.jobs.length > 0,
+  )
+}
+
+/** A heartbeat interval option: "Every 30 minutes", "Every 2 hours". */
+export function intervalLabel(minutes: number, t: Translate): string {
+  return minutes < 60 ? t('proactive.everyMinutes', { count: minutes }) : t('proactive.everyHours', { count: minutes / 60 })
+}
+
+/** The checklist's items: its non-empty lines. */
+export function checklistLines(text: string): string[] {
+  return text.split(/\r?\n/).filter(line => line.trim())
+}
+
+/** Heartbeat interval and planner times, as edited. */
+export interface PlannerTiming {
+  heartbeat?: number
+  day?: string
+  week?: { day: string; time: string }
+  month?: { day: number; time: string }
+}
+
+/**
+ * The proactive_schedule_set fields for the edited controls, built as the
+ * browser builds them (a planner without a time is not sent), and what was
+ * sent, to settle each control when the reply arrives.
+ */
+export function scheduleUpdate(edited: PlannerTiming): { update: Record<string, number | string>; sent: PlannerTiming } {
+  const update: Record<string, number | string> = {}
+  const sent: PlannerTiming = {}
+  if (edited.heartbeat !== undefined) {
+    update.heartbeatMinutes = edited.heartbeat
+    sent.heartbeat = edited.heartbeat
+  }
+  if (edited.day) {
+    const [h, m] = clockParts(edited.day)
+    update.dayPlannerHour = h
+    update.dayPlannerMinute = m
+    sent.day = edited.day
+  }
+  if (edited.week?.time) {
+    const [h, m] = clockParts(edited.week.time)
+    update.weekPlannerDay = edited.week.day
+    update.weekPlannerHour = h
+    update.weekPlannerMinute = m
+    sent.week = edited.week
+  }
+  if (edited.month?.time) {
+    const [h, m] = clockParts(edited.month.time)
+    update.monthPlannerDay = edited.month.day
+    update.monthPlannerHour = h
+    update.monthPlannerMinute = m
+    sent.month = edited.month
+  }
+  return { update, sent }
+}
 
 // ── External programs ───────────────────────────────────────────────────
 

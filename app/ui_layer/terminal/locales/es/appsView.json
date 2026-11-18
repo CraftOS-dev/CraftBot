@@ -9,13 +9,12 @@
   "agentWorking": "trabajando",
   "status": {
     "running": "en ejecución",
-    "ready": "en ejecución",
     "stopped": "detenida",
-    "creating": "en construcción",
-    "launching": "iniciando",
     "stopping": "deteniendo",
-    "error": "error",
-    "created": "sin iniciar"
+    "building": "en construcción",
+    "starting": "iniciando",
+    "missing": "no encontrada",
+    "unreachable": "inaccesible"
   },
   "tabs": {
     "ops": "Operaciones",
@@ -38,11 +37,14 @@
     "chat": "chat",
     "screens": "pantallas",
     "stop": "detener",
-    "launch": "iniciar"
+    "launch": "iniciar",
+    "allow": "permitir",
+    "decline": "no permitir"
   },
   "fieldError": {
     "required": "obligatorio",
-    "number": "debe ser un número"
+    "number": "debe ser un número",
+    "json": "debe ser JSON válido"
   },
   "noParams": "No hacen falta datos. Pulsa Enter para ejecutar.",
   "confirmDestructive": "{{label}} cambia o elimina datos para siempre. ¿Ejecutar?",
@@ -52,12 +54,38 @@
   "paletteHint": "Escribe para buscar una operación",
   "recordCount_one": "{{count}} registro",
   "recordCount_other": "{{count}} registros",
-  "readOnly": "solo lectura (los cambios se hacen con operaciones)",
-  "recordsHint": "Los datos de la app, en solo lectura. Enter abre una colección.",
-  "requestsHint": "Solicitudes que la app envió a tu agente de IA. Enter las muestra.",
-  "viewsInvalid": "views.json tiene un problema, se muestran pantallas generadas: {{problem}}",
+  "recordsHint": "Los datos de la app, solo lectura. Enter abre una lista.",
+  "requestsHint": "El trabajo que esta app ha pedido a tu agente de IA. r lo vuelve a leer.",
   "actionsOnly": "Esta área no muestra nada por sí sola; usa sus acciones de abajo.",
   "you": "Tú",
   "chatEmpty": "Aún no se ha dicho nada.",
-  "chatPlaceholder": "Pregunta a tu agente de IA sobre esta app"
+  "chatPlaceholder": "Pregunta a tu agente de IA sobre esta app",
+  "missing": "La carpeta de esta app ya no existe. Elimínala desde Agent Apps para quitarla de la lista.",
+  "unreachable": "Otro programa está usando el puerto de esta app.",
+  "remoteOffline": "No se puede acceder a esta app ahora.",
+  "remote": "remota",
+  "disconnected": "Sin conexión con tu agente de IA.",
+  "cannotChange": "Esta app no se puede iniciar ni detener ahora.",
+  "lifecycleFailed": "No se pudo iniciar ni detener la app.",
+  "chatFailed": "No se pudo abrir el chat de esta app: {{error}}",
+  "noEntities": "Esta app no declara datos propios.",
+  "listHint": "Varios valores, separados por comas",
+  "jsonHint": "Un valor JSON",
+  "requests": {
+    "title": "Esta app pide enviar solicitudes a tu agente de IA",
+    "intro": "Una vez permitido, {{name}} puede pedir a tu agente de IA que haga esto en cualquier momento:",
+    "more": "+{{count}} más",
+    "keys": "y permitir · n no permitir (puedes cambiarlo en sus ajustes)",
+    "saving": "Guardando...",
+    "off": "Las solicitudes a tu agente de IA están desactivadas hasta que las revises y permitas.",
+    "pendingChanges": "Las solicitudes nuevas o cambiadas están desactivadas hasta que las revises.",
+    "reviewKey": "v revisar",
+    "allowed": "Solicitudes permitidas. Tu agente de IA atenderá la solicitud en espera.",
+    "allowedRetry": "Solicitudes permitidas. Vuelve a intentar la acción en la app.",
+    "waitingOff_one": "{{count}} tipo de solicitud espera tu permiso.",
+    "waitingOff_other": "{{count}} tipos de solicitud esperan tu permiso.",
+    "consentOk": "Nada espera tu permiso.",
+    "none": "Aún no hay solicitudes."
+  },
+  "recordKeys": "Enter abre un registro y lo que puedes hacer con él"
 }

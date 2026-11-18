@@ -15,7 +15,7 @@ from agent_core import action
     execution_mode="internal",
     action_sets=["core"],
     input_schema={
-        "query": {"type": "string", "description": "Optional. Filter name, website or group (at most 200 characters)."},
+        "query": {"type": "string", "required": False, "description": "Optional. Filter name, website or group (at most 200 characters)."},
     },
     output_schema={
         "status": {"type": "string", "description": "success or error."},
@@ -23,6 +23,8 @@ from agent_core import action
         "message": {"type": "string", "description": "Safe failure explanation."},
     },
     test_payload={"simulated_mode": True},
+    display_param="query",
+    icon="KeyRound",
 )
 async def credential_list_api_keys(input_data: dict) -> dict:
     if input_data.get("simulated_mode"):
@@ -51,16 +53,16 @@ async def credential_list_api_keys(input_data: dict) -> dict:
     action_sets=["core"],
     parallelizable=False,
     input_schema={
-        "credential_id": {"type": "string", "description": "Saved API-key ID from credential_list_api_keys; never the key value."},
-        "url": {"type": "string", "description": "Absolute API URL on the key's saved website and port."},
-        "method": {"type": "string", "enum": ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"], "description": "Optional. HTTP method, default GET."},
-        "auth_type": {"type": "string", "enum": ["bearer", "header"], "description": "Optional. bearer (default) sends Bearer plus key; header sends the raw key."},
-        "header_name": {"type": "string", "description": "Optional. Header to receive the key; default Authorization for bearer, X-API-Key for header."},
-        "headers": {"type": "object", "description": "Optional. Non-secret headers; cannot override authentication or transport headers."},
-        "params": {"type": "object", "description": "Optional. Non-secret query parameters. The key is never inserted into the URL."},
-        "json": {"type": "object", "description": "Optional. JSON request body; mutually exclusive with data."},
-        "data": {"type": "string", "description": "Optional. Raw text request body; mutually exclusive with json."},
-        "timeout": {"type": "number", "description": "Optional. Timeout in seconds, 1-60, default 30."},
+        "credential_id": {"type": "string", "required": True, "description": "Saved API-key ID from credential_list_api_keys; never the key value."},
+        "url": {"type": "string", "required": True, "description": "Absolute API URL on the key's saved website and port."},
+        "method": {"type": "string", "required": False, "enum": ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"], "description": "Optional. HTTP method, default GET."},
+        "auth_type": {"type": "string", "required": False, "enum": ["bearer", "header"], "description": "Optional. bearer (default) sends Bearer plus key; header sends the raw key."},
+        "header_name": {"type": "string", "required": False, "description": "Optional. Header to receive the key; default Authorization for bearer, X-API-Key for header."},
+        "headers": {"type": "object", "required": False, "description": "Optional. Non-secret headers; cannot override authentication or transport headers."},
+        "params": {"type": "object", "required": False, "description": "Optional. Non-secret query parameters. The key is never inserted into the URL."},
+        "json": {"type": "object", "required": False, "description": "Optional. JSON request body; mutually exclusive with data."},
+        "data": {"type": "string", "required": False, "description": "Optional. Raw text request body; mutually exclusive with json."},
+        "timeout": {"type": "number", "required": False, "description": "Optional. Timeout in seconds, 1-60, default 30."},
     },
     output_schema={
         "status": {"type": "string", "description": "success or error."},
@@ -70,6 +72,8 @@ async def credential_list_api_keys(input_data: dict) -> dict:
         "error_code": {"type": "string", "description": "Failure code when available."},
     },
     test_payload={"credential_id": "example", "url": "https://api.example.com/v1/items", "simulated_mode": True},
+    display_param="url",
+    icon="KeyRound",
 )
 async def credential_api_request(input_data: dict) -> dict:
     if input_data.get("simulated_mode"):

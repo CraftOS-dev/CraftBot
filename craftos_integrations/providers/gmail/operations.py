@@ -26,11 +26,13 @@ from .client import clean_snippet
 # (send / reply / create + update draft).
 _HTML_INPUT = {
     "type": "boolean",
+    "required": False,
     "description": "Treat body as HTML instead of plain text (default false).",
     "example": False,
 }
 _INLINE_IMAGES_INPUT = {
     "type": "array",
+    "required": False,
     "description": (
         "Optional local image file paths shown INSIDE the email body (not as "
         'attachments). Place each in an HTML body with <img src="cid:<file '
@@ -57,14 +59,16 @@ def _get_gmail_thread_op() -> Operation:
         unwrap_envelope=True,
         fail_message="Failed to get thread.",
         input_schema={
-            "thread_id": {"type": "string", "description": "Thread ID.", "example": ""},
+            "thread_id": {"type": "string", "required": True, "description": "Thread ID.", "example": ""},
             "fmt": {
                 "type": "string",
+                "required": False,
                 "description": "metadata | full | minimal.",
                 "example": "metadata",
             },
             "include_metadata": {
                 "type": "boolean",
+                "required": False,
                 "description": "Return the raw thread resource (default false = lean).",
                 "example": False,
             },
@@ -73,6 +77,7 @@ def _get_gmail_thread_op() -> Operation:
             "thread_id": d["thread_id"],
             "fmt": d.get("fmt", "metadata"),
         },
+        display_param="thread_id",
     )
     inner = base.fn
 
@@ -126,14 +131,16 @@ def _get_gmail_draft_op() -> Operation:
         unwrap_envelope=True,
         fail_message="Failed to get draft.",
         input_schema={
-            "draft_id": {"type": "string", "description": "Draft ID.", "example": ""},
+            "draft_id": {"type": "string", "required": True, "description": "Draft ID.", "example": ""},
             "fmt": {
                 "type": "string",
+                "required": False,
                 "description": "metadata | full | minimal.",
                 "example": "metadata",
             },
             "include_metadata": {
                 "type": "boolean",
+                "required": False,
                 "description": "Return the raw draft resource (default false = lean).",
                 "example": False,
             },
@@ -142,6 +149,7 @@ def _get_gmail_draft_op() -> Operation:
             "draft_id": d["draft_id"],
             "fmt": d.get("fmt", "metadata"),
         },
+        display_param="draft_id",
     )
     inner = base.fn
 
@@ -178,7 +186,9 @@ def build_operations() -> List[Operation]:
             "send_email",
             description="Send an email via Gmail.",
             destructive=True,  # outward-facing send — hosts confirm/clarify
-            parallelizable=False,
+            # Batchable for outreach: the irreversible-action ledger dedups
+            # identical sends by content hash, so distinct emails can fan out.
+            parallelizable=True,
             tags=("gmail_mail", "gmail"),
             unwrap_envelope=True,
             success_message="Email sent.",
@@ -186,6 +196,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "to": {
                     "type": "string",
+                    "required": False,
                     "description": (
                         "Recipient email address. OMIT to send to the user's "
                         "own address (the connected account) — never store or "
@@ -195,11 +206,13 @@ def build_operations() -> List[Operation]:
                 },
                 "subject": {
                     "type": "string",
+                    "required": True,
                     "description": "Email subject.",
                     "example": "Meeting Follow-up",
                 },
                 "body": {
                     "type": "string",
+                    "required": True,
                     "description": "Email body (plain text, or HTML with html=true).",
                     "example": "Hi, here are the notes...",
                 },
@@ -207,6 +220,7 @@ def build_operations() -> List[Operation]:
                 "inline_images": _INLINE_IMAGES_INPUT,
                 "attachments": {
                     "type": "array",
+                    "required": False,
                     "description": "Optional list of file paths to attach.",
                     "example": [],
                 },
@@ -220,6 +234,7 @@ def build_operations() -> List[Operation]:
                 "html": bool(d.get("html", False)),
                 "inline_images": d.get("inline_images"),
             },
+            display_param="subject",
         ),
         client_op(
             "list_gmail",
@@ -231,11 +246,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "count": {
                     "type": "integer",
+                    "required": False,
                     "description": "Number of recent emails to list.",
                     "example": 5,
                 },
                 "unread_only": {
                     "type": "boolean",
+                    "required": False,
                     "description": "Only unread emails.",
                     "example": True,
                 },
@@ -244,6 +261,7 @@ def build_operations() -> List[Operation]:
                 "n": d.get("count", 5),
                 "unread_only": d.get("unread_only", True),
             },
+            display_param=None,
         ),
         client_op(
             "get_gmail",
@@ -261,11 +279,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "message_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Gmail message id (from list/search).",
                     "example": "18c2f...",
                 },
                 "full_body": {
                     "type": "boolean",
+                    "required": False,
                     "description": (
                         "Also return the body text and attachments list. "
                         "HTML-only mail is converted to text "
@@ -274,6 +294,7 @@ def build_operations() -> List[Operation]:
                     "example": False,
                 },
             },
+            display_param="message_id",
         ),
         client_op(
             "read_top_emails",
@@ -288,11 +309,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "count": {
                     "type": "integer",
+                    "required": False,
                     "description": "Number of emails to read.",
                     "example": 5,
                 },
                 "full_body": {
                     "type": "boolean",
+                    "required": False,
                     "description": "Include full body text.",
                     "example": False,
                 },
@@ -301,6 +324,7 @@ def build_operations() -> List[Operation]:
                 "n": d.get("count", 5),
                 "full_body": d.get("full_body", False),
             },
+            display_param=None,
         ),
         client_op(
             "search_gmail",
@@ -312,15 +336,18 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "query": {
                     "type": "string",
+                    "required": True,
                     "description": "Gmail search query.",
                     "example": "from:alice subject:invoice newer_than:7d",
                 },
                 "max_results": {
                     "type": "integer",
+                    "required": False,
                     "description": "Maximum number of results.",
                     "example": 10,
                 },
             },
+            display_param="query",
         ),
         client_op(
             "reply_gmail",
@@ -335,22 +362,26 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "message_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Id of the message being replied to.",
                     "example": "18c2f...",
                 },
                 "body": {
                     "type": "string",
+                    "required": True,
                     "description": "Reply body (plain text, or HTML with html=true).",
                     "example": "Thanks — confirmed for Tuesday.",
                 },
                 "reply_all": {
                     "type": "boolean",
+                    "required": False,
                     "description": "Reply to all recipients.",
                     "example": False,
                 },
                 "html": _HTML_INPUT,
                 "inline_images": _INLINE_IMAGES_INPUT,
             },
+            display_param="body",
         ),
         client_op(
             "forward_gmail",
@@ -364,21 +395,25 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "message_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Original message ID.",
                     "example": "",
                 },
                 "to": {
                     "type": "string",
+                    "required": True,
                     "description": "Recipient email.",
                     "example": "bob@example.com",
                 },
                 "body": {
                     "type": "string",
+                    "required": False,
                     "description": "Optional intro text, prepended above the forwarded content. The original body is always included — do not copy it here.",
                     "example": "",
                 },
                 "attachments": {
                     "type": "array",
+                    "required": False,
                     "description": "Optional EXTRA local file paths to attach. The original message's attachments are forwarded automatically.",
                     "example": [],
                 },
@@ -389,6 +424,7 @@ def build_operations() -> List[Operation]:
                 "body": d.get("body", ""),
                 "attachments": d.get("attachments"),
             },
+            display_param="to",
         ),
         client_op(
             "modify_gmail_labels",
@@ -405,20 +441,24 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "message_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Message ID.",
                     "example": "",
                 },
                 "add_label_ids": {
                     "type": "array",
+                    "required": False,
                     "description": "Label IDs to add.",
                     "example": ["STARRED"],
                 },
                 "remove_label_ids": {
                     "type": "array",
+                    "required": False,
                     "description": "Label IDs to remove.",
                     "example": ["UNREAD"],
                 },
             },
+            display_param="message_id",
         ),
         client_op(
             "trash_gmail",
@@ -432,10 +472,12 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "message_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Gmail message id.",
                     "example": "18c2f...",
                 },
             },
+            display_param="message_id",
         ),
         client_op(
             "untrash_gmail",
@@ -448,10 +490,12 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "message_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Message ID.",
                     "example": "",
                 },
             },
+            display_param="message_id",
         ),
         client_op(
             "batch_modify_gmail",
@@ -464,20 +508,24 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "message_ids": {
                     "type": "array",
+                    "required": True,
                     "description": "List of message IDs.",
                     "example": [],
                 },
                 "add_label_ids": {
                     "type": "array",
+                    "required": False,
                     "description": "Label IDs to add.",
                     "example": [],
                 },
                 "remove_label_ids": {
                     "type": "array",
+                    "required": False,
                     "description": "Label IDs to remove.",
                     "example": [],
                 },
             },
+            display_param="message_ids",
         ),
         # ── Threads ──────────────────────────────────────────────────────
         client_op(
@@ -490,16 +538,19 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "query": {
                     "type": "string",
+                    "required": False,
                     "description": "Optional Gmail q query.",
                     "example": "",
                 },
                 "label_ids": {
                     "type": "array",
+                    "required": False,
                     "description": "Optional label filter.",
                     "example": ["INBOX"],
                 },
                 "max_results": {
                     "type": "integer",
+                    "required": False,
                     "description": "Max threads.",
                     "example": 25,
                 },
@@ -509,6 +560,7 @@ def build_operations() -> List[Operation]:
                 "label_ids": d.get("label_ids"),
                 "max_results": d.get("max_results", 25),
             },
+            display_param="query",
         ),
         _get_gmail_thread_op(),
         client_op(
@@ -522,20 +574,24 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "thread_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Thread ID.",
                     "example": "",
                 },
                 "add_label_ids": {
                     "type": "array",
+                    "required": False,
                     "description": "Labels to add.",
                     "example": [],
                 },
                 "remove_label_ids": {
                     "type": "array",
+                    "required": False,
                     "description": "Labels to remove.",
                     "example": [],
                 },
             },
+            display_param="thread_id",
         ),
         client_op(
             "trash_gmail_thread",
@@ -548,10 +604,12 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "thread_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Thread ID.",
                     "example": "",
                 },
             },
+            display_param="thread_id",
         ),
         client_op(
             "untrash_gmail_thread",
@@ -564,10 +622,12 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "thread_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Thread ID.",
                     "example": "",
                 },
             },
+            display_param="thread_id",
         ),
         # ── Drafts ───────────────────────────────────────────────────────
         client_op(
@@ -580,11 +640,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "max_results": {
                     "type": "integer",
+                    "required": False,
                     "description": "Max drafts.",
                     "example": 25,
                 },
                 "query": {
                     "type": "string",
+                    "required": False,
                     "description": "Optional q query.",
                     "example": "",
                 },
@@ -593,6 +655,7 @@ def build_operations() -> List[Operation]:
                 "max_results": d.get("max_results", 25),
                 "query": d.get("query") or None,
             },
+            display_param="query",
         ),
         _get_gmail_draft_op(),
         client_op(
@@ -605,22 +668,26 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "to": {
                     "type": "string",
+                    "required": True,
                     "description": "Recipient email address.",
                     "example": "user@example.com",
                 },
                 "subject": {
                     "type": "string",
+                    "required": True,
                     "description": "Draft subject.",
                     "example": "Q3 report",
                 },
                 "body": {
                     "type": "string",
+                    "required": True,
                     "description": "Draft body (plain text, or HTML with html=true).",
                     "example": "Draft text...",
                 },
                 "html": _HTML_INPUT,
                 "inline_images": _INLINE_IMAGES_INPUT,
             },
+            display_param="subject",
         ),
         client_op(
             "update_gmail_draft",
@@ -633,26 +700,30 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "draft_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Draft ID.",
                     "example": "",
                 },
-                "to": {"type": "string", "description": "Recipient.", "example": ""},
-                "subject": {"type": "string", "description": "Subject.", "example": ""},
+                "to": {"type": "string", "required": True, "description": "Recipient.", "example": ""},
+                "subject": {"type": "string", "required": True, "description": "Subject.", "example": ""},
                 "body": {
                     "type": "string",
+                    "required": True,
                     "description": "Body (plain text, or HTML with html=true).",
                     "example": "",
                 },
                 "html": _HTML_INPUT,
                 "inline_images": _INLINE_IMAGES_INPUT,
-                "cc": {"type": "string", "description": "Optional CC.", "example": ""},
+                "cc": {"type": "string", "required": False, "description": "Optional CC.", "example": ""},
                 "bcc": {
                     "type": "string",
+                    "required": False,
                     "description": "Optional BCC.",
                     "example": "",
                 },
                 "attachments": {
                     "type": "array",
+                    "required": False,
                     "description": "Local file paths.",
                     "example": [],
                 },
@@ -668,23 +739,26 @@ def build_operations() -> List[Operation]:
                 "html": bool(d.get("html", False)),
                 "inline_images": d.get("inline_images"),
             },
+            display_param="subject",
         ),
         client_op(
             "send_gmail_draft",
             "send_draft",
             description="Send a previously-created Gmail draft.",
             destructive=True,  # outward-facing send
-            parallelizable=False,
+            parallelizable=True,  # batchable, same as send_gmail
             tags=("gmail_drafts", "gmail"),
             unwrap_envelope=True,
             fail_message="Failed to send draft.",
             input_schema={
                 "draft_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Draft ID.",
                     "example": "",
                 },
             },
+            display_param="draft_id",
         ),
         client_op(
             "delete_gmail_draft",
@@ -698,10 +772,12 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "draft_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Draft ID.",
                     "example": "",
                 },
             },
+            display_param="draft_id",
         ),
         # ── Labels ───────────────────────────────────────────────────────
         client_op(
@@ -712,6 +788,7 @@ def build_operations() -> List[Operation]:
             unwrap_envelope=True,
             fail_message="Failed to list labels.",
             input_schema={},
+            display_param=None,
         ),
         client_op(
             "get_gmail_label",
@@ -723,10 +800,12 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "label_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Label ID.",
                     "example": "",
                 },
             },
+            display_param="label_id",
         ),
         client_op(
             "create_gmail_label",
@@ -743,26 +822,31 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "name": {
                     "type": "string",
+                    "required": True,
                     "description": "Label name (use '/' for nesting, e.g. 'Work/Clients').",
                     "example": "Receipts",
                 },
                 "label_list_visibility": {
                     "type": "string",
+                    "required": False,
                     "description": "labelShow / labelShowIfUnread / labelHide.",
                     "example": "labelShow",
                 },
                 "message_list_visibility": {
                     "type": "string",
+                    "required": False,
                     "description": "show / hide.",
                     "example": "show",
                 },
                 "background_color": {
                     "type": "string",
+                    "required": False,
                     "description": "Hex color (optional, requires text_color).",
                     "example": "",
                 },
                 "text_color": {
                     "type": "string",
+                    "required": False,
                     "description": "Hex color (optional, requires background_color).",
                     "example": "",
                 },
@@ -774,6 +858,7 @@ def build_operations() -> List[Operation]:
                 "background_color": d.get("background_color") or None,
                 "text_color": d.get("text_color") or None,
             },
+            display_param="name",
         ),
         client_op(
             "update_gmail_label",
@@ -786,31 +871,37 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "label_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Label ID.",
                     "example": "",
                 },
                 "name": {
                     "type": "string",
+                    "required": False,
                     "description": "New name (optional).",
                     "example": "",
                 },
                 "label_list_visibility": {
                     "type": "string",
+                    "required": False,
                     "description": "labelShow / labelShowIfUnread / labelHide.",
                     "example": "",
                 },
                 "message_list_visibility": {
                     "type": "string",
+                    "required": False,
                     "description": "show / hide.",
                     "example": "",
                 },
                 "background_color": {
                     "type": "string",
+                    "required": False,
                     "description": "Hex color (optional).",
                     "example": "",
                 },
                 "text_color": {
                     "type": "string",
+                    "required": False,
                     "description": "Hex color (optional).",
                     "example": "",
                 },
@@ -823,6 +914,7 @@ def build_operations() -> List[Operation]:
                 "background_color": d.get("background_color") or None,
                 "text_color": d.get("text_color") or None,
             },
+            display_param="name",
         ),
         client_op(
             "delete_gmail_label",
@@ -836,10 +928,12 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "label_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Label ID.",
                     "example": "",
                 },
             },
+            display_param="label_id",
         ),
         # ── Attachments + profile ────────────────────────────────────────
         client_op(
@@ -858,25 +952,30 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "message_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Message ID.",
                     "example": "",
                 },
                 "attachment_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Attachment ID from get_gmail(full_body=true).attachments[].attachment_id.",
                     "example": "",
                 },
                 "save_to": {
                     "type": "string",
+                    "required": True,
                     "description": "Local path to save to. May be a directory; use filename to set the file name.",
                     "example": "C:/Users/me/downloads/",
                 },
                 "filename": {
                     "type": "string",
+                    "required": False,
                     "description": "Filename to use when save_to is a directory. Use the filename from get_gmail attachments list.",
                     "example": "invoice.pdf",
                 },
             },
+            display_param="save_to",
         ),
         client_op(
             "get_gmail_profile",
@@ -889,5 +988,6 @@ def build_operations() -> List[Operation]:
             unwrap_envelope=True,
             fail_message="Failed to get profile.",
             input_schema={},
+            display_param=None,
         ),
     ]

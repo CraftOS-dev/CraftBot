@@ -1,38 +1,10 @@
 /**
- * Pure logic of the Agent App host screens (Apps list, Add, build view,
- * settings panel), kept free of React and the store so it is unit tested
+ * Pure logic of the Agent App host screens (Add, build view, settings
+ * panel), kept free of React and the store so it is unit tested
  * (test/unit/appsHost.test.ts). Rules mirror the browser's host UI:
- * NavBar's app rows, ConstructionDock, CreateAgentAppModal and
+ * ConstructionDock, BuildCheckpoints, CreateAgentAppModal and
  * CreateCustomWizard.
  */
-
-// ── status ──────────────────────────────────────────────────────────────────
-
-/** The six states the Apps screen shows (the store's `ready` reads as stopped). */
-export type AppPhase = 'creating' | 'launching' | 'running' | 'stopping' | 'stopped' | 'error'
-
-export function appPhase(status: string | undefined): AppPhase {
-  switch (status) {
-    case 'creating':
-    case 'launching':
-    case 'running':
-    case 'stopping':
-    case 'error':
-      return status
-    default:
-      // 'stopped', 'ready' (built, not running) and anything unknown.
-      return 'stopped'
-  }
-}
-
-export function isTransitional(phase: AppPhase): boolean {
-  return phase === 'creating' || phase === 'launching' || phase === 'stopping'
-}
-
-export const canLaunch = (phase: AppPhase): boolean => phase === 'stopped' || phase === 'error'
-export const canStop = (phase: AppPhase): boolean => phase === 'running'
-/** Deleting is offered only while the app is not running or changing state. */
-export const canDelete = (phase: AppPhase): boolean => phase === 'stopped' || phase === 'error'
 
 // ── build progress (ConstructionDock's rules) ───────────────────────────────
 
@@ -143,64 +115,40 @@ export function nextPaced(count: number, total: number): { count: number; delay:
   return { count: count + 1, delay: backlog > 4 ? 220 : 750 }
 }
 
-/** The last `rows` lines of a code snippet, tabs expanded and control characters dropped. */
-export function snippetTail(snippet: string, rows: number): string[] {
-  if (rows <= 0) return []
-  const lines = snippet
-    .replace(/\r\n?/g, '\n')
-    .split('\n')
-    .map(line => line.replace(/\t/g, '  ').replace(/[\u0000-\u0008\u000B-\u001F\u007F]/g, ''))
-  while (lines.length > 0 && lines[lines.length - 1].trim() === '') lines.pop()
-  return lines.slice(-rows)
-}
-
-// ── ordering (the browser sidebar's saved drag order) ───────────────────────
-
-export function orderApps<T extends { id: string }>(items: T[], order: string[]): T[] {
-  if (order.length === 0) return items
-  const rank = new Map(order.map((id, i) => [id, i]))
-  const known: T[] = []
-  const fresh: T[] = []
-  for (const item of items) (rank.has(item.id) ? known : fresh).push(item)
-  if (known.length === 0) return items
-  known.sort((a, b) => rank.get(a.id)! - rank.get(b.id)!)
-  return [...known, ...fresh]
-}
-
-/** Move `id` by `delta` places in `ids`; the same array when it cannot move. */
-export function moveId(ids: string[], id: string, delta: -1 | 1): string[] {
-  const from = ids.indexOf(id)
-  const to = from + delta
-  if (from === -1 || to < 0 || to >= ids.length) return ids
-  const next = [...ids]
-  next.splice(from, 1)
-  next.splice(to, 0, id)
-  return next
-}
-
 // ── marketplace ─────────────────────────────────────────────────────────────
 
-export interface MarketplaceField {
-  key: string
-  label: string
-  type?: string
-  default?: string
-  placeholder?: string
-}
-
+/** One entry of the framework's catalogue (`catalogue`). */
 export interface MarketplaceApp {
   id: string
   name: string
   description: string
   preview?: string
-  folder?: string
+  icon?: string
   tags?: string[]
   version?: string
-  customizable?: MarketplaceField[]
 }
 
-/** The install key the backend expects (folder first, as the browser sends). */
-export const marketKey = (app: MarketplaceApp): string => app.folder || app.id
+/** Where a catalogue comes from: an installed app counts as from it when its source matches. */
+export interface CatalogueSource {
+  location: string
+  ref?: string
+}
+
+/** Catalogue ids already installed from this catalogue (the browser's rule). */
+export function installedFrom(
+  apps: { status: string; marketplace?: { id: string; location: string; ref?: string } }[],
+  source: CatalogueSource | undefined,
+): Set<string> {
+  const ids = new Set<string>()
+  if (!source) return ids
+  for (const app of apps) {
+    const from = app.marketplace
+    if (!from || app.status === 'missing') continue
+    const location = from.ref ? `${from.location}@${from.ref}` : from.location
+    if ((location === source.location || from.location === source.location) && from.ref === source.ref) ids.add(from.id)
+  }
+  return ids
+}
 
 /** Every tag, most used first, then alphabetical. */
 export function tagsByFrequency(apps: MarketplaceApp[]): string[] {
@@ -222,12 +170,6 @@ export function filterMarketplace(apps: MarketplaceApp[], query: string, tags: R
     if (tags.size > 0 && !(app.tags ?? []).some(tag => tags.has(tag))) return false
     return true
   })
-}
-
-export function defaultFieldValues(app: MarketplaceApp): Record<string, string> {
-  const values: Record<string, string> = {}
-  for (const field of app.customizable ?? []) values[field.key] = field.default ?? ''
-  return values
 }
 
 // ── create wizard ───────────────────────────────────────────────────────────
@@ -282,16 +224,19 @@ export function cycleIcon(current: string | null, delta: -1 | 1): string | null 
   return list[(index + delta + list.length) % list.length]
 }
 
-export function newWizardId(): string {
-  return `w_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`
-}
-
+/** A question the builder asks at its first checkpoint. */
 export interface InterviewQuestion {
   id: string
   question: string
   why?: string
   multiSelect: boolean
   options: string[]
+}
+
+/** One answer as the checkpoint reply carries it. */
+export interface CheckpointAnswer {
+  choices: string[]
+  other: string
 }
 
 /** Select or toggle `option` for a question (radio for single, checkbox for multi). */
@@ -301,23 +246,51 @@ export function pickOption(question: InterviewQuestion, selected: string[], opti
 }
 
 /**
- * The answer a Continue records: typed text joins the checked options of a
- * multi-select or replaces the choice of a single-select. Empty = nothing to send.
+ * The answer a Continue records: typed words join the picks of a
+ * multi-select or stand instead of the pick of a single-select.
  */
-export function composeAnswer(question: InterviewQuestion, selected: string[], freeText: string): string[] {
+export function composeAnswer(question: InterviewQuestion, selected: string[], freeText: string): CheckpointAnswer {
   const text = freeText.trim()
-  if (text) return question.multiSelect ? [...selected, text] : [text]
-  return selected
+  if (text) return { choices: question.multiSelect ? selected : [], other: text }
+  return { choices: selected, other: '' }
 }
 
-/** The answers finalize sends: answered questions only, options joined. */
+/** The reply's answers: every question, skipped ones empty (the builder decides those). */
 export function answersPayload(
   questions: InterviewQuestion[],
-  answers: Record<string, string[]>,
-): { id: string; question: string; answer: string }[] {
-  return questions
-    .filter(q => (answers[q.id] ?? []).length > 0)
-    .map(q => ({ id: q.id, question: q.question, answer: (answers[q.id] ?? []).join(', ') }))
+  answers: Record<string, CheckpointAnswer>,
+): { id: string; choices: string[]; other?: string }[] {
+  return questions.map(q => {
+    const a = answers[q.id]
+    return { id: q.id, choices: a?.choices ?? [], ...(a?.other ? { other: a.other } : {}) }
+  })
+}
+
+/**
+ * Part A of the requirements as a person reads it: without the template's
+ * marker line and the Approval section (approving writes it), hard-wrapped
+ * lines joined. The browser's rule (BuildCheckpoints.tsx).
+ */
+export function readablePartA(partA: string): string {
+  const out: string[] = []
+  let approval = false
+  for (const line of partA.split('\n')) {
+    if (/^PART A\b/.test(line)) continue
+    const heading = /^#{1,6}\s/.test(line)
+    if (heading) approval = /^#{1,6}\s+Approval\b/i.test(line)
+    if (approval) continue
+    const previous = out[out.length - 1] ?? ''
+    const continues =
+      !heading &&
+      line.trim() !== '' &&
+      previous.trim() !== '' &&
+      !/^#{1,6}\s/.test(previous) &&
+      !/^\s*([-*+]|\d+\.)\s/.test(line) &&
+      !/^\s*\|/.test(line)
+    if (continues) out[out.length - 1] = `${previous.trimEnd()} ${line.trim()}`
+    else out.push(line)
+  }
+  return out.join('\n')
 }
 
 // ── import ──────────────────────────────────────────────────────────────────
@@ -346,35 +319,6 @@ export function humanBytes(n: number): string {
   return i === 0 ? `${Math.round(v)} B` : `${v.toFixed(1)} ${units[i]}`
 }
 
-export interface ImportProgressEvent {
-  phase?: string
-  done?: number
-  total?: number
-  unit?: string
-}
-
-/** "1,200 / 5,000 (24%)" or "3.1 MB / 9.0 MB (34%)"; empty while starting. */
-export function importAmount(event: ImportProgressEvent, locale?: string): string {
-  const { phase = 'starting', done = 0, total = 0, unit } = event
-  if (phase === 'starting' || (!done && !total)) return ''
-  const fmt = (n: number) => n.toLocaleString(locale)
-  const amount =
-    unit === 'bytes'
-      ? humanBytes(done) + (total ? ` / ${humanBytes(total)}` : '')
-      : total
-        ? `${fmt(done)} / ${fmt(total)}`
-        : fmt(done)
-  const pct = total ? ` (${Math.floor((done / total) * 100)}%)` : ''
-  return amount + pct
-}
-
-/** Progress lines keep one line per phase: a repeated phase updates its line. */
-export function pushProgressLine<L extends { phase: string }>(lines: L[], line: L, max = 8): L[] {
-  const last = lines[lines.length - 1]
-  const next = last && last.phase === line.phase ? [...lines.slice(0, -1), line] : [...lines, line]
-  return next.slice(-max)
-}
-
 // ── settings panel ──────────────────────────────────────────────────────────
 
 export const BACKUP_INTERVALS = ['hourly', '6h', 'daily', 'weekly'] as const
@@ -387,12 +331,4 @@ export function cycleValue<T>(values: readonly T[], current: T, delta: -1 | 1): 
 
 export function clampKeep(value: number): number {
   return Math.max(1, Math.min(30, Math.round(value)))
-}
-
-/** A file name from a Content-Disposition header, made safe for any file system. */
-export function dispositionFilename(header: string | null, fallback: string): string {
-  const match = header?.match(/filename\*?=(?:UTF-8'')?"?([^";]+)"?/i)
-  const raw = match ? decodeURIComponent(match[1]) : fallback
-  const safe = raw.replace(/[<>:"/\\|?*\u0000-\u001F]/g, '_').trim()
-  return safe || fallback
 }

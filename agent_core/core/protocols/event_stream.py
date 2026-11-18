@@ -48,15 +48,15 @@ class EventStreamProtocol(Protocol):
 
     def to_prompt_snapshot(
         self,
-        max_events: int = 60,
         include_summary: bool = True,
+        up_to: Optional[int] = None,
     ) -> str:
         """
         Build compact history for LLM prompts.
 
         Args:
-            max_events: Maximum number of recent events to include.
             include_summary: Whether to include the head summary.
+            up_to: Only include events before this index.
 
         Returns:
             Formatted string of event history.

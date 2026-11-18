@@ -1050,6 +1050,8 @@ def test_session_reasoning_set_handler(tmp_path: Path):
         session_manager=manager,
         set_session_reasoning_effort=manager.set_reasoning_effort,
         llm=SimpleNamespace(last_request=lambda task_id, call_type: None),
+        event_stream_manager=SimpleNamespace(has_stream=lambda session_id: False),
+        folding_sessions=set(),
     )
     adapter = _adapter_with(agent)
     try:

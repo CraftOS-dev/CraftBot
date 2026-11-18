@@ -7,7 +7,8 @@
  *     └ ◐ Run shell      npm test                          3.2s
  *
  * The working row heads it: the one animated glyph on screen, the state in
- * words, the elapsed time and the way to stop. While a question waits on the
+ * words (what the current step is doing, once the agent has said), the
+ * elapsed time and the way to stop. While a question waits on the
  * user the spinner gives way to a still mark. Under it hang the running
  * chunk's latest actions (status glyph, name, one-line preview, timer) and
  * the sub-agents still at work; older finished actions fold into one row.
@@ -77,6 +78,9 @@ export interface WorkingBlockProps {
   stopping: boolean
   /** A question or choice waits on the user. */
   waiting?: boolean
+  /** What the current step is doing, shown in place of "Working". */
+  status?: string
+  /** The running chunk's actions, then the ones being prepared (pending). */
   items: ActionItem[]
   /** Sub-agents this turn started that are still running. */
   subagents?: SubagentRow[]
@@ -92,14 +96,16 @@ export function shownActions(items: ActionItem[], subagents: number): { shown: A
   return { shown, folded: actions.length - shown.length }
 }
 
-export function WorkingBlock({ startedAt, stopping, waiting = false, items, subagents = [], columns }: WorkingBlockProps) {
+export function WorkingBlock({ startedAt, stopping, waiting = false, status, items, subagents = [], columns }: WorkingBlockProps) {
   const { t } = useTranslation('tui')
   const g = glyphs()
   const tick = useTicker(100, !waiting)
   const now = Date.now()
   const frames = spinnerFrames()
   const elapsed = formatDuration(now - startedAt)
-  const label = waiting ? t('working.waiting') : stopping ? t('working.stopping') : `${t('working.label')}${g.ellipsis}`
+  // The ellipsis is the label's own: a line ending in "." or an ellipsis drops it.
+  const working = status?.replace(/[\s.…]+$/, '') || t('working.label')
+  const label = waiting ? t('working.waiting') : stopping ? t('working.stopping') : `${working}${g.ellipsis}`
   const hint = stopping || waiting ? '' : t('working.stopHint')
   const { shown, folded } = shownActions(items, subagents.length)
   const nameCol = Math.min(18, Math.max(10, ...shown.map(i => width(displayActionName(i.name)))) + 2)

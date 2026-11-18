@@ -93,12 +93,16 @@ node test/pty/chat.mjs    <port> <stateDir>   # a live chat turn (calls the mode
 node test/pty/switch.mjs  <port> <stateDir>   # new chat, switch, /clear leave no old conversation
 node test/pty/look.mjs    <port> <stateDir> [modern|console|ascii]   # print the main surfaces
 CRAFTBOT_HOME=<home> node test/pty/owner.mjs <python> <repo> <port>   # run.py --tui end to end
-node test/harness/run-app-screen.mjs <projectDir> <appPort>           # an Agent App screen, read-only
+node test/harness/run-app-screen.mjs <appDir> [width] [height]       # a running Agent App's screen, read-only
 node test/harness/run-chat-pane.mjs [width] [height] [glyphs] [app]  # the Agent App chat pane, seeded, offline
 ```
 
-The Agent App view engine shared with `agent-app view` lives in
-`agent-app/view` (`node --test agent-app/view/src/view.test.ts`).
+Agent Apps are the Agent-App framework's (`app/agent_app/`). The registry,
+start and stop, builds and every host action go through the same WebSocket
+messages as the browser (`src/apps/framework.ts`). An app's own screen talks
+to the live app over the A2App protocol with the pinned framework package's
+client and credential lookup (`src/apps/engine.ts`); its screens are generated
+from the app's `operations.json` by the view engine in `src/apps/view`.
 
 Run end-to-end checks against an isolated backend, never your own CraftBot:
 seed a scratch `CRAFTBOT_HOME` from git-tracked files only, then

@@ -94,6 +94,10 @@ class ProviderProfile:
     # providers that already receive it today (NFR-3: golden payloads
     # must not change).
     supports_prompt_cache_key: bool = False
+    # HTTP header that routes requests to the server holding their cache,
+    # sent with the same value as ``prompt_cache_key``. Set where the
+    # provider routes Chat Completions cache by a header, not the body key.
+    cache_routing_header: Optional[str] = None
     # Temperature policy for the chat_completions wire (Hermes-style):
     #   None            -> send the caller's temperature (default behavior)
     #   OMIT_TEMPERATURE -> do NOT send temperature (Kimi/Moonshot thinking
@@ -124,6 +128,12 @@ class ProviderProfile:
     # through to stateless generation. Only meaningful on the
     # chat_completions wire.
     session_accumulation: bool = False
+    # Whether a streamed Chat Completions reply reports its usage (token
+    # counts and cached tokens) when asked with stream_options.include_usage.
+    # A call that streams its reply to the UI (agent_core.core.impl.llm.
+    # streaming) streams only on these providers; elsewhere it is sent
+    # unstreamed, since a reply without usage would read as a cache miss.
+    streams_usage: bool = False
     default_headers: Mapping[str, str] = field(default_factory=dict)
 
     # ── OpenRouter proxy fallback (was factory module maps) ───────────
@@ -173,6 +183,7 @@ PROVIDER_CONFIG: Dict[str, ProviderProfile] = {
     "openai": ProviderProfile(
         key="openai",
         session_accumulation=True,
+        streams_usage=True,
         api_key_env="OPENAI_API_KEY",
         display_name="OpenAI",
         error_display_name="OpenAI",
@@ -364,6 +375,7 @@ PROVIDER_CONFIG: Dict[str, ProviderProfile] = {
     "deepseek": ProviderProfile(
         key="deepseek",
         session_accumulation=True,
+        streams_usage=True,
         api_key_env="DEEPSEEK_API_KEY",
         default_base_url="https://api.deepseek.com",
         display_name="DeepSeek",
@@ -421,6 +433,7 @@ PROVIDER_CONFIG: Dict[str, ProviderProfile] = {
     "grok": ProviderProfile(
         key="grok",
         session_accumulation=True,
+        streams_usage=True,
         api_key_env="XAI_API_KEY",
         default_base_url="https://api.x.ai/v1",
         display_name="Grok (xAI)",
@@ -432,6 +445,9 @@ PROVIDER_CONFIG: Dict[str, ProviderProfile] = {
         subscription_label="Sign in with Grok",
         subscription_models=("grok-4.3", "grok-4.7"),
         supports_prompt_cache_key=True,
+        # xAI routes Chat Completions cache by this header; prompt_cache_key
+        # is its Responses API equivalent.
+        cache_routing_header="x-grok-conv-id",
         connection_test_model="grok-4.3",
         default_models={
             # grok-3 and grok-4-0709 were retired on 2026-05-15 and now
@@ -497,6 +513,7 @@ PROVIDER_CONFIG: Dict[str, ProviderProfile] = {
     "openrouter": ProviderProfile(
         key="openrouter",
         session_accumulation=True,
+        streams_usage=True,
         api_key_env="OPENROUTER_API_KEY",
         base_url_env="OPENROUTER_BASE_URL",
         default_base_url="https://openrouter.ai/api/v1",

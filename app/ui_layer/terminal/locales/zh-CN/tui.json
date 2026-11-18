@@ -53,7 +53,10 @@
     "attached_one": "已附加 {{count}} 个文件",
     "attached_other": "已附加 {{count}} 个文件",
     "attachTooMany": "每条消息最多 {{count}} 个文件",
-    "attachTooLarge": "附件总大小不能超过 200 MB"
+    "attachTooLarge": "附件总大小不能超过 200 MB",
+    "refChat": "聊天",
+    "refApp": "Agent App",
+    "references": "附带：{{list}}（Backspace 移除最后一个）"
   },
   "connect": {
     "connecting": "正在启动 CraftBot...",
@@ -121,7 +124,8 @@
     "interactiveOutput": "交互式输出 · {{title}} · rev {{revision}} · 请在浏览器版中打开",
     "detailsHint": "详情见对话记录（Ctrl+O）",
     "error": "错误",
-    "system": "系统"
+    "system": "系统",
+    "references": "附带：{{list}}"
   },
   "help": {
     "chat": "对话",
@@ -209,7 +213,6 @@
     "agentNamePlaceholder": "为你的智能体命名",
     "via": "连接方式：{{via}}（按 Tab 切换）",
     "viaDirect": "直接连接供应商",
-    "subscriptionHint": "可用 {{label}} 代替密钥：设置完成后在 设置 > 模型 中使用。",
     "imageLater": "稍后可在设置中添加图片",
     "working": "正在保存..."
   },
@@ -219,5 +222,15 @@
     "sessions": "会话",
     "transcript": "记录",
     "tagline": "有问题尽管问。输入 / 使用命令，输入 @ 附加文件。"
+  },
+  "rejected": {
+    "title": "未发送：{{error}}",
+    "keys": "按 Tab，然后 r 重试 · e 编辑",
+    "focusedKeys": "r 重试 · e 编辑 · Esc 返回"
+  },
+  "fold": {
+    "hint": "折叠",
+    "action": "立即折叠上下文",
+    "running": "正在折叠上下文..."
   }
 }

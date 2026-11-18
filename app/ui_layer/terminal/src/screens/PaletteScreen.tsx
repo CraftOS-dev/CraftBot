@@ -6,6 +6,7 @@ import { Pointer, rowMetaStyle, rowStyle } from '../ui/selection'
 import { useState } from 'react'
 import { Box, Text } from 'ink'
 import { useTranslation } from 'react-i18next'
+import { frameworkAppKey } from '../../../browser/frontend/src/store/slices/agentAppSlice'
 import { useAppDispatch, useAppSelector } from '../state/hooks'
 import { closeAllScreens, replaceScreen, setActiveSession, type ScreenId } from '../state/tuiSlice'
 import { selectChatSessions } from '../../../browser/frontend/src/store/selectors/sessions'
@@ -53,7 +54,7 @@ export function PaletteScreen() {
   useResource(RESOURCES.commands)
   useResource(RESOURCES.skills)
   const chats = useAppSelector(selectChatSessions)
-  const apps = useAppSelector(s => s.agentApp.projects)
+  const apps = useAppSelector(s => s.agentApp.framework.apps)
   const commands = useAppSelector(s => s.commandsSettings.commands)
   const skills = useAppSelector(s => s.skillsSettings.skills)
   const [query, setQuery] = useState<TB.Buffer>(TB.EMPTY)
@@ -91,7 +92,7 @@ export function PaletteScreen() {
         dispatch(closeAllScreens())
       },
     })),
-    ...apps.map(p => ({ label: p.name, detail: p.status, kind: t('palette.app'), run: go('app', p.id) })),
+    ...apps.map(a => ({ label: a.name, detail: a.status, kind: t('palette.app'), run: go('app', frameworkAppKey(a.path, a.id)) })),
     ...commands.map(c => ({ label: `/${c.name.replace(/^\//, '')}`, detail: c.description, kind: t('palette.command'), run: prefill(`/${c.name.replace(/^\//, '')} `) })),
     ...skills
       .filter(s => s.enabled && s.user_invocable)

@@ -28,6 +28,8 @@ from agent_core import action
     test_payload={
         "simulated_mode": True,
     },
+    display_param=None,
+    icon="Library",
 )
 def list_skills(input_data: dict) -> dict:
     """List all enabled skills with their names and descriptions."""
@@ -68,6 +70,7 @@ def list_skills(input_data: dict) -> dict:
     input_schema={
         "skill_name": {
             "type": "string",
+            "required": True,
             "description": "Name of the skill to load.",
             "example": "pdf",
         },
@@ -97,6 +100,8 @@ def list_skills(input_data: dict) -> dict:
         "skill_name": "pdf",
         "simulated_mode": True,
     },
+    display_param="skill_name",
+    icon="BookOpenCheck",
 )
 def use_skill(input_data: dict) -> dict:
     """Load a skill into the session (additive)."""
@@ -142,6 +147,7 @@ def use_skill(input_data: dict) -> dict:
     input_schema={
         "skill_name": {
             "type": "string",
+            "required": True,
             "description": "Name of the skill to unload.",
             "example": "pdf",
         },
@@ -160,6 +166,8 @@ def use_skill(input_data: dict) -> dict:
         "skill_name": "pdf",
         "simulated_mode": True,
     },
+    display_param="skill_name",
+    icon="BookX",
 )
 def unload_skill(input_data: dict) -> dict:
     """Unload a skill from the session."""

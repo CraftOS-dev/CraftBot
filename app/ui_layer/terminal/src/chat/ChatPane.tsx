@@ -30,12 +30,14 @@ import { glyphs, ink } from '../theme/theme'
 import { truncate } from '../text/width'
 import { groupOf, renderUnit, type Group } from '../render/transcript'
 import type { Unit } from './timeline'
-import { choiceKey, useSessionLive } from './sessionLive'
+import { choiceKey, rejectedKey, useSessionLive } from './sessionLive'
+import { RejectedBlock, REJECTED_ROWS } from './RejectedBlock'
 import { markSeen, requestHistory, sendChat, stopSession } from './intents'
 import { WorkingBlock, workingBlockHeight } from './WorkingBlock'
+import { draftLines } from './DraftReply'
 import { ChoiceBox, choiceBoxHeight } from './ChoiceBox'
 import { COMPOSER_CHROME_ROWS, ComposerView, composerTextColumns } from '../input/ComposerView'
-import { applyKey, applyPaste, EMPTY_MODEL, submittedText, type ComposerModel } from '../input/composer'
+import { applyKey, applyPaste, EMPTY_MODEL, modelFromText, submittedText, type ComposerModel } from '../input/composer'
 import * as TB from '../input/TextBuffer'
 import { history, remember } from '../input/history'
 
@@ -74,7 +76,7 @@ export function ChatPane({ sessionId, columns, rows: outerRows, focused, keysRef
   const dispatch = useAppDispatch()
   const g = glyphs()
   const live = useSessionLive(sessionId)
-  const { busy, runState, running, choice, choiceCount, runStart, subagents, units } = live
+  const { busy, runState, running, choice, choiceCount, runStart, subagents, units, stepStatus, drafts, preparing, rejected } = live
   const historyStatus = useAppSelector(s => selectSessionHistoryStatus(s, sessionId))
   const lastMessageId = useAppSelector(s => selectLastMessageIdBySession(s)[sessionId])
   const inner = Math.max(16, divider === 'left' ? columns - 2 : columns - 1)
@@ -106,6 +108,11 @@ export function ChatPane({ sessionId, columns, rows: outerRows, focused, keysRef
     lines.push(...(lines.length === 0 && block[0] === '' ? block.slice(1) : block))
     previous = groupOf(unit)
   }
+  // The reply being written follows, as the message it becomes.
+  if (drafts.length) {
+    if (lines.length && previous !== 'agent') lines.push('')
+    lines.push(...draftLines(drafts, inner))
+  }
 
   // --- composer ----------------------------------------------------------------
   const [model, setModelState] = useState<ComposerModel>(EMPTY_MODEL)
@@ -115,6 +122,7 @@ export function ChatPane({ sessionId, columns, rows: outerRows, focused, keysRef
     setModelState(next)
   }, [])
   const [questionFocus, setQuestionFocus] = useState(false)
+  const [rejectedFocus, setRejectedFocus] = useState(false)
   const [optionIndex, setOptionIndex] = useState(0)
   const [offset, setOffset] = useState(0)
 
@@ -122,6 +130,9 @@ export function ChatPane({ sessionId, columns, rows: outerRows, focused, keysRef
     if (!choice) setQuestionFocus(false)
     setOptionIndex(0)
   }, [choice?.messageId])
+  useEffect(() => {
+    if (!rejected) setRejectedFocus(false)
+  }, [rejected?.clientId])
 
   // New lines keep a scrolled-back view where it is.
   const lineCount = useRef(lines.length)
@@ -149,12 +160,14 @@ export function ChatPane({ sessionId, columns, rows: outerRows, focused, keysRef
 
   // --- layout ------------------------------------------------------------------
   const choiceBody = Math.max(2, Math.min(6, rows - 14))
-  const workingRows = busy ? workingBlockHeight(running?.items ?? [], subagents.length) : 0
+  const workingItems = [...(running?.items ?? []), ...preparing]
+  const workingRows = busy ? workingBlockHeight(workingItems, subagents.length) : 0
   const choiceRows = choice ? choiceBoxHeight(choice, inner, choiceBody) : 0
+  const rejectedRows = rejected ? REJECTED_ROWS : 0
   const textRows = Math.max(1, Math.min(4, TB.layout(model.buffer, composerTextColumns(inner)).rows.length))
   // One blank row between the conversation and the live rows, as in the main chat.
-  const gapRows = busy || choice ? 1 : 0
-  const transcriptRows = Math.max(1, rows - gapRows - workingRows - choiceRows - textRows - COMPOSER_CHROME_ROWS)
+  const gapRows = busy || choice || rejected ? 1 : 0
+  const transcriptRows = Math.max(1, rows - gapRows - workingRows - choiceRows - rejectedRows - textRows - COMPOSER_CHROME_ROWS)
   const maxOffset = Math.max(0, lines.length - transcriptRows)
   const shownOffset = Math.min(offset, maxOffset)
   const end = lines.length - shownOffset
@@ -170,6 +183,12 @@ export function ChatPane({ sessionId, columns, rows: outerRows, focused, keysRef
       else if (result.kind === 'blur' || result.kind === 'done') setQuestionFocus(false)
       return true
     }
+    if (rejectedFocus && rejected) {
+      const result = rejectedKey(rejected, input, key)
+      if (result.kind === 'edit') setModel(modelFromText(result.text))
+      if (result.kind !== 'none') setRejectedFocus(false)
+      return true
+    }
     if (key.pageUp) {
       setOffset(Math.min(maxOffset, shownOffset + page))
       return true
@@ -180,6 +199,10 @@ export function ChatPane({ sessionId, columns, rows: outerRows, focused, keysRef
     }
     if (key.tab && choice) {
       setQuestionFocus(true)
+      return true
+    }
+    if (key.tab && rejected) {
+      setRejectedFocus(true)
       return true
     }
     if (key.escape) {
@@ -230,11 +253,13 @@ export function ChatPane({ sessionId, columns, rows: outerRows, focused, keysRef
           startedAt={runStart}
           stopping={runState === 'stopping'}
           waiting={!!choice}
-          items={running?.items ?? []}
+          status={stepStatus}
+          items={workingItems}
           subagents={subagents}
           columns={inner}
         />
       ) : null}
+      {rejected ? <RejectedBlock message={rejected} focused={rejectedFocus} columns={inner} /> : null}
       {choice ? (
         <ChoiceBox
           message={choice}
@@ -251,7 +276,7 @@ export function ChatPane({ sessionId, columns, rows: outerRows, focused, keysRef
         columns={inner}
         placeholder={placeholder}
         maxRows={textRows}
-        focused={focused && !questionFocus}
+        focused={focused && !questionFocus && !rejectedFocus}
         offsetTop={0}
       />
     </Box>

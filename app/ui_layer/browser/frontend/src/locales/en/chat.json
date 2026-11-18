@@ -74,9 +74,28 @@
     "defaultTag": "Default",
     "notConfigurable": "Reasoning isn't adjustable for {{model}}",
     "clamped": "{{requested}} isn't available on this model, so {{effective}} is used.",
+    "choice": {
+      "provider_default": "Provider default",
+      "off": "Off",
+      "minimal": "Minimal",
+      "low": "Low",
+      "medium": "Medium",
+      "high": "High",
+      "xhigh": "Extra high",
+      "max": "Max"
+    }
+  },
+  "contextWindow": {
+    "title": "Context window",
+    "tooltip": "Context {{used}} / {{max}} ({{percent}})",
+    "header": "Context · {{model}}",
+    "fold": "Fold now",
+    "folding": "Folding…",
+    "foldHint": "Summarize older events now to free context",
     "context": {
       "label": "Context",
-      "summarizesAt": "Summarizes at {{max}}"
+      "summarizesAt": "Summarizes at {{max}}",
+      "estimate": "~{{value}}"
     },
     "cache": {
       "label": "Cache",
@@ -87,16 +106,6 @@
       "about": "~{{time}}",
       "expired": "Expired",
       "noExpiry": "No fixed expiry"
-    },
-    "choice": {
-      "provider_default": "Provider default",
-      "off": "Off",
-      "minimal": "Minimal",
-      "low": "Low",
-      "medium": "Medium",
-      "high": "High",
-      "xhigh": "Extra high",
-      "max": "Max"
     }
   },
   "reply": {
@@ -155,5 +164,40 @@
   },
   "panel": {
     "close": "Close panel"
+  },
+  "references": {
+    "title": "Add context",
+    "search": "Search sessions and apps",
+    "session": "Sessions",
+    "agent_app": "Agent apps",
+    "noMatches": "No matches",
+    "done": "Done",
+    "preview": "Preview reference",
+    "remove": "Remove reference: {{name}}",
+    "captured": "Captured: {{time}}",
+    "truncated": "This excerpt omits source content. The agent can read more using read_reference.",
+    "captureOnSend": "Context will be captured when this message is sent.",
+    "retention": "Captured excerpts remain in this chat if the source is deleted.",
+    "unavailable": "Source unavailable",
+    "openSource": "Open source",
+    "limit": "Select at most 8 references.",
+    "retry": "Retry message",
+    "edit": "Edit message",
+    "pickerTitle": "Add context",
+    "emptyHint": "Try another name or category."
+  },
+  "apps": {
+    "region": "Agent Apps panel",
+    "loading": "Loading installed apps…",
+    "disconnected": "Reconnect to load or launch apps.",
+    "loadingView": "Loading app view…",
+    "viewTimeout": "The app view is taking longer to load. Retry or open the full app.",
+    "viewUnavailable": "This app view is unavailable or already open in another surface.",
+    "retry": "Retry",
+    "openPanel": "Open in panel",
+    "show": "Show an agent app",
+    "title": "Agent apps",
+    "noInstalled": "No installed apps.",
+    "close": "Close"
   }
 }

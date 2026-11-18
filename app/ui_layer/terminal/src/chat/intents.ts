@@ -7,19 +7,27 @@
  * normal message. A new chat is the lazy "new" session: the backend creates
  * it on the first message and announces it with session_created carrying
  * our clientId, and the chat switches to it.
+ *
+ * A message the backend could not accept (`message_rejected`) keeps its
+ * payload here: retrying sends the identical payload again (the backend
+ * drops a duplicate by clientId), editing puts its text back in the
+ * composer. The run state goes back to what it was before the send.
  */
 import { randomUUID } from 'node:crypto'
 import { readFileSync, statSync } from 'node:fs'
 import { basename, extname } from 'node:path'
-import type { ChatMessage } from '../../../browser/frontend/src/types'
+import type { ChatMessage, ReferenceInput, ReferenceSnapshot } from '../../../browser/frontend/src/types'
 import { QUESTION_DISMISSED } from '../../../browser/frontend/src/types'
 import {
   addOptimistic,
+  discardSubmission,
   historyRequested,
   markOptionSelected,
+  resubmitSubmission,
   transferSession,
 } from '../../../browser/frontend/src/store/slices/messagesSlice'
 import { setSessionRunState } from '../../../browser/frontend/src/store/slices/agentSlice'
+import { selectSessionRunState } from '../../../browser/frontend/src/store/selectors/agent'
 import { transferDraft } from '../../../browser/frontend/src/store/slices/chatInputSlice'
 import { selectPendingQuestions } from '../../../browser/frontend/src/store/selectors/messages'
 import { onInboundMessage } from '../../../browser/frontend/src/store/socket/socketMiddleware'
@@ -46,6 +54,50 @@ onInboundMessage(msg => {
     store.dispatch(setActiveSession(d.session.id))
   }
 })
+
+/** Sends that may still be rejected: their payload, and the run state before them. */
+const submissions = new Map<string, { sessionId: string; payload: Record<string, unknown>; runState: ReturnType<typeof selectSessionRunState> | null }>()
+
+onInboundMessage(msg => {
+  const d = (msg.data ?? {}) as { clientId?: string; sessionId?: string; state?: ReturnType<typeof selectSessionRunState> }
+  if (msg.type === 'chat_message' && d.clientId) {
+    // Accepted: nothing to retry any more.
+    submissions.delete(d.clientId)
+  } else if (msg.type === 'message_rejected' && d.clientId && d.sessionId) {
+    const entry = submissions.get(d.clientId)
+    if (entry?.runState) store.dispatch(setSessionRunState({ sessionId: d.sessionId, state: entry.runState }))
+    // Restored; a retry captures the run state afresh.
+    if (entry) entry.runState = null
+  } else if (msg.type === 'session_busy' && d.sessionId && d.state) {
+    for (const entry of submissions.values()) if (entry.sessionId === d.sessionId && entry.runState) entry.runState = d.state
+  }
+})
+
+/** Send a rejected message again, as it was. */
+export function retrySubmission(clientId: string): void {
+  const entry = submissions.get(clientId)
+  if (!entry) return
+  entry.runState = selectSessionRunState(store.getState(), entry.sessionId)
+  store.dispatch(resubmitSubmission({ sessionId: entry.sessionId, clientId }))
+  store.dispatch(setSessionRunState({ sessionId: entry.sessionId, state: 'running' }))
+  send('message', entry.payload)
+}
+
+/** Take a rejected message back: its text (with its @mentions) and its references, for the composer. */
+export function editSubmission(clientId: string): { text: string; references: Reference[] } | null {
+  const entry = submissions.get(clientId)
+  if (!entry) return null
+  const message = store.getState().messages.bySession[entry.sessionId]?.items.find(m => m.clientId === clientId)
+  store.dispatch(discardSubmission({ sessionId: entry.sessionId, clientId }))
+  submissions.delete(clientId)
+  return {
+    text: String(entry.payload.content ?? ''),
+    references: (message?.references ?? []).map(({ kind, targetId, label }) => ({ kind, targetId, label })),
+  }
+}
+
+/** Another chat or an Agent App given to the agent as context (ReferenceInput plus its label). */
+export type Reference = ReferenceInput & { label: string }
 
 export interface FileAttachment {
   name: string
@@ -109,14 +161,17 @@ export async function sendChat(
   sessionId: string,
   files: FileAttachment[] = [],
   replyTo?: string,
+  references: Reference[] = [],
 ): Promise<void> {
   const clientId = randomUUID()
   if (sessionId === 'new') pendingDraftClientIds.add(clientId)
 
-  if (content.trimStart().startsWith('/') && files.length === 0) {
+  if (content.trimStart().startsWith('/') && files.length === 0 && references.length === 0) {
     send('command', { command: content.trim(), sessionId, clientId })
     return
   }
+
+  const runState = selectSessionRunState(store.getState(), sessionId)
 
   store.dispatch(setSessionRunState({ sessionId, state: 'running' }))
   const optimistic: ChatMessage = {
@@ -128,12 +183,16 @@ export async function sendChat(
     sessionId,
     clientId,
     pending: true,
+    references: references.length
+      ? (references.map(r => ({ ...r, schemaVersion: 1, capturedAt: '', contentHash: '', excerpt: '', truncated: false })) as ReferenceSnapshot[])
+      : undefined,
   }
   store.dispatch(addOptimistic(optimistic))
 
-  // A message answers the pinned question shown above the composer.
+  // A message answers the pinned question shown above the composer; one
+  // that carries references does not (it is about something else).
   const shown = selectPendingQuestions(store.getState(), sessionId)[0]
-  if (shown) {
+  if (shown && references.length === 0) {
     store.dispatch(markOptionSelected({
       sessionId,
       messageId: shown.messageId,
@@ -141,13 +200,16 @@ export async function sendChat(
     }))
   }
 
-  send('message', {
+  const payload = {
     content,
     sessionId,
     attachments: await encodeAttachments(files),
+    references: references.map(({ kind, targetId }) => ({ kind, targetId })),
     replyContext: replyTo ? { originalMessage: replyTo } : null,
     clientId,
-  })
+  }
+  submissions.set(clientId, { sessionId, payload, runState })
+  send('message', payload)
 }
 
 export function stopSession(sessionId: string): void {

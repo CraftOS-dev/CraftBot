@@ -1,6 +1,6 @@
 /**
- * Plumbing shared by the three tabs of Add Agent App (Marketplace, Create,
- * Import): the controller each tab hook returns to the screen, a labelled
+ * Plumbing shared by the tabs of Add Agent App (Marketplace, Build, Import,
+ * Connect): the controller each tab hook returns to the screen, a labelled
  * form row and a wrapped multi-line text field for the app description.
  */
 import type { ReactNode } from 'react'
@@ -31,8 +31,10 @@ export interface TabProps {
   height: number
   /** The tab is shown. */
   active: boolean
-  /** Move on to the app screen of a new project. */
-  onOpenProject: (projectId: string) => void
+  /** Move on to an installed or connected app (its key, JSON [path, id]). */
+  onOpenApp: (appKey: string) => void
+  /** Move on to a build that just started (its session). */
+  onOpenBuild: (sessionId: string) => void
 }
 
 /** Prose wrapped to `cols`, without the leading space a wrap leaves on continuation lines. */

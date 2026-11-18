@@ -40,9 +40,28 @@
     "defaultTag": "Bawaan",
     "notConfigurable": "Penalaran tidak dapat diatur untuk {{model}}",
     "clamped": "{{requested}} tidak tersedia pada model ini, jadi {{effective}} yang digunakan.",
+    "choice": {
+      "provider_default": "Bawaan penyedia",
+      "off": "Mati",
+      "minimal": "Minimal",
+      "low": "Rendah",
+      "medium": "Sedang",
+      "high": "Tinggi",
+      "xhigh": "Sangat tinggi",
+      "max": "Maksimum"
+    }
+  },
+  "contextWindow": {
+    "title": "Jendela konteks",
+    "tooltip": "Konteks {{used}} / {{max}} ({{percent}})",
+    "header": "Konteks · {{model}}",
+    "fold": "Ringkas sekarang",
+    "folding": "Meringkas…",
+    "foldHint": "Ringkas peristiwa lama sekarang untuk membebaskan konteks",
     "context": {
       "label": "Konteks",
-      "summarizesAt": "Diringkas pada {{max}}"
+      "summarizesAt": "Diringkas pada {{max}}",
+      "estimate": "~{{value}}"
     },
     "cache": {
       "label": "Cache",
@@ -53,16 +72,6 @@
       "about": "~{{time}}",
       "expired": "Kedaluwarsa",
       "noExpiry": "Tanpa batas waktu tetap"
-    },
-    "choice": {
-      "provider_default": "Bawaan penyedia",
-      "off": "Mati",
-      "minimal": "Minimal",
-      "low": "Rendah",
-      "medium": "Sedang",
-      "high": "Tinggi",
-      "xhigh": "Sangat tinggi",
-      "max": "Maksimum"
     }
   },
   "reply": {
@@ -121,5 +130,40 @@
   },
   "panel": {
     "close": "Tutup panel"
+  },
+  "references": {
+    "title": "Tambah konteks",
+    "search": "Cari obrolan dan aplikasi",
+    "session": "Obrolan",
+    "agent_app": "Agent App",
+    "noMatches": "Tidak ada yang cocok",
+    "done": "Selesai",
+    "preview": "Pratinjau referensi",
+    "remove": "Hapus referensi: {{name}}",
+    "captured": "Diambil: {{time}}",
+    "truncated": "Kutipan ini menghilangkan sebagian isi sumber. Agen dapat membaca lebih lanjut dengan read_reference.",
+    "captureOnSend": "Konteks akan diambil saat pesan ini dikirim.",
+    "retention": "Kutipan yang diambil tetap ada di obrolan ini meskipun sumbernya dihapus.",
+    "unavailable": "Sumber tidak tersedia",
+    "openSource": "Buka sumber",
+    "limit": "Pilih paling banyak 8 referensi.",
+    "retry": "Kirim ulang pesan",
+    "edit": "Edit pesan",
+    "pickerTitle": "Tambah konteks",
+    "emptyHint": "Coba nama atau kategori lain."
+  },
+  "apps": {
+    "region": "Panel aplikasi agen",
+    "loading": "Memuat aplikasi terpasang…",
+    "disconnected": "Hubungkan kembali untuk memuat atau menjalankan aplikasi.",
+    "loadingView": "Memuat tampilan aplikasi…",
+    "viewTimeout": "Aplikasi memerlukan waktu lebih lama untuk dimuat. Coba lagi atau buka aplikasi penuh.",
+    "viewUnavailable": "Tampilan aplikasi tidak tersedia atau sudah terbuka di tempat lain.",
+    "retry": "Coba lagi",
+    "openPanel": "Buka di panel",
+    "show": "Tampilkan Agent App",
+    "title": "Agent App",
+    "noInstalled": "Tidak ada aplikasi terpasang.",
+    "close": "Tutup"
   }
 }

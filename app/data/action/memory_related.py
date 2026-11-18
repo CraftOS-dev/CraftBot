@@ -4,11 +4,13 @@ from agent_core import action
 _INPUT_SCHEMA = {
     "name_a": {
         "type": "string",
+        "required": True,
         "example": "John",
         "description": "First entity name. Case-insensitive.",
     },
     "name_b": {
         "type": "string",
+        "required": True,
         "example": "Agent App",
         "description": "Second entity name. Case-insensitive.",
     },
@@ -53,6 +55,8 @@ _OUTPUT_SCHEMA = {
     input_schema=_INPUT_SCHEMA,
     output_schema=_OUTPUT_SCHEMA,
     test_payload={"name_a": "John", "name_b": "CraftBot", "simulated_mode": True},
+    display_param="name_a",
+    icon="Brain",
 )
 def memory_related(input_data: dict) -> dict:
     """

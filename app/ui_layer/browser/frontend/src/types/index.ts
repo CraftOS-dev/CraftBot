@@ -19,6 +19,28 @@ export interface ChatMessageOption {
   url?: string  // If set, clicking also opens this URL in a new tab (e.g. a billing link)
 }
 
+export interface PendingChatSubmission {
+  replyContext?: { originalMessage: string }
+  sessionId: string
+  content: string
+  attachments: { name: string; type: string; size: number; content: string; serverPath?: string }[]
+  references: (ReferenceInput & { label: string })[]
+}
+
+export interface ReferenceInput {
+  kind: 'session' | 'agent_app'
+  targetId: string
+}
+export interface ReferenceSnapshot extends ReferenceInput {
+  schemaVersion: 1
+  label: string
+  capturedAt: string
+  contentHash: string
+  excerpt: string
+  truncated: boolean
+  nextCursor?: string | null
+}
+
 export interface ChatMessage {
   uiArtifact?: GenerativeUIArtifact | ClosedGenerativeUIArtifact
   sender: string
@@ -27,12 +49,15 @@ export interface ChatMessage {
   timestamp: number
   messageId: string
   sessionId: string
+  references?: ReferenceSnapshot[]
+  submissionError?: string
   attachments?: Attachment[]
   options?: ChatMessageOption[]
   requiresChoice?: boolean  // True when options is a blocking choice (e.g. Continue/Stop) vs. convenience action links; absent/true means show "Please select a response to continue"
   optionSelected?: string  // Value of the option that was selected
   clientId?: string  // Client-generated UUID for reconciling optimistic pending messages with server echo
   pending?: boolean  // True while an optimistic message is awaiting server acknowledgment
+  streaming?: boolean  // True while an agent reply is still being written (streamed draft): its last lines fade out
   errorCategory?: string  // ErrorCategory value (e.g. "auth", "rate_limit") when style === 'error'
   errorCode?: string  // Stable error code (e.g. "LLM_AUTH", "CONFIG_NO_API_KEY")
   errorSeverity?: 'info' | 'warning' | 'error' | 'critical'
@@ -93,6 +118,17 @@ export const REASONING_CHOICES: readonly ReasoningChoice[] = [
   'provider_default', 'off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max',
 ]
 
+/** Where an Agent App build last stopped for the person: its questions, or the requirements review. */
+export interface BuildCheckpoint {
+  id: string
+  kind: 'questions' | 'review'
+  round: number
+  status: 'pending' | 'answered' | 'approved' | 'changes' | 'cancelled'
+  /** `ui`: CraftBot shows it; `chat`: the builder asks in the conversation. */
+  shown: 'ui' | 'chat'
+  createdAt: string
+}
+
 export interface SessionInfo {
   id: string
   type: SessionType
@@ -100,15 +136,23 @@ export interface SessionInfo {
   createdAt: string
   lastActiveAt: string
   agentAppProjectId?: string | null
+  agentAppFrameworkKey?: string | null
+  agentAppFrameworkPending?: boolean
+  agentAppBuild?: { building: boolean; verifying?: boolean; todos: { id: string; content?: string; active_form?: string; status: 'pending' | 'in_progress' | 'completed' }[]; checkpoint?: BuildCheckpoint | null } | null
   /** Always set by the backend; null only on the client-side placeholder for
    *  the main session before the backend has sent it. */
   reasoningEffort: ReasoningChoice | null
   /** The session's last decision request as the provider reported it; null
    *  until its first request (also after a restart). */
   lastRequest: LastRequest | null
+  /** The event stream's latest fold; null when it has none since it was
+   *  created, restored or cleared. */
+  lastFold: LastFold | null
+  /** A fold the user asked for (/fold) is summarizing the event stream. */
+  folding: boolean
 }
 
-/** One LLM request's context size and cache use (the reasoning menu readout). */
+/** One LLM request's context size and cache use (the context menu readout). */
 export interface LastRequest {
   /** Input tokens the request carried, cached ones included. */
   inputTokens: number
@@ -119,6 +163,15 @@ export interface LastRequest {
   /** Where it was served and by which model: its cache belongs to them. */
   surface: string
   model: string
+}
+
+/** A fold that shrank a session's event stream. Until a request after it
+ *  reports its size, the context readout takes it off the last request's. */
+export interface LastFold {
+  /** Epoch ms when it was made. */
+  at: number
+  /** How many tokens the stream shrank by (the summary's growth subtracted). */
+  freedTokens: number
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -134,6 +187,13 @@ export interface ActionItem {
   status: ActionStatus
   itemType: ItemType
   sessionId: string
+  /** The input the action's row shows (its declared display param); null:
+   *  the action shows none. Absent: an action the backend did not know. */
+  displayParam?: string | null
+  /** Lucide icon name shown before the name (an action of no integration). */
+  icon?: string
+  /** Integration id whose logo is shown before the name. */
+  integration?: string
   parentId?: string
   createdAt?: number
   completedAt?: number
@@ -282,17 +342,10 @@ export type WSMessageType =
   | 'agent_profile_picture_upload'
   | 'agent_profile_picture_remove'
   // Agent App operations
-  | 'agent_app_create'
-  | 'agent_app_status'
-  | 'agent_app_ready'
   | 'agent_app_list'
-  | 'agent_app_launch'
-  | 'agent_app_stop'
-  | 'agent_app_delete'
-  | 'agent_app_state_update'
-  | 'agent_app_build_event'
-  | 'agent_app_build_events_replay'
-  | 'agent_app_error'
+  | 'agent_app_framework_list'
+  | 'agent_app_framework_open'
+  | 'agent_app_framework_lifecycle'
   | 'prompt_enhanced'
 
 export interface WSMessage {
@@ -831,61 +884,8 @@ export interface OnboardingCompleteResponse {
   error?: string
 }
 
-// ─────────────────────────────────────────────────────────────────────
-// Agent App Types
-// ─────────────────────────────────────────────────────────────────────
-
-// 'launching'/'stopping' are optimistic transient states set on the client the
-// moment the user clicks launch/stop, so the UI reacts immediately (the backend
-// only reports the terminal 'running'/'stopped'/'error').
-export type AgentAppStatus = 'creating' | 'launching' | 'ready' | 'running' | 'stopping' | 'stopped' | 'error'
-export type AgentAppCreationPhase = 'initializing' | 'scaffolding' | 'coding' | 'testing' | 'building' | 'launching'
-
-export interface AgentAppProject {
-  id: string
-  name: string
-  description: string
-  status: AgentAppStatus
-  path: string
-  /** Chat session backing this project's chat panel. */
-  sessionId?: string
-  port?: number
-  url?: string
-  createdAt: number
-  /** "lucide:<Name>" or "file:<relpath>" (uploaded favicon). */
-  icon?: string | null
-  features?: string[]
-  error?: string
-  stylePack?: string
-  /** Server-persisted display theme; adopted when no local override exists. */
-  uiTheme?: { themeId?: string; customColors?: Record<string, string> } | null
-  /** 'native' (a Agent App) | 'external' (foreign app running as-is). */
-  projectType?: 'native' | 'external'
-  /** External apps only: detected runtime (node/python/static/go/rust). */
-  appRuntime?: string | null
-  /** CraftBot version that acquired this project (provenance). */
-  craftbotVersion?: string | null
-  /** Client stamp of the last ready/launch event — cache-busts the app
-   * iframe so a fresh deploy is actually fetched instead of served from the
-   * browser's HTTP cache. */
-  readyAt?: number
-}
-
-export interface AgentAppCreateRequest {
-  name: string
-  description: string
-  features?: string[]  // Optional, defaults to empty array
-  dataSource?: string
-  theme?: 'light' | 'dark' | 'system'
-  authMode?: 'none' | 'multi-user'
-  layout?: string
-  stylePack?: string
-  referenceFiles?: string[]
-}
-
 // One derived "the app is being built" event, produced read-only by the
-// backend construction observer (app/agent_app/construction_events.py) and
-// rendered in the construction dock's feed + CodePeek.
+// framework build view and rendered in the construction dock's feed.
 export interface AgentAppBuildEvent {
   id: string
   ts: number
@@ -893,79 +893,81 @@ export interface AgentAppBuildEvent {
   area: 'backend' | 'frontend' | 'tests' | 'docs' | 'config' | 'other'
   label: string
   file?: string
-  entities?: {
-    models?: string[]
-    routes?: string[]
-    components?: string[]
-    tests?: string[]
-  }
-  snippet?: string
   tests?: { passed: number; failed: number }
-  /** Authoritative counts scanned from the project on disk at event time —
-   * the source of truth for the dock's summary chips (not the per-write
-   * entities above, which only describe what that one write touched). */
-  snapshot?: { collections: number; components: number; routes: number }
+  /** The build at this moment: the dock's bar, status line and counts follow
+   * the row being shown, so they move with the feed rather than ahead of it. */
+  snapshot?: BuildSnapshot
 }
 
-export interface AgentAppStatusUpdate {
-  projectId: string
-  phase: AgentAppCreationPhase
-  progress: number  // 0-100
-  message: string
-  logs?: string[]
+/** A framework build's progress, as CraftBot's construction dock shows it. */
+export interface BuildSnapshot {
+  /** Files the builder has written so far. */
+  files: number
+  /** React components declared or used in those files. */
+  components: number
+  tasksDone: number
+  tasksTotal: number
+  /** 0–100, never going back. */
+  progress: number
+  stage: 'setup' | 'questions' | 'requirements' | 'review' | 'planning' | 'building' | 'checking' | 'verifying' | 'launching'
+  /** The next task in the build's ledger. */
+  task: string
+  /** Repairing what a check or the verifier found. */
+  fixing: boolean
 }
 
-export interface AgentAppStateUpdate {
-  projectId: string
-  state: {
-    componentTree: AgentAppComponentState[]
-    visibleText: string[]
-    inputValues: Record<string, string>
-    currentView: string
-    scrollPosition: { x: number; y: number }
-    timestamp: number
-  }
-}
-
-export interface AgentAppComponentState {
+// Framework snapshots remain separate from legacy project IDs and controls.
+export interface FrameworkRegistryApp {
+  id: string
   name: string
-  props: Record<string, unknown>
-  children?: AgentAppComponentState[]
-}
-
-// Response types for Agent App operations
-export interface AgentAppCreateResponse {
-  success: boolean
-  projectId?: string
-  project?: AgentAppProject
-  error?: string
-}
-
-export interface AgentAppListResponse {
-  success: boolean
-  projects?: AgentAppProject[]
-  error?: string
-}
-
-export interface AgentAppLaunchResponse {
-  success: boolean
-  projectId?: string
-  url?: string
+  path: string
+  status: 'running' | 'stopped' | 'missing' | 'unreachable'
   port?: number
-  error?: string
+  connection?: FrameworkConnectedApp
+  marketplace?: { id: string; location: string; ref?: string }
+  uiTheme?: import('../pages/AgentApp/themeCatalog').AgentAppTheme | null
+  themeSupport?: import('../pages/AgentApp/themeCatalog').LegacyThemeSupport
 }
 
-export interface AgentAppStopResponse {
-  success: boolean
-  projectId?: string
-  error?: string
+export interface FrameworkConnectedApp {
+  appId: string | null
+  name: string
+  origin: string
+  credentialId: string | null
+  principalName: string | null
+  principal: string
+  expiresAt?: string
+  status: 'online' | 'offline' | 'unreachable' | 'expired'
 }
 
-export interface AgentAppDeleteResponse {
-  success: boolean
-  projectId?: string
-  error?: string
+export type FrameworkRegistryResponse =
+  | { status: 'loading' }
+  | { status: 'success'; data: { apps: FrameworkRegistryApp[]; connected: FrameworkConnectedApp[]; aliases?: Record<string, string> }; stderr?: string }
+  | { status: 'error'; message: string }
+
+export interface FrameworkAppView {
+  id: string
+  path: string
+  name: string
+  url: string
 }
+
+export interface FrameworkLifecycleResult {
+  requestId: string
+  path: string
+  appId: string
+  operation: 'start' | 'stop'
+  status: 'running' | 'success' | 'error' | 'unknown'
+  code?: string
+  message?: string
+  stderr?: string
+  remaining?: boolean
+}
+
+export type FrameworkOpenResponse = { requestId: string } & (
+  | { status: 'success'; data: FrameworkAppView }
+  | { status: 'error'; code: string; message: string }
+)
 
 // ─────────────────────────────────────────────────────────────────────
 // Mini Browser — every chat session has a real Chromium of its own, shown

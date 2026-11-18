@@ -147,7 +147,7 @@ def test_router_decides_on_the_request_and_restarts_without_ending():
     first_call = src.index("if not has_synced_before:")
     send = src.index("generate_response_with_session_async", first_call)
     assert "reset_session_history" in src[first_call:send]
-    assert "end_session_cache" not in src[src.index("No delta events") : send]
+    assert "end_session_cache" not in src[delta_branch:send]
     assert "except LLMContextOverflowError" in src
 
 
@@ -162,7 +162,9 @@ def test_a_restored_session_takes_the_session_path_like_a_new_one(tmp_path):
     from agent_core.core.state.session import StateSession
 
     iface = _make()
-    engine = SimpleNamespace(make_prompt=lambda **kw: ("SYSTEM", ""))
+    engine = SimpleNamespace(
+        make_decision_system_prompt=lambda session_id=None: "SYSTEM"
+    )
     manager = SessionManager(
         event_stream_manager=None,
         llm_interface=iface,
@@ -177,17 +179,6 @@ def test_a_restored_session_takes_the_session_path_like_a_new_one(tmp_path):
     finally:
         for session_id in (created.id, restored.id):
             StateSession.end(session_id)
-
-
-def test_subagent_first_turn_resets_history():
-    from pathlib import Path
-
-    import app.subagent.runner as runner
-
-    src = Path(runner.__file__).read_text(encoding="utf-8")
-    branch = src.index("if not stream.has_session_sync(_SUBAGENT_CALL_TYPE):")
-    build = src.index("make_first_turn_user_prompt", branch)
-    assert "_reset_session" in src[branch:build]
 
 
 # ------------------------------------------------------------ KV caching
@@ -432,10 +423,14 @@ def test_the_shipped_catalog_is_well_formed():
 class _KeepRecordingStream:
     head_summary = None
 
-    def __init__(self):
+    def __init__(self, skill_tokens=0):
         self.keep_tokens = []
+        self.skill_tokens = skill_tokens
 
-    def summarize_by_LLM(self, keep_tokens):
+    def loaded_skill_tokens(self):
+        return self.skill_tokens
+
+    def summarize_by_LLM(self, keep_tokens, prune=True, summarizer=None):
         self.keep_tokens.append(keep_tokens)
 
 

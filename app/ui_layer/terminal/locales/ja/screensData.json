@@ -157,7 +157,6 @@
     "sections_one": "{{count}} 個のセクション",
     "sections_other": "{{count}} 個のセクション",
     "meta": {
-      "category": "カテゴリー",
       "saved": "保存日時",
       "links": "リンク",
       "file": "ファイル",
@@ -168,6 +167,7 @@
     "moreNeighbours": "+{{count}} 件",
     "readOnly": "インデックス済みファイル由来（読み取り専用）",
     "notEditable": "編集できるのは会話のメモリーだけです",
+    "notDeletable": "削除できるのは会話のメモリーとエンティティだけです",
     "form": {
       "addTitle": "メモリーを追加",
       "editTitle": "メモリーを編集",
@@ -183,6 +183,9 @@
     "saved": "メモリーを保存しました",
     "deleted": "メモリーを削除しました",
     "failed": "メモリーを更新できませんでした: {{error}}",
+    "confirmDeleteEntity": "エンティティ {{name}} とそのリンクを削除しますか？メモリーは変更されません。",
+    "entityDeleted": "エンティティ {{name}} を削除しました",
+    "entityDeleteFailed": "エンティティ {{name}} を削除できませんでした",
     "files": {
       "hint": "チェックしたファイルはインデックスされ、AI エージェントがそのセクションを検索できます。",
       "chunks_one": "{{count}} 個のセクション",
@@ -228,7 +231,6 @@
     "previewEmpty": "空のファイル",
     "previewLoading": "読み込み中...",
     "selectHint": "ファイルを選択するとプレビューが表示されます",
-    "previewFocus": "Tab で一覧に戻る",
     "prompt": {
       "rename": "新しい名前",
       "newFile": "新しいファイル名",

@@ -5,10 +5,12 @@
 //! The rules are the ones the Tk window used, which came from the frozen
 //! installer's state machine:
 //!
-//! * installed  — a launcher record exists AND its tree and interpreter do;
-//! * running    — `craftbot.pid` names a live process;
-//! * ready      — the agent has written `.agent-ready` for this run. A live
-//!   PID is not a usable CraftBot: run.py spends a while initialising, and
+//! * installed: a launcher record exists AND its tree and interpreter do;
+//! * running: `<data root>/craftbot.pid` names a live process. run.py
+//!   writes that file itself and removes it on exit, so a CraftBot started
+//!   at login or from a terminal is seen exactly like one started here;
+//! * ready: the agent has written `.agent-ready` for this run. A live PID
+//!   is not a usable CraftBot: run.py spends a while initialising, and
 //!   offering "Open CraftBot" before the marker exists sends the user to a
 //!   tab that cannot serve yet.
 
@@ -33,14 +35,14 @@ pub struct Snapshot {
 
 pub fn poll() -> Snapshot {
     let record = InstallRecord::load();
-    let Some(rec) = record.as_ref() else {
+    if record.is_none() {
         return Snapshot {
             phase: Phase::NotInstalled,
             pid: None,
             record: None,
         };
-    };
-    let pid = read_pid(&paths::pid_file(rec.dir()));
+    }
+    let pid = read_pid(&paths::pid_file());
     let running = pid.map(pid_alive).unwrap_or(false);
     if !running {
         return Snapshot {
@@ -61,8 +63,7 @@ pub fn poll() -> Snapshot {
     }
 }
 
-/// craftbot.py writes `{"pid": N, "started": T}` (the start time lets it
-/// tell its own process from a reused pid); older files hold a bare integer.
+/// Either `{"pid": N, ...}` or a bare integer.
 fn read_pid(path: &Path) -> Option<u32> {
     parse_pid(&std::fs::read_to_string(path).ok()?)
 }
@@ -74,23 +75,6 @@ fn parse_pid(raw: &str) -> Option<u32> {
         return value.get("pid")?.as_u64()?.try_into().ok();
     }
     raw.parse().ok()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::parse_pid;
-
-    #[test]
-    fn reads_json_and_legacy_pid_files() {
-        assert_eq!(
-            parse_pid(r#"{"pid": 2244, "started": 1790000000.5}"#),
-            Some(2244)
-        );
-        assert_eq!(parse_pid(r#"{"pid": 2244, "started": null}"#), Some(2244));
-        assert_eq!(parse_pid("2244\n"), Some(2244));
-        assert_eq!(parse_pid(r#"{"started": 1.0}"#), None);
-        assert_eq!(parse_pid("garbage"), None);
-    }
 }
 
 #[cfg(unix)]
@@ -119,5 +103,22 @@ pub fn pid_alive(pid: u32) -> bool {
         let ok = GetExitCodeProcess(handle, &mut code);
         CloseHandle(handle);
         ok != 0 && code == STILL_ACTIVE as u32
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_pid;
+
+    #[test]
+    fn reads_json_and_legacy_pid_files() {
+        assert_eq!(
+            parse_pid(r#"{"pid": 2244, "started": 1790000000.5}"#),
+            Some(2244)
+        );
+        assert_eq!(parse_pid(r#"{"pid": 2244, "started": null}"#), Some(2244));
+        assert_eq!(parse_pid("2244\n"), Some(2244));
+        assert_eq!(parse_pid(r#"{"started": 1.0}"#), None);
+        assert_eq!(parse_pid("garbage"), None);
     }
 }

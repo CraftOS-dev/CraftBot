@@ -56,8 +56,9 @@ export function buildUnits(messages: ChatMessage[], activity: ActionItem[], busy
   for (const entry of mergeTimeline(messages, activity)) {
     if (entry.kind === 'message') {
       flush(true)
-      // Optimistic bubbles wait for the server's echo before they count.
-      if (entry.message.pending) continue
+      // Optimistic bubbles wait for the server's echo before they count; a
+      // rejected one never counts (it shows above the composer to retry).
+      if (entry.message.pending || entry.message.submissionError) continue
       // A question or choice still waiting on the user lives in the pinned
       // box; it joins the transcript, with its answer, once answered.
       if (isOpenChoice(entry.message)) {

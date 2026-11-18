@@ -52,6 +52,26 @@ git clone https://github.com/<your-github-username>/CraftBot.git
 cd CraftBot
 ```
 
+### Install and Run
+
+Any Python 3.8 or newer works. CraftBot downloads its own private Python 3.10 and Node.js 24, so you do not need to install Node.js (see [Getting Started](README.md#-getting-started) for details and troubleshooting).
+
+```shell
+python craftbot.py install    # Windows; use python3 on macOS and Linux
+python craftbot.py logs       # Show the last log lines if something fails
+```
+
+To work on CraftBot, stop the background service and run it in the foreground instead:
+
+```shell
+python craftbot.py stop
+python run.py                 # Browser UI (production build, rebuilt when sources change)
+python run.py --dev-ui        # Browser UI through the Vite dev server, with hot reload
+python run.py --cli           # Terminal UI
+```
+
+In a source checkout, CraftBot keeps its state (settings, agent files, memory, logs) inside the repository folder. Set `CRAFTBOT_HOME` to a different folder to run against separate, clean state.
+
 ---
 
 # 📋 Workflow SOPs

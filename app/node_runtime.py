@@ -4,9 +4,9 @@ CraftBot spawns Node from several places — the browser frontend dev server,
 the WhatsApp bridge, Agent App's agent-app CLI, npm installs, and Agent App app
 pipeline steps. They must all agree on a single binary: deployments run
 multiple Nodes side by side (a VPC pins its default to 20.x for other
-services while local apps use 24.x), and the agent-app CLI needs >= 24 (it is
-TypeScript executed through Node's native type stripping — older majors
-throw ERR_UNKNOWN_FILE_EXTENSION).
+services while local apps use 24.x). CraftBot selects Node 24 consistently for
+its tooling; the packaged Agent-App CLI is compiled JavaScript and checks its
+own minimum version in the binding.
 
 Resolution order (cached per process):
   1. CRAFTBOT_NODE env var — explicit override (ignored with a warning when
@@ -18,10 +18,10 @@ Resolution order (cached per process):
      never block a good Node, but must not shadow a working install either.
 
 The system default Node is NEVER upgraded, replaced, or shadowed outside
-CraftBot's own subprocesses. When nothing >= MIN resolves, resolve() returns
-None and callers fall back to plain PATH lookup — the frontend and bridge
-run fine on Node 20; only Agent App hard-requires the resolved runtime
-(runner.ensure_available raises the actionable message).
+CraftBot's own subprocesses. When nothing >= MIN resolves, callers handle an
+unavailable runtime or validate the last-resort PATH binary against their own
+requirements. The Agent-App binding reports an actionable error if Node is
+missing or too old.
 
 Stdlib-only on purpose: install.py and run.py import this before any
 dependencies exist (app/__init__.py is empty).
@@ -129,7 +129,7 @@ def discover_node() -> Optional[str]:
             if ver[0] < MIN_NODE_MAJOR:
                 continue
             binary = entry.joinpath(*rel)
-            if not binary.is_file():
+            if not binary.is_file() or not _sibling_npm(str(binary)):
                 continue
             if best is None or ver > best:
                 best, best_path = ver, binary
@@ -173,13 +173,36 @@ def resolve(refresh: bool = False) -> Optional[NodeRuntime]:
             f"[NODE] CRAFTBOT_NODE points at a missing file ({override}) — ignoring it"
         )
 
+    # The Node install.py resolved, recorded as an absolute path. Services
+    # started by Task Scheduler, launchd or systemd get a minimal PATH that
+    # cannot see Homebrew's or nodejs.org's Node, so PATH lookup alone left
+    # auto-started CraftBot with no Node at all.
+    recorded = _recorded_node()
+    if recorded:
+        version = probe_version(recorded)
+        if (major_of(version) or 0) >= MIN_NODE_MAJOR:
+            _cached = NodeRuntime(
+                node=recorded,
+                npm=_sibling_npm(recorded),
+                bin_dir=os.path.dirname(recorded),
+                version=version,
+                source="recorded",
+            )
+            return _cached
+
     path_node = shutil.which("node")
     path_version = probe_version(path_node) if path_node else None
     path_major = major_of(path_version)
-    if path_node and path_major is not None and path_major >= MIN_NODE_MAJOR:
+    path_npm = (_sibling_npm(path_node) or shutil.which("npm")) if path_node else None
+    if (
+        path_node
+        and path_npm
+        and path_major is not None
+        and path_major >= MIN_NODE_MAJOR
+    ):
         _cached = NodeRuntime(
             node=path_node,
-            npm=_sibling_npm(path_node) or shutil.which("npm"),
+            npm=path_npm,
             bin_dir=os.path.dirname(path_node),
             version=path_version,
             source="path",
@@ -216,6 +239,20 @@ def resolve(refresh: bool = False) -> Optional[NodeRuntime]:
     return None
 
 
+def _recorded_node() -> Optional[str]:
+    """config.json `node_executable` (written by install.py), if it exists."""
+    try:
+        import json
+
+        from app.python_runtime import CONFIG_FILE
+
+        with open(CONFIG_FILE, encoding="utf-8") as fh:
+            path = json.load(fh).get("node_executable")
+        return path if path and os.path.isfile(path) else None
+    except Exception:
+        return None
+
+
 def path_env() -> dict:
     """{"PATH": ...} with the resolved runtime's bin dir prepended, or {}
     when nothing resolved (children then see the unmodified system PATH).
@@ -228,10 +265,35 @@ def path_env() -> dict:
 
 
 def child_env(extra: Optional[dict] = None) -> dict:
-    """os.environ copy with the runtime's bin dir first on PATH."""
-    env = {**os.environ, **path_env()}
+    """os.environ copy with the runtime's bin dir first on PATH, set up to
+    work on corporate networks.
+
+    Node's fetch() ignores HTTP(S)_PROXY unless NODE_USE_ENV_PROXY is set,
+    and Node trusts only its bundled CA list unless told to use the OS store,
+    so behind a TLS-inspecting proxy every Node download (PocketBase, npm)
+    failed while the browser on the same machine worked. A proxy set only in
+    the OS settings is passed on too, since npm and Node read only variables.
+    Loopback is always exempt from the proxy.
+    """
+    from app.downloads import system_proxy_env
+
+    env = {**os.environ, **system_proxy_env(), **path_env()}
     if extra:
         env.update(extra)
+    env.setdefault("NODE_USE_ENV_PROXY", "1")
+    # Only for a Node known to accept the flag: an older one refuses to start
+    # with an unknown NODE_OPTIONS entry, and resolve() can fall back to a
+    # PATH node whose version could not be probed.
+    rt = resolve()
+    if rt is not None and (major_of(rt.version) or 0) >= MIN_NODE_MAJOR:
+        node_options = env.get("NODE_OPTIONS", "")
+        if "--use-system-ca" not in node_options:
+            env["NODE_OPTIONS"] = (node_options + " --use-system-ca").strip()
+    no_proxy = env.get("NO_PROXY") or env.get("no_proxy") or ""
+    loopback = [h for h in ("localhost", "127.0.0.1", "::1") if h not in no_proxy]
+    if loopback:
+        merged = ",".join(filter(None, [no_proxy] + loopback))
+        env["NO_PROXY"] = env["no_proxy"] = merged
     return env
 
 
@@ -320,6 +382,8 @@ def _extract_node(archive_src, ver, suffix, ext, say, url=None):
     import tarfile
     import zipfile
 
+    from app import downloads
+
     dest_root = str(SIDECAR_DIR)
     os.makedirs(dest_root, exist_ok=True)
     archive = os.path.join(dest_root, f"_download.{ext}")
@@ -330,8 +394,6 @@ def _extract_node(archive_src, ver, suffix, ext, say, url=None):
         else:
             # Streamed with progress: the archive is 30-55MB, and a single
             # silent blocking copy is indistinguishable from a hung install.
-            from app import downloads
-
             downloads.download(url, archive, log=say, label=f"Node {ver}")
         say("   Extracting...")
         if ext == "zip":
@@ -339,7 +401,8 @@ def _extract_node(archive_src, ver, suffix, ext, say, url=None):
         else:
             # tar preserves the executable bit; zip does not, which is why
             # Windows gets the zip and unix the tarball.
-            tarfile.open(archive, mode="r:*").extractall(dest_root)
+            with tarfile.open(archive, mode="r:*") as tf:
+                downloads.safe_extract_tar(tf, dest_root)
     except Exception as e:
         say(f"   Node setup failed: {str(e)[:200]}")
         return None
@@ -432,11 +495,15 @@ def download_sidecar(log=None) -> Optional[str]:
 
 
 def ensure_sidecar(log=None) -> Optional[NodeRuntime]:
-    """Return a usable Node >= MIN_NODE_MAJOR, downloading one if needed.
+    """Return Node >= MIN_NODE_MAJOR with npm, downloading both if needed.
     Idempotent: a no-op when a suitable Node already resolves."""
     rt = resolve()
-    if rt is not None:
+    if rt is not None and (major_of(rt.version) or 0) >= MIN_NODE_MAJOR and rt.npm:
         return rt
+    if rt is not None and rt.source == "override":
+        if log:
+            log("CRAFTBOT_NODE must point to a supported Node installation with npm.")
+        return None
     if download_sidecar(log=log):
         return resolve(refresh=True)
     return None

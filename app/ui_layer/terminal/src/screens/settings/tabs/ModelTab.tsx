@@ -2,9 +2,11 @@
  * Settings > Model, as the browser's Model tab: the provider, the LLM and
  * vision models (from Ollama, live discovery or the OpenRouter catalog, else
  * typed), subscription sign-in (the system browser, then the code pasted
- * back), the API key (masked), AWS credentials for Bedrock, the server URL,
- * a connection test (a save that changes credentials tests first), image and
- * video generation, Ollama install and model downloads, and slow mode.
+ * back; Claude Code installed or updated first when needed), the API key
+ * (masked; a saved key can be removed), which of the two is in use, AWS
+ * credentials for Bedrock, the server URL, a connection test (a save that
+ * changes credentials tests first), image and video generation, Ollama
+ * install and model downloads, and slow mode.
  *
  * Provider and models are drafts over the saved settings: nothing changes
  * until Save, and a change made elsewhere is flagged with a "load latest" row.
@@ -166,6 +168,8 @@ export function ModelTab() {
   const [creditsError, setCreditsError] = useState<string | null>(null)
   const [pasteCode, setPasteCode] = useState<Record<string, string>>({})
   const [apiKeyExpanded, setApiKeyExpanded] = useState<Record<string, boolean>>({})
+  // The provider whose saved API key this tab is removing.
+  const [removingKeyFor, setRemovingKeyFor] = useState<string | null>(null)
 
   const current = providers.find(p => p.id === provider)
   const orBaseUrl = newBaseUrl || baseUrls['openrouter'] || undefined
@@ -238,13 +242,23 @@ export function ModelTab() {
     }
   })
 
-  useInbound(['model_subscription_connect', 'model_subscription_disconnect', 'model_subscription_complete'], (data, type) => {
+  useInbound(['model_subscription_connect', 'model_subscription_disconnect', 'model_subscription_complete', 'model_subscription_setup'], (data, type) => {
     const d = data as { provider?: string; success: boolean; message?: string; error?: string }
     if (d.provider !== provider) return
-    if (type === 'model_subscription_connect' && !d.success) say(d.message || d.error || t('model.sub.connectFailed'), 'error', 8000)
+    if (type === 'model_subscription_setup') {
+      say(d.message || d.error || (d.success ? t('model.sub.setupDone') : t('model.sub.setupFailed')), d.success ? 'success' : 'error', 8000)
+    } else if (type === 'model_subscription_connect' && !d.success) say(d.message || d.error || t('model.sub.connectFailed'), 'error', 8000)
     else if (type === 'model_subscription_connect' || type === 'model_subscription_complete') {
       if (d.success) say(t('model.sub.connected'), 'success')
     } else say(d.success ? d.message || t('model.sub.disconnected') : d.message || d.error || t('model.sub.disconnectFailed'), d.success ? 'success' : 'error')
+  })
+
+  useInbound('model_api_key_remove', data => {
+    const d = data as { provider?: string; success: boolean; error?: string }
+    if (!d.provider || d.provider !== removingKeyFor) return
+    setRemovingKeyFor(null)
+    if (d.success) say(t('model.key.removed'), 'success')
+    else say(d.error || t('model.key.removeFailed'), 'error', 8000)
   })
 
   useInbound('ollama_models_get', data => {
@@ -472,6 +486,35 @@ export function ModelTab() {
   const reopen = async (url: string) => {
     const ok = await openInBrowser(url)
     say(ok ? t('model.sub.reopened') : t('model.sub.openFailed'), ok ? 'muted' : 'error')
+  }
+
+  const setupCli = () => {
+    dispatch(setSubscriptionPending({ provider, pending: true }))
+    send('model_subscription_setup', { provider })
+  }
+
+  // The model factory prefers a subscription sign-in over the saved key
+  // whenever one exists; a Claude sign-in that fails its check still owns
+  // routing (`configured`) until it is disconnected.
+  const subscriptionOwnsAuth = (id: string) => !!(subscriptionOauth[id]?.connected || subscriptionOauth[id]?.configured)
+
+  // The saved key's Remove row. The active model's only credential cannot
+  // be removed (the backend refuses it too).
+  const removeKeyRow = (id: string, keyProvider: string): FormRow => {
+    const locked = keyProvider === savedProvider && !subscriptionOwnsAuth(keyProvider)
+    const name = providers.find(p => p.id === keyProvider)?.name || keyProvider
+    return {
+      kind: 'action',
+      id,
+      label: removingKeyFor === keyProvider ? t('model.key.removing') : t('model.key.remove'),
+      disabled: locked || removingKeyFor !== null,
+      detail: locked ? t('model.key.removeLocked') : undefined,
+      onRun: () =>
+        form.confirm(t('model.key.removeConfirm', { provider: name }), () => {
+          setRemovingKeyFor(keyProvider)
+          send('model_api_key_remove', { provider: keyProvider })
+        }),
+    }
   }
 
   // ── Rows ──
@@ -788,6 +831,8 @@ export function ModelTab() {
     const hasKey = !!apiKeys[provider]?.has_key
     const requiresKey = !!current.requires_api_key
     const keyExpanded = apiKeyExpanded[provider] ?? (!subConnected || hasKey)
+    // With both a sign-in and a saved key, say which one is used.
+    const subscriptionInUse = supportsSub && hasKey && subscriptionOwnsAuth(provider)
 
     if (supportsSub) {
       if (provider === 'anthropic') out.push({ kind: 'note', text: t('model.sub.claudeNote'), maxLines: 3 })
@@ -797,7 +842,7 @@ export function ModelTab() {
           id: 'sub.disconnect',
           label: t('model.sub.disconnect'),
           disabled: pending,
-          detail: [t('model.sub.connectedAs'), status?.email, status?.plan].filter(Boolean).join(' · '),
+          detail: [subscriptionInUse ? t('model.inUse') : '', t('model.sub.connectedAs'), status?.email, status?.plan].filter(Boolean).join(' · '),
           detailTone: 'success',
           onRun: disconnect,
         })
@@ -837,6 +882,31 @@ export function ModelTab() {
           },
         })
         if (pb.errorMessage) out.push({ kind: 'note', tone: 'error', text: pb.errorMessage, maxLines: 3 })
+      } else if (status?.setup) {
+        // Claude Code is missing or too old to sign in: set it up first.
+        const install = status.setup.action === 'install'
+        out.push(
+          {
+            kind: 'note',
+            tone: 'warn',
+            text: install
+              ? t('model.sub.claudeCodeMissing')
+              : status.setup.version
+                ? t('model.sub.claudeCodeOutdated', { version: status.setup.version })
+                : t('model.sub.claudeCodeOutdatedUnknown'),
+            maxLines: 2,
+          },
+          {
+            kind: 'action',
+            id: 'sub.setup',
+            label: install
+              ? pending ? t('model.sub.installingClaudeCode') : t('model.sub.installClaudeCode')
+              : pending ? t('model.sub.updatingClaudeCode') : t('model.sub.updateClaudeCode'),
+            tone: 'brand',
+            disabled: pending,
+            onRun: setupCli,
+          },
+        )
       } else {
         out.push({
           kind: 'action',
@@ -852,10 +922,18 @@ export function ModelTab() {
       if (!subConnected && status?.configured) {
         out.push(
           { kind: 'note', text: t('model.sub.recovery'), maxLines: 2 },
-          { kind: 'action', id: 'sub.reset', label: t('model.sub.disconnect'), disabled: pending, onRun: disconnect },
+          {
+            kind: 'action',
+            id: 'sub.reset',
+            label: t('model.sub.disconnect'),
+            disabled: pending,
+            detail: subscriptionInUse ? t('model.inUse') : undefined,
+            detailTone: 'success',
+            onRun: disconnect,
+          },
         )
       }
-      if (status?.error) out.push({ kind: 'note', tone: 'error', text: status.error, maxLines: 2 })
+      if (status?.error && !status.setup) out.push({ kind: 'note', tone: 'error', text: status.error, maxLines: 2 })
       if (subConnected && !keyExpanded && requiresKey) {
         out.push({ kind: 'action', id: 'key.expand', label: t('model.sub.useKey'), onRun: () => setApiKeyExpanded(m => ({ ...m, [provider]: true })) })
         return out
@@ -871,8 +949,8 @@ export function ModelTab() {
         startEmpty: true,
         display: newApiKey ? '•'.repeat(Math.min(12, newApiKey.length)) : hasKey ? apiKeys[provider].masked_key : '',
         placeholder: hasKey ? t('model.key.replace') : t('model.key.enter'),
-        detail: newApiKey ? t('model.unsaved') : keyDetail(provider, subConnected),
-        detailTone: newApiKey ? 'warn' : hasKey ? 'success' : subConnected ? 'muted' : 'warn',
+        detail: newApiKey ? t('model.unsaved') : subscriptionInUse ? t('model.notInUse') : keyDetail(provider, subConnected),
+        detailTone: newApiKey ? 'warn' : subscriptionInUse ? 'muted' : hasKey ? 'success' : subConnected ? 'muted' : 'warn',
         onSubmit: value => {
           const key = value.trim()
           if (!key) return
@@ -888,6 +966,7 @@ export function ModelTab() {
           : undefined,
         hints: newApiKey ? [{ keys: 'x', label: t('hint.discard') }] : [],
       })
+      if (hasKey) out.push(removeKeyRow('apiKey.remove', provider))
       if (current.openrouter_proxy) {
         out.push({ kind: 'note', text: apiKeys['openrouter']?.has_key ? t('model.key.proxyConfigured') : t('model.key.proxyFallback'), maxLines: 3 })
       }
@@ -983,6 +1062,7 @@ export function ModelTab() {
         detailTone: state.apiKey ? 'warn' : apiKeys[effective]?.has_key ? 'success' : 'warn',
         onSubmit: value => value.trim() && setState(s => ({ ...s, apiKey: value.trim(), changed: true })),
       })
+      if (apiKeys[effective]?.has_key) out.push(removeKeyRow(`${kind}.removeKey`, effective))
     }
     out.push(
       {

@@ -16,29 +16,28 @@ from agent_core import action
     name="schedule_task",
     description=(
         "Schedule a task for execution. Supports immediate, one-time, and recurring schedules. "
-        "One-time tasks are auto-removed after firing.\n"
-        "IMPORTANT: The 'schedule' field must use one of these EXACT formats:\n"
-        "- Immediate: 'immediate'\n"
-        "- One-time: 'at 3pm', 'at 3:30pm', 'at 3:30pm today', 'tomorrow at 9am', 'in 2 hours', 'in 30 minutes'\n"
-        "- Recurring: 'every day at 7am', 'every day at 3:30pm', 'every monday at 9am', "
-        "'every 3 hours', 'every 30 minutes', or cron like '0 7 * * *'\n"
-        "DO NOT use: 'daily at', 'every weekday', 'every morning', 'weekly', or other freeform text. "
-        "Only the exact patterns listed above are supported."
+        "One-time tasks are auto-removed after firing. Every fire runs in this chat, the one "
+        "scheduling it; if this chat is deleted, the task is kept but does not run.\n"
+        "IMPORTANT: The 'schedule' field must use one of the EXACT patterns listed "
+        "in its description; no other freeform text is supported."
     ),
     action_sets=["scheduler", "core", "proactive"],
     input_schema={
         "name": {
             "type": "string",
+            "required": True,
             "description": "Human-readable name for the schedule/task",
             "example": "Morning Briefing",
         },
         "instruction": {
             "type": "string",
+            "required": True,
             "description": "What the agent should do when this schedule fires",
             "example": "Prepare and send the daily morning briefing",
         },
         "schedule": {
             "type": "string",
+            "required": True,
             "description": (
                 "Schedule expression. Must match one of these exact patterns:\n"
                 "- 'immediate' — execute right now\n"
@@ -47,6 +46,8 @@ from agent_core import action
                 "- 'in <N> hours' or 'in <N> minutes' — e.g. 'in 2 hours', 'in 30 minutes'\n"
                 "- 'every day at <time>' — e.g. 'every day at 7am', 'every day at 3:30pm'\n"
                 "- 'every <weekday> at <time>' — e.g. 'every monday at 9am'\n"
+                "- 'every month on day <N> at <time>' — e.g. 'every month on day 1 at 9am' "
+                "(29-31 fall back to the month's last day)\n"
                 "- 'every <N> hours' or 'every <N> minutes' — e.g. 'every 3 hours', 'every 30 minutes'\n"
                 "- Cron expression — e.g. '0 7 * * *' (5-field cron)\n"
                 "Times must include am/pm (e.g. '9am', '3:30pm'). "
@@ -56,16 +57,19 @@ from agent_core import action
         },
         "priority": {
             "type": "integer",
+            "required": False,
             "description": "Trigger priority (lower = higher priority). Default is 50.",
             "example": 50,
         },
         "enabled": {
             "type": "boolean",
+            "required": False,
             "description": "Whether to enable the schedule immediately. Default is true. Ignored for 'immediate' schedules.",
             "example": True,
         },
         "action_sets": {
             "type": "array",
+            "required": False,
             "description": (
                 "Optional. Action sets (names from the Capability Catalog) to load "
                 "when the task runs, e.g. ['mini_browser'] for a task that must "
@@ -76,6 +80,7 @@ from agent_core import action
         },
         "skills": {
             "type": "array",
+            "required": False,
             "description": (
                 "Optional. Skills to load for the task (a user skill also loads "
                 "the action sets its SKILL.md declares)."
@@ -84,6 +89,7 @@ from agent_core import action
         },
         "payload": {
             "type": "object",
+            "required": False,
             "description": "Additional payload data to pass to the task.",
             "example": {"source": "proactive", "task_id": "daily_morning_briefing"},
         },
@@ -91,7 +97,7 @@ from agent_core import action
     output_schema={
         "schedule_id": {
             "type": "string",
-            "description": "The ID of the created schedule (for immediate tasks, this is the session_id)",
+            "description": "The ID of the created schedule (for immediate tasks, an immediate_xxxx fire id)",
         },
         "status": {
             "type": "string",
@@ -106,6 +112,8 @@ from agent_core import action
             "description": "'immediate' or next fire time in ISO format",
         },
     },
+    display_param="name",
+    icon="CalendarPlus",
 )
 async def schedule_task(input_data: dict) -> dict:
     """Add a new scheduled task or queue an immediate trigger."""
@@ -125,6 +133,8 @@ async def schedule_task(input_data: dict) -> dict:
         action_sets = input_data.get("action_sets", [])
         skills = input_data.get("skills", [])
         payload = input_data.get("payload", {})
+        # Every fire runs in the chat that schedules it.
+        session_id = input_data.get("_session_id") or "main"
 
         if not name:
             return {"status": "error", "error": "name is required"}
@@ -160,6 +170,7 @@ async def schedule_task(input_data: dict) -> dict:
                 action_sets=action_sets,
                 skills=skills,
                 payload=payload,
+                session_id=session_id,
             )
 
         # Parse schedule to determine if it's recurring or one-time
@@ -179,6 +190,7 @@ async def schedule_task(input_data: dict) -> dict:
             action_sets=action_sets,
             skills=skills,
             payload=payload,
+            session_id=session_id,
         )
 
         # Get next fire time

@@ -1,16 +1,16 @@
 /**
  * Agent App theme packs for the terminal: the browser's catalog (one source
  * of truth, themeCatalog.tsx, read-only) and a keyboard picker shared by the
- * Apps screen (`t`) and the settings panel. A pick is saved on the server
- * (`agent_app_theme_update`), the same place the browser keeps it, so it
- * follows the app into every client.
+ * Apps screen (`t`) and the settings panel. A pick is saved as the app's
+ * preference on the host (the request channel's `preference`), the same
+ * place the browser keeps it, so it follows the app into every client.
  */
 import { Box, Text, type Key } from 'ink'
-import { PRESET_THEMES } from '../../../../browser/frontend/src/pages/AgentApp/themeCatalog'
-import type { AgentAppProject } from '../../../../browser/frontend/src/types'
-import { addProject } from '../../../../browser/frontend/src/store/slices/agentAppSlice'
-import { send } from '../../state/hooks'
+import { PRESET_THEMES, type AgentAppThemeId } from '../../../../browser/frontend/src/pages/AgentApp/themeCatalog'
+import type { FrameworkRegistryApp } from '../../../../browser/frontend/src/types'
+import { receiveFrameworkTheme } from '../../../../browser/frontend/src/store/slices/agentAppSlice'
 import type { AppDispatch } from '../../state/store'
+import { frameworkRequest, type FrameworkAttachment } from '../../apps/framework'
 import { clampList, listKey } from '../../ui/list'
 import { glyphs, ink } from '../../theme/theme'
 import { padEnd, truncate, width } from '../../text/width'
@@ -29,9 +29,9 @@ export interface ThemePack {
 export const THEME_PACKS: readonly ThemePack[] = PRESET_THEMES
 export const DEFAULT_THEME = 'craftbot'
 
-/** The theme an app shows: the saved pick, else the style pack it was built with. */
-export function projectThemeId(project: Pick<AgentAppProject, 'uiTheme' | 'stylePack'> | undefined): string {
-  return project?.uiTheme?.themeId || project?.stylePack || DEFAULT_THEME
+/** The theme an app shows: the saved pick, else the baseline. */
+export function appThemeId(app: Pick<FrameworkRegistryApp, 'uiTheme'> | undefined): string {
+  return app?.uiTheme?.themeId || DEFAULT_THEME
 }
 
 /** A pack's display name. The baseline pack reads "Default" (app copy never names the product). */
@@ -48,10 +48,15 @@ export function themeDescription(t: Tr, id: string): string {
   return pack ? t(pack.descriptionKey) : ''
 }
 
-/** Save `themeId` for the app: shown at once, confirmed by the next app list. */
-export function applyTheme(dispatch: AppDispatch, project: AgentAppProject, themeId: string): void {
-  dispatch(addProject({ ...project, uiTheme: { themeId } }))
-  send('agent_app_theme_update', { projectId: project.id, theme: { themeId } })
+/** Save `themeId` as the app's theme; the row shows the host's answer. Throws on a refusal. */
+export async function applyTheme(dispatch: AppDispatch, app: FrameworkRegistryApp, themeId: string): Promise<void> {
+  const result = await frameworkRequest<FrameworkAttachment>({
+    operation: 'preference',
+    path: app.path,
+    appId: app.id,
+    uiTheme: { themeId: themeId as AgentAppThemeId },
+  })
+  dispatch(receiveFrameworkTheme({ path: app.path, id: app.id, uiTheme: result.uiTheme }))
 }
 
 // ── picker ──────────────────────────────────────────────────────────────────

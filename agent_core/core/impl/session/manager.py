@@ -19,6 +19,7 @@ Persistence hooks:
 - on_session_delete: called when a session is deleted
 """
 
+import json
 import re
 import shutil
 import uuid
@@ -32,6 +33,7 @@ from agent_core.core.session import (
     MAIN_SESSION_ID,
 )
 from agent_core.core.state import StateSession
+from agent_core.core.event_stream.event import EventType
 from agent_core.core.impl.llm import LLMCallType
 from agent_core.core.models.reasoning import ReasoningChoice
 
@@ -136,6 +138,10 @@ class SessionManager:
         session_id: Optional[str] = None,
         selected_skills: Optional[List[str]] = None,
         agent_app_project_id: Optional[str] = None,
+        agent_app_framework_key: Optional[str] = None,
+        agent_app_framework_pending: bool = False,
+        isolated_app_task: bool = False,
+        app_task_actions: Optional[List[str]] = None,
         gui_mode: bool = False,
         reasoning_effort: Optional[ReasoningChoice] = None,
     ) -> Session:
@@ -172,6 +178,10 @@ class SessionManager:
             selected_skills=list(selected_skills or []),
             workspace_dir=str(workspace_dir),
             agent_app_project_id=agent_app_project_id,
+            agent_app_framework_key=agent_app_framework_key,
+            agent_app_framework_pending=agent_app_framework_pending,
+            isolated_app_task=isolated_app_task,
+            app_task_actions=list(app_task_actions or []),
             gui_mode=gui_mode,
             reasoning_effort=(
                 reasoning_effort.value if reasoning_effort is not None else None
@@ -186,6 +196,9 @@ class SessionManager:
         # Set up the session's event stream via hook
         if self._on_stream_create:
             self._on_stream_create(sid, workspace_dir)
+        # Preloaded skills bring their instructions into the new stream.
+        for skill_name in session.selected_skills:
+            self._log_skill_instructions(sid, skill_name)
 
         self._persist(session)
 
@@ -288,6 +301,56 @@ class SessionManager:
         session.title = title.strip()
         self._persist(session)
         return True
+
+    def mark_framework_creation(self, session_id: str, title: str) -> Session:
+        """Keep an unregistered app's build conversation in the Agent App group."""
+        session = self.sessions[session_id]
+        if (
+            session.type == SessionType.MAIN
+            or session.agent_app_project_id
+            or session.agent_app_framework_key
+            or session.isolated_app_task
+        ):
+            raise ValueError("This session cannot become an app creation conversation.")
+        session.type = SessionType.AGENT_APP
+        session.agent_app_framework_pending = True
+        session.title = title
+        self._compile_actions(session)
+        self._persist(session)
+        return session
+
+    def bind_framework_app(self, session_id: str, key: str, *, previous_key: str | None = None) -> Session:
+        """Give an app's existing conversation its dedicated type, keeping history.
+
+        Main, legacy app sessions and delegated task sessions cannot be adopted.
+        The host must first verify that this conversation belongs to this app.
+        """
+        session = self.sessions[session_id]
+        replacing = False
+        if previous_key and session.agent_app_framework_key == previous_key:
+            old, new = json.loads(previous_key), json.loads(key)
+            # The host may continue an unfinished creation after re-scaffolding
+            # its allocated directory. Never move a chat across profiles/paths.
+            replacing = (
+                session.type == SessionType.AGENT_APP
+                and len(old) == len(new) == 3
+                and Path(old[0]).resolve() == Path(new[0]).resolve()
+                and Path(old[1]).resolve() == Path(new[1]).resolve()
+            )
+        if (
+            session.id == MAIN_SESSION_ID
+            or session.type == SessionType.MAIN
+            or session.agent_app_project_id
+            or session.isolated_app_task
+            or (session.agent_app_framework_key not in (None, key) and not replacing)
+        ):
+            raise ValueError("This session cannot become the app's conversation.")
+        session.type = SessionType.AGENT_APP
+        session.agent_app_framework_key = key
+        session.agent_app_framework_pending = False
+        self._compile_actions(session)
+        self._persist(session)
+        return session
 
     def set_reasoning_effort(self, session_id: str, choice: ReasoningChoice) -> bool:
         """Set a session's reasoning choice (the chat input's picker).
@@ -421,26 +484,94 @@ class SessionManager:
         session.compiled_actions = action_set_manager.compile_action_list(
             session.base_action_sets, mode="GUI" if session.gui_mode else "CLI"
         )
+        if session.isolated_app_task:
+            session.compiled_actions = [
+                "a2app_command",
+                "send_message",
+                "end_turn",
+            ]
+            session.compiled_actions.extend(name for name in session.app_task_actions if name not in session.compiled_actions)
 
     def add_skill(self, session_id: str, skill_name: str) -> bool:
-        """Load a skill into a session (additive)."""
+        """Load a skill into a session (additive).
+
+        Its instructions enter the session's event stream as one event, which
+        a fold keeps verbatim while the skill is loaded. Nothing above the
+        stream changes, so the session's cached prompt prefix stays valid.
+        """
         session = self.sessions.get(session_id)
         if not session:
             return False
         if skill_name not in session.selected_skills:
             session.selected_skills.append(skill_name)
             self._persist(session)
+        self._log_skill_instructions(session_id, skill_name)
         return True
 
     def remove_skill(self, session_id: str, skill_name: str) -> bool:
-        """Unload a skill from a session."""
+        """Unload a skill from a session: an unload marker follows its
+        instructions in the stream, and the next fold drops them."""
         session = self.sessions.get(session_id)
         if not session:
             return False
         if skill_name in session.selected_skills:
             session.selected_skills.remove(skill_name)
             self._persist(session)
+        self._log_skill_unloaded(session_id, skill_name)
         return True
+
+    def restore_skill_instructions(self) -> None:
+        """Give every loaded skill its instructions in its session's stream.
+
+        Run at boot once skills are initialized (sessions restore before
+        that): a skill the stream does not hold as loaded, e.g. a session
+        saved before skills were delivered as events, gets them now.
+        """
+        for session in list(self.sessions.values()):
+            for skill_name in session.selected_skills:
+                self._log_skill_instructions(session.id, skill_name)
+
+    def _session_stream(self, session_id: str):
+        manager = self.event_stream_manager
+        if manager is None or not manager.has_stream(session_id):
+            return None
+        return manager.get_stream_by_id(session_id)
+
+    def _log_skill_instructions(self, session_id: str, skill_name: str) -> None:
+        """Log ``skill_name``'s instructions into the session's stream unless
+        the stream already holds the skill as loaded."""
+        stream = self._session_stream(session_id)
+        if stream is None or skill_name in stream.loaded_skills():
+            return
+        from agent_core.core.impl.skill.manager import skill_manager
+
+        instructions = skill_manager.get_skill_instructions([skill_name])
+        if not instructions:
+            return
+        self.event_stream_manager.log(
+            "skill_instructions",
+            f"Skill '{skill_name}' loaded. Follow these skill instructions for "
+            f"the current work until it is unloaded:\n\n{instructions}",
+            event_type=EventType.SKILL_INSTRUCTIONS,
+            skill_name=skill_name,
+            task_id=session_id,
+            to_memory=False,
+        )
+
+    def _log_skill_unloaded(self, session_id: str, skill_name: str) -> None:
+        """Log the unload marker of a skill the session's stream holds as
+        loaded."""
+        stream = self._session_stream(session_id)
+        if stream is None or skill_name not in stream.loaded_skills():
+            return
+        self.event_stream_manager.log(
+            "skill_unloaded",
+            f"Skill '{skill_name}' was unloaded: stop following its instructions.",
+            event_type=EventType.SKILL_UNLOADED,
+            skill_name=skill_name,
+            task_id=session_id,
+            to_memory=False,
+        )
 
     def get_compiled_actions(self, session_id: str) -> List[str]:
         """Get a session's compiled action list."""
@@ -489,10 +620,7 @@ class SessionManager:
     def _create_session_caches(self, session_id: str) -> None:
         """Create LLM session caches for a session."""
         try:
-            system_prompt, _ = self.context_engine.make_prompt(
-                user_flags={"query": False, "expected_output": False},
-                system_flags={},
-            )
+            system_prompt = self.context_engine.make_decision_system_prompt(session_id)
             for call_type in [
                 LLMCallType.REASONING,
                 LLMCallType.ACTION_SELECTION,

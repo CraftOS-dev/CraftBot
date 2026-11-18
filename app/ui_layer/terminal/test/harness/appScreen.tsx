@@ -1,26 +1,30 @@
-// Render the Agent App screen for one project folder, read-only, and print
-// the frames: node test/harness/run-app-screen.mjs <projectDir> <port> [width] [height]
-// It never sends a key that runs an operation; it only reads (GET ops,
-// describe, the live-changes feed). The client store points at a closed port,
-// so nothing reaches any CraftBot backend.
+// Render the Agent App screen for one running app's folder, read-only, and
+// print the frames: node test/harness/run-app-screen.mjs <appDir> [width] [height]
+// It never sends a key that runs an operation; it only reads (the app's
+// read-only ops and records). The client store points at a closed port, so
+// nothing reaches any CraftBot backend.
 import '../../src/boot'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { Writable } from 'node:stream'
 import { Provider } from 'react-redux'
 import { render } from 'ink'
 import { store } from '../../src/state/store'
-import { setProjects } from '../../../browser/frontend/src/store/slices/agentAppSlice'
+import { frameworkAppKey, receiveFrameworkList } from '../../../browser/frontend/src/store/slices/agentAppSlice'
 import { ScreenContext } from '../../src/screens/context'
 import { FRAME_SIDES } from '../../src/ui/Frame'
 import { AppScreen } from '../../src/screens/apps/AppScreen'
-import type { AgentAppProject } from '../../../browser/frontend/src/types'
-
-const [dir, port, w, h] = (process.env.HARNESS_ARGS ?? '').split('|')
+const [dir, w, h] = (process.env.HARNESS_ARGS ?? '').split('|')
 const columns = Number(w || 100)
 const rows = Number(h || 30)
 
-store.dispatch(setProjects([
-  { id: 'harness', name: 'Harness app', description: '', status: 'running', path: dir, port: Number(port), createdAt: 0 } as AgentAppProject,
-]))
+// The app as the registry lists it: the manifest's id, name and port.
+const manifest = JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf8')) as { id: string; name: string; port?: number }
+store.dispatch(receiveFrameworkList({
+  status: 'success',
+  data: { apps: [{ id: manifest.id, name: manifest.name, path: dir, status: 'running', port: manifest.port ?? 8090 }], connected: [] },
+}))
+const arg = frameworkAppKey(dir, manifest.id)
 
 let last = ''
 const out = new Writable({
@@ -35,7 +39,7 @@ const handlers: { fn: ((input: string, key: never) => boolean) | null } = { fn: 
 const app = render(
   <Provider store={store}>
     <ScreenContext.Provider value={{ setHandler: fn => { handlers.fn = fn as never }, columns: columns - FRAME_SIDES, rows, setTextFocus: () => {} }}>
-      <AppScreen arg="harness" />
+      <AppScreen arg={arg} />
     </ScreenContext.Provider>
   </Provider>,
   { stdout: out as unknown as NodeJS.WriteStream, debug: true, patchConsole: false, exitOnCtrlC: false },

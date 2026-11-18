@@ -1,70 +1,50 @@
-services:
-  # ──────────────────────────────────────────────
-  # OmniParser (Gradio UI parser server)
-  # First run downloads ~4GB model weights
-  # ──────────────────────────────────────────────
-  omniparser:
-    build:
-      context: .
-      dockerfile: docker/omniparser/Dockerfile
-    container_name: omniparser-server
-    volumes:
-      - omniparser-weights:/app/OmniParser/weights
-    ports:
-      - "7861:7861"
-    environment:
-      - HF_HUB_ENABLE_HF_TRANSFER=1
-    healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:7861')\" || exit 1"]
-      interval: 15s
-      timeout: 10s
-      retries: 30
-      start_period: 120s
-    restart: unless-stopped
-    networks:
-      - agent-net
+# CraftBot in a container (browser mode).
+#
+#   docker compose up -d        then open http://localhost:7925
+#
+# The first start asks for an LLM API key in the browser. Settings, API keys,
+# agent files, memory and logs are kept in the craftbot-data volume, so they
+# survive restarts, `docker compose down` and image rebuilds.
+#
+# Optional network settings (proxy, mirrors) are read from your shell or from
+# a .env file next to this one; see .env.example.
 
-  # ──────────────────────────────────────────────
-  # Main Agent (Python)
-  # ──────────────────────────────────────────────
-  agent:
+services:
+  craftbot:
     build:
       context: .
-      dockerfile: Dockerfile
+      args:
+        # Mirrors for the image build; empty means the public registries.
+        - PIP_INDEX_URL
+        - npm_config_registry
+    image: craftbot:local
     container_name: craftbot
-    env_file:
-      - .env
-    environment:
-      - OMNIPARSER_BASE_URL=http://omniparser-server:7861
-      - USE_OMNIPARSER=${USE_OMNIPARSER:-True}
-    # The image runs as UID 10001 (see Dockerfile). Bind-mounted host
-    # directories keep their host ownership, so chown them to match once:
-    #   sudo chown -R 10001:10001 ./workspace
+    ports:
+      # Loopback only: the CraftBot UI has no login of its own. For a remote
+      # server, keep it this way and connect through an SSH tunnel.
+      # Keep the host ports equal to the container ports: the UI calls the
+      # backend on 7926, and CraftBot only accepts requests addressed to
+      # localhost.
+      - "127.0.0.1:7925:7925"
+      - "127.0.0.1:7926:7926"
     volumes:
-      # /var/run/docker.sock was mounted here and is deliberately gone. It is
-      # the host's Docker control plane: a container holding it can start a
-      # privileged container and take the host. Nothing in the codebase used
-      # it (no `docker exec`, no docker SDK, no DOCKER_HOST), and this
-      # container runs commands the model chooses, so it was pure blast
-      # radius. Do not add it back without a scoped proxy in front.
-      - ./workspace:/app/workspace
-      - ./config.json:/app/config.json
+      - craftbot-data:/data
+    environment:
+      # Passed through only when set in your shell or .env.
+      - HTTPS_PROXY
+      - HTTP_PROXY
+      - NO_PROXY=${NO_PROXY:-localhost,127.0.0.1}
+      - PIP_INDEX_URL
+      - npm_config_registry
+      - HF_ENDPOINT
+      - CRAFTBOT_MIRRORS
+    # Chromium (Mini Browser, browser automation) needs more shared memory
+    # than Docker's 64 MB default.
+    shm_size: "1gb"
     security_opt:
-      # A process inside cannot gain privileges it did not start with
-      # (blocks setuid escalation paths).
+      # A process inside cannot gain privileges it did not start with.
       - no-new-privileges:true
-    depends_on:
-      omniparser:
-        condition: service_healthy
-    stdin_open: true
-    tty: true
     restart: unless-stopped
-    networks:
-      - agent-net
 
 volumes:
-  omniparser-weights:
-
-networks:
-  agent-net:
-    driver: bridge
+  craftbot-data:

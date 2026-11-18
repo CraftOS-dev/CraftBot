@@ -1,19 +1,18 @@
 /**
- * Add Agent App: the browser's Add modal as a screen with three tabs.
+ * Add Agent App: the browser's Add modal as a screen with four tabs.
  *
- *   Marketplace  search, tag filters, "Installed xN", setup questions as a form
- *   Create       the wizard: configure, interview, then the build starts
- *   Import       a GitHub URL, a folder, or a ZIP path, with progress lines
+ *   Marketplace  the framework's catalogue: search, tag filters, install
+ *   Build        describe a new app; the build starts and asks you what it needs
+ *   Import       a ZIP, a folder or a GitHub URL, with progress lines
+ *   Connect      an Agent App already running somewhere, by its URL
  *
  * `[` and `]` switch tabs whenever no text field has focus. Esc inside a tab
  * moves focus up to the tab bar (Left/Right switch there, Enter or Down goes
  * back in); Esc on the tab bar leaves, asking first if typed input would be
- * lost. After a create, install or import the screen becomes the new app's.
- *
- * Opened with the argument `wizard` (hostJobs does this when a chat summons
- * setup questions), it starts on Create at the interview step.
+ * lost. After a build starts, an install or import finishes, or a connection
+ * is approved, the screen becomes that app's (or that build's).
  */
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Box, Text } from 'ink'
 import { useTranslation } from 'react-i18next'
 import { useAppDispatch } from '../../state/hooks'
@@ -22,33 +21,45 @@ import { Frame, bodyRows } from '../../ui/Frame'
 import { useScreen, useScreenKeys } from '../context'
 import { glyphs, ink } from '../../theme/theme'
 import { truncate, width } from '../../text/width'
-import { takeWizardSeed, WIZARD_SEED_ARG, type WizardSeed } from './hostJobs'
+import { useJobs } from './hostJobs'
 import { useMarketTab } from './hostMarketTab'
 import { useWizardTab } from './hostWizardTab'
 import { useImportTab } from './hostImportTab'
+import { useConnectTab } from './hostConnectTab'
 
-const TABS = ['marketplace', 'create', 'import'] as const
+const TABS = ['marketplace', 'create', 'import', 'connect'] as const
 type TabId = (typeof TABS)[number]
 
-export function AppCreateScreen({ arg }: { arg?: string }) {
+export function AppCreateScreen(_props: { arg?: string }) {
   const { t } = useTranslation('appsHost')
   const dispatch = useAppDispatch()
   const { columns, rows, setTextFocus } = useScreen()
-  const [seed] = useState<WizardSeed | null>(() => (arg === WIZARD_SEED_ARG ? takeWizardSeed() : null))
-  const [tab, setTab] = useState<TabId>(seed ? 'create' : 'marketplace')
+  const [tab, setTab] = useState<TabId>('marketplace')
   const [barFocus, setBarFocus] = useState(false)
   const [confirmLeave, setConfirmLeave] = useState(false)
 
-  const onOpenProject = useCallback((projectId: string) => dispatch(replaceScreen({ id: 'app', arg: projectId })), [dispatch])
+  const onOpenApp = useCallback((appKey: string) => dispatch(replaceScreen({ id: 'app', arg: appKey })), [dispatch])
+  const onOpenBuild = useCallback((sessionId: string) => dispatch(replaceScreen({ id: 'app', arg: `pending:${sessionId}` })), [dispatch])
   // Body rows: tab bar, a blank line, then the tab.
   const height = Math.max(4, bodyRows(rows) - 2)
-  const props = { t, columns, height, onOpenProject }
+  const props = { t, columns, height, onOpenApp, onOpenBuild }
   const market = useMarketTab({ ...props, active: tab === 'marketplace' && !barFocus })
-  const wizard = useWizardTab({ ...props, active: tab === 'create' && !barFocus, seed })
+  const wizard = useWizardTab({ ...props, active: tab === 'create' && !barFocus })
   const importer = useImportTab({ ...props, active: tab === 'import' && !barFocus })
-  const current = tab === 'marketplace' ? market : tab === 'create' ? wizard : importer
+  const connector = useConnectTab({ ...props, active: tab === 'connect' && !barFocus })
+  const current = tab === 'marketplace' ? market : tab === 'create' ? wizard : tab === 'import' ? importer : connector
   const textFocus = !barFocus && !confirmLeave && current.textFocus
-  const dirty = wizard.dirty || importer.dirty
+  const dirty = wizard.dirty || importer.dirty || connector.dirty
+
+  // An install finished, or a conversion started, after this screen opened: go there.
+  const { arrival } = useJobs()
+  const seen = useRef(arrival?.seq ?? 0)
+  useEffect(() => {
+    if (!arrival || arrival.seq <= seen.current) return
+    seen.current = arrival.seq
+    if (arrival.kind === 'app') onOpenApp(arrival.appKey)
+    else onOpenBuild(arrival.sessionId)
+  }, [arrival, onOpenApp, onOpenBuild])
 
   useEffect(() => {
     setTextFocus(textFocus)
@@ -92,6 +103,7 @@ export function AppCreateScreen({ arg }: { arg?: string }) {
     marketplace: t('add.tabs.marketplace'),
     create: t('add.tabs.create'),
     import: t('add.tabs.import'),
+    connect: t('add.tabs.connect'),
   }
   const hints = confirmLeave
     ? []

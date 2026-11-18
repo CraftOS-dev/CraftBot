@@ -124,6 +124,7 @@ class ChatMessage:
     # "📩 Incoming …" system stub (PR #419).
     details: Optional[str] = None
     ui_artifact: Optional[dict] = None
+    references: Optional[List[dict]] = None
 
     def __post_init__(self) -> None:
         """Generate message_id if not provided; normalize session id."""
@@ -142,6 +143,8 @@ class ChatMessage:
             "messageId": self.message_id,
             "sessionId": self.session_id,
         }
+        if self.references:
+            data["references"] = self.references
         if self.client_id:
             data["clientId"] = self.client_id
         if self.attachments:

@@ -18,10 +18,11 @@ One function, one set of behaviours:
 
 from __future__ import annotations
 
-import os
 import subprocess
 import sys
 from typing import Callable, Iterable, List, Optional, Sequence
+
+from app import python_runtime
 
 LogFn = Callable[[str], None]
 
@@ -29,6 +30,12 @@ LogFn = Callable[[str], None]
 #: both far too verbose to echo wholesale into a UI panel, but these show
 #: forward motion, and anything with an error marker explains a failure.
 PROGRESS_PREFIXES = (
+    # uv (the dependency install)
+    "Resolved",
+    "Prepared",
+    "Installed",
+    "Built",
+    # pip, npm
     "Collecting",
     "Downloading",
     "Using cached",
@@ -82,6 +89,11 @@ def run(
         head = " ".join(argv[:6])
         say(f"    $ {head}{' ...' if len(argv) > 6 else ''}")
 
+    # Isolated by default: a PYTHONHOME/PYTHONPATH left by ArcGIS or QGIS, a
+    # user site-packages, or a pip config demanding a virtualenv each broke
+    # the private interpreter in a different way. Callers that pass env
+    # (Node children) built it from the same base.
+    base_env = env if env is not None else python_runtime.isolated_env()
     if not stream:
         return subprocess.run(
             argv,
@@ -89,11 +101,11 @@ def run(
             capture_output=True,
             text=True,
             timeout=timeout,
-            env=env,
+            env=base_env,
             **_no_window_kwargs(),
         )
 
-    child_env = dict(env if env is not None else os.environ)
+    child_env = dict(base_env)
     # A Python child writing to a pipe block-buffers; without this, pip says
     # nothing for minutes on a slow connection and the install looks hung.
     child_env.setdefault("PYTHONUNBUFFERED", "1")

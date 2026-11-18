@@ -25,7 +25,7 @@ def run(
 
     A required stage that fails stops the run: continuing past a failed
     dependency install only produces a second, more confusing error further
-    down. Optional stages (Node, Playwright) record the failure and continue —
+    down. Optional stages (Playwright, WhatsApp) record the failure and continue —
     core chat works without them, and taking the whole install down for a
     feature the user may never touch is worse than a warning.
     """
@@ -33,6 +33,8 @@ def run(
     report = PipelineReport()
 
     for stage in stages:
+        if not stage.optional:
+            report.required_stages.add(stage.name)
         try:
             before = stage.check(ctx)
         except Exception as e:  # a broken check must not abort the install

@@ -1,27 +1,22 @@
 /**
  * Long-running Agent App jobs that outlive the Add screen: marketplace
- * installs (minutes), imports (a large repository downloads for minutes) and
- * the chat path's setup questions. Like the browser's always-mounted modal
- * and import toast, their state lives here at module level, fed by inbound
- * socket messages, so leaving the screen never loses a result: a toast
- * reports it, and an open Add screen moves on to the new app.
+ * installs and imports (a large repository downloads for minutes). Like the
+ * browser's always-mounted creation hook, their state lives here at module
+ * level: an install is a host job (`install`), followed by reading the
+ * host's `snapshot` every few seconds, so leaving the screen never loses a
+ * result: a toast reports it, and an open Add screen moves on to the app.
+ *
+ * A source that is not an Agent App package is converted instead: your AI
+ * agent rebuilds it (the host's `workflow`, activity "convert").
  */
+import { existsSync } from 'node:fs'
 import { useSyncExternalStore } from 'react'
 import i18next from 'i18next'
-import { onInboundMessage } from '../../../../browser/frontend/src/store/socket/socketMiddleware'
 import { store } from '../../state/store'
-import { send } from '../../state/hooks'
-import { openScreen, pushToast } from '../../state/tuiSlice'
-import {
-  importAmount,
-  importName,
-  isZipPath,
-  marketKey,
-  pushProgressLine,
-  type ImportProgressEvent,
-  type InterviewQuestion,
-  type MarketplaceApp,
-} from './hostModel'
+import { pushToast } from '../../state/tuiSlice'
+import { errorText, frameworkAppKey, frameworkRequest, requestAppList } from '../../apps/framework'
+import type { FrameworkHostSnapshot, FrameworkInstallJob } from '../../../../browser/frontend/src/features/agentApps/frameworkApi'
+import { isZipPath, importName, type CatalogueSource, type MarketplaceApp } from './hostModel'
 import { checkLocalFile, expandPath, uploadImportZip } from './hostUpload'
 
 const tr = (key: string, options?: Record<string, unknown>): string => i18next.t(`appsHost:${key}`, options ?? {})
@@ -54,250 +49,191 @@ function useStore<T>(s: Store<T>): T {
   return useSyncExternalStore(s.subscribe, s.get, s.get)
 }
 
+// ── installs (marketplace and import) ───────────────────────────────────────
+
+export interface InstallJob {
+  /** The host's job id. */
+  id: string
+  name: string
+  /** The catalogue entry it installs, when it came from the marketplace. */
+  sourceId?: string
+  status: 'running' | 'success' | 'error' | 'interrupted'
+  /** The last step the job reported, for one progress line. */
+  step: string
+  error: string | null
+  /** The installed app's key (JSON [path, id]), once it is in. */
+  appKey: string | null
+}
+
+/** Where a finished job or a conversion sends the Add screen; `seq` grows each time. */
+export type Arrival = { kind: 'app'; appKey: string; seq: number } | { kind: 'build'; sessionId: string; seq: number }
+
+interface JobsState {
+  jobs: InstallJob[]
+  arrival: Arrival | null
+}
+
+const jobs = createStore<JobsState>({ jobs: [], arrival: null })
+let arrivalSeq = 0
+let polling: ReturnType<typeof setTimeout> | null = null
+
+export const useJobs = (): JobsState => useStore(jobs)
+
+function arrive(arrival: { kind: 'app'; appKey: string } | { kind: 'build'; sessionId: string }): void {
+  jobs.set(s => ({ ...s, arrival: { ...arrival, seq: ++arrivalSeq } as Arrival }))
+}
+
+function stepLine(job: FrameworkInstallJob): string {
+  const last = job.steps[job.steps.length - 1]
+  return last ? `${last.step}${last.status && last.status !== 'start' ? ` (${last.status})` : ''}` : ''
+}
+
+/** Read the host's jobs until none of ours is running. */
+async function poll(): Promise<void> {
+  polling = null
+  const mine = jobs.get().jobs.filter(j => j.status === 'running')
+  if (mine.length === 0) return
+  try {
+    const snapshot = await frameworkRequest<FrameworkHostSnapshot>({ operation: 'snapshot' })
+    for (const job of snapshot.jobs.filter(j => mine.some(m => m.id === j.id))) {
+      const problem = job.error || job.linkError || job.steps.find(step => step.error)?.error || null
+      const done = job.status !== 'running'
+      const installed = job.status === 'success' && !problem
+      const appKey = job.result?.dir && job.result?.id ? frameworkAppKey(job.result.dir, job.result.id) : null
+      const name = mine.find(m => m.id === job.id)?.name ?? ''
+      jobs.set(s => ({
+        ...s,
+        jobs: s.jobs.map(j =>
+          j.id === job.id
+            ? { ...j, status: (job.status as InstallJob['status']) ?? 'running', step: stepLine(job), error: done && !installed ? problem || job.stderr || tr('market.installFailed') : null, appKey }
+            : j,
+        ),
+      }))
+      if (!done) continue
+      requestAppList()
+      if (installed) {
+        store.dispatch(pushToast(tr('market.installedToast', { name: name || tr('market.app') }), 'success'))
+        if (appKey) arrive({ kind: 'app', appKey })
+      } else {
+        store.dispatch(pushToast(tr('market.installAttention', { name: name || tr('market.app'), error: problem ?? '' }), 'error', 10_000))
+      }
+    }
+  } catch (err) {
+    store.dispatch(pushToast(tr('market.progressFailed', { error: errorText(err) }), 'error', 6000, 'framework-install-refresh'))
+  }
+  if (jobs.get().jobs.some(j => j.status === 'running')) polling = setTimeout(() => void poll(), 2500)
+}
+
+/**
+ * Install from the catalogue (`{id}`) or from a source (`{from}`): a zip, a
+ * folder, `github:owner/repo@ref/path`, a GitHub URL or `git+https://...#ref`.
+ * Not an Agent App: your AI agent converts it, and the screen moves to that
+ * build. Throws with the host's own words when it cannot start.
+ */
+export async function installSource(source: { id: string } | { from: string }, name: string): Promise<void> {
+  const inspection = await frameworkRequest<{ status: string; data?: { installable: boolean; kind?: string; reason?: string }; stderr?: string }>({
+    operation: 'inspect',
+    ...source,
+  })
+  if (inspection.status !== 'success' || !inspection.data) throw new Error(inspection.stderr || tr('market.inspectFailed'))
+  if (!inspection.data.installable) {
+    // An Agent App whose toolkit is not available is refused, not rebuilt.
+    if (inspection.data.kind === 'agent-app') throw new Error(inspection.data.reason || tr('market.notInstallable'))
+    const what = 'id' in source ? source.id : source.from
+    const result = await frameworkRequest<{ sessionId: string }>({
+      operation: 'workflow',
+      activity: 'convert',
+      request: `Import or convert this source using the importer workflow: ${what}`,
+    })
+    arrive({ kind: 'build', sessionId: result.sessionId })
+    return
+  }
+  const job = await frameworkRequest<FrameworkInstallJob>({ operation: 'install', package: source })
+  jobs.set(s => ({
+    ...s,
+    jobs: [
+      ...s.jobs.filter(j => j.id !== job.id),
+      { id: job.id, name, sourceId: 'id' in source ? source.id : undefined, status: 'running', step: '', error: null, appKey: null },
+    ],
+  }))
+  store.dispatch(pushToast(tr('market.installing', { name }), 'info'))
+  if (!polling) polling = setTimeout(() => void poll(), 1000)
+}
+
 // ── marketplace ─────────────────────────────────────────────────────────────
 
 export interface MarketState {
   apps: MarketplaceApp[]
+  source: CatalogueSource | undefined
   loaded: boolean
   loading: boolean
   error: string | null
-  /** Install keys in flight. */
-  installing: string[]
-  /** Installs finished in this run, by install key ("Installed xN"). */
-  counts: Record<string, number>
-  /** The last batch of installs finished; `seq` grows each time. */
-  installed: { projectId: string; seq: number } | null
+  /** Catalogue ids whose install is being started. */
+  starting: string[]
 }
 
-const market = createStore<MarketState>({
-  apps: [],
-  loaded: false,
-  loading: false,
-  error: null,
-  installing: [],
-  counts: {},
-  installed: null,
-})
+const market = createStore<MarketState>({ apps: [], source: undefined, loaded: false, loading: false, error: null, starting: [] })
 
 export const useMarketplace = (): MarketState => useStore(market)
 
-const CATALOG_TIMEOUT_MS = 45_000
-const INSTALL_TIMEOUT_MS = 3 * 60_000
-let catalogTimer: ReturnType<typeof setTimeout> | null = null
-const installTimers = new Map<string, ReturnType<typeof setTimeout>>()
-const installNames = new Map<string, string>()
-let pendingProjects: string[] = []
-let installSeq = 0
-
-/** Ask for the catalog unless it is loaded (or loading); `force` refetches. */
+/** Ask for the catalogue unless it is loaded (or loading); `force` reads it again. */
 export function fetchMarketplace(force = false): void {
   const s = market.get()
   if (s.loading || (!force && s.loaded && !s.error)) return
   market.set({ ...s, loading: true, error: null })
-  if (catalogTimer) clearTimeout(catalogTimer)
-  // The backend always answers, but only if the request reached it.
-  catalogTimer = setTimeout(() => {
-    catalogTimer = null
-    market.set(prev => ({ ...prev, loading: false, error: tr('market.loadFailed') }))
-  }, CATALOG_TIMEOUT_MS)
-  send('agent_app_marketplace_list')
-}
-
-export function installMarketplaceApp(app: MarketplaceApp, fields: Record<string, string>): void {
-  const key = marketKey(app)
-  installNames.set(key, fields.APP_TITLE || app.name)
-  market.set(s => ({ ...s, installing: [...s.installing.filter(k => k !== key), key], error: null }))
-  const old = installTimers.get(key)
-  if (old) clearTimeout(old)
-  installTimers.set(
-    key,
-    setTimeout(() => {
-      installTimers.delete(key)
-      market.set(s => ({
-        ...s,
-        installing: s.installing.filter(k => k !== key),
-        error: tr('market.installTimeout', { name: installNames.get(key) ?? app.name }),
-      }))
-    }, INSTALL_TIMEOUT_MS),
-  )
-  send('agent_app_marketplace_install', {
-    appId: key,
-    appName: fields.APP_TITLE || app.name,
-    appDescription: app.description,
-    customFields: fields,
-  })
-}
-
-function onMarketList(data: { success?: boolean; apps?: MarketplaceApp[]; error?: string }): void {
-  if (catalogTimer) {
-    clearTimeout(catalogTimer)
-    catalogTimer = null
-  }
-  market.set(s =>
-    data.success
-      ? { ...s, apps: data.apps ?? [], loaded: true, loading: false, error: null }
-      : { ...s, loading: false, error: data.error || tr('market.loadFailed') },
-  )
-}
-
-function onMarketInstall(data: { status?: string; appId?: string; project?: { id?: string }; projectId?: string; error?: string }): void {
-  const key = data.appId
-  if (key) {
-    const timer = installTimers.get(key)
-    if (timer) clearTimeout(timer)
-    installTimers.delete(key)
-  }
-  const name = (key && installNames.get(key)) || ''
-  if (data.status === 'success') {
-    const projectId = data.project?.id || data.projectId
-    if (projectId) pendingProjects.push(projectId)
-    market.set(s => {
-      const installing = key ? s.installing.filter(k => k !== key) : []
-      const counts = key ? { ...s.counts, [key]: (s.counts[key] ?? 0) + 1 } : s.counts
-      if (installing.length > 0) return { ...s, installing, counts }
-      // The batch is done: move on to the last app installed, as the browser does.
-      const last = pendingProjects[pendingProjects.length - 1]
-      pendingProjects = []
-      return { ...s, installing, counts, installed: last ? { projectId: last, seq: ++installSeq } : s.installed }
+  frameworkRequest<{ status: string; data?: { apps: MarketplaceApp[]; source?: CatalogueSource }; stderr?: string }>({ operation: 'catalogue' })
+    .then(result => {
+      if (result.status !== 'success' || !result.data) throw new Error(result.stderr || tr('market.loadFailed'))
+      market.set(prev => ({ ...prev, apps: result.data!.apps, source: result.data!.source, loaded: true, loading: false }))
     })
-    store.dispatch(pushToast(tr('market.installedToast', { name: name || tr('market.app') }), 'success'))
-  } else {
-    market.set(s => ({
-      ...s,
-      installing: key ? s.installing.filter(k => k !== key) : [],
-      error: data.error || tr('market.installFailed'),
-    }))
-    store.dispatch(pushToast(data.error || tr('market.installFailed'), 'error', 8000))
-  }
+    .catch(err => market.set(prev => ({ ...prev, loading: false, error: errorText(err) })))
+}
+
+export function installMarketplaceApp(app: MarketplaceApp): void {
+  market.set(s => ({ ...s, starting: [...s.starting.filter(id => id !== app.id), app.id], error: null }))
+  installSource({ id: app.id }, app.name)
+    .catch(err => market.set(s => ({ ...s, error: errorText(err) })))
+    .finally(() => market.set(s => ({ ...s, starting: s.starting.filter(id => id !== app.id) })))
 }
 
 // ── import ──────────────────────────────────────────────────────────────────
 
-export interface ImportLine {
-  phase: string
-  text: string
-}
-
 export interface ImportState {
-  /** An import started from this client is running. */
-  running: boolean
+  /** An import is being started from this client. */
+  starting: boolean
   name: string
-  lines: ImportLine[]
-  /** The outcome of the last import; `seq` grows each time. */
-  result: { success: boolean; projectId?: string; error?: string; seq: number } | null
+  error: string | null
 }
 
-const imports = createStore<ImportState>({ running: false, name: '', lines: [], result: null })
-let importSeq = 0
+const imports = createStore<ImportState>({ starting: false, name: '', error: null })
 
 export const useImport = (): ImportState => useStore(imports)
 
-function finishImport(result: { success: boolean; projectId?: string; error?: string }): void {
-  imports.set(s => ({ ...s, running: false, result: { ...result, seq: ++importSeq } }))
-}
-
 /**
- * Import from a GitHub URL, a local folder or a ZIP. A ZIP on this machine is
- * uploaded first (as the browser does), then the backend is told the source.
+ * Import a source typed as text: a ZIP on this computer is uploaded first
+ * (the host may be another machine); a folder on this computer goes by its
+ * path; anything else (a URL, `github:...`) goes as typed.
  */
 export async function startImport(input: string): Promise<void> {
   const raw = input.trim()
   if (!raw) return
-  const looksLocal = !/^[a-z][a-z0-9+.-]*:\/\//i.test(raw) && !/^git@/i.test(raw)
-  const source = looksLocal ? expandPath(raw) : raw
-  const name = importName(source, tr('import.externalName'))
-  imports.set({ running: true, name, lines: [], result: imports.get().result })
-  if (looksLocal && isZipPath(source)) {
-    const file = checkLocalFile(source)
-    if (!file.ok) {
-      finishImport({ success: false, error: tr(file.reason === 'missing' ? 'files.missing' : 'files.notFile', { path: source }) })
-      return
+  const name = importName(raw, tr('import.externalName'))
+  imports.set({ starting: true, name, error: null })
+  try {
+    let from = raw
+    if (isZipPath(raw)) {
+      const file = checkLocalFile(raw)
+      if (!file.ok) throw new Error(tr(file.reason === 'missing' ? 'files.missing' : 'files.notFile', { path: raw }))
+      from = (await uploadImportZip(file.path, name)).path
+    } else if (!/^[a-z][a-z+]*:/i.test(raw) || /^[a-z]:[\\/]/i.test(raw)) {
+      // Not a URL: a path on this computer, made absolute for the host.
+      const local = expandPath(raw)
+      if (!existsSync(local)) throw new Error(tr('files.missing', { path: raw }))
+      from = local
     }
-    imports.set(s => ({ ...s, lines: pushProgressLine(s.lines, { phase: 'upload', text: tr('import.uploading', { name: file.name }) }) }))
-    try {
-      const staged = await uploadImportZip(file.path, name)
-      send('agent_app_import', { source: staged.path, name: staged.name || name })
-    } catch (err) {
-      finishImport({ success: false, error: tr('import.uploadFailed', { message: err instanceof Error ? err.message : String(err) }) })
-    }
-    return
-  }
-  send('agent_app_import', { source, name })
-}
-
-function onImportProgress(data: ImportProgressEvent & { name?: string }): void {
-  // Progress is broadcast to every client; show only imports started here.
-  if (!imports.get().running) return
-  const phase = data.phase || 'starting'
-  const amount = importAmount(data, i18next.language)
-  const label = phase.charAt(0).toUpperCase() + phase.slice(1)
-  imports.set(s => ({ ...s, lines: pushProgressLine(s.lines, { phase, text: amount ? `${label}  ${amount}` : label }) }))
-}
-
-function onImportResult(data: { success?: boolean; projectId?: string; error?: string }): void {
-  if (!imports.get().running) return
-  const name = imports.get().name
-  if (data.success) {
-    finishImport({ success: true, projectId: data.projectId })
-    store.dispatch(pushToast(tr('import.doneToast', { name }), 'success'))
-  } else {
-    finishImport({ success: false, error: data.error || tr('import.failed') })
-    store.dispatch(pushToast(data.error || tr('import.failed'), 'error', 8000))
+    await installSource({ from }, name)
+    imports.set(s => ({ ...s, starting: false }))
+  } catch (err) {
+    imports.set(s => ({ ...s, starting: false, error: errorText(err) }))
   }
 }
-
-// ── setup questions summoned from a chat ────────────────────────────────────
-
-export interface WizardSeed {
-  wizardId: string
-  config: Record<string, unknown>
-  questions: InterviewQuestion[]
-  originSessionId?: string
-}
-
-let wizardSeed: WizardSeed | null = null
-
-/** The setup questions a chat summoned, handed to the Add screen once. */
-export function takeWizardSeed(): WizardSeed | null {
-  const seed = wizardSeed
-  wizardSeed = null
-  return seed
-}
-
-/** The screen argument that opens the Add screen on a summoned wizard. */
-export const WIZARD_SEED_ARG = 'wizard'
-
-function onWizardOpen(data: Partial<WizardSeed>): void {
-  if (!data?.wizardId || !Array.isArray(data.questions) || data.questions.length === 0) return
-  wizardSeed = {
-    wizardId: data.wizardId,
-    config: data.config ?? {},
-    questions: data.questions,
-    ...(data.originSessionId ? { originSessionId: data.originSessionId } : {}),
-  }
-  // The browser pops its wizard up over whatever is open; so does this.
-  store.dispatch(openScreen({ id: 'appCreate', arg: WIZARD_SEED_ARG }))
-}
-
-// ── inbound routing ─────────────────────────────────────────────────────────
-
-onInboundMessage(msg => {
-  const data = (msg.data ?? {}) as Record<string, unknown>
-  switch (msg.type) {
-    case 'agent_app_marketplace_list':
-      onMarketList(data)
-      break
-    case 'agent_app_marketplace_install':
-      onMarketInstall(data)
-      break
-    case 'agent_app_import_progress':
-      onImportProgress(data)
-      break
-    case 'agent_app_import_result':
-      onImportResult(data)
-      break
-    case 'agent_app_wizard_open':
-      onWizardOpen(data as Partial<WizardSeed>)
-      break
-  }
-})

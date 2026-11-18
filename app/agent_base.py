@@ -33,6 +33,7 @@ from dataclasses import dataclass
 from typing import Awaitable, Callable, Dict, Iterable, Optional
 
 from agent_core import ActionLibrary, ActionManager, ActionRouter
+from agent_core.core.impl.action import AgentStep
 from agent_core import settings_manager, config_watcher
 
 from app.config import (
@@ -150,13 +151,52 @@ class TriggerData:
     payload: dict | None = None
 
 
+def _message_origin(trigger_data: TriggerData) -> dict:
+    """The trusted turn origin a turn's actions run with
+    (current_message_origin), from the trigger, never from action inputs."""
+    payload = trigger_data.payload or {}
+    return {
+        "platform": trigger_data.platform,
+        "contact_id": trigger_data.contact_id,
+        "is_self_message": trigger_data.is_self_message,
+        "owner_authenticated": payload.get("owner_authenticated") is True,
+        "integration_type": payload.get("integration_type", ""),
+        "channel_id": trigger_data.channel_id,
+        "account": payload.get("account", ""),
+        "auto_reply_allowed": payload.get("auto_reply_allowed") is True,
+    }
+
+
+async def _settle_actions(tasks: list) -> list:
+    """The outputs of actions already running (started while their reply
+    was being written), in order; an exception becomes an error output. A
+    stopped turn cancels them and waits for their bookkeeping, as
+    ActionManager.execute_actions_parallel does for its batch."""
+    try:
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+    except asyncio.CancelledError:
+        for task in tasks:
+            task.cancel()
+        await asyncio.wait(tasks)
+        raise
+    return [
+        {"status": "error", "error": str(result) or type(result).__name__}
+        if isinstance(result, BaseException)
+        else result
+        for result in results
+    ]
+
+
 # Trigger sources that begin a NEW run (reset budgets, apply workflow skills).
 RUN_START_SOURCES = {
+    TriggerSource.FRAMEWORK_WORKFLOW.value,
+    TriggerSource.FRAMEWORK_TASK.value,
     TriggerSource.USER_MESSAGE.value,
     TriggerSource.SCHEDULED.value,
     TriggerSource.SCHEDULED_ONCE.value,
     TriggerSource.SCHEDULED_IMMEDIATE.value,
     TriggerSource.MEMORY.value,
+    TriggerSource.CRON_JOB.value,
     TriggerSource.PROACTIVE_HEARTBEAT.value,
     TriggerSource.PROACTIVE_PLANNER.value,
     TriggerSource.ONBOARDING.value,
@@ -186,6 +226,7 @@ RUN_CARRY_KEYS = (
     "workflow_action_sets",
     "run_source",
     "skill_workflow",
+    "framework_task_key",
 )
 
 # Trigger sources announced in the session's chat as a system message at
@@ -200,10 +241,12 @@ TRIGGER_ANNOUNCEMENTS: Dict[str, tuple[str, str]] = {
     TriggerSource.SCHEDULED_ONCE.value: ("⏰", "Scheduled task"),
     TriggerSource.SCHEDULED_IMMEDIATE.value: ("⏰", "Scheduled task"),
     TriggerSource.MEMORY.value: ("⚙️", "Memory processing workflow"),
-    TriggerSource.PROACTIVE_HEARTBEAT.value: ("⚙️", "Proactive check"),
+    TriggerSource.CRON_JOB.value: ("⏰", "Recurring task"),
+    TriggerSource.PROACTIVE_HEARTBEAT.value: ("⚙️", "Heartbeat"),
     TriggerSource.PROACTIVE_PLANNER.value: ("⚙️", "Proactive planning"),
     TriggerSource.ONBOARDING.value: ("⚙️", "Onboarding workflow"),
     TriggerSource.SKILL_WORKFLOW.value: ("⚙️", "Skill workflow"),
+    TriggerSource.FRAMEWORK_TASK.value: ("📩", "App request"),
 }
 
 
@@ -367,6 +410,17 @@ class AgentBase:
             self.context_engine,
             prompt_filter=self._filter_action_prompt,
         )
+        # Decide and prepare a turn's actions: the same step every sub-agent
+        # runs (app.subagent.runner).
+        self.agent_step = AgentStep(
+            self.action_router, self.action_library, self.event_stream_manager
+        )
+        # Session caches register the system prompt decisions send, which
+        # ends with the session's decision instructions. Set before any
+        # session is created or restored below.
+        self.context_engine.set_decision_instructions_hook(
+            self.action_router.decision_instructions
+        )
 
         self.session_manager = SessionManager(
             event_stream_manager=self.event_stream_manager,
@@ -388,6 +442,12 @@ class AgentBase:
         # previous run, then guarantee the main session exists.
         self._restore_sessions()
         self.session_manager.ensure_main()
+
+        # App workflows and delegated tasks belong to the agent runtime, so
+        # native CLI/TUI use does not require a browser adapter to create them.
+        from app.agent_app.framework_host import FrameworkHost
+
+        self.framework_host = FrameworkHost(self)
 
         # ── memory manager for proactive agent ──
         # extra_files_provider: user-selected files from the Memory panel
@@ -443,6 +503,9 @@ class AgentBase:
         self.subagent_manager = SubAgentManager(
             event_stream_manager=self.event_stream_manager,
             llm_interface=self.llm,
+            action_library=self.action_library,
+            action_manager=self.action_manager,
+            session_manager=self.session_manager,
         )
         # A stream is removed when a sub-agent finishes (its Mini Browser tabs
         # close) or a session is deleted (its browser and profile go).
@@ -458,9 +521,6 @@ class AgentBase:
             memory_manager=self.memory_manager,
             context_engine=self.context_engine,
             subagent_manager=self.subagent_manager,
-            action_manager=self.action_manager,
-            action_library=self.action_library,
-            event_stream_manager=self.event_stream_manager,
         )
 
         # ── misc ──
@@ -470,6 +530,11 @@ class AgentBase:
         # Mirrors the RUN_STATE_CHANGED events so the UI can seed its
         # per-session busy state on connect.
         self.busy_sessions: set[str] = set()
+        # Sessions whose event stream a user-requested fold is summarizing
+        # (fold_session); the chat input's context button shows it.
+        self.folding_sessions: set[str] = set()
+        # Chat sessions with an auto-title request in flight: one at a time.
+        self.titling_sessions: set[str] = set()
         self._extra_system_prompt: str = self._load_extra_system_prompt()
 
         # Scheduler for periodic tasks (memory processing, proactive checks, etc.)
@@ -480,6 +545,10 @@ class AgentBase:
         proactive_file = AGENT_FILE_SYSTEM_PATH / "PROACTIVE.md"
         self.proactive_manager = initialize_proactive_manager(proactive_file)
         InternalActionInterface.proactive_manager = self.proactive_manager
+        # The scheduler fires PROACTIVE.md cron jobs at their exact slots
+        # (re-armed whenever the jobs are saved) and gives the heartbeat its
+        # checklist.
+        self.scheduler.set_proactive_manager(self.proactive_manager)
 
         self._command_registry: Dict[str, AgentCommand] = {}
         self._register_builtin_commands()
@@ -568,6 +637,33 @@ class AgentBase:
             return False
         self._persist_llm_session(session_id)
         return True
+
+    async def fold_session(self, session_id: str) -> Optional[int]:
+        """Summarize a session's event stream now (/fold, the chat input's
+        context menu): the fold a request that would not fit gets, early.
+
+        Waits for a decision in flight (ActionRouter.fold_session), and the
+        session's next request starts afresh from the folded stream, so it is
+        safe mid-run too. Returns how many tokens the stream shrank by (0:
+        nothing to fold yet), or None when a fold of it is already running.
+        A failed summary call raises and leaves the stream as it was.
+        """
+        if session_id in self.folding_sessions:
+            return None
+        self.folding_sessions.add(session_id)
+        await self._notify_session_updated(session_id)
+        try:
+            freed = await self.action_router.fold_session(session_id)
+            if freed:
+                self._persist_session_stream(session_id)
+            return freed
+        finally:
+            self.folding_sessions.discard(session_id)
+            await self._notify_session_updated(session_id)
+
+    async def _notify_session_updated(self, session_id: str) -> None:
+        if self.ui_controller:
+            await self.ui_controller.notify_session_updated(session_id)
 
     def close_ui_artifact(self, session_id: str, artifact_id: str) -> int:
         """The user closed a Generative UI output: the session's events keep
@@ -670,6 +766,7 @@ class AgentBase:
                     trigger.payload.update(workflow)
                     self._update_aggregated_description(trigger, desc)
             elif trigger.source in (
+                TriggerSource.CRON_JOB.value,
                 TriggerSource.PROACTIVE_HEARTBEAT.value,
                 TriggerSource.PROACTIVE_PLANNER.value,
             ):
@@ -704,29 +801,6 @@ class AgentBase:
             # for the model.
             self._log_trigger_claim(trigger, session_id)
 
-            # FACTORY: a mission's RUN has actually started (vs. merely being
-            # queued). Without this marker, a run that later ends on a
-            # run_continuation trigger (which carries no mission id) could not
-            # be attributed to its mission — and a surrendered mission would
-            # silently suppress redispatch (observed: done machine with
-            # mission_id still set).
-            try:
-                mission_id = (
-                    (trigger.payload or {}).get("factory_mission_id")
-                    if trigger
-                    else None
-                )
-                if mission_id:
-                    from app.factory.host_craftbot import get_factory_host
-
-                    project_id = (trigger.payload or {}).get("project_id")
-                    if project_id:
-                        get_factory_host().mission_run_started(
-                            str(project_id), str(mission_id)
-                        )
-            except Exception as e:
-                logger.debug(f"[FACTORY] mission-start marker failed: {e}")
-
             # ----- Deferred user-message stream write -----
             # User messages enter the event stream HERE — at the start of
             # their own turn — not at arrival. This keeps the stream
@@ -735,7 +809,7 @@ class AgentBase:
             # the next turn dismiss it as already-handled input). Called for
             # every trigger: aggregated batches may carry user messages even
             # when the base trigger is a different source.
-            self._log_deferred_user_messages(trigger, session_id)
+            await self._log_deferred_user_messages(trigger, session_id)
 
             trigger_data = self._extract_trigger_data(trigger, session_id)
             from app.telegram_feedback import start_typing
@@ -752,15 +826,35 @@ class AgentBase:
             await self.state_manager.start_turn(session_id)
 
             # ----- The one turn pipeline -----
-            action_decisions, reasoning = await self._select_action(trigger_data)
+            # The reply streams: the chat shows it as it is written, and its
+            # complete actions start before it ends when the turn allows.
+            reply_stream = self._open_reply_stream(trigger_data, session_id)
+            try:
+                action_decisions, reasoning = await self._select_action(
+                    trigger_data, reply_stream
+                )
+                reply_stream.finish(action_decisions)
+                started = reply_stream.started_tasks(action_decisions)
 
-            prepared_actions = await self._retrieve_and_prepare_actions(
-                action_decisions
-            )
+                prepared_actions, run_ids = self.agent_step.prepare_with_ids(
+                    [d for d in action_decisions if not d.get("_started")],
+                    session_id,
+                )
 
-            action_output = await self._execute_actions(
-                prepared_actions, trigger_data, reasoning, session_id
-            )
+                action_output = await self._execute_actions(
+                    prepared_actions,
+                    trigger_data,
+                    reasoning,
+                    session_id,
+                    run_ids=run_ids,
+                    started=started,
+                )
+            except asyncio.CancelledError:
+                await reply_stream.abort(cancel_actions=True)
+                raise
+            except Exception:
+                await reply_stream.abort(cancel_actions=False)
+                raise
 
             await self._finalize_turn(session, trigger, action_output)
 
@@ -873,10 +967,15 @@ class AgentBase:
                 logger.error(f"[ENTITY-JUDGE] Pipeline failed: {e}")
 
     def _prepare_proactive_run(self, trigger: Trigger) -> Optional[tuple[str, dict]]:
-        """Pre-check a proactive heartbeat/planner trigger.
+        """Pre-check a cron-job, heartbeat or planner trigger.
 
         Returns (instruction, workflow_payload) when there is work to do, or
-        None to skip (proactive disabled / nothing due).
+        None to skip (proactive disabled / nothing to do).
+
+        Cron jobs: the scheduler already chose and stamped the due jobs; the
+        trigger's description lists them with their instructions, so the run
+        never re-derives what is due. Heartbeat: the description carries the
+        checklist the run must go through.
         """
         from app.ui_layer.settings.proactive_settings import is_proactive_enabled
 
@@ -884,38 +983,38 @@ class AgentBase:
             logger.info("[PROACTIVE] Proactive mode is disabled, skipping trigger")
             return None
 
-        if trigger.source == TriggerSource.PROACTIVE_HEARTBEAT.value:
-            all_due_tasks = self.proactive_manager.get_all_due_tasks()
-            if not all_due_tasks:
-                logger.info("[PROACTIVE] No due tasks, skipping heartbeat")
+        action_sets = ["file_operations", "proactive", "web_research"]
+        if trigger.source == TriggerSource.CRON_JOB.value:
+            job_ids = (trigger.payload or {}).get("cron_job_ids") or []
+            if not job_ids:
+                logger.info("[PROACTIVE] Cron-job trigger carries no jobs, skipping")
                 return None
-            freq_counts: Dict[str, int] = {}
-            for t in all_due_tasks:
-                freq_counts[t.frequency] = freq_counts.get(t.frequency, 0) + 1
-            summary = ", ".join(f"{cnt} {freq}" for freq, cnt in freq_counts.items())
-            instruction = (
-                f"Execute all due proactive tasks from PROACTIVE.md. "
-                f"Due tasks: {summary} ({len(all_due_tasks)} total). "
-                f"Use recurring_read with frequency='all' and enabled_only=true, "
-                f"then filter by each task's time/day fields."
-            )
+            workflow = {
+                "run_source": TriggerSource.CRON_JOB.value,
+                "workflow_skills": ["cron-job-runner"],
+                "workflow_action_sets": action_sets,
+            }
+            logger.info(f"[PROACTIVE] Cron-job run: {', '.join(job_ids)}")
+            return trigger.next_action_description, workflow
+
+        if trigger.source == TriggerSource.PROACTIVE_HEARTBEAT.value:
             workflow = {
                 "run_source": TriggerSource.PROACTIVE_HEARTBEAT.value,
                 "workflow_skills": ["heartbeat-processor"],
-                "workflow_action_sets": [
-                    "file_operations",
-                    "proactive",
-                    "web_research",
-                ],
+                "workflow_action_sets": action_sets,
             }
-            logger.info(f"[PROACTIVE] Heartbeat run: {summary}")
-            return instruction, workflow
+            logger.info("[PROACTIVE] Heartbeat run")
+            return trigger.next_action_description, workflow
 
         # Planner
         scope = trigger.payload.get("scope", "day")
+        brief = {"day": "morning brief", "week": "weekly review"}.get(
+            scope, "monthly review"
+        )
         instruction = (
-            f"Review recent interactions and plan {scope}ly proactive "
-            f"activities. Update PROACTIVE.md planner section with findings."
+            f"Run the {scope} planner: follow the {scope}-planner skill, update "
+            f"the Goals, Plan, and Status section of PROACTIVE.md, then end with "
+            f"ONE send_message: the user's {brief}."
         )
         workflow = {
             "run_source": TriggerSource.PROACTIVE_PLANNER.value,
@@ -941,15 +1040,36 @@ class AgentBase:
         scheduled task's ``skills``) also brings the action sets its
         SKILL.md declares, exactly like ``use_skill`` does.
         """
-        skills = payload.get("workflow_skills") or []
+        skills = list(payload.get("workflow_skills") or [])
+        # A reply to an app still being built (its answers at a checkpoint)
+        # resumes the builder, with the skill and tools it was started with.
+        resume = None
+        if getattr(session, "type", None) == SessionType.AGENT_APP and not skills:
+            from app.agent_app.framework_host import get_host
+
+            host = get_host()
+            resume = host.build_resume(session) if host else None
+            if resume:
+                payload.update(resume)
+                skills = list(resume["workflow_skills"])
+        # Registry app conversations use the upstream operating instructions on
+        # every turn, including chats restored from before the framework binding.
+        # Keep explicitly loaded skills persistent; only unload our run-scoped add.
+        if (
+            getattr(session, "type", None) == SessionType.AGENT_APP
+            and not resume
+            and getattr(session, "agent_app_framework_key", None)
+            and "framework-operator" not in getattr(session, "selected_skills", [])
+            and "framework-operator" not in skills
+        ):
+            skills.append("framework-operator")
+            payload["workflow_skills"] = skills
         sets = list(payload.get("workflow_action_sets") or [])
         for set_name in self._user_skill_action_sets(skills):
             if set_name not in sets:
                 sets.append(set_name)
         for skill_name in skills:
             self.session_manager.add_skill(session.id, skill_name)
-        if skills:
-            self._invalidate_session_caches(session.id)
         if sets:
             InternalActionInterface.load_action_sets(sets, session_id=session.id)
 
@@ -988,8 +1108,6 @@ class AgentBase:
         skills = payload.get("workflow_skills") or []
         for skill_name in skills:
             self.session_manager.remove_skill(session.id, skill_name)
-        if skills:
-            self._invalidate_session_caches(session.id)
 
     @staticmethod
     def _drop_aggregated_source(trigger: Trigger, source: str) -> None:
@@ -1164,8 +1282,8 @@ class AgentBase:
         """Event-stream removal listener: a sub-agent finished (its Mini
         Browser tabs close) or a session was deleted (every path that deletes
         a session removes its stream: its browser closes for good and its
-        profile is deleted). Runs on the remover's thread (a sub-agent's pool
-        thread), so it only hands work off."""
+        profile is deleted). Runs on the remover's thread, so it only hands
+        work off."""
         self._notify_mini_browser("stream_removed", session_id)
 
     async def _shutdown_mini_browser(self) -> None:
@@ -1197,7 +1315,7 @@ class AgentBase:
                 return
             from app.usage.session_storage import get_session_storage
 
-            get_session_storage().persist_event_stream(
+            get_session_storage().persist_event_stream_later(
                 session_id, self.event_stream_manager.get_stream_by_id(session_id)
             )
         except Exception as e:
@@ -1208,38 +1326,17 @@ class AgentBase:
 
     def _persist_llm_session(self, session_id: str) -> None:
         """Save a session's LLM state (LLMInterface.export_session), so a
-        restart continues the session instead of starting a new prefix."""
+        restart continues the session instead of starting a new prefix.
+        Snapshotted now, written on the session storage's writer thread."""
         try:
             from app.usage.session_storage import get_session_storage
 
-            get_session_storage().persist_llm_session(
+            get_session_storage().persist_llm_session_later(
                 session_id, self.llm.export_session(session_id)
             )
         except Exception as e:
             logger.warning(
                 f"[PERSIST] LLM session persist failed for {session_id}: {e}"
-            )
-
-    def _invalidate_session_caches(self, session_id: str) -> None:
-        """Rebuild a session's LLM caches after a capability change."""
-        try:
-            self.llm.remove_session_caches(session_id)
-        except Exception:
-            pass
-        try:
-            self.session_manager.rebuild_session_caches(session_id)
-            for call_type in (
-                LLMCallType.REASONING,
-                LLMCallType.ACTION_SELECTION,
-                LLMCallType.GUI_REASONING,
-                LLMCallType.GUI_ACTION_SELECTION,
-            ):
-                self.context_engine.reset_event_stream_sync(
-                    call_type, session_id=session_id
-                )
-        except Exception as e:
-            logger.warning(
-                f"[AGENT] Failed to rebuild session caches for {session_id}: {e}"
             )
 
     # ----- Trigger data -----
@@ -1263,86 +1360,133 @@ class AgentBase:
     # ----- Action Selection -----
 
     @profile("agent_select_action", OperationCategory.AGENT_LOOP)
-    async def _select_action(self, trigger_data: TriggerData) -> tuple[list, str]:
+    async def _select_action(
+        self, trigger_data: TriggerData, reply_stream=None
+    ) -> tuple[list, str]:
         """
         Select action(s) for this turn. Always returns a list for
         consistency with parallel action support.
 
         Reasoning is integrated into the action selection prompt, so this
-        is a single LLM call.
+        is a single LLM call. ``reply_stream`` follows its reply as it is
+        written (_open_reply_stream).
         """
-        action_decisions = await self.action_router.select_action_in_session(
-            query=trigger_data.query,
-            session_id=trigger_data.session_id,
+        action_decisions, reasoning = await self.agent_step.decide(
+            trigger_data.query, trigger_data.session_id, reply_stream=reply_stream
         )
         # The decision request's context size and cache use are recorded on
         # the LLM interface now; send them to the chat input's reasoning menu.
         if self.ui_controller:
             await self.ui_controller.notify_session_updated(trigger_data.session_id)
-
-        if not action_decisions:
-            raise ValueError("Action router returned no decision.")
-
-        reasoning = action_decisions[0].get("reasoning", "") if action_decisions else ""
-        logger.debug(f"[AGENT REASONING] {reasoning}")
-
-        if self.event_stream_manager and reasoning:
-            self.event_stream_manager.log(
-                "agent reasoning",
-                reasoning,
-                severity="DEBUG",
-                event_type=EventType.REASONING,
-                display_message=None,
-                task_id=trigger_data.session_id,
-            )
+        if reasoning:
             self.state_manager.bump_event_stream()
 
         return action_decisions, reasoning
 
+    def _open_reply_stream(self, trigger_data: TriggerData, session_id: str):
+        """The turn's ReplyStream (agent_core/core/impl/action/reply_stream.py).
+
+        The chat sees the decision reply as the model writes it, and each
+        complete action of it starts at once, before the reply ends, when
+        the turn allows it (_early_start_allowed) and the action may run
+        alongside others (ActionRouter.early_start_kind).
+        """
+        from agent_core.core.impl.action.reply_stream import ReplyStream
+
+        publish = None
+        sender = "Agent"
+        if self.ui_controller is not None:
+            publish = self.ui_controller.publish_agent_stream
+            try:
+                from app.onboarding import onboarding_manager
+
+                sender = onboarding_manager.state.agent_name or "Agent"
+            except Exception:
+                pass
+        allowed: dict = {}
+
+        def start_action(decision: dict):
+            if "turn" not in allowed:
+                allowed["turn"] = self._early_start_allowed(trigger_data, session_id)
+            if not allowed["turn"]:
+                return None
+            return self._start_streamed_action(decision, trigger_data, session_id)
+
+        def log_reasoning(reasoning: str, item_id: str) -> None:
+            self.agent_step.log_reasoning(session_id, reasoning, item_id)
+
+        return ReplyStream(
+            session_id=session_id,
+            publish=publish,
+            start_action=start_action,
+            classify=self.agent_step.router.early_start_kind,
+            log_reasoning=log_reasoning,
+            sender=sender,
+        )
+
+    def _early_start_allowed(self, trigger_data: TriggerData, session_id: str) -> bool:
+        """Whether this turn's actions may start while its reply is still
+        being written.
+
+        Not when a whole-batch check (_execute_actions) could refuse the
+        batch after one of its actions already ran: an Agent App task (its
+        authority confines what the batch may do), a Telegram turn from a
+        contact other than the owner (one tool it may not use refuses the
+        whole batch, reply included), or an owner turn whose control was
+        revoked. Those turns run their actions when the reply ends.
+        """
+        from app.agent_app.framework_commands import task_authority
+        from app.telegram_feedback import owner_permission_error
+
+        if task_authority.get() is not None:
+            return False
+        session = self.session_manager.get(session_id)
+        if session is not None and getattr(session, "isolated_app_task", False):
+            return False
+        payload = trigger_data.payload or {}
+        if payload.get("integration_type") == "telegram_bot" and not trigger_data.is_self_message:
+            return False
+        return owner_permission_error(payload) is None
+
+    def _start_streamed_action(
+        self, decision: dict, trigger_data: TriggerData, session_id: str
+    ) -> Optional[asyncio.Future]:
+        """Start one complete action of the reply while it is still being
+        written; its task, or None when it does not start now (the reply's
+        end then decides, as without streaming).
+
+        It runs as the batch's actions do (execute_actions_parallel): with
+        the turn's message origin, under the session, logging its own start
+        and end, and with the run id its streamed row already shows.
+        """
+        prepared = self.agent_step.prepare_one(decision, session_id)
+        if prepared is None:
+            return None
+        action, params = prepared
+        context = decision.get("reasoning") or trigger_data.query
+        run_id = decision.get("_run_id")
+
+        async def run() -> dict:
+            from agent_core.core.impl.action.context import current_message_origin
+
+            token = current_message_origin.set(_message_origin(trigger_data))
+            try:
+                return await self.action_manager.execute_action(
+                    action=action,
+                    context=context,
+                    event_stream=STATE.event_stream,
+                    parent_id=None,
+                    session_id=session_id,
+                    is_running_task=True,
+                    input_data=params,
+                    run_id=run_id,
+                )
+            finally:
+                current_message_origin.reset(token)
+
+        return asyncio.ensure_future(run())
+
     # ----- Action Execution -----
-
-    async def _retrieve_and_prepare_actions(self, action_decisions: list) -> list:
-        """
-        Retrieve actions from library for a list of action decisions.
-
-        Args:
-            action_decisions: List of action decision dicts from router.
-
-        Returns:
-            List of Tuple (action, action_params)
-        """
-        prepared = []
-        for decision in action_decisions:
-            action_name = decision.get("action_name")
-            action_params = decision.get("parameters", {})
-
-            # Check if action was marked as error (e.g., dropped due to parallel constraints)
-            if "_error" in decision:
-                error_msg = decision.get("_error")
-                logger.warning(f"Action '{action_name}' has error: {error_msg}")
-                # Log to event stream so agent sees the error
-                if self.event_stream_manager:
-                    self.event_stream_manager.log(
-                        kind="action_error",
-                        message=f"Action {action_name} failed: {error_msg}",
-                        event_type=EventType.ACTION_END,
-                        display_message=f"{action_name} → failed",
-                        action_name=action_name,
-                        action_output={"status": "error", "error": error_msg},
-                    )
-                continue
-
-            if not action_name:
-                continue
-
-            action = self.action_library.retrieve_action(action_name)
-            if action is None:
-                logger.warning(f"Action '{action_name}' not found, skipping")
-                continue
-
-            prepared.append((action, action_params))
-
-        return prepared
 
     @profile("agent_execute_actions", OperationCategory.AGENT_LOOP)
     async def _execute_actions(
@@ -1351,15 +1495,96 @@ class AgentBase:
         trigger_data: TriggerData,
         reasoning: str,
         session_id: str,
+        *,
+        run_ids: Optional[list] = None,
+        started: Optional[list] = None,
     ) -> dict:
         """
         Execute prepared actions (parallel if multiple).
 
         Each action logs its own results to event stream via execute_action().
         Returns merged output for run control.
+
+        ``started``: tasks of the actions the reply started while it was
+        still being written (ReplyStream, only on turns _early_start_allowed
+        lets); they run on, and their outputs join this batch's.
+        ``run_ids``: each prepared action's run id (its streamed row's).
         """
+        started = list(started or [])
         if not prepared_actions:
+            if started:
+                return self._merge_action_outputs(await _settle_actions(started))
             raise ValueError("No valid actions to execute")
+
+        async def refused(result: dict) -> dict:
+            # Actions already running finish before the turn ends.
+            if started:
+                await _settle_actions(started)
+            return result
+
+        from app.agent_app.framework_commands import task_authority
+
+        session = self.session_manager.get(session_id)
+        authority = task_authority.get()
+
+        def refuse(action_name, message, **outcome):
+            # The agent sees the refusal like any failed action, so it can adapt.
+            logger.warning(f"[FRAMEWORK TASK] {message}")
+            if getattr(self, "event_stream_manager", None):
+                self.event_stream_manager.log(
+                    kind="action_error",
+                    message=message,
+                    event_type=EventType.ACTION_END,
+                    display_message=f"{action_name} → not available to this app request",
+                    action_name=action_name,
+                    action_output={"status": "error", "message": message},
+                )
+            return {"status": "error", "message": message, **outcome}
+
+        if authority is not None or (session and getattr(session, "isolated_app_task", False)):
+            if authority is None or (not authority.active and not authority.outcome):
+                return await refused(refuse(
+                    prepared_actions[0][0].name,
+                    "This task lost its authority; request a new task from the app.",
+                    run_ends=True,
+                ))
+            if authority.confined:
+                allowed = authority.allowed_actions if authority.active else {"send_message", "end_turn"}
+                for action, params in prepared_actions:
+                    if action.name not in allowed:
+                        return await refused(refuse(
+                            action.name,
+                            f"{action.name} is not available to this app request; it may use "
+                            f"only {', '.join(sorted(allowed))}.",
+                            has_errors=True,
+                        ))
+                    if action.name == "read_file" and not authority.may_read(params.get("file_path")):
+                        return await refused(refuse(
+                            action.name,
+                            "This app request may read only the app's own manual and declarations.",
+                            has_errors=True,
+                        ))
+            if authority.active and authority.check is not None:
+                try:
+                    await authority.check()
+                except Exception:
+                    return await refused(
+                        {"status": "error", "message": "The app task's authority changed.", "run_ends": True}
+                    )
+            from app.agent_app.framework_host import get_host
+
+            host = get_host()
+            if host:
+                for action, params in prepared_actions:
+                    if action.name == "send_message" and params.get(
+                        "suggested_responses"
+                    ):
+                        run = host.bridge.current_run(session_id)
+                        if run:
+                            run["ask"] = {
+                                "message": params.get("message"),
+                                "options": params["suggested_responses"],
+                            }
 
         from app.telegram_feedback import (
             owner_permission_error,
@@ -1368,7 +1593,7 @@ class AgentBase:
 
         denied = owner_permission_error(trigger_data.payload or {})
         if denied:
-            return {**denied, "run_ends": True, "has_errors": True}
+            return await refused({**denied, "run_ends": True, "has_errors": True})
 
         # Check the whole batch before parallel execution, including mixed
         # reply/tool batches. Model parameters cannot override turn provenance.
@@ -1389,7 +1614,7 @@ class AgentBase:
                         action_name=action.name,
                         action_output=denied,
                     )
-                return {**denied, "run_ends": False, "has_errors": True}
+                return await refused({**denied, "run_ends": False, "has_errors": True})
 
         context = reasoning if reasoning else trigger_data.query
 
@@ -1402,136 +1627,27 @@ class AgentBase:
 
         from agent_core.core.impl.action.context import current_message_origin
 
-        origin_token = current_message_origin.set(
-            {
-                "platform": trigger_data.platform,
-                "contact_id": trigger_data.contact_id,
-                "is_self_message": trigger_data.is_self_message,
-                "owner_authenticated": (trigger_data.payload or {}).get(
-                    "owner_authenticated"
-                )
-                is True,
-                "integration_type": (trigger_data.payload or {}).get(
-                    "integration_type", ""
-                ),
-                "channel_id": trigger_data.channel_id,
-                "account": (trigger_data.payload or {}).get("account", ""),
-                "auto_reply_allowed": (trigger_data.payload or {}).get(
-                    "auto_reply_allowed"
-                )
-                is True,
-            }
-        )
+        origin_token = current_message_origin.set(_message_origin(trigger_data))
         try:
-            results = await self.action_manager.execute_actions_parallel(
+            batch = self.action_manager.execute_actions_parallel(
                 actions=actions_with_input,
                 context=context,
                 event_stream=STATE.event_stream,
                 parent_id=None,
                 session_id=session_id,
                 is_running_task=True,
+                run_ids=run_ids,
             )
+            if started:
+                early, results = await asyncio.gather(_settle_actions(started), batch)
+                results = early + results
+            else:
+                results = await batch
         finally:
             current_message_origin.reset(origin_token)
 
         return self._merge_action_outputs(results)
 
-    async def _warn_if_undeployed(self, session) -> None:
-        """A run ending with un-shipped source changes must say so.
-
-        Editing a file is not shipping it: the running app serves whatever the
-        project tree held when it was last launched or promoted, so a run can
-        edit, tick its own "Verify" todo, say "Done" and end while the user
-        looks at the old build. Observed live 2026-09-02 (brainstorm_graph
-        f1eb1c85): three rounds of edits, three "Done" messages, zero deploys,
-        and a user replying "i dont see suggestions" after each one.
-
-        The question "is anything unshipped?" is answered by comparing the
-        tree against the verify baseline, which is stamped in exactly the two
-        places an app ships — Promoter.promote and every live launch. That
-        makes this a CONTENT comparison against the system's own record,
-        rather than a guess assembled from which action names ran: it needs no
-        list of edit actions to maintain, it sees an edit made with `sed`
-        through run_shell, and it cannot disagree with the verifier about what
-        counts as changed, because it reads the same snapshot the verifier does.
-        """
-        project_id = getattr(session, "agent_app_project_id", None)
-        if not project_id:
-            return
-        try:
-            from app.agent_app import get_agent_app_manager
-            from app.factory.host_craftbot import get_factory_host
-
-            mgr = get_agent_app_manager()
-            project = mgr.get_project(project_id) if mgr else None
-            if project is None or not project.path:
-                return
-            if getattr(project, "status", "") == "creating":
-                return  # an unfinished build is the factory arc's business
-            host = get_factory_host()
-            arc = host.arc_for(project_id)
-            if arc is not None and arc.is_open:
-                # An open arc means the supervisor is already carrying this
-                # change to a deploy or a blocked/stuck report; this warning
-                # would only duplicate or contradict those announcements
-                # ("tell me to deploy it" mid-fix-mission — observed twice
-                # per failed walk, kanban 1aaa15d2 2026-09-16). Speak only
-                # for ORPHANED changes: no machine left to ship them.
-                return
-            unshipped = await asyncio.to_thread(self._unshipped_fingerprint, project)
-            announced = getattr(self, "_undeployed_announced", None)
-            if announced is None:
-                announced = {}
-                self._undeployed_announced = announced
-            if unshipped is None:
-                announced.pop(project_id, None)
-                return
-            if announced.get(project_id) == unshipped:
-                return  # the same unshipped state was already said once
-            announced[project_id] = unshipped
-            name = getattr(project, "name", None) or project_id
-            logger.warning(
-                "[AGENT_APP] run ended with un-deployed source changes in "
-                f"{name} ({project_id}) — telling the user."
-            )
-            host.announce_undeployed(project_id, str(name))
-        except Exception as e:
-            logger.debug(f"[AGENT_APP] undeployed check skipped: {e}")
-
-    @staticmethod
-    def _unshipped_fingerprint(project) -> Optional[str]:
-        """What the project tree holds that the running app does not.
-
-        Returns a stable digest of the differing files, or None when the tree
-        matches the last thing shipped. A digest rather than a bool so the
-        caller can tell "still the same unshipped work" from "something new",
-        and speak up only for the second.
-
-        Synchronous and hashes the watched tree, so callers run it off the
-        event loop. No baseline means the app has never shipped at all, which
-        is the build arc's problem, not this warning's.
-        """
-        import hashlib
-
-        from app.agent_app.verify_scope import (
-            read_baseline,
-            snapshot_files,
-            verify_store_dir,
-        )
-
-        baseline = read_baseline(verify_store_dir(project))
-        if baseline is None:
-            return None
-        now = snapshot_files(Path(project.path))
-        then = baseline.get("files") or {}
-        if now == then:
-            return None
-        differing = sorted(
-            path for path in set(now) | set(then) if now.get(path) != then.get(path)
-        )
-        return hashlib.sha256(
-            "\n".join(f"{p}:{now.get(p, '-')}" for p in differing).encode()
-        ).hexdigest()[:16]
 
     def _merge_action_outputs(self, outputs: list) -> dict:
         """
@@ -1579,37 +1695,35 @@ class AgentBase:
         self.state_manager.bump_event_stream()
         self.session_manager.touch_session(session.id)
 
-        if not await self._check_agent_limits(session.id):
+        from app.agent_app.framework_commands import task_authority
+
+        authority = task_authority.get()
+        task_finished = authority is not None and authority.outcome is not None
+        # Completing a delegated task revokes its credential immediately. Finish
+        # the host run here; a continuation cannot run with revoked authority.
+        if not task_finished and not await self._check_agent_limits(session.id):
+            from app.agent_app.framework_host import get_host
+
+            if get_host():
+                await get_host().bridge.ended(session.id, awaiting_answer=True)
             # Run is paused on the Continue/Stop prompt — not busy anymore.
             self._emit_run_state(session.id, "idle")
             return
 
-        run_ends = bool(action_output.get("run_ends", False))
+        run_ends = task_finished or bool(action_output.get("run_ends", False))
 
         if run_ends:
-            # Files edited but never deployed: the user hears it from the
-            # system, not from an agent that believes "written" means "live".
-            await self._warn_if_undeployed(session)
-            # FACTORY Phase 1 (closes I6): if this run belonged to a Agent App
-            # build and the machine says work should be in flight but isn't,
-            # the machine redispatches a fresh mission. The agent surrendering
-            # is no longer a terminal event — the system carries the arc.
-            try:
-                agent_app_project = getattr(session, "agent_app_project_id", None)
-                if agent_app_project:
-                    from app.factory.host_craftbot import get_factory_host
+            from app.agent_app.framework_host import get_host
 
-                    get_factory_host().on_run_end(
-                        agent_app_project,
-                        (trigger.payload or {}) if trigger else {},
-                        awaiting_answer=bool(action_output.get("awaiting_answer")),
-                    )
-            except Exception as e:
-                logger.debug(f"[FACTORY] run-end hook failed: {e}")
+            if get_host():
+                await get_host().bridge.ended(
+                    session.id,
+                    awaiting_answer=bool(action_output.get("awaiting_answer")),
+                )
             await self._on_run_end(session, trigger.payload or {})
             return
 
-        # Continue the run: enqueue the next turn's trigger.
+        # Continue the run only when the preceding action did not finish it.
         fire_at_delay = 0.0
         try:
             fire_at_delay = float(action_output.get("fire_at_delay", 0.0))
@@ -1721,7 +1835,7 @@ class AgentBase:
 
     # ----- User force-stop -----
 
-    async def request_run_stop(self, session_id: str) -> bool:
+    async def request_run_stop(self, session_id: str, *, framework_task_key=None) -> bool:
         """Force-stop a session's in-flight run (the chat UI's stop button).
 
         Broadcasts ``stopping`` immediately (the button's spinner state),
@@ -1731,13 +1845,26 @@ class AgentBase:
         emits the terminal ``idle``.
         """
         logger.info(f"[RUN] User requested stop for session {session_id}")
+        from app.agent_app.framework_host import get_host
+
+        host = get_host()
+        if host:
+            for run in list(host.bridge.runs.values()):
+                if run["sessionId"] == session_id and (
+                    framework_task_key is None or run["key"] == framework_task_key
+                ):
+                    await host.bridge.terminate(
+                        run, "user_stopped", settle=True, cancel=False
+                    )
         self._emit_run_state(session_id, "stopping")
         # Stop the session's browser work first: in-flight Mini Browser ops
-        # are cancelled and its sub-agents (which a turn cancel never reaches,
-        # they run on their own threads) lose browser access for good.
+        # are cancelled and its sub-agents lose browser access for good (the
+        # turn cancel below also cancels a sub-agent the turn is running).
         self._notify_mini_browser("cancel_owner", session_id, include_children=True)
         try:
-            stopped = await self.session_runtime.request_stop(session_id)
+            stopped = await self.session_runtime.request_stop(
+                session_id, **({"framework_task_key": framework_task_key} if framework_task_key else {})
+            )
         except Exception:
             logger.error(f"[RUN] request_stop failed for {session_id}", exc_info=True)
             raise
@@ -1756,25 +1883,6 @@ class AgentBase:
         # cancelled the session's Mini Browser ops (e.g. a sub-agent step).
         self._notify_mini_browser("cancel_owner", session_id, include_children=True)
 
-        # FACTORY: the stop is recorded as INTENT. A paused arc never
-        # auto-resumes — without this, the machine later read the phantom
-        # half-done work as a surrender and resurrected the very job the
-        # user killed (the stop button was a deferral, not a stop).
-        try:
-            session = self.session_manager.get(session_id)
-            agent_app_project = getattr(session, "agent_app_project_id", None)
-            if agent_app_project:
-                from app.factory.host_craftbot import get_factory_host
-
-                get_factory_host().pause_by_user(str(agent_app_project))
-        except Exception as e:
-            logger.debug(f"[FACTORY] stop-pause failed: {e}")
-
-        # A force-stopped memory run must not leave the unprocessed buffers
-        # frozen forever. Reconcile the source queues against the staging
-        # remainder first: events the processor already distilled (removed from
-        # staging) are cleared, and every un-processed event is kept for the
-        # next run. Removal stays gated on processing even on a hard stop.
         if hasattr(self.event_stream_manager, "set_skip_unprocessed_logging"):
             try:
                 self.event_stream_manager.set_skip_unprocessed_logging(False)
@@ -1858,11 +1966,25 @@ class AgentBase:
         passes it directly when the first message arrives (so the sidebar
         updates while the run is still working). The run-end fallback call
         passes nothing and falls back to the event-stream snapshot.
+
+        One request per session at a time: a call made while another is in
+        flight (the run-end fallback of a quick run, a second message) does
+        nothing, and a title is only written while the chat has none, so it
+        never replaces another title or the user's own rename.
         """
         session = self.session_manager.get(session_id)
-        if not session:
+        if not session or session_id in self.titling_sessions:
             return
+        self.titling_sessions.add(session_id)
+        try:
+            await self._write_session_title(session_id, first_request)
+        finally:
+            self.titling_sessions.discard(session_id)
 
+    async def _write_session_title(
+        self, session_id: str, first_request: Optional[str]
+    ) -> None:
+        """_auto_title_session's work, with the session's request in flight."""
         basis = (first_request or "").strip()
         if not basis:
             try:
@@ -1900,6 +2022,11 @@ class AgentBase:
         if not title:
             title = self._fallback_session_title(first_request or "")
         if not title:
+            return
+
+        # Renamed (by the user) or titled meanwhile: keep that title.
+        session = self.session_manager.get(session_id)
+        if session is None or session.title not in ("", "New chat"):
             return
 
         try:
@@ -2388,14 +2515,15 @@ class AgentBase:
         if logged:
             self.state_manager.bump_event_stream()
 
-    def _log_deferred_user_messages(self, trigger, session_id: str) -> None:
+    async def _log_deferred_user_messages(self, trigger, session_id: str) -> None:
         """Write a user-message trigger's message(s) into the session stream.
 
         Called by react() when the trigger is claimed, so each message lands
         in the stream at the start of its OWN turn (aggregated batches log
         every message, in order). Also runs the memory injection that used
         to happen at arrival, so relevant memories still appear right after
-        the message(s) they relate to.
+        the message(s) they relate to. The memory search (embedding + vector
+        search) runs in a worker thread.
         """
         payload = trigger.payload or {}
         entries = payload.get("queued_user_messages")
@@ -2424,141 +2552,25 @@ class AgentBase:
             )
 
         try:
-            from agent_core.core.impl.memory.injector import inject_memory_event
+            from agent_core.core.impl.memory.injector import (
+                log_memory_event,
+                memory_event_message,
+            )
 
             query = "\n".join(
                 (e.get("display") or e.get("content") or "") for e in entries
             ).strip()
             if query:
-                inject_memory_event(query=query, session_id=session_id)
+                message = await asyncio.to_thread(
+                    memory_event_message, query, session_id
+                )
+                if message:
+                    log_memory_event(message, session_id)
         except Exception as e:
             logger.debug(f"[MEMORY] Deferred injection failed: {e}")
 
         self.state_manager.bump_event_stream()
 
-    @staticmethod
-    def _build_agent_app_note(agent_app_project_id: str) -> str:
-        """Interaction-context note appended (stream-only) to user messages
-        sent in a Agent App project's dedicated session, so the agent knows
-        the request concerns that app. Falls back to a minimal tag when the
-        Agent App manager / project lookup is unavailable."""
-        try:
-            from app.agent_app import get_agent_app_manager
-
-            from app.config import PROJECT_ROOT
-
-            _agent_app_cli = f"{PROJECT_ROOT}/agent-app/tools/src/cli.ts"
-            mgr = get_agent_app_manager()
-            if mgr:
-                proj = mgr.get_project(agent_app_project_id)
-                if proj and getattr(proj, "project_type", "native") == "external":
-                    # EXTERNAL app: foreign code running as-is in its own
-                    # runtime — none of the Agent App tooling below (agent-app CLI, PB
-                    # schema, bridge grants) applies to it.
-                    return (
-                        f"[Agent App context] This chat belongs to the "
-                        f"EXTERNAL app '{proj.name}' ({proj.id}) — foreign "
-                        f"code running AS-IS in its own runtime "
-                        f"({proj.app_runtime or 'unknown'}), at "
-                        f"{proj.url or 'not running'}.\n"
-                        f"- Project path: {proj.path}\n"
-                        f"- Run config: {proj.path}/craftbot.json (pipeline "
-                        f"verbs install/build/start/health; {{{{PORT}}}} = "
-                        f"{proj.port})\n"
-                        f"- Runtime log: {proj.path}/logs/app.log\n"
-                        f"- What it is / features: {proj.path}/AGENT_APP.md\n"
-                        f"To change its code or fix it, load the "
-                        f"agent-app-importer skill (use_skill) — edit, then "
-                        f'agent_app_notify_ready(project_id="{proj.id}") to '
-                        f"relaunch (changes apply LIVE — there is no staging "
-                        f"for external apps)."
-                    )
-                if proj:
-                    # The DATA MODEL goes in the prompt, not behind a pointer.
-                    # Twice now the agent has ignored "Read AGENT_APP.md", never
-                    # run `agent-app ops`, and guessed collection names instead
-                    # (`items`, then `tasks`) — and once invented an enum value
-                    # (`priority: "normal"`) it could not have known was wrong.
-                    # Advisory text does not work on a weak model; context does.
-                    schema = None
-                    try:
-                        from app.agent_app.agent_view import schema_block
-
-                        base = proj.backend_url or proj.url
-                        if base:
-                            schema = schema_block(base.rstrip("/"))
-                    except Exception:
-                        schema = None
-
-                    model = (
-                        f"Data model (field(type), * = required):\n{schema}\n"
-                        if schema
-                        else f"Data model: run  node {_agent_app_cli} data {proj.path} schema\n"
-                    )
-                    # Operations go in the prompt too: an app whose verbs were
-                    # only discoverable by running `agent-app ops` got driven
-                    # through raw `data` writes, which skip the rules the app's
-                    # own routes apply (conversions, cascades, write-backs).
-                    ops = None
-                    try:
-                        from app.agent_app.agent_view import operations_block
-
-                        base = proj.backend_url or proj.url
-                        if base:
-                            ops = operations_block(base.rstrip("/"))
-                    except Exception:
-                        ops = None
-                    operations = (
-                        f"Operations: USE THESE FIRST. They apply the app's own rules, which a raw\n"
-                        f"`data` write skips. (x) = required params, ! = destructive (confirm with\n"
-                        f"the user first):\n{ops}\n"
-                        f"  Every param with its allowed values, for one area:\n"
-                        f"  node {_agent_app_cli} ops {proj.path} <area>\n"
-                        if ops
-                        else ""
-                    )
-                    # Same principle as the schema: capabilities go IN the
-                    # prompt. Three builds stubbed the user's email feature
-                    # around an invented SMTP requirement because nothing in
-                    # context said send_gmail exists.
-                    caps = ""
-                    try:
-                        from app.agent_app.agent_view import capability_block
-
-                        cap = capability_block()
-                        if cap:
-                            caps = cap + "\n"
-                    except Exception:
-                        caps = ""
-                    return (
-                        f"[INTERACTING WITH AGENT APP: {proj.name} ({agent_app_project_id})]\n"
-                        f"Project path: {proj.path}\n"
-                        f"{operations}"
-                        f"{model}"
-                        f"{caps}"
-                        f"Values: `data` takes dates as ISO or 'tomorrow'/'next monday' (the CLI resolves\n"
-                        f'them) and references by name, e.g. --list "To Do". Operations (`run`) take\n'
-                        f"dates as YYYY-MM-DD only.\n"
-                        f"To OPERATE the app, use the agent-app CLI via run_shell with ABSOLUTE paths\n"
-                        f"(the shell's cwd is NOT the repo root):\n"
-                        f'  node {_agent_app_cli} run {proj.path} <op-name> --param "value"\n'
-                        f'  node {_agent_app_cli} data {proj.path} <collection> create --field "value"\n'
-                        f"  ALWAYS quote values — an unquoted # starts a shell comment and\n"
-                        f"  silently drops the rest of the command.\n"
-                        f"  node {_agent_app_cli} data {proj.path} <collection> list --limit 20\n"
-                        f"If debugging, read {proj.path}/logs/pocketbase.log and logs/frontend_console.log.\n"
-                        f"Using the app needs no skill. To CHANGE its code, or import/diagnose one,\n"
-                        f"load the right Agent App skill first (use_skill); list_skills shows all skills.\n"
-                        f"EDITING FILES IS NOT SHIPPING THEM. This app serves the last PROMOTED\n"
-                        f"build, so after a code change run\n"
-                        f'  agent_app_notify_ready(project_id="{proj.id}")   # build + boot a dev copy\n'
-                        f'  agent_app_walk_verify(project_id="{proj.id}")    # verify, then PROMOTE\n'
-                        f"The change reaches the user only when walk_verify returns success. Until\n"
-                        f"then the app they are looking at is unchanged, whatever the files say."
-                    )
-        except Exception:
-            pass
-        return f"[INTERACTING WITH AGENT APP: {agent_app_project_id}]"
 
     async def _handle_chat_message(self, payload: Dict):
         """Deliver an incoming chat message to its session.
@@ -2589,6 +2601,8 @@ class AgentBase:
             session_id = payload.get("session_id") or MAIN_SESSION_ID
             session = self.session_manager.get(session_id)
             if session is None:
+                if payload.get("strict_session"):
+                    raise ValueError("The destination session is no longer available.")
                 logger.warning(
                     f"[CHAT] Message for unknown session {session_id} — delivering to main"
                 )
@@ -2605,10 +2619,13 @@ class AgentBase:
             # UI. Mirrors the pre-redesign agent_app prefix; display_message
             # stays the raw text so the chat bubble is clean.
             stream_content = chat_content
-            if session is not None and getattr(session, "agent_app_project_id", None):
-                note = self._build_agent_app_note(session.agent_app_project_id)
-                if note:
-                    stream_content = f"{chat_content}\n\n{note}"
+            from app.agent_app.framework_host import get_host
+
+            framework_host = get_host()
+            if framework_host and session is not None:
+                framework_note = framework_host.note(session.id)
+                if framework_note:
+                    stream_content += f"\n\n{framework_note}"
 
             # DEFERRED stream write: the message is NOT logged to the
             # session's event stream here. It rides in the trigger payload
@@ -2722,6 +2739,8 @@ class AgentBase:
 
         except Exception as e:
             logger.error(f"Error handling incoming message: {e}", exc_info=True)
+            if payload.get("strict_session"):
+                raise
 
     async def _handle_external_event(self, payload: Dict) -> None:
         """
@@ -3045,6 +3064,10 @@ class AgentBase:
         """
         if self._interface_mode == "browser":
             prompt = (
+                "\n\n## Replies\n"
+                "The chat renders the messages you send (send_message, "
+                "send_message_with_attachment) as Markdown: bold, lists, tables, "
+                "links and code blocks show formatted, and a single line break is kept."
                 "\n\n## File Sharing\n"
                 "You can send files to the user using the `send_message_with_attachment` action. "
                 "Use this when the user asks you to share, send, or provide a file from the workspace."
@@ -3062,33 +3085,33 @@ class AgentBase:
                     "chat as your final message. Ask for a 2FA code in chat; never guess one."
                 )
             return prompt
-        if self._interface_mode == "terminal":
-            prompt = (
-                "\n\n## Terminal\n"
-                "The user talks to you in a terminal. Your replies render as Markdown "
-                "(headings, lists, tables, code blocks); never send HTML. Keep tables "
-                "under 100 characters wide. Interactive pages and the output panel do "
-                "not exist here: answer in text."
-                "\n\n## File Sharing\n"
-                "You can send files to the user using the `send_message_with_attachment` action. "
-                "Use this when the user asks you to share, send, or provide a file from the workspace. "
-                "The user sees each file's name and path and opens it from the terminal."
+        # The terminal edition (app/edition.py): the Ink client in a terminal.
+        prompt = (
+            "\n\n## Replies\n"
+            "The terminal renders the messages you send (send_message, "
+            "send_message_with_attachment) as Markdown: bold, lists, tables, "
+            "links and code blocks show formatted, and a single line break is kept. "
+            "Keep tables under 100 characters wide and never send HTML. Interactive "
+            "pages and the output panel do not exist here: answer in text."
+            "\n\n## File Sharing\n"
+            "You can send files to the user using the `send_message_with_attachment` action. "
+            "Use this when the user asks you to share, send, or provide a file from the workspace. "
+            "The user sees each file's name and path and opens it from the terminal."
+        )
+        if self._mini_browser_usable():
+            prompt += (
+                "\n\n## Mini Browser\n"
+                "This chat has a browser of its own (its own cookies and signed-in sites; "
+                "saved passwords are shared). It opens as a window on the user's desktop "
+                "when you start browsing, so they can watch it. When a site needs the user "
+                "(a CAPTCHA, a sign-in with no saved login), tell them (send_message with "
+                "continue_work=true) to take control of your tab in the Browser screen "
+                "(Ctrl+X b, then t) and do it in that window, then call `mini_browser_wait` "
+                "with for_user=true: it returns once they hand the tab back there. If it "
+                "times out, ask them in chat as your final message. Ask for a 2FA code in "
+                "chat; never guess one."
             )
-            if self._mini_browser_usable():
-                prompt += (
-                    "\n\n## Mini Browser\n"
-                    "This chat has a browser of its own (its own cookies and signed-in sites; "
-                    "saved passwords are shared). It opens as a window on the user's desktop "
-                    "when you start browsing, so they can watch it. When a site needs the user "
-                    "(a CAPTCHA, a sign-in with no saved login), tell them (send_message with "
-                    "continue_work=true) to take control of your tab in the Browser screen "
-                    "(Ctrl+X b, then t) and do it in that window, then call `mini_browser_wait` "
-                    "with for_user=true: it returns once they hand the tab back there. If it "
-                    "times out, ask them in chat as your final message. Ask for a 2FA code in "
-                    "chat; never guess one."
-                )
-            return prompt
-        return ""
+        return prompt
 
     @staticmethod
     def _mini_browser_usable() -> bool:
@@ -3296,6 +3319,7 @@ class AgentBase:
             return "Nothing selected to reset."
 
         done: list[str] = []
+        failures: list[str] = []
 
         # Chats: delete extra chat sessions, empty Main, and wipe Agent App
         # conversation history only (apps stay unless "agentapp" is selected).
@@ -3335,13 +3359,24 @@ class AgentBase:
             except Exception as e:
                 logger.warning(f"[RESET] memory reset failed: {e}")
 
-        # Workspace: wipe the workspace directory contents.
+        # Remove apps before workspace files so their data can be backed up.
+        if "agentapp" in selected:
+            try:
+                count = await self._delete_all_agent_app_projects()
+                done.append(f"agentapp ({count} app(s))")
+            except Exception as e:
+                logger.warning(f"[RESET] agentapp reset failed: {e}")
+                failures.append(f"Agent Apps: {e}")
+
+        # Workspace: preserve apps still in the registry (including failed removals).
         if "workspace" in selected:
             try:
-                await asyncio.to_thread(self._reset_workspace_sync)
+                protected = await self._framework_app_paths()
+                await asyncio.to_thread(self._reset_workspace_sync, protected)
                 done.append("workspace")
             except Exception as e:
                 logger.warning(f"[RESET] workspace reset failed: {e}")
+                failures.append(f"Workspace: {e}")
 
         # Triggers & scheduled work: durable rows, activity log.
         if "triggers" in selected:
@@ -3358,37 +3393,28 @@ class AgentBase:
             except Exception as e:
                 logger.warning(f"[RESET] triggers reset failed: {e}")
 
-        # AgentApp: delete every registered project (dirs, ports, registry).
-        if "agentapp" in selected:
-            try:
-                count = await self._delete_all_agent_app_projects()
-                done.append(f"agentapp ({count} app(s))")
-            except Exception as e:
-                logger.warning(f"[RESET] agentapp reset failed: {e}")
-
+        if failures:
+            raise RuntimeError("Reset incomplete. " + "; ".join(failures))
         if not done:
             return "Reset failed for the selected items — see logs."
         return "Reset complete: " + ", ".join(done) + "."
 
     async def _delete_all_agent_app_projects(self) -> int:
-        """Delete all registered Agent App projects. Returns the count deleted."""
-        try:
-            from app.agent_app import get_agent_app_manager
-        except Exception:
-            return 0
-        mgr = get_agent_app_manager()
-        if not mgr:
-            return 0
-        deleted = 0
-        for project_id in [p.id for p in mgr.list_projects()]:
-            try:
-                if await mgr.delete_project(project_id):
-                    deleted += 1
-            except Exception as e:
-                logger.warning(
-                    f"[RESET] Failed to delete AgentApp project {project_id}: {e}"
-                )
-        return deleted
+        result = await self.framework_host.reset_apps()
+        if result["failures"]:
+            raise RuntimeError(f"Removed {result['deleted']} app(s); " + "; ".join(result["failures"]))
+        return result["deleted"]
+
+    async def _framework_app_paths(self) -> list[str]:
+        """A workspace reset must not bypass app lifecycle/backup handling."""
+        if not getattr(self, "framework_host", None):
+            return []
+        from app.agent_app.framework import list_apps
+
+        snapshot = await list_apps()
+        if snapshot["status"] != "success":
+            raise RuntimeError(snapshot["message"])
+        return [row["path"] for row in snapshot["data"]["apps"]]
 
     async def _clear_usage_data(self) -> None:
         """
@@ -3427,9 +3453,10 @@ class AgentBase:
         fresh templates from the template directory.
         """
         # Run blocking file operations in a thread to avoid freezing the UI
-        await asyncio.to_thread(self._reset_agent_file_system_sync)
+        protected = await self._framework_app_paths()
+        await asyncio.to_thread(self._reset_agent_file_system_sync, protected)
 
-    def _reset_agent_file_system_sync(self) -> None:
+    def _reset_agent_file_system_sync(self, protected=()) -> None:
         """
         Synchronous helper for file system reset operations.
         Called via asyncio.to_thread() to avoid blocking the event loop.
@@ -3439,7 +3466,7 @@ class AgentBase:
         either one on its own.
         """
         self._reset_memory_files_sync()
-        self._reset_workspace_sync()
+        self._reset_workspace_sync(protected)
         logger.info("[RESET] Agent file system reinitialized from templates")
 
     def _reset_memory_files_sync(self) -> None:
@@ -3476,16 +3503,26 @@ class AgentBase:
         {"agent_app", "agent_app_projects.json", "sessions"}
     )
 
-    def _reset_workspace_sync(self) -> None:
+    def _reset_workspace_sync(self, protected=()) -> None:
         """Clear agent-created workspace files. Does NOT touch the markdown
         files (handled separately) or other subsystems' storage under the
         workspace (see :attr:`_WORKSPACE_PRESERVE`)."""
         workspace_path = AGENT_FILE_SYSTEM_PATH / "workspace"
+        workspace_root = workspace_path.resolve()
+        app_paths = [Path(path).resolve() for path in protected]
         if not workspace_path.exists():
             workspace_path.mkdir(parents=True, exist_ok=True)
             return
         for item in workspace_path.iterdir():
             if item.name in self._WORKSPACE_PRESERVE:
+                continue
+            target = item.resolve()
+            if not target.is_relative_to(workspace_root) or target == workspace_root:
+                continue
+            if any(
+                target == app or app.is_relative_to(target) or target.is_relative_to(app)
+                for app in app_paths
+            ):
                 continue
             try:
                 if item.is_dir():
@@ -3606,7 +3643,9 @@ class AgentBase:
                                 LLMCallType.GUI_ACTION_SELECTION,
                             ):
                                 self.context_engine.reset_event_stream_sync(
-                                    call_type, session_id=session_id
+                                    call_type,
+                                    session_id=session_id,
+                                    reason="provider_change",
                                 )
                     logger.info(
                         f"[AGENT] Rebuilt session caches for "
@@ -3621,7 +3660,9 @@ class AgentBase:
 
         return llm_ok and vlm_ok
 
-    def reinitialize_image_gen(self, provider: str | None = None) -> bool:
+    def reinitialize_image_gen(
+        self, provider: str | None = None, *, keep_live_on_failure: bool = True
+    ) -> bool:
         """Reinitialize the image generation interface with updated configuration.
 
         Creates a fresh ImageGenInterface instance rather than mutating the
@@ -3630,6 +3671,10 @@ class AgentBase:
 
         Args:
             provider: Optional provider to switch to. If None, reads from settings.
+            keep_live_on_failure: Keep the current interface when the new one
+                cannot initialize, so a failed Save can roll its settings
+                back. False swaps in the uninitialized interface (as at
+                startup), so a removed API key stops being used at once.
 
         Returns:
             True if reinitialization was successful.
@@ -3646,10 +3691,10 @@ class AgentBase:
             provider=target_provider,
             model=model,
             api_key=api_key,
-            deferred=False,
+            deferred=not keep_live_on_failure,
         )
         ok = new_interface.is_initialized
-        if ok:
+        if ok or not keep_live_on_failure:
             self.image_gen = new_interface
             InternalActionInterface.image_gen_interface = new_interface
         logger.info(
@@ -3657,7 +3702,9 @@ class AgentBase:
         )
         return ok
 
-    def reinitialize_video_gen(self, provider: str | None = None) -> bool:
+    def reinitialize_video_gen(
+        self, provider: str | None = None, *, keep_live_on_failure: bool = True
+    ) -> bool:
         """Reinitialize the video generation interface with updated configuration.
 
         Creates a fresh VideoGenInterface instance rather than mutating the
@@ -3666,6 +3713,10 @@ class AgentBase:
 
         Args:
             provider: Optional provider to switch to. If None, reads from settings.
+            keep_live_on_failure: Keep the current interface when the new one
+                cannot initialize, so a failed Save can roll its settings
+                back. False swaps in the uninitialized interface (as at
+                startup), so a removed API key stops being used at once.
 
         Returns:
             True if reinitialization was successful.
@@ -3682,10 +3733,10 @@ class AgentBase:
             provider=target_provider,
             model=model,
             api_key=api_key,
-            deferred=False,
+            deferred=not keep_live_on_failure,
         )
         ok = new_interface.is_initialized
-        if ok:
+        if ok or not keep_live_on_failure:
             self.video_gen = new_interface
             InternalActionInterface.video_gen_interface = new_interface
         logger.info(
@@ -3879,7 +3930,10 @@ class AgentBase:
                             session_id,
                             self.event_stream_manager.get_stream_by_id(session_id),
                         )
-                    self._persist_llm_session(session_id)
+                    # Shutdown: wait for the write, not just queue it.
+                    storage.persist_llm_session(
+                        session_id, self.llm.export_session(session_id)
+                    )
                     count += 1
                 except Exception as e:
                     logger.warning(
@@ -3915,6 +3969,12 @@ class AgentBase:
             logger.info(f"[SKILLS] Loading config from {config_path}")
 
             # Initialize skill manager (loads config and discovers skills)
+            from app.agent_app.framework_commands import skill_sources
+
+            try:
+                skill_manager.add_bundled_sources(await skill_sources())
+            except Exception as exc:
+                logger.warning(f"[SKILLS] Agent-App skills unavailable: {exc}")
             await skill_manager.initialize(config_path)
 
             # Log discovered skills
@@ -4247,6 +4307,9 @@ class AgentBase:
         # Initialize skills system
         step(5, 7, "Loading skills")
         await self._initialize_skills()
+        # Sessions restored before skills were initialized: every loaded
+        # skill gets its instructions in its session's stream.
+        self.session_manager.restore_skill_instructions()
 
         # Start usage reporter background flush
         from app.usage import get_usage_reporter
@@ -4254,10 +4317,12 @@ class AgentBase:
         self._usage_reporter = get_usage_reporter()
         self._usage_reporter.start_background_flush()
 
-        # Pre-warm the find_files index for all local drives (background,
-        # non-blocking) so the first real search doesn't pay a cold-crawl cost.
-        if is_prewarm_all_drives_enabled():
-            self._start_index_prewarm()
+        # Pre-warm the find_files index (background, non-blocking) so the
+        # first real search doesn't pay a cold-crawl cost. By default only
+        # the agent workspace: crawling and watching every drive slowed the
+        # first start and made macOS ask for Desktop/Documents/Downloads
+        # access. settings.json file_index.prewarm_all_drives opts back in.
+        self._start_index_prewarm(all_drives=is_prewarm_all_drives_enabled())
 
         # Configure integrations + start external comms manager
         step(6, 7, "Initializing integrations")
@@ -4275,6 +4340,7 @@ class AgentBase:
         await self.scheduler.initialize(
             config_path=scheduler_config_path,
             trigger_service=self.trigger_service,
+            session_manager=self.session_manager,
         )
         await self.scheduler.start()
 
@@ -4316,20 +4382,11 @@ class AgentBase:
             logger.warning(f"[RESTORE] Activity log GC failed: {e}")
 
         await self.session_runtime.start()
+        if not self.framework_host.restoring:
+            self.framework_host.restoring = asyncio.create_task(
+                self.framework_host.startup()
+            )
 
-        # FACTORY: the supervisor is the ONE dispatch decision point for
-        # Agent App arcs. Started here (event loop is up); its immediate
-        # first tick finds arcs frozen by the restart instead of waiting
-        # for the next accidental run-end in their sessions.
-        try:
-            from app.factory.host_craftbot import get_factory_host
-
-            get_factory_host().start_supervisor(self.session_runtime)
-        except Exception as e:
-            logger.warning(f"[FACTORY] supervisor start failed: {e}")
-
-        # Consolidated restart notice: one message in main when pending work
-        # from the previous run was restored.
         if requeued:
             try:
                 await self.trigger_service.emit(
@@ -4373,8 +4430,9 @@ class AgentBase:
         except Exception as e:
             logger.warning(f"[BOOT] Could not write the ready marker: {e}")
 
-    def _start_index_prewarm(self) -> None:
-        """Warm the find_files index for every local drive in a background thread.
+    def _start_index_prewarm(self, all_drives: bool = False) -> None:
+        """Warm the find_files index in a background thread: the agent
+        workspace, or every local drive when ``all_drives`` is set.
 
         Runs one drive at a time rather than one thread per drive: concurrent
         full-drive crawls were observed contending with each other for the
@@ -4383,14 +4441,21 @@ class AgentBase:
         """
         import threading
 
+        from app.config import AGENT_WORKSPACE_ROOT
         from app.utils import file_index
 
         def _prewarm() -> None:
-            try:
-                drives = file_index.list_local_drives()
-            except Exception as e:
-                logger.warning(f"[FILE_INDEX] Could not enumerate local drives: {e}")
-                return
+            if all_drives:
+                try:
+                    drives = file_index.list_local_drives()
+                except Exception as e:
+                    logger.warning(
+                        f"[FILE_INDEX] Could not enumerate local drives: {e}"
+                    )
+                    return
+            else:
+                AGENT_WORKSPACE_ROOT.mkdir(parents=True, exist_ok=True)
+                drives = [str(AGENT_WORKSPACE_ROOT)]
 
             for drive in drives:
                 try:
@@ -4415,9 +4480,9 @@ class AgentBase:
         """
         Launch the agent and serve its interface until shutdown.
 
-        Performs the full production startup via ``boot()``, starts the
-        Agent App host, then serves the WebSocket backend that both editions
-        connect to (the browser UI and the terminal client alike).
+        Performs the full production startup via ``boot()``, then serves the
+        WebSocket backend that both editions connect to (the browser UI and
+        the terminal client alike).
 
         Args:
             provider: Optional provider override passed to the interface before
@@ -4434,11 +4499,6 @@ class AgentBase:
         sys.stderr.flush()
 
         try:
-            # Agent Apps run whichever edition is in front of the user.
-            from app.agent_app.host import start_agent_app_host
-
-            start_agent_app_host(self)
-
             from app.browser import BrowserInterface
 
             interface = BrowserInterface(
@@ -4453,6 +4513,10 @@ class AgentBase:
             # we persist (claimed rows re-deliver at next boot regardless).
             self.is_running = False
             try:
+                await self.framework_host.close()
+            except Exception as e:
+                logger.warning(f"[SHUTDOWN] Framework host cleanup failed: {e}")
+            try:
                 await self.session_runtime.stop()
             except Exception as e:
                 logger.warning(f"[SHUTDOWN] Session runtime stop failed: {e}")
@@ -4463,16 +4527,6 @@ class AgentBase:
             self._persist_all_sessions()
             # Shutdown scheduler (handles all periodic tasks including memory processing)
             await self.scheduler.shutdown()
-            # Stop all Agent App projects (kill backend/frontend processes)
-            try:
-                from app.agent_app import get_agent_app_manager
-
-                agent_app_mgr = get_agent_app_manager()
-                if agent_app_mgr:
-                    await agent_app_mgr.stop_all_projects()
-            except Exception as e:
-                logger.warning(f"[SHUTDOWN] Agent App cleanup error: {e}")
-            # Gracefully shutdown MCP connections
             await self._shutdown_mcp()
             # Stop the v2 per-account listeners (whatsapp_web sessions get a
             # clean `shutdown` to Node here — WhatsApp sees a proper
