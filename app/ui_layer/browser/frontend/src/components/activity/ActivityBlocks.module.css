@@ -6,6 +6,14 @@
    Geometry: 32px gutter + 8px gap = text left edge at 40px, matching the
    agent chat bubble (32px avatar + --space-2 gap). Icons center under the
    avatar's center line. */
+/* The reply as it is written (StreamLiveRow): its rows keep the 10px rhythm
+   consecutive activity rows have in the timeline. */
+.streamLive {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
 .transcriptItem {
   position: relative;
   display: flex;

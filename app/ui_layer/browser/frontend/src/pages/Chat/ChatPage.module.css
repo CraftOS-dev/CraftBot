@@ -268,6 +268,26 @@
   word-break: break-word;
 }
 
+/* A reply still being written: the bubble's bottom (its last line, its
+   background and its border) fades out, so the bubble reads as still open.
+   The fade eases out once the reply is complete (the fade height is a
+   registered length, so it can transition). */
+@property --stream-fade {
+  syntax: '<length>';
+  inherits: false;
+  initial-value: 0px;
+}
+
+.message.agent {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - var(--stream-fade)), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - var(--stream-fade)), transparent);
+  transition: opacity 150ms ease, --stream-fade 240ms ease-out;
+}
+
+.message.agent.streaming {
+  --stream-fade: 36px;
+}
+
 /* Interactive option buttons inside messages */
 .messageOptions {
   display: flex;

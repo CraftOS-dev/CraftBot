@@ -151,6 +151,42 @@ class TriggerData:
     payload: dict | None = None
 
 
+def _message_origin(trigger_data: TriggerData) -> dict:
+    """The trusted turn origin a turn's actions run with
+    (current_message_origin), from the trigger, never from action inputs."""
+    payload = trigger_data.payload or {}
+    return {
+        "platform": trigger_data.platform,
+        "contact_id": trigger_data.contact_id,
+        "is_self_message": trigger_data.is_self_message,
+        "owner_authenticated": payload.get("owner_authenticated") is True,
+        "integration_type": payload.get("integration_type", ""),
+        "channel_id": trigger_data.channel_id,
+        "account": payload.get("account", ""),
+        "auto_reply_allowed": payload.get("auto_reply_allowed") is True,
+    }
+
+
+async def _settle_actions(tasks: list) -> list:
+    """The outputs of actions already running (started while their reply
+    was being written), in order; an exception becomes an error output. A
+    stopped turn cancels them and waits for their bookkeeping, as
+    ActionManager.execute_actions_parallel does for its batch."""
+    try:
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+    except asyncio.CancelledError:
+        for task in tasks:
+            task.cancel()
+        await asyncio.wait(tasks)
+        raise
+    return [
+        {"status": "error", "error": str(result) or type(result).__name__}
+        if isinstance(result, BaseException)
+        else result
+        for result in results
+    ]
+
+
 # Trigger sources that begin a NEW run (reset budgets, apply workflow skills).
 RUN_START_SOURCES = {
     TriggerSource.FRAMEWORK_WORKFLOW.value,
@@ -787,13 +823,35 @@ class AgentBase:
             await self.state_manager.start_turn(session_id)
 
             # ----- The one turn pipeline -----
-            action_decisions, reasoning = await self._select_action(trigger_data)
+            # The reply streams: the chat shows it as it is written, and its
+            # complete actions start before it ends when the turn allows.
+            reply_stream = self._open_reply_stream(trigger_data, session_id)
+            try:
+                action_decisions, reasoning = await self._select_action(
+                    trigger_data, reply_stream
+                )
+                reply_stream.finish(action_decisions)
+                started = reply_stream.started_tasks(action_decisions)
 
-            prepared_actions = self.agent_step.prepare(action_decisions, session_id)
+                prepared_actions, run_ids = self.agent_step.prepare_with_ids(
+                    [d for d in action_decisions if not d.get("_started")],
+                    session_id,
+                )
 
-            action_output = await self._execute_actions(
-                prepared_actions, trigger_data, reasoning, session_id
-            )
+                action_output = await self._execute_actions(
+                    prepared_actions,
+                    trigger_data,
+                    reasoning,
+                    session_id,
+                    run_ids=run_ids,
+                    started=started,
+                )
+            except asyncio.CancelledError:
+                await reply_stream.abort(cancel_actions=True)
+                raise
+            except Exception:
+                await reply_stream.abort(cancel_actions=False)
+                raise
 
             await self._finalize_turn(session, trigger, action_output)
 
@@ -1299,16 +1357,19 @@ class AgentBase:
     # ----- Action Selection -----
 
     @profile("agent_select_action", OperationCategory.AGENT_LOOP)
-    async def _select_action(self, trigger_data: TriggerData) -> tuple[list, str]:
+    async def _select_action(
+        self, trigger_data: TriggerData, reply_stream=None
+    ) -> tuple[list, str]:
         """
         Select action(s) for this turn. Always returns a list for
         consistency with parallel action support.
 
         Reasoning is integrated into the action selection prompt, so this
-        is a single LLM call.
+        is a single LLM call. ``reply_stream`` follows its reply as it is
+        written (_open_reply_stream).
         """
         action_decisions, reasoning = await self.agent_step.decide(
-            trigger_data.query, trigger_data.session_id
+            trigger_data.query, trigger_data.session_id, reply_stream=reply_stream
         )
         # The decision request's context size and cache use are recorded on
         # the LLM interface now; send them to the chat input's reasoning menu.
@@ -1319,6 +1380,109 @@ class AgentBase:
 
         return action_decisions, reasoning
 
+    def _open_reply_stream(self, trigger_data: TriggerData, session_id: str):
+        """The turn's ReplyStream (agent_core/core/impl/action/reply_stream.py).
+
+        The chat sees the decision reply as the model writes it, and each
+        complete action of it starts at once, before the reply ends, when
+        the turn allows it (_early_start_allowed) and the action may run
+        alongside others (ActionRouter.early_start_kind).
+        """
+        from agent_core.core.impl.action.reply_stream import ReplyStream
+
+        publish = None
+        sender = "Agent"
+        if self.ui_controller is not None:
+            publish = self.ui_controller.publish_agent_stream
+            try:
+                from app.onboarding import onboarding_manager
+
+                sender = onboarding_manager.state.agent_name or "Agent"
+            except Exception:
+                pass
+        allowed: dict = {}
+
+        def start_action(decision: dict):
+            if "turn" not in allowed:
+                allowed["turn"] = self._early_start_allowed(trigger_data, session_id)
+            if not allowed["turn"]:
+                return None
+            return self._start_streamed_action(decision, trigger_data, session_id)
+
+        def log_reasoning(reasoning: str, item_id: str) -> None:
+            self.agent_step.log_reasoning(session_id, reasoning, item_id)
+
+        return ReplyStream(
+            session_id=session_id,
+            publish=publish,
+            start_action=start_action,
+            classify=self.agent_step.router.early_start_kind,
+            log_reasoning=log_reasoning,
+            sender=sender,
+        )
+
+    def _early_start_allowed(self, trigger_data: TriggerData, session_id: str) -> bool:
+        """Whether this turn's actions may start while its reply is still
+        being written.
+
+        Not when a whole-batch check (_execute_actions) could refuse the
+        batch after one of its actions already ran: an Agent App task (its
+        authority confines what the batch may do), a Telegram turn from a
+        contact other than the owner (one tool it may not use refuses the
+        whole batch, reply included), or an owner turn whose control was
+        revoked. Those turns run their actions when the reply ends.
+        """
+        from app.agent_app.framework_commands import task_authority
+        from app.telegram_feedback import owner_permission_error
+
+        if task_authority.get() is not None:
+            return False
+        session = self.session_manager.get(session_id)
+        if session is not None and getattr(session, "isolated_app_task", False):
+            return False
+        payload = trigger_data.payload or {}
+        if payload.get("integration_type") == "telegram_bot" and not trigger_data.is_self_message:
+            return False
+        return owner_permission_error(payload) is None
+
+    def _start_streamed_action(
+        self, decision: dict, trigger_data: TriggerData, session_id: str
+    ) -> Optional[asyncio.Future]:
+        """Start one complete action of the reply while it is still being
+        written; its task, or None when it does not start now (the reply's
+        end then decides, as without streaming).
+
+        It runs as the batch's actions do (execute_actions_parallel): with
+        the turn's message origin, under the session, logging its own start
+        and end, and with the run id its streamed row already shows.
+        """
+        prepared = self.agent_step.prepare_one(decision, session_id)
+        if prepared is None:
+            return None
+        action, params = prepared
+        context = decision.get("reasoning") or trigger_data.query
+        run_id = decision.get("_run_id")
+
+        async def run() -> dict:
+            from agent_core.core.impl.action.context import current_message_origin
+
+            token = current_message_origin.set(_message_origin(trigger_data))
+            try:
+                return await self.action_manager.execute_action(
+                    action=action,
+                    context=context,
+                    event_stream=STATE.event_stream,
+                    parent_id=None,
+                    session_id=session_id,
+                    is_running_task=True,
+                    input_data=params,
+                    run_id=run_id,
+                )
+            finally:
+                current_message_origin.reset(token)
+
+        return asyncio.ensure_future(run())
+
     # ----- Action Execution -----
 
     @profile("agent_execute_actions", OperationCategory.AGENT_LOOP)
@@ -1328,15 +1492,32 @@ class AgentBase:
         trigger_data: TriggerData,
         reasoning: str,
         session_id: str,
+        *,
+        run_ids: Optional[list] = None,
+        started: Optional[list] = None,
     ) -> dict:
         """
         Execute prepared actions (parallel if multiple).
 
         Each action logs its own results to event stream via execute_action().
         Returns merged output for run control.
+
+        ``started``: tasks of the actions the reply started while it was
+        still being written (ReplyStream, only on turns _early_start_allowed
+        lets); they run on, and their outputs join this batch's.
+        ``run_ids``: each prepared action's run id (its streamed row's).
         """
+        started = list(started or [])
         if not prepared_actions:
+            if started:
+                return self._merge_action_outputs(await _settle_actions(started))
             raise ValueError("No valid actions to execute")
+
+        async def refused(result: dict) -> dict:
+            # Actions already running finish before the turn ends.
+            if started:
+                await _settle_actions(started)
+            return result
 
         from app.agent_app.framework_commands import task_authority
 
@@ -1359,32 +1540,34 @@ class AgentBase:
 
         if authority is not None or (session and getattr(session, "isolated_app_task", False)):
             if authority is None or (not authority.active and not authority.outcome):
-                return refuse(
+                return await refused(refuse(
                     prepared_actions[0][0].name,
                     "This task lost its authority; request a new task from the app.",
                     run_ends=True,
-                )
+                ))
             if authority.confined:
                 allowed = authority.allowed_actions if authority.active else {"send_message", "end_turn"}
                 for action, params in prepared_actions:
                     if action.name not in allowed:
-                        return refuse(
+                        return await refused(refuse(
                             action.name,
                             f"{action.name} is not available to this app request; it may use "
                             f"only {', '.join(sorted(allowed))}.",
                             has_errors=True,
-                        )
+                        ))
                     if action.name == "read_file" and not authority.may_read(params.get("file_path")):
-                        return refuse(
+                        return await refused(refuse(
                             action.name,
                             "This app request may read only the app's own manual and declarations.",
                             has_errors=True,
-                        )
+                        ))
             if authority.active and authority.check is not None:
                 try:
                     await authority.check()
                 except Exception:
-                    return {"status": "error", "message": "The app task's authority changed.", "run_ends": True}
+                    return await refused(
+                        {"status": "error", "message": "The app task's authority changed.", "run_ends": True}
+                    )
             from app.agent_app.framework_host import get_host
 
             host = get_host()
@@ -1407,7 +1590,7 @@ class AgentBase:
 
         denied = owner_permission_error(trigger_data.payload or {})
         if denied:
-            return {**denied, "run_ends": True, "has_errors": True}
+            return await refused({**denied, "run_ends": True, "has_errors": True})
 
         # Check the whole batch before parallel execution, including mixed
         # reply/tool batches. Model parameters cannot override turn provenance.
@@ -1428,7 +1611,7 @@ class AgentBase:
                         action_name=action.name,
                         action_output=denied,
                     )
-                return {**denied, "run_ends": False, "has_errors": True}
+                return await refused({**denied, "run_ends": False, "has_errors": True})
 
         context = reasoning if reasoning else trigger_data.query
 
@@ -1441,35 +1624,22 @@ class AgentBase:
 
         from agent_core.core.impl.action.context import current_message_origin
 
-        origin_token = current_message_origin.set(
-            {
-                "platform": trigger_data.platform,
-                "contact_id": trigger_data.contact_id,
-                "is_self_message": trigger_data.is_self_message,
-                "owner_authenticated": (trigger_data.payload or {}).get(
-                    "owner_authenticated"
-                )
-                is True,
-                "integration_type": (trigger_data.payload or {}).get(
-                    "integration_type", ""
-                ),
-                "channel_id": trigger_data.channel_id,
-                "account": (trigger_data.payload or {}).get("account", ""),
-                "auto_reply_allowed": (trigger_data.payload or {}).get(
-                    "auto_reply_allowed"
-                )
-                is True,
-            }
-        )
+        origin_token = current_message_origin.set(_message_origin(trigger_data))
         try:
-            results = await self.action_manager.execute_actions_parallel(
+            batch = self.action_manager.execute_actions_parallel(
                 actions=actions_with_input,
                 context=context,
                 event_stream=STATE.event_stream,
                 parent_id=None,
                 session_id=session_id,
                 is_running_task=True,
+                run_ids=run_ids,
             )
+            if started:
+                early, results = await asyncio.gather(_settle_actions(started), batch)
+                results = early + results
+            else:
+                results = await batch
         finally:
             current_message_origin.reset(origin_token)
 

@@ -13,6 +13,7 @@ from agent_core.decorators import profile, OperationCategory
 from agent_core.core.impl.llm import reasoning_wire
 from agent_core.core.impl.llm.cache import get_cache_config, get_cache_metrics
 from agent_core.core.impl.llm.errors import classify_llm_error
+from agent_core.core.impl.llm.streaming import LLMStreamAborted
 from agent_core.core.models.reasoning import ReasoningDecision
 from agent_core.utils.logger import logger
 
@@ -174,6 +175,8 @@ def generate(
             metrics.record_miss("gemini", cache_type, total_tokens=token_count_input)
 
         status = "success"
+    except LLMStreamAborted:
+        raise
     except GeminiAPIError as exc:  # pragma: no cover
         exc_obj = exc
         logger.error(f"Gemini API rejected the prompt: {exc}")

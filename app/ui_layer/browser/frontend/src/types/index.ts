@@ -57,6 +57,7 @@ export interface ChatMessage {
   optionSelected?: string  // Value of the option that was selected
   clientId?: string  // Client-generated UUID for reconciling optimistic pending messages with server echo
   pending?: boolean  // True while an optimistic message is awaiting server acknowledgment
+  streaming?: boolean  // True while an agent reply is still being written (streamed draft): its last lines fade out
   errorCategory?: string  // ErrorCategory value (e.g. "auth", "rate_limit") when style === 'error'
   errorCode?: string  // Stable error code (e.g. "LLM_AUTH", "CONFIG_NO_API_KEY")
   errorSeverity?: 'info' | 'warning' | 'error' | 'critical'

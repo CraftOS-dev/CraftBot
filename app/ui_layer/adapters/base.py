@@ -309,6 +309,7 @@ class InterfaceAdapter(ABC):
                 "agent",
                 session_id=event.task_id,
                 options=options,
+                client_id=event.data.get("client_id"),
                 continue_work=bool(event.data.get("continue_work", False)),
                 is_question=is_question,
                 allow_free_text=allow_free_text,

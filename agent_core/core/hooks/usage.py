@@ -35,10 +35,14 @@ def _track(future):
             completion.cancel()
         elif error is not None:
             completion.set_exception(error)
-            _logger.error(
-                "Usage delivery failed",
-                exc_info=(type(error), error, error.__traceback__),
-            )
+            from agent_core.core.impl.llm.streaming import LLMStreamAborted
+
+            # A reply its caller stopped is not a failure to report.
+            if not isinstance(error, LLMStreamAborted):
+                _logger.error(
+                    "Usage delivery failed",
+                    exc_info=(type(error), error, error.__traceback__),
+                )
         else:
             completion.set_result(None)
 

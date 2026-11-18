@@ -3907,6 +3907,13 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         else:
             await self._broadcast(message)
 
+    async def broadcast_agent_stream(self, data: Dict[str, Any]) -> None:
+        """Broadcast a decision reply as the model writes it (ReplyStream):
+        its reasoning, the actions being prepared and the reply message so
+        far ("update"), then which of them run ("end"). Not stored: the
+        events the turn logs replace it."""
+        await self._broadcast({"type": "agent_stream", "data": data})
+
     async def broadcast_session_updated(self, session_id: str) -> None:
         """Broadcast a session's refreshed metadata (title, last-active, ...).
 
