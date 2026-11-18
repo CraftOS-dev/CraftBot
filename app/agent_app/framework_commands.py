@@ -29,6 +29,23 @@ class TaskAuthority:
             {"a2app_command", "send_message", "end_turn"}
         )
     )
+    # A confined run (another person's request, or a remote app's) may use only
+    # allowed_actions, and operate only its task's app. The owner's own request
+    # from a local app is not confined: it runs with the usual tools.
+    confined: bool = True
+    # The files read_file may open for a confined run, as normalized absolute
+    # paths; None when reads are not scoped.
+    readable: frozenset[str] | None = None
+
+    def may_read(self, path) -> bool:
+        if self.readable is None:
+            return True
+        if not isinstance(path, str) or not Path(path).is_absolute():
+            return False
+        try:
+            return os.path.normcase(str(Path(path).resolve())) in self.readable
+        except (OSError, ValueError):
+            return False
 
 
 task_authority: ContextVar[TaskAuthority | None] = ContextVar(
@@ -66,6 +83,12 @@ async def command(
             embedded_open = "--open" in args
             args = [arg for arg in args if arg != "--open"]
     authority = task_authority.get()
+    if authority is not None and not authority.confined and not (
+        authority.active and surface == "a2app" and args and args[0] == authority.target
+    ):
+        # The task's credential belongs to its own app. Anything else the
+        # owner's own request does runs as it would from the chat.
+        authority = None
     env = {}
     if authority is not None:
         if not authority.active or surface != "a2app":

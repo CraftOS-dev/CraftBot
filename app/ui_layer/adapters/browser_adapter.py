@@ -947,6 +947,11 @@ class BrowserAdapter(InterfaceAdapter):
 
         self._host = host or bind_host()
         self._port = int(os.environ.get("BROWSER_PORT", port))
+        # Host services for the Agent Apps CraftBot launches. Set up before the
+        # agent restores its apps, so an app started then reaches it too.
+        from app.agent_app.integration_bridge import IntegrationBridge
+
+        self._integration_bridge = IntegrationBridge(self._port)
         # Origin allowlist + per-process session token for /ws (ws_auth.py).
         self._ws_auth = WsAuth(self._port)
         self._theme_adapter = BrowserThemeAdapter(BaseTheme())
@@ -1209,6 +1214,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         self._app.router.add_post("/api/profile/inspect", self._profile_inspect_handler)
         self._app.router.add_post("/api/profile/import", self._profile_import_handler)
 
+        # Agent App host services: language model, integration actions, requests
+        self._integration_bridge.register_routes(self._app)
+
         # Serve Vite-built frontend (production)
         frontend_dist = Path(__file__).parent.parent / "browser" / "frontend" / "dist"
         if frontend_dist.exists():
@@ -1293,6 +1301,8 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             self._framework_app_list_task.cancel()
             await asyncio.gather(self._framework_app_list_task, return_exceptions=True)
             self._framework_app_list_task = None
+        if getattr(self, "_integration_bridge", None) is not None:
+            await self._integration_bridge.cleanup()
 
         # Close the Mini Browser while the loop still runs (Chromium holds a
         # lock on its profile until it exits).

@@ -176,6 +176,16 @@ class AgentAppCLI:
                 extra["A2APP_MARKETPLACE_REF"] = await asyncio.to_thread(
                     _import_default_ref, argv[source_index]
                 )
+        bridge_token = None
+        if surface == "agent-app":
+            # An app this command starts can reach CraftBot's host services.
+            from app.agent_app import integration_bridge
+
+            bridge_env, bridge_token = await asyncio.to_thread(
+                integration_bridge.launch_env, argv, self.home
+            )
+            for name, value in bridge_env.items():
+                extra.setdefault(name, value)
         new_app = surface == "agent-app" and (
             argv[:1] == ["blueprints"] or argv[1:2] == ["scaffold"]
         )
@@ -230,9 +240,15 @@ class AgentAppCLI:
                 reader.cancel()
             completion.cancel()
             await asyncio.gather(*readers, completion, return_exceptions=True)
+        output = b"".join(stdout).decode("utf-8", errors="replace")
+        if bridge_token is not None:
+            # An install that chose its own folder reports it only now.
+            from app.agent_app import integration_bridge
+
+            await asyncio.to_thread(integration_bridge.bind_installed, output, bridge_token)
         return CLIResult(
             code=124 if timed_out else proc.returncode,
-            stdout=b"".join(stdout).decode("utf-8", errors="replace"),
+            stdout=output,
             stderr=b"".join(stderr).decode("utf-8", errors="replace"),
             timed_out=timed_out,
         )

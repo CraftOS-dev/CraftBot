@@ -1342,20 +1342,44 @@ class AgentBase:
 
         session = self.session_manager.get(session_id)
         authority = task_authority.get()
+
+        def refuse(action_name, message, **outcome):
+            # The agent sees the refusal like any failed action, so it can adapt.
+            logger.warning(f"[FRAMEWORK TASK] {message}")
+            if getattr(self, "event_stream_manager", None):
+                self.event_stream_manager.log(
+                    kind="action_error",
+                    message=message,
+                    event_type=EventType.ACTION_END,
+                    display_message=f"{action_name} → not available to this app request",
+                    action_name=action_name,
+                    action_output={"status": "error", "message": message},
+                )
+            return {"status": "error", "message": message, **outcome}
+
         if authority is not None or (session and getattr(session, "isolated_app_task", False)):
             if authority is None or (not authority.active and not authority.outcome):
-                return {
-                    "status": "error",
-                    "message": "This task lost its authority; request a new task from the app.",
-                    "run_ends": True,
-                }
-            allowed = authority.allowed_actions if authority.active else {"send_message", "end_turn"}
-            if any(action.name not in allowed for action, _ in prepared_actions):
-                return {
-                    "status": "error",
-                    "message": "This action is outside the app task's granted tools.",
-                    "has_errors": True,
-                }
+                return refuse(
+                    prepared_actions[0][0].name,
+                    "This task lost its authority; request a new task from the app.",
+                    run_ends=True,
+                )
+            if authority.confined:
+                allowed = authority.allowed_actions if authority.active else {"send_message", "end_turn"}
+                for action, params in prepared_actions:
+                    if action.name not in allowed:
+                        return refuse(
+                            action.name,
+                            f"{action.name} is not available to this app request; it may use "
+                            f"only {', '.join(sorted(allowed))}.",
+                            has_errors=True,
+                        )
+                    if action.name == "read_file" and not authority.may_read(params.get("file_path")):
+                        return refuse(
+                            action.name,
+                            "This app request may read only the app's own manual and declarations.",
+                            has_errors=True,
+                        )
             if authority.active and authority.check is not None:
                 try:
                     await authority.check()
