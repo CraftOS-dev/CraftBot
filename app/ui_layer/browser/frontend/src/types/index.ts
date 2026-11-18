@@ -924,7 +924,7 @@ export interface FrameworkRegistryApp {
   status: 'running' | 'stopped' | 'missing' | 'unreachable'
   port?: number
   connection?: FrameworkConnectedApp
-  marketplace?: { id: string; location: string; ref?: string }
+  marketplace?: { id: string; location: string; ref?: string; repository?: string; commit?: string; path?: string }
   uiTheme?: import('../pages/AgentApp/themeCatalog').AgentAppTheme | null
   themeSupport?: import('../pages/AgentApp/themeCatalog').LegacyThemeSupport
 }
