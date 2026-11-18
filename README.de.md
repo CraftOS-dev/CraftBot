@@ -49,7 +49,7 @@ Darüber hinaus bringt CraftBot alle Kernfunktionen eines universellen Agent-Fra
 - **Proaktiver Agent.** Er lernt deine Vorlieben, Gewohnheiten und Lebensziele kennen, plant darauf basierend und stößt Aufgaben an (natürlich nur mit deiner Freigabe), um dich in deinem Leben weiterzubringen.
 - **Integration externer Tools.** Verbinde deine Apps wie Google Workspace, Slack, Notion, Zoom, LinkedIn, Discord, Telegram und mehr (weitere folgen!) mit OAuth-Unterstützung oder deinem eigenen Schlüssel. Du kannst mit jeder Integration mehrere Konten verbinden.
 - **Skills und MCP.** Über 150 MCPs und 170 Skills sofort einsatzbereit. Neue Skills und MCPs lassen sich schnell installieren, und aus abgeschlossenen Aufgaben kannst du mit einem Klick neue Skills erstellen oder verbessern.
-- **Browser-Oberfläche und CLI.** Nutze CraftBot so, wie es zu dir passt: über eine einfache Browser-UI für die tägliche Arbeit oder per CLI für Skripte und Headless-Umgebungen.
+- **Browser oder Terminal.** Nutze CraftBot so, wie es zu dir passt: über eine einfache Browser-UI für die tägliche Arbeit oder über die vollständige Terminal-Edition (`python run.py --tui`) mit denselben Chats, Einstellungen und Agent Apps.
 
 ---
 
@@ -123,7 +123,7 @@ python craftbot.py restart    # CraftBot neu starten
 python craftbot.py status     # Prüfen, ob CraftBot läuft und ob Autostart aktiv ist
 python craftbot.py logs       # Die letzten 50 Logzeilen anzeigen (mehr mit logs -n 200)
 python craftbot.py uninstall  # Stoppen, Autostart entfernen und Pakete deinstallieren
-python run.py --cli           # Im Terminal statt im Browser ausführen
+python run.py --tui           # Im Terminal statt im Browser ausführen
 ```
 
 Mit dem Installer erledigst du dasselbe im Installer-Fenster (**Start**, **Stop**, **Repair**, **Uninstall**).

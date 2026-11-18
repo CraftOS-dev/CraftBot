@@ -49,7 +49,7 @@
 - **능동적 에이전트.** 당신의 선호, 습관, 인생 목표를 학습합니다. 그리고 계획을 세우고 작업을 시작(물론 승인을 받아)하여 당신이 인생에서 더 나아질 수 있도록 돕습니다.
 - **외부 도구 통합.** Google Workspace, Slack, Notion, Zoom, LinkedIn, Discord, Telegram 등 당신의 앱(더 많이 추가될 예정!)과 OAuth 또는 자체 키로 연결할 수 있습니다. 각 통합에 여러 계정을 연결할 수 있습니다.
 - **Skills와 MCP.** 150개 이상의 MCP와 170개 이상의 Skills가 준비되어 있습니다. 새로운 Skills와 MCP를 빠르게 설치할 수 있고, 완료된 작업에서 한 번의 클릭으로 Skills를 만들거나 개선할 수 있습니다.
-- **브라우저 인터페이스와 CLI 지원.** 당신에게 맞는 방식으로 CraftBot을 사용하세요. 일상적인 사용에는 간단한 브라우저 UI를, 스크립팅과 헤드리스 환경에는 CLI를 사용할 수 있습니다.
+- **브라우저 또는 터미널.** 당신에게 맞는 방식으로 CraftBot을 사용하세요. 일상적인 사용에는 간단한 브라우저 UI를, 또는 같은 채팅·설정·Agent App을 그대로 쓰는 터미널 에디션(`python run.py --tui`)을 사용할 수 있습니다.
 
 ---
 
@@ -123,7 +123,7 @@ python craftbot.py restart    # CraftBot 재시작
 python craftbot.py status     # 실행 여부와 자동 시작 등록 여부 확인
 python craftbot.py logs       # 최근 50줄의 로그 표시(더 보려면 logs -n 200)
 python craftbot.py uninstall  # 중지, 자동 시작 해제, 패키지 제거
-python run.py --cli           # 브라우저 대신 터미널에서 실행
+python run.py --tui           # 브라우저 대신 터미널에서 실행
 ```
 
 설치 프로그램을 사용하는 경우 설치 프로그램 창에서 같은 작업을 할 수 있습니다(**Start**, **Stop**, **Repair**, **Uninstall**).

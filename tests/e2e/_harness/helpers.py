@@ -184,7 +184,7 @@ async def run_scenario(
     # Full production boot (mirrors what agent.run() does up to but not
     # including the UI loop). Same boot as `app/main.py` performs, so the
     # test environment matches production wiring exactly.
-    await agent.boot(browser_ui=False, verbose=False)
+    await agent.boot(verbose=False)
 
     # Reset in-memory + persisted runtime state. Keeps USER.md / MEMORY.md.
     agent.state_manager.reset()

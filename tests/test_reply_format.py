@@ -9,7 +9,8 @@ in the role text of each interface mode, which states how that interface
 renders replies, and the parameter points to it. These tests pin:
 
 * browser mode says replies render as Markdown;
-* CLI mode, which prints raw text, says to write plain text;
+* the terminal edition, whose client renders Markdown too, says the same
+  and keeps tables narrow;
 * the parameter carries no format rule of its own.
 """
 
@@ -39,9 +40,10 @@ def test_browser_mode_says_replies_render_as_markdown(monkeypatch):
     assert "renders" in replies and "as Markdown" in replies
 
 
-def test_cli_mode_says_to_write_plain_text(monkeypatch):
-    replies = _replies("cli", monkeypatch)
-    assert "plain text without Markdown" in replies
+def test_terminal_mode_says_replies_render_as_markdown(monkeypatch):
+    replies = _replies("terminal", monkeypatch)
+    assert "The terminal renders" in replies and "as Markdown" in replies
+    assert "100 characters" in replies and "never send HTML" in replies
 
 
 def _message_description() -> str:
@@ -63,7 +65,7 @@ def test_the_message_parameter_points_to_the_replies_section():
     assert "markdown" not in low and "mark down" not in low
 
 
-@pytest.mark.parametrize("mode", ["browser", "cli"])
+@pytest.mark.parametrize("mode", ["browser", "terminal"])
 def test_the_replies_text_is_the_same_on_every_build(mode, monkeypatch):
     # Part of the system prompt: it must not vary between calls.
     assert _replies(mode, monkeypatch) == _replies(mode, monkeypatch)

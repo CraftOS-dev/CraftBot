@@ -562,7 +562,8 @@ def test_release_payload_includes_and_requires_app_bundles(
         "housekeeping": "app/agent_app/framework_maintenance.mjs",
         "sharing": "app/agent_app/framework_sharing.py",
     }.get(missing)
-    for rel in required + ["app/ui_layer/browser/frontend/dist/index.html"]:
+    # The built front ends: the browser UI and the terminal edition's client.
+    for rel in required + ["app/ui_layer/browser/frontend/dist/index.html", "app/ui_layer/terminal/dist/craftbot-tui.mjs"]:
         target = root / rel
         target.parent.mkdir(parents=True, exist_ok=True)
         original = CODE_ROOT / rel

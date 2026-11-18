@@ -221,7 +221,8 @@ def test_cli_mode_is_refused_for_background_runs(service, monkeypatch, capsys, c
     assert run(["--cli"]) is False
 
     assert launched == []
-    assert "python run.py --cli" in capsys.readouterr().out
+    # The CLI is retired: the refusal points at the terminal edition.
+    assert "python run.py --tui" in capsys.readouterr().out
 
 
 @pytest.mark.parametrize(

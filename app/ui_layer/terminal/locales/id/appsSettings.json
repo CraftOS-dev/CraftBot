@@ -1,0 +1,192 @@
+{
+  "panel": {
+    "name": "Nama",
+    "status": "Status",
+    "port": "Port",
+    "path": "Path",
+    "pathDesc": "Folder aplikasi di komputer ini",
+    "address": "Alamat",
+    "addressDesc": "Tempat aplikasi disajikan di komputer ini",
+    "origin": "Asal",
+    "signedInAs": "Masuk sebagai",
+    "connection": "Koneksi",
+    "loading": "Memuat...",
+    "gone": "Aplikasi ini sudah tidak ada di daftar aplikasi.",
+    "disconnected": "Koneksi terputus. Sambungkan kembali untuk mengubah aplikasi ini.",
+    "working": "bekerja...",
+    "on": "Aktif",
+    "off": "Nonaktif"
+  },
+  "status": {
+    "running": "Berjalan",
+    "stopped": "Berhenti",
+    "starting": "Memulai...",
+    "stopping": "Menghentikan...",
+    "missing": "Folder aplikasi hilang",
+    "unreachable": "Tidak tersedia"
+  },
+  "connectionStatus": {
+    "online": "Online",
+    "offline": "Offline",
+    "unreachable": "Tidak tersedia",
+    "expired": "Sesi masuk kedaluwarsa"
+  },
+  "lifecycle": {
+    "start": "Mulai",
+    "stop": "Hentikan",
+    "startDesc": "Mulai aplikasi dengan langkah build dan peluncurannya",
+    "stopDesc": "Hentikan aplikasi dan jembatan permintaannya. Instans pengembangan tetap berjalan.",
+    "failed": "Aplikasi tidak dapat menyelesaikan perintah.",
+    "unknown": "Koneksi terputus. Perintah mungkin masih berjalan. Periksa status aplikasi setelah tersambung kembali sebelum mencoba lagi.",
+    "remaining": "Instans pengembangan atau jembatan tugas masih berjalan.",
+    "notSent": "Tidak terkirim. Sambungkan kembali lalu coba lagi.",
+    "busy": "Tunggu hingga aplikasi selesai dimulai atau dihentikan."
+  },
+  "sections": {
+    "preferences": "Preferensi",
+    "requests": "Permintaan",
+    "backups": "Cadangan",
+    "share": "Bagikan",
+    "appearance": "Tampilan",
+    "package": "Paket",
+    "remove": "Hapus"
+  },
+  "prefs": {
+    "autoStart": "Mulai otomatis",
+    "autoStartDesc": "Mulai aplikasi ini saat agen AI Anda dimulai",
+    "logCleanup": "Bersihkan log saat mulai",
+    "logCleanupDesc": "Hapus berkas log lama setiap kali aplikasi dimulai"
+  },
+  "requests": {
+    "allow": "Izinkan permintaan ke CraftBot",
+    "allowDesc": "Izinkan aplikasi ini mengirim permintaan yang dideklarasikannya ke agen AI Anda",
+    "view": "Lihat permintaan ({{count}})",
+    "hide": "Sembunyikan permintaan",
+    "listDesc": "Permintaan yang dapat dikirim aplikasi ini setelah diizinkan",
+    "ownerTools": "Akses pemilik ke alat lokal",
+    "ownerToolsDesc": "Izinkan pemilik aplikasi membaca dan menulis berkas lokal serta menjalankan perintah dengan izin agen AI Anda",
+    "needsAllow": "Izinkan permintaan terlebih dahulu."
+  },
+  "backups": {
+    "scheduled": "Cadangan terjadwal",
+    "scheduledDesc": "Cadangkan data dan berkas aplikasi ini secara otomatis",
+    "frequency": "Frekuensi",
+    "frequencyDesc": "Seberapa sering cadangan terjadwal dijalankan",
+    "interval": {
+      "hourly": "Setiap jam",
+      "6h": "Setiap 6 jam",
+      "daily": "Harian",
+      "weekly": "Mingguan"
+    },
+    "keep": "Cadangan yang disimpan",
+    "keepDesc": "Cadangan terjadwal yang lebih lama di atas jumlah ini dihapus",
+    "lastFailed": "Cadangan terakhir gagal: {{error}}",
+    "last": "Cadangan terakhir {{when}}",
+    "kept": "{{count}} disimpan",
+    "none": "Belum ada cadangan",
+    "now": "Cadangkan sekarang",
+    "nowDesc": "Simpan cadangan data dan berkas sekarang juga. Aplikasi yang berjalan berhenti sebentar.",
+    "restoring": "Memulihkan. Ini bisa memakan waktu satu menit.",
+    "trigger": {
+      "scheduled": "terjadwal",
+      "manual": "manual",
+      "preRemove": "sebelum menghapus",
+      "preUpdate": "sebelum pembaruan",
+      "preRestore": "sebelum memulihkan"
+    },
+    "confirmRestore": "Pulihkan {{name}} ke kondisinya pada {{date}}? Data yang lebih baru dihapus. Kondisi saat ini dicadangkan terlebih dahulu.",
+    "confirmDelete": "Hapus permanen cadangan dari {{date}}?",
+    "loadFailed": "Daftar cadangan tidak dapat dimuat: {{error}}",
+    "retry": "Muat lagi",
+    "retryDesc": "Minta daftar cadangan lagi",
+    "created": "Cadangan dibuat",
+    "restored": "Cadangan dipulihkan",
+    "deleted": "Cadangan dihapus"
+  },
+  "share": {
+    "lan": "LAN",
+    "public": "Publik",
+    "lanHint": "Perangkat di jaringan Anda, dengan tautan",
+    "publicHint": "Siapa pun di internet, dengan tautan",
+    "lanDesc": "Tautan untuk perangkat di jaringan Anda. Menutupnya mencabut akses semua pengunjung.",
+    "publicDesc": "Tautan terowongan publik. Menutupnya mencabut akses semua pengunjung.",
+    "starting": "Memulai...",
+    "confirmCloseLan": "Tutup tautan LAN? Semua yang memakainya kehilangan akses.",
+    "confirmClosePublic": "Tutup tautan publik? Semua yang memakainya kehilangan akses."
+  },
+  "theme": {
+    "label": "Tema",
+    "desc": "Tampilan halaman aplikasi"
+  },
+  "export": {
+    "label": "Ekspor paket",
+    "desc": "Simpan aplikasi sebagai berkas paket yang dapat dipasang lagi",
+    "value": "satu berkas berisi seluruh aplikasi",
+    "done": "Paket diekspor",
+    "file": "Berkas paket",
+    "fileDesc": "Tempat paket yang diekspor disimpan"
+  },
+  "remove": {
+    "delete": "Hapus aplikasi",
+    "forget": "Hapus dari daftar",
+    "disconnect": "Putuskan",
+    "deleteDesc": "Hentikan aplikasi dan hapus berkasnya. Data dan cadangannya disimpan di arsip aplikasi yang dihapus.",
+    "forgetDesc": "Hapus entri yang tersimpan. Tidak ada berkas yang dihapus.",
+    "disconnectDesc": "Hapus koneksi. Aplikasi dan datanya tetap ada di host-nya.",
+    "confirmDelete": "Hapus {{name}}? Aplikasi dihentikan dan berkasnya dihapus. Data dan cadangannya disimpan di arsip aplikasi yang dihapus.",
+    "confirmForget": "Hapus {{name}} dari daftar aplikasi? Folder aplikasinya hilang. Tidak ada berkas yang dihapus.",
+    "confirmKeepFiles": "Folder {{name}} tidak dapat dipastikan milik aplikasi ini, jadi tidak ada berkas yang dihapus. Hapus aplikasi dari daftar dan simpan berkasnya?",
+    "confirmDisconnect": "Putuskan {{name}}? Aplikasi dan datanya tetap ada di host-nya.",
+    "deleted": "{{name}} dihapus",
+    "forgotten": "{{name}} dihapus dari daftar aplikasi. Berkasnya disimpan.",
+    "disconnected": "{{name}} diputuskan",
+    "removedFromList": "{{name}} dihapus dari daftar aplikasi."
+  },
+  "common": {
+    "copied": "Disalin ke papan klip",
+    "copyFailed": "Tidak dapat menyalin ke papan klip",
+    "opened": "Dibuka dengan aplikasi bawaan Anda",
+    "openFailed": "Tidak dapat membukanya",
+    "failed": "Aplikasi tidak dapat menyelesaikan tindakan ini.",
+    "busy": "Tindakan lain masih berjalan.",
+    "notReady": "Belum siap. Coba lagi sebentar lagi.",
+    "listStale": "Daftar aplikasi sudah usang. Tunggu hingga diperbarui."
+  },
+  "hint": {
+    "move": "j/k pindah",
+    "switch": "Enter alihkan",
+    "run": "Enter jalankan",
+    "showHide": "Enter tampilkan atau sembunyikan",
+    "change": "Enter ubah",
+    "adjust": "Left/Right ubah",
+    "save": "Enter simpan",
+    "cancel": "Esc batal",
+    "choose": "Enter pilih",
+    "apply": "Enter terapkan",
+    "copy": "c salin",
+    "open": "o buka",
+    "restore": "r pulihkan",
+    "delete": "x hapus",
+    "closeLink": "x tutup",
+    "createLink": "Enter buat tautan",
+    "retry": "Enter muat lagi",
+    "confirm": "y konfirmasi, tombol lain membatalkan",
+    "back": "kembali",
+    "openApp": "buka",
+    "startStop": "mulai atau hentikan",
+    "reload": "muat ulang"
+  },
+  "tab": {
+    "apps_other": "{{count}} aplikasi",
+    "running": "{{count}} berjalan",
+    "loading": "Memuat aplikasi...",
+    "empty": "Belum ada Agent App. Minta agen AI Anda membuatnya, atau tambahkan dari layar Agent App.",
+    "failed": "Daftar aplikasi tidak dapat dimuat: {{error}}",
+    "warning": "Pemberitahuan registri: {{warning}}",
+    "disconnected": "Koneksi terputus. Status aplikasi mungkin sudah usang.",
+    "lastKnown": "terakhir diketahui: {{status}}",
+    "connected": "tersambung",
+    "refreshing": "Memperbarui daftar aplikasi",
+    "notSupported": "Mulai dan hentikan hanya untuk aplikasi di komputer ini yang sedang berjalan atau berhenti."
+  }
+}

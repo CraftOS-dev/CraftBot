@@ -101,6 +101,8 @@ _SESSION_KINDS = frozenset({"state", "frame", "pointer", "event", "last_frame"})
 # frame is only worth sending to a socket that has caught up (the next frame
 # replaces it anyway), a cursor move to one that is not badly behind.
 _MAX_PENDING: Dict[str, int] = {"frame": 1, "pointer": 8}
+# The live view: pictures of the page and the agent's pointer.
+_VISUAL_TYPES = frozenset({"mini_browser_frame", "mini_browser_pointer", "mini_browser_last_frame"})
 
 _HISTORY_ACTIONS = frozenset({"back", "forward", "reload", "stop"})
 _MOUSE_ACTIONS = frozenset({"down", "up", "move"})
@@ -976,10 +978,15 @@ class MiniBrowserWS:
         text = _dump(msg_type, data)
         if text is None:
             return
+        # The terminal client lists tabs; it never draws the live view or
+        # the agent's pointer, so those never go to it.
+        visual = msg_type in _VISUAL_TYPES
         for ws in sockets:
             channel = self._adapter.client_channel(ws)
             if channel is None or channel.closed:
                 self._forget_viewer(ws)
+            elif visual and getattr(channel, "client", "") == "terminal":
+                continue
             elif max_pending is None or channel.pending <= max_pending:
                 channel.send_text(text)
 
@@ -1290,7 +1297,9 @@ class MiniBrowserWS:
             return  # the socket is already gone
         first_viewer = self._add_viewer(ws, key)
         state = await self._state_snapshot(key)
-        if state.get("status") != "ready":
+        channel = self._adapter.client_channel(ws)
+        draws_live_view = getattr(channel, "client", "") != "terminal"
+        if state.get("status") != "ready" and draws_live_view:
             # Until the live page is back, the panel shows where the browser
             # left off (or nothing: an earlier picture may be out of date).
             last_frame = await asyncio.to_thread(_last_frame, key)

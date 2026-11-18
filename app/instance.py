@@ -140,11 +140,20 @@ def display_url(port: int) -> str:
     return f"http://localhost:{int(port)}"
 
 
-def write_ui(frontend_port: int, backend_port: int) -> dict:
+def write_ui(
+    frontend_port: Optional[int], backend_port: int, edition: str = "browser"
+) -> dict:
+    """Record where the running CraftBot answers.
+
+    The terminal edition serves no web UI (its client is `craftbot.py tui`):
+    its record has no frontend port and its url is the backend, which answers
+    a browser with a pointer to that command.
+    """
     data = {
-        "url": display_url(frontend_port),
-        "frontend_port": int(frontend_port),
+        "url": display_url(frontend_port if frontend_port else backend_port),
+        "frontend_port": int(frontend_port) if frontend_port else None,
         "backend_port": int(backend_port),
+        "edition": edition,
     }
     _write_json_atomic(UI_FILE, data)
     return data

@@ -140,9 +140,22 @@ def test_ui_file_round_trip(tmp_path, monkeypatch):
         "url": "http://localhost:7927",
         "frontend_port": 7927,
         "backend_port": 7928,
+        "edition": "browser",
     }
     instance.remove_ui()
     assert instance.read_ui() is None
+
+
+def test_terminal_edition_records_its_backend(tmp_path, monkeypatch):
+    # No web UI: the record names the backend, which `craftbot.py tui` attaches to.
+    monkeypatch.setattr(instance, "UI_FILE", tmp_path / "ui.json")
+    instance.write_ui(None, 7930, edition="terminal")
+    assert instance.read_ui() == {
+        "url": "http://localhost:7930",
+        "frontend_port": None,
+        "backend_port": 7930,
+        "edition": "terminal",
+    }
 
 
 # ── whose CraftBot is it? ─────────────────────────────────────────────────

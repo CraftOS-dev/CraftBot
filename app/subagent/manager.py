@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, Optional
+from typing import TYPE_CHECKING, Callable, Dict, List, Optional
 
 from agent_core.core.event_stream.event import EventType
 from agent_core.core.session import MAIN_SESSION_ID
@@ -39,6 +39,25 @@ if TYPE_CHECKING:
     from app.event_stream import EventStreamManager
     from app.llm import LLMInterface
     from app.session.session_manager import SessionManager
+
+# Observers of sub-agent starts and ends, called as fn(event, sub) with event
+# "spawn" or "end". The interface adapter uses this to tell clients which
+# session a sub-agent's activity belongs to. Observers must not raise and must
+# not block; a failing observer is logged and skipped.
+_LIFECYCLE_OBSERVERS: List[Callable[[str, SubAgent], None]] = []
+
+
+def add_lifecycle_observer(observer: Callable[[str, SubAgent], None]) -> None:
+    if observer not in _LIFECYCLE_OBSERVERS:
+        _LIFECYCLE_OBSERVERS.append(observer)
+
+
+def _notify_lifecycle(event: str, sub: SubAgent) -> None:
+    for observer in list(_LIFECYCLE_OBSERVERS):
+        try:
+            observer(event, sub)
+        except Exception as e:
+            logger.warning(f"[SubAgentManager] lifecycle observer failed: {e}")
 
 
 class SubAgentManager:
@@ -112,6 +131,7 @@ class SubAgentManager:
             f"[SubAgentManager] Spawned {sub.id} type={agent_type} "
             f"parent={parent_session_id}"
         )
+        _notify_lifecycle("spawn", sub)
         return sub
 
     async def run(self, sub: SubAgent) -> SubAgent:
@@ -192,6 +212,7 @@ class SubAgentManager:
             f"[SubAgentManager] Ended {sub_id} status={status} "
             f"iterations={sub.iterations}"
         )
+        _notify_lifecycle("end", sub)
 
     # ------------------------------------------------------------------
     # Release — resource teardown

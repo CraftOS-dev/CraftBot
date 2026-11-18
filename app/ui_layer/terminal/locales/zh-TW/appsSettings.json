@@ -1,0 +1,192 @@
+{
+  "panel": {
+    "name": "名稱",
+    "status": "狀態",
+    "port": "連接埠",
+    "path": "路徑",
+    "pathDesc": "應用程式在這台電腦上的資料夾",
+    "address": "位址",
+    "addressDesc": "應用程式在這台電腦上的存取位址",
+    "origin": "來源",
+    "signedInAs": "登入身分",
+    "connection": "連線",
+    "loading": "載入中...",
+    "gone": "此應用程式已不在應用程式清單中。",
+    "disconnected": "連線已中斷。重新連線後才能變更此應用程式。",
+    "working": "處理中...",
+    "on": "開",
+    "off": "關"
+  },
+  "status": {
+    "running": "執行中",
+    "stopped": "已停止",
+    "starting": "啟動中...",
+    "stopping": "停止中...",
+    "missing": "應用程式資料夾遺失",
+    "unreachable": "無法使用"
+  },
+  "connectionStatus": {
+    "online": "線上",
+    "offline": "離線",
+    "unreachable": "無法使用",
+    "expired": "登入已過期"
+  },
+  "lifecycle": {
+    "start": "啟動",
+    "stop": "停止",
+    "startDesc": "依照應用程式的建置與啟動步驟啟動它",
+    "stopDesc": "停止應用程式及其請求橋接。開發執行個體會繼續執行。",
+    "failed": "應用程式無法完成該指令。",
+    "unknown": "連線中斷。指令可能仍在執行。重新連線後請先確認應用程式狀態，再重試。",
+    "remaining": "仍有開發執行個體或工作橋接在執行。",
+    "notSent": "未送出。請重新連線後再試。",
+    "busy": "請等待應用程式完成啟動或停止。"
+  },
+  "sections": {
+    "preferences": "偏好設定",
+    "requests": "請求",
+    "backups": "備份",
+    "share": "分享",
+    "appearance": "外觀",
+    "package": "套件",
+    "remove": "移除"
+  },
+  "prefs": {
+    "autoStart": "自動啟動",
+    "autoStartDesc": "在你的 AI 代理啟動時啟動此應用程式",
+    "logCleanup": "啟動時清理記錄",
+    "logCleanupDesc": "每次啟動應用程式時刪除舊的記錄檔"
+  },
+  "requests": {
+    "allow": "允許向 CraftBot 送出請求",
+    "allowDesc": "允許此應用程式向你的 AI 代理送出它宣告的請求",
+    "view": "檢視請求 ({{count}})",
+    "hide": "隱藏請求",
+    "listDesc": "允許後此應用程式可以送出的請求",
+    "ownerTools": "擁有者存取本機工具",
+    "ownerToolsDesc": "允許應用程式擁有者以你的 AI 代理的權限讀寫本機檔案並執行指令",
+    "needsAllow": "請先允許請求。"
+  },
+  "backups": {
+    "scheduled": "排程備份",
+    "scheduledDesc": "自動備份此應用程式的資料與檔案",
+    "frequency": "頻率",
+    "frequencyDesc": "排程備份的執行間隔",
+    "interval": {
+      "hourly": "每小時",
+      "6h": "每 6 小時",
+      "daily": "每天",
+      "weekly": "每週"
+    },
+    "keep": "要保留的備份數",
+    "keepDesc": "超過此數量的較舊排程備份會被移除",
+    "lastFailed": "上次備份失敗：{{error}}",
+    "last": "上次備份 {{when}}",
+    "kept": "保留 {{count}} 個",
+    "none": "尚無備份",
+    "now": "立即備份",
+    "nowDesc": "立即備份資料與檔案。執行中的應用程式會短暫停止。",
+    "restoring": "正在還原。這可能需要一分鐘。",
+    "trigger": {
+      "scheduled": "排程",
+      "manual": "手動",
+      "preRemove": "刪除前",
+      "preUpdate": "更新前",
+      "preRestore": "還原前"
+    },
+    "confirmRestore": "將 {{name}} 還原至 {{date}} 的狀態？之後的資料會被移除。會先備份目前的狀態。",
+    "confirmDelete": "永久刪除 {{date}} 的備份？",
+    "loadFailed": "無法載入備份清單：{{error}}",
+    "retry": "重新載入",
+    "retryDesc": "再次取得備份清單",
+    "created": "已建立備份",
+    "restored": "已還原備份",
+    "deleted": "已刪除備份"
+  },
+  "share": {
+    "lan": "區域網路",
+    "public": "公開",
+    "lanHint": "同一網路中的裝置 (需憑連結)",
+    "publicHint": "網際網路上的任何人 (需憑連結)",
+    "lanDesc": "供同一網路中的裝置使用的連結。關閉後，所有訪客都會失去存取權。",
+    "publicDesc": "公開通道連結。關閉後，所有訪客都會失去存取權。",
+    "starting": "啟動中...",
+    "confirmCloseLan": "關閉區域網路連結？正在使用它的所有人都會失去存取權。",
+    "confirmClosePublic": "關閉公開連結？正在使用它的所有人都會失去存取權。"
+  },
+  "theme": {
+    "label": "主題",
+    "desc": "應用程式頁面的外觀"
+  },
+  "export": {
+    "label": "匯出套件",
+    "desc": "將應用程式儲存為可再次安裝的套件檔案",
+    "value": "整個應用程式合為一個檔案",
+    "done": "已匯出套件",
+    "file": "套件檔案",
+    "fileDesc": "匯出的套件的儲存位置"
+  },
+  "remove": {
+    "delete": "刪除應用程式",
+    "forget": "從清單中移除",
+    "disconnect": "中斷連線",
+    "deleteDesc": "停止應用程式並刪除其檔案。其資料與備份會保存在已移除應用程式的封存中。",
+    "forgetDesc": "清除儲存的項目。不會刪除任何檔案。",
+    "disconnectDesc": "移除連線。應用程式及其資料會保留在其主機上。",
+    "confirmDelete": "刪除 {{name}}？應用程式會被停止，檔案會被刪除。其資料與備份會保存在已移除應用程式的封存中。",
+    "confirmForget": "從應用程式清單中移除 {{name}}？其應用程式資料夾已遺失。不會刪除任何檔案。",
+    "confirmKeepFiles": "無法確認 {{name}} 的資料夾屬於該應用程式，因此未刪除任何檔案。要將應用程式從清單中移除並保留其檔案嗎？",
+    "confirmDisconnect": "中斷 {{name}} 的連線？應用程式及其資料會保留在其主機上。",
+    "deleted": "已刪除 {{name}}",
+    "forgotten": "已從應用程式清單中移除 {{name}}。其檔案已保留。",
+    "disconnected": "已中斷 {{name}} 的連線",
+    "removedFromList": "已從應用程式清單中移除 {{name}}。"
+  },
+  "common": {
+    "copied": "已複製到剪貼簿",
+    "copyFailed": "無法複製到剪貼簿",
+    "opened": "已用預設應用程式開啟",
+    "openFailed": "無法開啟",
+    "failed": "應用程式無法完成此操作。",
+    "busy": "另一個操作仍在執行。",
+    "notReady": "尚未就緒。請稍後再試。",
+    "listStale": "應用程式清單已過時。請等待它重新整理。"
+  },
+  "hint": {
+    "move": "j/k 移動",
+    "switch": "Enter 切換",
+    "run": "Enter 執行",
+    "showHide": "Enter 顯示或隱藏",
+    "change": "Enter 變更",
+    "adjust": "Left/Right 變更",
+    "save": "Enter 儲存",
+    "cancel": "Esc 取消",
+    "choose": "Enter 選擇",
+    "apply": "Enter 套用",
+    "copy": "c 複製",
+    "open": "o 開啟",
+    "restore": "r 還原",
+    "delete": "x 刪除",
+    "closeLink": "x 關閉",
+    "createLink": "Enter 建立連結",
+    "retry": "Enter 重新載入",
+    "confirm": "y 確認，其他任意鍵取消",
+    "back": "返回",
+    "openApp": "開啟",
+    "startStop": "啟動或停止",
+    "reload": "重新整理"
+  },
+  "tab": {
+    "apps_other": "{{count}} 個應用程式",
+    "running": "{{count}} 個執行中",
+    "loading": "正在載入應用程式...",
+    "empty": "還沒有 Agent App。請讓你的 AI 代理建置一個，或從 Agent App 畫面新增。",
+    "failed": "無法載入應用程式清單：{{error}}",
+    "warning": "註冊表通知：{{warning}}",
+    "disconnected": "連線已中斷。應用程式狀態可能已過時。",
+    "lastKnown": "最後已知：{{status}}",
+    "connected": "已連線",
+    "refreshing": "正在重新整理應用程式清單",
+    "notSupported": "只有這台電腦上正在執行或已停止的應用程式才能啟動和停止。"
+  }
+}
