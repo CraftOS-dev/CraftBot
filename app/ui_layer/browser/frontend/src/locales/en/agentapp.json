@@ -56,8 +56,6 @@
       "expired": "Sign-in expired"
     },
     "requests": {
-      "intro": "{{name}} is asking CraftBot to work on a request. Allow requests from this app?",
-      "scope": "CraftBot can use this app to handle its requests. Access to local files and commands is controlled separately in app settings.",
       "allowed": "Requests are now allowed. CraftBot will pick up the waiting request."
     }
   },
@@ -82,9 +80,7 @@
     "settingsTitle": "Requests",
     "settingsLabel": "Allow requests to CraftBot",
     "viewRequests": "View requests ({{count}})",
-    "hideRequests": "Hide requests",
-    "aboutRequests": "About app requests",
-    "runtimeRequests": "This app defines its requests while running. Your requests use this app's existing CraftBot conversation. Other users' requests stay in separate conversations. Local files and commands require the separate owner-access setting."
+    "hideRequests": "Hide requests"
   },
   "page": {
     "notFoundTitle": "Agent App Not Found",
