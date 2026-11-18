@@ -30,6 +30,7 @@ interface MarketplaceApp {
   id: string
   name: string
   description: string
+  publisher?: string
   preview?: string
   // "lucide:<Name>" like a project's icon; none yet → the default cube.
   icon?: string
@@ -166,7 +167,7 @@ export function CreateAgentAppModal({ isOpen, onClose }: CreateAgentAppModalProp
     const q = searchQuery.trim().toLowerCase()
     return apps.filter(app => {
       if (q) {
-        const hay = `${app.name} ${app.description} ${(app.tags || []).join(' ')}`.toLowerCase()
+        const hay = `${app.name} ${app.description} ${app.publisher || ''} ${(app.tags || []).join(' ')}`.toLowerCase()
         if (!hay.includes(q)) return false
       }
       if (selectedTags.size > 0) {
@@ -298,6 +299,7 @@ export function CreateAgentAppModal({ isOpen, onClose }: CreateAgentAppModalProp
                       const appKey = app.id
                       const installing = installingIds.has(appKey)
                       const installed = installedApps.get(appKey)
+                      const publisher = typeof app.publisher === 'string' ? app.publisher.trim() : ''
                       const addLabel = installing
                         ? t('common:status.installing')
                         : t(installed ? 'common:actions.open' : 'common:actions.add')
@@ -317,15 +319,22 @@ export function CreateAgentAppModal({ isOpen, onClose }: CreateAgentAppModalProp
                             </div>
                           )}
                           <div className={styles.appCardFooter}>
-                            <span className={styles.appCardTitle}>
-                              <AgentAppIcon
-                                // file: icons belong to installed projects; a catalogue entry has none
-                                icon={app.icon?.startsWith('lucide:') ? app.icon : undefined}
-                                size={14}
-                                className={styles.appCardIcon}
-                              />
-                              <span className={styles.appCardName} title={app.name}>{app.name}</span>
-                            </span>
+                            <div className={styles.appCardDetails}>
+                              <span className={styles.appCardTitle}>
+                                <AgentAppIcon
+                                  // file: icons belong to installed projects; a catalogue entry has none
+                                  icon={app.icon?.startsWith('lucide:') ? app.icon : undefined}
+                                  size={14}
+                                  className={styles.appCardIcon}
+                                />
+                                <span className={styles.appCardName} title={app.name}>{app.name}</span>
+                              </span>
+                              {publisher && (
+                                <span className={styles.appCardPublisher} title={publisher}>
+                                  {t('components:createAgentApp.publisherBy', { publisher })}
+                                </span>
+                              )}
+                            </div>
                             <button
                               type="button"
                               className={styles.appCardAdd}

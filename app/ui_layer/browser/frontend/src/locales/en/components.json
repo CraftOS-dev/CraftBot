@@ -175,6 +175,7 @@
     "tabCustom": "Build",
     "tabImport": "Import",
     "searchPlaceholder": "Search apps...",
+    "publisherBy": "By {{publisher}}",
     "tagsLabel": "Tags:",
     "filterAll": "All",
     "moreCount": "+{{count}} more",
