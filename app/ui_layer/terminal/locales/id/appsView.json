@@ -2,20 +2,19 @@
   "title": "Agent App",
   "notFound": "Aplikasi ini sudah tidak ada.",
   "loading": "Memuat...",
-  "stopped": "Aplikasi berhenti. Tekan l untuk meluncurkannya.",
+  "stopped": "Aplikasi berhenti. Tekan l untuk memulainya.",
   "asOwner": "sebagai pemilik",
   "agent": "agen AI Anda",
   "agentIdle": "siaga",
   "agentWorking": "bekerja",
   "status": {
     "running": "berjalan",
-    "ready": "berjalan",
     "stopped": "berhenti",
-    "creating": "sedang dibangun",
-    "launching": "memulai",
     "stopping": "menghentikan",
-    "error": "kesalahan",
-    "created": "belum dimulai"
+    "building": "sedang dibangun",
+    "starting": "memulai",
+    "missing": "hilang",
+    "unreachable": "tak terjangkau"
   },
   "tabs": {
     "ops": "Operasi",
@@ -38,11 +37,14 @@
     "chat": "obrolan",
     "screens": "layar",
     "stop": "hentikan",
-    "launch": "luncurkan"
+    "launch": "luncurkan",
+    "allow": "izinkan",
+    "decline": "jangan izinkan"
   },
   "fieldError": {
     "required": "wajib",
-    "number": "harus berupa angka"
+    "number": "harus berupa angka",
+    "json": "harus JSON yang valid"
   },
   "noParams": "Tidak perlu detail. Tekan Enter untuk menjalankan.",
   "confirmDestructive": "{{label}} mengubah atau menghapus data secara permanen. Jalankan?",
@@ -52,12 +54,37 @@
   "paletteHint": "Ketik untuk mencari operasi",
   "recordCount_one": "{{count}} entri",
   "recordCount_other": "{{count}} entri",
-  "readOnly": "hanya baca (perubahan melalui operasi)",
-  "recordsHint": "Data aplikasi, hanya baca. Enter membuka koleksi.",
-  "requestsHint": "Permintaan yang dikirim aplikasi ke agen AI Anda. Enter menampilkan daftarnya.",
-  "viewsInvalid": "views.json bermasalah, menampilkan layar yang dibuat otomatis: {{problem}}",
+  "recordsHint": "Data aplikasi, hanya baca. Enter membuka daftar.",
+  "requestsHint": "Pekerjaan yang diminta aplikasi ini kepada agen AI Anda. r membacanya lagi.",
   "actionsOnly": "Area ini tidak menampilkan apa pun sendiri; gunakan tindakannya di bawah.",
   "you": "Anda",
   "chatEmpty": "Belum ada percakapan.",
-  "chatPlaceholder": "Tanyakan kepada agen AI Anda tentang aplikasi ini"
+  "chatPlaceholder": "Tanyakan kepada agen AI Anda tentang aplikasi ini",
+  "missing": "Folder aplikasi ini sudah tidak ada. Hapus dari Agent Apps untuk mengeluarkannya dari daftar.",
+  "unreachable": "Program lain sedang memakai port aplikasi ini.",
+  "remoteOffline": "Aplikasi ini tidak dapat dijangkau saat ini.",
+  "remote": "jarak jauh",
+  "disconnected": "Tidak terhubung ke agen AI Anda.",
+  "cannotChange": "Aplikasi ini tidak dapat dimulai atau dihentikan saat ini.",
+  "lifecycleFailed": "Aplikasi tidak dapat dimulai atau dihentikan.",
+  "chatFailed": "Obrolan untuk aplikasi ini tidak dapat dibuka: {{error}}",
+  "noEntities": "Aplikasi ini tidak mendeklarasikan data sendiri.",
+  "listHint": "Beberapa nilai, dipisahkan koma",
+  "jsonHint": "Nilai JSON",
+  "requests": {
+    "title": "Aplikasi ini meminta izin mengirim permintaan ke agen AI Anda",
+    "intro": "Setelah diizinkan, {{name}} dapat meminta agen AI Anda melakukan ini kapan saja:",
+    "more": "+{{count}} lagi",
+    "keys": "y izinkan · n jangan izinkan (dapat diubah di pengaturannya)",
+    "saving": "Menyimpan...",
+    "off": "Permintaan ke agen AI Anda nonaktif sampai Anda meninjau dan mengizinkannya.",
+    "pendingChanges": "Permintaan baru atau yang berubah nonaktif sampai Anda meninjaunya.",
+    "reviewKey": "v tinjau",
+    "allowed": "Permintaan kini diizinkan. Agen AI Anda akan menangani permintaan yang menunggu.",
+    "allowedRetry": "Permintaan kini diizinkan. Coba lagi tindakan di aplikasi.",
+    "waitingOff_other": "{{count}} jenis permintaan menunggu izin Anda.",
+    "consentOk": "Tidak ada yang menunggu izin Anda.",
+    "none": "Belum ada permintaan."
+  },
+  "recordKeys": "Enter membuka catatan dan apa yang dapat dilakukan dengannya"
 }

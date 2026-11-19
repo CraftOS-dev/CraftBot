@@ -1,44 +1,13 @@
 /**
- * How one action reads in a row: a human name and a one-line preview of its
- * primary input. Ported from the browser's ActivityBlocks.tsx (that module
+ * How one action reads in a row: a human name and a one-line preview of the
+ * input it acts on. Ported from the browser's ActivityBlocks.tsx (that module
  * also holds React/CSS rendering, so it cannot be imported here); the shared
  * helpers come from the browser's own actionNames.ts and parse.ts.
  */
 import type { ActionItem } from '../../../browser/frontend/src/types'
 import { extractTodos, normalizeActionName } from '../../../browser/frontend/src/components/activity/actionNames'
-import { parseDict, strField } from '../../../browser/frontend/src/components/activity/parse'
+import { parseDict } from '../../../browser/frontend/src/components/activity/parse'
 import { stripEmoji } from '../text/emoji'
-
-const PREVIEW_KEYS: Record<string, string[]> = {
-  web_search: ['query'],
-  memory_search: ['query'],
-  web_fetch: ['url'],
-  http_request: ['url'],
-  read_file: ['file_path'],
-  write_file: ['file_path'],
-  stream_edit: ['file_path'],
-  read_pdf: ['file_path'],
-  find_files: ['pattern'],
-  grep_files: ['pattern'],
-  list_folder: ['path'],
-  convert_to_pdf: ['source_path', 'url', 'output_path'],
-  convert_from_pdf: ['source_path', 'output_path'],
-  convert_to_markdown: ['input_file'],
-  run_shell: ['command'],
-  run_python: ['code'],
-  generate_image: ['prompt'],
-  describe_image: ['image_path'],
-  perform_ocr: ['image_path'],
-  understand_video: ['video_path'],
-  send_message_with_attachment: ['message'],
-  mini_browser_navigate: ['url'],
-  mini_browser_type: ['text'],
-  mini_browser_press_key: ['keys'],
-  mini_browser_select_option: ['value'],
-  mini_browser_wait: ['text'],
-  mini_browser_scroll: ['direction'],
-  mini_browser_login: ['username'],
-}
 
 /** Chat-send actions never render as rows: the message itself is their visible form. */
 export const CHAT_SEND_ACTIONS: ReadonlySet<string> = new Set(['send_message', 'send_message_with_attachment'])
@@ -49,7 +18,7 @@ export function isChatSend(item: ActionItem): boolean {
 
 function firstLine(text: string): string {
   const line = stripEmoji(text).split('\n').find(l => l.trim())?.trim() ?? ''
-  return line.length > 200 ? `${line.slice(0, 200)}...` : line
+  return line.length > 200 ? `${line.slice(0, 200)}…` : line
 }
 
 /** "run_shell" -> "Run shell". */
@@ -58,29 +27,44 @@ export function displayActionName(name: string): string {
   return words.charAt(0).toUpperCase() + words.slice(1)
 }
 
+// One input value as one short line: text as its first line, lists as
+// their items, objects as their fields (the browser's formatValue).
+function formatValue(value: unknown): string {
+  if (value == null) return ''
+  if (typeof value === 'string') return firstLine(value)
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  const part = (v: unknown) => (v !== null && typeof v === 'object' ? JSON.stringify(v) : String(v))
+  if (Array.isArray(value)) return firstLine(value.map(part).join(', '))
+  if (typeof value === 'object') {
+    return firstLine(Object.entries(value).map(([k, v]) => `${k}: ${part(v)}`).join(', '))
+  }
+  return ''
+}
+
+/**
+ * The row's one-line preview, as the browser shows it: the value of the
+ * input the action declares for display (its display param), a to-do
+ * summary for update_todos, or for an action the backend did not describe
+ * its first text input. A failed action shows its error instead.
+ */
 export function actionPreview(item: ActionItem): string {
   if (item.status === 'error' && item.error) return firstLine(item.error)
   const inputObj = parseDict(item.input)
-  const normalized = normalizeActionName(item.name)
-  if (normalized === 'update_todos') {
+  if (normalizeActionName(item.name) === 'update_todos') {
     const todos = extractTodos(inputObj)
     if (!todos) return ''
     const done = todos.filter(t => t.status === 'completed').length
     return `${done}/${todos.length} done`
   }
-  const keys = PREVIEW_KEYS[normalized]
-  if (keys) {
-    for (const key of keys) {
-      const value = strField(inputObj, key)
-      if (value?.trim()) return firstLine(value)
-    }
+  if (item.displayParam !== undefined) {
+    return item.displayParam && inputObj ? formatValue(inputObj[item.displayParam]) : ''
   }
   if (inputObj) {
-    for (const value of Object.values(inputObj)) {
-      if (typeof value === 'string' && value.trim()) return firstLine(value)
+    for (const [key, value] of Object.entries(inputObj)) {
+      if (!key.startsWith('_') && typeof value === 'string' && value.trim()) return firstLine(value)
     }
   }
-  return item.input ? firstLine(item.input) : ''
+  return ''
 }
 
 export interface TodoRow {

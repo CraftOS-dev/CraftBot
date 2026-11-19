@@ -1,6 +1,6 @@
 /** How one value reads in a cell: dates, money, percents and plain text. */
-import { get } from './pointer.ts'
-import type { Format } from './types.ts'
+import { get } from './pointer'
+import type { Format } from './types'
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)?$/
 

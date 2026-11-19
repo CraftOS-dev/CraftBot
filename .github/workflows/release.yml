@@ -464,9 +464,9 @@ jobs:
             echo "::warning::macOS app is NOT Developer ID signed: set MACOS_CERT_P12_BASE64 and MACOS_CERT_PASSWORD to sign it. It is ad-hoc signed, and users must allow it in System Settings > Privacy & Security."
           fi
           mkdir -p dist
-              REF="${{ github.ref_name }}"
-              launcher/packaging/macos/bundle.sh \
-                launcher/target/universal/CraftBotInstaller dist "${REF#v}"
+          REF="${{ github.ref_name }}"
+          launcher/packaging/macos/bundle.sh \
+            launcher/target/universal/CraftBotInstaller dist "${REF#v}"
 
       # Notarized and stapled, the app opens on first launch with only the
       # usual "downloaded from the internet" confirmation, offline included.
@@ -516,8 +516,8 @@ jobs:
           # ditto, not zip: it preserves the bundle's extended attributes,
           # the stapled ticket and execute bits. A plain zip loses them and
           # the app will not launch after the user unzips it.
-              ditto -c -k --keepParent dist/CraftBotInstaller.app dist/CraftBotInstaller-macos.zip
-              rm -rf dist/CraftBotInstaller.app
+          ditto -c -k --keepParent dist/CraftBotInstaller.app dist/CraftBotInstaller-macos.zip
+          rm -rf dist/CraftBotInstaller.app
           ls -la dist/
 
       - name: Remove the signing keychain

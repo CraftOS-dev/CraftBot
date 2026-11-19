@@ -53,7 +53,10 @@
     "attached_one": "{{count}} berkas terlampir",
     "attached_other": "{{count}} berkas terlampir",
     "attachTooMany": "Maksimal {{count}} berkas per pesan",
-    "attachTooLarge": "Total lampiran dibatasi 200 MB"
+    "attachTooLarge": "Total lampiran dibatasi 200 MB",
+    "refChat": "obrolan",
+    "refApp": "Agent App",
+    "references": "Bersama: {{list}}  (Backspace menghapus yang terakhir)"
   },
   "connect": {
     "connecting": "Memulai CraftBot...",
@@ -121,7 +124,8 @@
     "interactiveOutput": "Output interaktif · {{title}} · rev {{revision}} · buka di edisi peramban",
     "detailsHint": "Detail ada di transkrip (Ctrl+O)",
     "error": "Kesalahan",
-    "system": "Sistem"
+    "system": "Sistem",
+    "references": "Bersama: {{list}}"
   },
   "help": {
     "chat": "Obrolan",
@@ -209,7 +213,6 @@
     "agentNamePlaceholder": "Beri nama agen Anda",
     "via": "Sambungkan melalui {{via}} (Tab untuk beralih)",
     "viaDirect": "penyedia secara langsung",
-    "subscriptionHint": "{{label}} sebagai ganti kunci: tersedia di Pengaturan > Model setelah penyiapan.",
     "imageLater": "tambahkan gambar nanti di Pengaturan",
     "working": "Menyimpan..."
   },
@@ -219,5 +222,15 @@
     "sessions": "sesi",
     "transcript": "transkrip",
     "tagline": "Tanyakan apa saja. Ketik / untuk perintah, @ untuk melampirkan file."
+  },
+  "rejected": {
+    "title": "Tidak terkirim: {{error}}",
+    "keys": "Tab, lalu r coba lagi · e sunting",
+    "focusedKeys": "r coba lagi · e sunting · Esc kembali"
+  },
+  "fold": {
+    "hint": "lipat",
+    "action": "Lipat konteks sekarang",
+    "running": "Melipat konteks..."
   }
 }

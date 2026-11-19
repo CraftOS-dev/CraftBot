@@ -302,7 +302,7 @@ export function glyphSetFor(which: GlyphMode): GlyphSet {
   return SETS[which]
 }
 
-/** Marks for the Agent App view engine (agent-app/view render options). */
+/** Marks for the Agent App view engine (apps/view render options). */
 export function viewMarks(): { pointer: string; bullet: string; spark: string[]; barFull: string; barEmpty: string } {
   const g = SETS[mode]
   return { pointer: g.pointer, bullet: g.bullet, spark: g.spark, barFull: g.meterFull, barEmpty: g.meterEmpty }

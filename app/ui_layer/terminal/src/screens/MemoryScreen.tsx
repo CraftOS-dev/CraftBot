@@ -5,8 +5,9 @@
  * memories newest first, then entities, files and file sections) beside the
  * selected node's detail and its neighbours as a tree (Right expands, Enter
  * goes to a neighbour). 1, 2 and 3 toggle the kinds shown, 4 hides the
- * default files, as the browser's header chips do. a adds, e edits and d
- * deletes conversation memories (memory_item_add / update / remove).
+ * default files (on by default), as the browser's header chips do. a adds,
+ * e edits and d deletes conversation memories (memory_item_add / update /
+ * remove); d on an entity deletes it and its links (memory_entity_remove).
  *
  * Tab "Indexed files": the agent file system as a checkbox tree; Space
  * indexes or stops indexing a file (memory_index_file_add / remove).
@@ -145,6 +146,8 @@ export function MemoryScreen() {
   const [notice, setNotice] = useState<Notice | null>(null)
   const [pendingPaths, setPendingPaths] = useState<Set<string>>(new Set())
   const itemRequests = useRef(0)
+  // Entities this screen asked to delete, until their replies arrive.
+  const entityRequests = useRef(new Set<string>())
 
   const say = (text: string, tone: Notice['tone'] = 'info') => setNotice({ text, tone })
   useEffect(() => {
@@ -160,7 +163,14 @@ export function MemoryScreen() {
     () =>
       onInboundMessage(msg => {
         const tr = tRef.current
-        const d = (msg.data ?? {}) as { success?: boolean; error?: string; path?: string; rejected?: { path: string; reason: string }[] }
+        const d = (msg.data ?? {}) as { success?: boolean; error?: string; name?: string; path?: string; rejected?: { path: string; reason: string }[] }
+        if (msg.type === 'memory_entity_remove') {
+          // The slice applies the graph in the reply; only the outcome is ours.
+          if (d.name === undefined || !entityRequests.current.delete(d.name)) return
+          if (!d.success) setNotice({ text: d.error || tr('memory.entityDeleteFailed', { name: d.name }), tone: 'error' })
+          else setNotice({ text: tr('memory.entityDeleted', { name: d.name }), tone: 'info' })
+          return
+        }
         if (msg.type === 'memory_item_add' || msg.type === 'memory_item_update' || msg.type === 'memory_item_remove') {
           if (itemRequests.current <= 0) return
           itemRequests.current -= 1
@@ -467,8 +477,19 @@ export function MemoryScreen() {
             setFocusId(null)
           },
         })
+      } else if (detailNode?.kind === 'entity') {
+        // Removes the node and its links; the memories are not changed.
+        const name = detailNode.label
+        setConfirm({
+          message: t('memory.confirmDeleteEntity', { name }),
+          onConfirm: () => {
+            entityRequests.current.add(name)
+            send('memory_entity_remove', { name })
+            setFocusId(null)
+          },
+        })
       } else if (detailNode) {
-        say(t('memory.notEditable'), 'error')
+        say(t('memory.notDeletable'), 'error')
       }
       return true
     }

@@ -31,12 +31,12 @@ from craftos_integrations.core.listeners import (
 
 
 def test_requirements_are_checked_once_and_off_the_loop(monkeypatch):
-    monkeypatch.setattr(executor, "_SATISFIED_REQUIREMENTS", set())
+    monkeypatch.setattr(executor, "_SETTLED_REQUIREMENTS", set())
     checked_on = []
 
     def fake_ensure(requirements, python_bin=None):
         checked_on.append(threading.get_ident())
-        executor._SATISFIED_REQUIREMENTS.update(requirements)
+        executor._SETTLED_REQUIREMENTS.update((python_bin, r) for r in requirements)
 
     async def fake_internal(*args, **kwargs):
         return {"status": "success"}
@@ -64,14 +64,14 @@ def test_requirements_are_checked_once_and_off_the_loop(monkeypatch):
 
 
 def test_installed_distribution_is_confirmed_without_pip(monkeypatch):
-    monkeypatch.setattr(executor, "_SATISFIED_REQUIREMENTS", set())
+    monkeypatch.setattr(executor, "_SETTLED_REQUIREMENTS", set())
 
     def no_pip(*args, **kwargs):
         raise AssertionError("pip must not run for an installed package")
 
     monkeypatch.setattr(executor.subprocess, "check_call", no_pip)
     executor._ensure_requirements(["pytest"])
-    assert "pytest" in executor._SATISFIED_REQUIREMENTS
+    assert (None, "pytest") in executor._SETTLED_REQUIREMENTS
 
 
 # ── action source ─────────────────────────────────────────────────────────

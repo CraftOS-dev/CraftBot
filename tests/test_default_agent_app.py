@@ -524,17 +524,25 @@ def test_release_payload_includes_and_requires_app_bundles(
         "app/agent_app_package.py",
         "app/agent_app/framework.py",
         "app/agent_app/framework_cli.py",
+        "app/agent_app/framework_connections.py",
+        "app/agent_app/framework_connections.mjs",
         "app/agent_app/framework_maintenance.py",
         "app/agent_app/framework_maintenance.mjs",
         "app/agent_app/framework_sharing.py",
         "app/data/action/agent_app_framework_actions.py",
         "app/provision/agent_app_framework.py",
         "app/provision/__init__.py",
+        "app/provision/python_downloads.json",
+        "app/provision/embedding_model.json",
+        "app/embedding_model.py",
+        "agent_core/core/impl/memory/onnx_embedder.py",
         "app/provision/default_agent_app.py",
         "craftos_integrations/providers/whatsapp_web/bridge.js",
         "installer/helpers.py",
         "installer/metadata.py",
         "installer/payload.py",
+        "installer/startup.py",
+        "installer/open_window.py",
         "requirements/lock-test.txt",
     ]
     if missing != "default":
@@ -554,7 +562,8 @@ def test_release_payload_includes_and_requires_app_bundles(
         "housekeeping": "app/agent_app/framework_maintenance.mjs",
         "sharing": "app/agent_app/framework_sharing.py",
     }.get(missing)
-    for rel in required + ["app/ui_layer/browser/frontend/dist/index.html"]:
+    # The built front ends: the browser UI and the terminal edition's client.
+    for rel in required + ["app/ui_layer/browser/frontend/dist/index.html", "app/ui_layer/terminal/dist/craftbot-tui.mjs"]:
         target = root / rel
         target.parent.mkdir(parents=True, exist_ok=True)
         original = CODE_ROOT / rel

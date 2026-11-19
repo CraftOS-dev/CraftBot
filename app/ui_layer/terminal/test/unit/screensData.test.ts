@@ -16,6 +16,8 @@ import {
 } from '../../src/screens/dataMemory'
 import { formatSize, joinPath, parentPath, previewLines, renameCaret, resolveLocalPath, sanitizeText, uniqueName } from '../../src/screens/dataFiles'
 import type { MemoryGraph, MemoryGraphNode, MemoryItem } from '../../../browser/frontend/src/store/slices/memorySettingsSlice'
+import { UI_STATE } from '../../../browser/frontend/src/store/uiState/catalog'
+import { resolveUiState } from '../../../browser/frontend/src/store/uiState/defineUiState'
 
 describe('charts.sparkline', () => {
   it('draws one cell per value on a scale from zero', () => {
@@ -225,6 +227,14 @@ describe('dataMemory', () => {
     expect(shown?.edges).toHaveLength(3)
     expect(withoutCoreFiles(graph, files, false)).toBe(graph)
     expect(countKinds(shown)).toEqual({ memories: 2, entities: 2, files: 0 })
+  })
+
+  it('hides default files until the user shows them (the preference defaults to on)', () => {
+    const files = [{ path: 'AGENT.md', core: true, exists: true, chunk_count: 1, indexed_at: '' }]
+    const hide = resolveUiState(UI_STATE.memory.hideCoreFiles, undefined)
+    expect(hide).toBe(true)
+    expect(withoutCoreFiles(graph, files, hide)?.nodes.map(n => n.id)).not.toContain('f:AGENT.md')
+    expect(resolveUiState(UI_STATE.memory.hideCoreFiles, false)).toBe(false)
   })
 
   it('searches text, category, sections and linked names', () => {

@@ -53,7 +53,10 @@
     "attached_one": "Attached {{count}} file",
     "attached_other": "Attached {{count}} files",
     "attachTooMany": "At most {{count}} files per message",
-    "attachTooLarge": "Attachments are limited to 200 MB in total"
+    "attachTooLarge": "Attachments are limited to 200 MB in total",
+    "refChat": "chat",
+    "refApp": "Agent App",
+    "references": "With: {{list}}  (Backspace removes the last)"
   },
   "connect": {
     "connecting": "Starting CraftBot...",
@@ -121,7 +124,8 @@
     "interactiveOutput": "Interactive output · {{title}} · rev {{revision}} · open it in the browser edition",
     "detailsHint": "Details in the transcript (Ctrl+O)",
     "error": "Error",
-    "system": "System"
+    "system": "System",
+    "references": "With: {{list}}"
   },
   "help": {
     "chat": "Chat",
@@ -209,7 +213,6 @@
     "agentNamePlaceholder": "Name your agent",
     "via": "Connect via {{via}} (Tab switches)",
     "viaDirect": "the provider directly",
-    "subscriptionHint": "{{label}} instead of a key: available in Settings > Model after setup.",
     "imageLater": "add a picture later in Settings",
     "working": "Saving..."
   },
@@ -219,5 +222,15 @@
     "sessions": "sessions",
     "transcript": "transcript",
     "tagline": "Ask anything. Type / for commands, @ to attach files."
+  },
+  "rejected": {
+    "title": "Not sent: {{error}}",
+    "keys": "Tab, then r retry · e edit",
+    "focusedKeys": "r retry · e edit · Esc back"
+  },
+  "fold": {
+    "hint": "fold",
+    "action": "Fold the context now",
+    "running": "Folding the context..."
   }
 }

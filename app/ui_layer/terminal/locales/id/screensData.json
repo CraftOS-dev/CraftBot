@@ -157,7 +157,6 @@
     "sections_one": "{{count}} bagian",
     "sections_other": "{{count}} bagian",
     "meta": {
-      "category": "Kategori",
       "saved": "Disimpan",
       "links": "Tautan",
       "file": "Berkas",
@@ -168,6 +167,7 @@
     "moreNeighbours": "+{{count}} lagi",
     "readOnly": "Dari berkas terindeks (hanya baca)",
     "notEditable": "Hanya memori percakapan yang dapat diedit",
+    "notDeletable": "Hanya memori percakapan dan entitas yang dapat dihapus",
     "form": {
       "addTitle": "Tambah memori",
       "editTitle": "Edit memori",
@@ -183,6 +183,9 @@
     "saved": "Memori disimpan",
     "deleted": "Memori dihapus",
     "failed": "Tidak dapat memperbarui memori: {{error}}",
+    "confirmDeleteEntity": "Hapus entitas {{name}} beserta tautannya? Memori tidak berubah.",
+    "entityDeleted": "Entitas {{name}} dihapus",
+    "entityDeleteFailed": "Tidak dapat menghapus entitas {{name}}",
     "files": {
       "hint": "Berkas yang dicentang diindeks: agen AI Anda dapat mencari bagian-bagiannya.",
       "chunks_one": "{{count}} bagian",
@@ -228,7 +231,6 @@
     "previewEmpty": "Berkas kosong",
     "previewLoading": "Membaca...",
     "selectHint": "Pilih berkas untuk melihat pratinjaunya",
-    "previewFocus": "Tab kembali ke daftar",
     "prompt": {
       "rename": "Ganti nama menjadi",
       "newFile": "Nama berkas baru",

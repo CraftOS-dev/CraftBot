@@ -102,7 +102,9 @@ _SESSION_KINDS = frozenset({"state", "frame", "pointer", "event", "last_frame"})
 # replaces it anyway), a cursor move to one that is not badly behind.
 _MAX_PENDING: Dict[str, int] = {"frame": 1, "pointer": 8}
 # The live view: pictures of the page and the agent's pointer.
-_VISUAL_TYPES = frozenset({"mini_browser_frame", "mini_browser_pointer", "mini_browser_last_frame"})
+_VISUAL_TYPES = frozenset(
+    {"mini_browser_frame", "mini_browser_pointer", "mini_browser_last_frame"}
+)
 
 _HISTORY_ACTIONS = frozenset({"back", "forward", "reload", "stop"})
 _MOUSE_ACTIONS = frozenset({"down", "up", "move"})

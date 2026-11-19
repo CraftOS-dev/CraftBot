@@ -1,7 +1,7 @@
 // Render the chat pane of an Agent App screen with a seeded conversation and
 // print the frames: node test/harness/run-chat-pane.mjs [width] [height] [glyphs] [app]
-// With "app" the whole Agent App screen renders (a stand-in project with no
-// folder) and the pane opens with c. The client store points at a closed
+// With "app" the whole Agent App screen renders (a stand-in app with no
+// folder, attached to the seeded conversation) and the pane opens with c. The client store points at a closed
 // port, so nothing reaches any backend; no key sends anything.
 import '../../src/boot'
 import { useRef } from 'react'
@@ -12,12 +12,13 @@ import { store } from '../../src/state/store'
 import { prependMany } from '../../../browser/frontend/src/store/slices/messagesSlice'
 import { addOrUpdate } from '../../../browser/frontend/src/store/slices/activitySlice'
 import { setSessionRunState } from '../../../browser/frontend/src/store/slices/agentSlice'
-import { setProjects } from '../../../browser/frontend/src/store/slices/agentAppSlice'
+import { received as streamReceived } from '../../../browser/frontend/src/store/slices/streamSlice'
+import { frameworkAppKey, receiveFrameworkAttachment, receiveFrameworkList } from '../../../browser/frontend/src/store/slices/agentAppSlice'
 import { ChatPane, type ChatPaneKeys } from '../../src/chat/ChatPane'
 import { ScreenContext } from '../../src/screens/context'
 import { FRAME_SIDES } from '../../src/ui/Frame'
 import { AppScreen } from '../../src/screens/apps/AppScreen'
-import type { ActionItem, AgentAppProject, ChatMessage } from '../../../browser/frontend/src/types'
+import type { ActionItem, ChatMessage } from '../../../browser/frontend/src/types'
 
 const [w, h, mode] = (process.env.HARNESS_ARGS ?? '').split('|')
 const columns = Number(w || 60)
@@ -71,16 +72,16 @@ function Host() {
   if (mode === 'app') {
     return (
       <ScreenContext.Provider value={{ setHandler: fn => { screenKeys.fn = fn as never }, columns: columns - FRAME_SIDES, rows: rows - 1, setTextFocus: () => {} }}>
-        <AppScreen arg="harness" />
+        <AppScreen arg={frameworkAppKey(APP.path, APP.id)} />
       </ScreenContext.Provider>
     )
   }
   return <ChatPane sessionId={session} columns={columns} rows={rows} focused keysRef={ref} placeholder="Ask your AI agent about this app" emptyText="No messages yet" />
 }
+const APP = { id: 'harness', name: 'Advance Life OS', path: '/nowhere/advance-life-os', status: 'running' as const, port: 3115 }
 if (mode === 'app') {
-  store.dispatch(setProjects([
-    { id: 'harness', name: 'Advance Life OS', description: '', status: 'running', port: 3115, sessionId: session, createdAt: 0 } as AgentAppProject,
-  ]))
+  store.dispatch(receiveFrameworkList({ status: 'success', data: { apps: [APP], connected: [] } }))
+  store.dispatch(receiveFrameworkAttachment({ path: APP.path, appId: APP.id, sessionId: session }))
 }
 const app = render(
   <Provider store={store}>
@@ -100,6 +101,24 @@ if (mode === 'app') {
   await wait(400)
 }
 show('working')
+// The reply as it is written: the step's status line, an action being
+// prepared (a pending row under the working row), and the reply so far.
+const stream = (messages: { id: string; text: string; done: boolean }[], actions: { id: string; name: string; input: string; done: boolean; displayParam?: string | null }[]) =>
+  store.dispatch(streamReceived({
+    sessionId: session, streamId: 'st1', attempt: 1, sender: 'CraftBot', startedAt: Date.now(), phase: 'update',
+    reasoning: null, status: 'Checking tomorrow morning', actions, messages: messages.map(m => ({ ...m, continueWork: true })),
+  }))
+stream([{ id: 'd1', text: 'Tomorrow morning you have the dentist at 09:15', done: false }], [
+  { id: 'p1', name: 'run_op', input: '{"op":"plan.get","day":"tomorrow"}', done: true, displayParam: 'op' },
+])
+await wait(300)
+show('streaming')
+// The real message arrives with the draft's id: the draft gives way to it.
+store.dispatch(prependMany({ sessionId: session, hasMore: false, messages: [
+  msg('m6b', 'agent', 'Tomorrow morning you have the dentist at 09:15, then deep work.', 1, { clientId: 'd1' }),
+] }))
+await wait(300)
+show('draft replaced')
 press('what about lunch')
 await wait(200)
 show('typing')

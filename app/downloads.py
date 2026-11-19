@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import hashlib
 import os
-import hashlib
 import shutil
 import ssl
 import tempfile
@@ -206,6 +205,30 @@ def cache_name(url: str) -> str:
     return unquote(name) or "download.bin"
 
 
+def find_cached(pattern: str) -> Optional[str]:
+    """A cached archive matching a glob, or None.
+
+    Lets a caller use the cache WITHOUT first resolving a download URL.
+    That matters more than it sounds: resolving the Python runtime's URL
+    means fetching a large JSON release index, and on a slow or flaky link
+    that request is itself a failure point — observed as
+    `IncompleteRead(1277952 bytes read)` in Windows Sandbox. Having the file
+    already and still failing because the index could not be read is an
+    absurd way to lose an install.
+
+    The archive names carry version and platform, so a glob like
+    `cpython-3.10.*-x86_64-pc-windows-msvc-install_only.tar.gz` identifies
+    the right file without asking anyone.
+    """
+    import glob as _glob
+
+    cache = cache_dir()
+    if not cache:
+        return None
+    matches = sorted(_glob.glob(os.path.join(cache, pattern)))
+    return matches[-1] if matches else None
+
+
 def _download_once(
     url: str,
     dest: str,
@@ -213,19 +236,11 @@ def _download_once(
     label: str = "",
     timeout: int = 600,
     progress_cb: Optional[Callable[[int, Optional[int]], None]] = None,
-    expected_sha256: Optional[str] = None,
 ) -> str:
-    """Stream url to dest, reporting progress. Returns dest.
+    """Stream one attempt into a private staging file, reporting progress.
 
-    With expected_sha256, a download (or cached copy) whose digest differs
-    is deleted and raises ValueError, so a bad mirror or a truncated file is
-    never used.
-
-    Streams to disk rather than holding the archive in memory: these are
-    tens of megabytes and a low-memory machine should not need twice that
-    just to unpack them.
-
-    Cache lookup and atomic publication are handled by download().
+    Cache lookup, checksum verification and atomic publication are handled
+    by download().
     """
     say: LogFn = log or (lambda _m: None)
     what = label or os.path.basename(dest) or url

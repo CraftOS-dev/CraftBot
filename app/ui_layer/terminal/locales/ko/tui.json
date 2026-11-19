@@ -53,7 +53,10 @@
     "attached_one": "파일 {{count}}개를 첨부했습니다",
     "attached_other": "파일 {{count}}개를 첨부했습니다",
     "attachTooMany": "메시지당 최대 {{count}}개 파일까지 첨부할 수 있습니다",
-    "attachTooLarge": "첨부 파일은 합계 200MB까지입니다"
+    "attachTooLarge": "첨부 파일은 합계 200MB까지입니다",
+    "refChat": "채팅",
+    "refApp": "Agent App",
+    "references": "함께: {{list}}  (Backspace로 마지막 항목 제거)"
   },
   "connect": {
     "connecting": "CraftBot 시작 중...",
@@ -121,7 +124,8 @@
     "interactiveOutput": "대화형 출력 · {{title}} · rev {{revision}} · 브라우저 버전에서 여세요",
     "detailsHint": "자세한 내용은 대화 기록에서 확인하세요 (Ctrl+O)",
     "error": "오류",
-    "system": "시스템"
+    "system": "시스템",
+    "references": "함께: {{list}}"
   },
   "help": {
     "chat": "채팅",
@@ -209,7 +213,6 @@
     "agentNamePlaceholder": "에이전트 이름을 지어 주세요",
     "via": "연결 방식: {{via}} (Tab으로 전환)",
     "viaDirect": "공급자에 직접 연결",
-    "subscriptionHint": "키 대신 {{label}}: 설정을 마친 뒤 설정 > 모델에서 사용할 수 있습니다.",
     "imageLater": "사진은 나중에 설정에서 추가하세요",
     "working": "저장 중..."
   },
@@ -219,5 +222,15 @@
     "sessions": "세션",
     "transcript": "대화 기록",
     "tagline": "무엇이든 물어보세요. /로 명령을, @로 파일을 첨부합니다."
+  },
+  "rejected": {
+    "title": "보내지 못함: {{error}}",
+    "keys": "Tab 후 r 다시 시도 · e 편집",
+    "focusedKeys": "r 다시 시도 · e 편집 · Esc 뒤로"
+  },
+  "fold": {
+    "hint": "접기",
+    "action": "지금 컨텍스트 접기",
+    "running": "컨텍스트를 접는 중..."
   }
 }

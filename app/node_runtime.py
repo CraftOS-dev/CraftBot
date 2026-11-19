@@ -280,6 +280,8 @@ def child_env(extra: Optional[dict] = None) -> dict:
     env = {**os.environ, **system_proxy_env(), **path_env()}
     if extra:
         env.update(extra)
+    if sys.platform != "win32" and not shutil.which("sh", path=env.get("PATH", "")):
+        env.setdefault("npm_config_script_shell", "/bin/sh")
     env.setdefault("NODE_USE_ENV_PROXY", "1")
     # Only for a Node known to accept the flag: an older one refuses to start
     # with an unknown NODE_OPTIONS entry, and resolve() can fall back to a
@@ -310,6 +312,46 @@ def npm_cmd() -> Optional[str]:
     if rt and rt.npm:
         return rt.npm
     return shutil.which("npm")
+
+
+def npm_command(rt=None):
+    """Run npm's JS entry point with its own Node, without cmd.exe or shell quoting."""
+    rt = rt or resolve()
+    if rt is None:
+        return None
+    binary = Path(rt.node).resolve()
+    candidates = [
+        binary.parent / "node_modules/npm/bin/npm-cli.js",
+        binary.parent.parent / "lib/node_modules/npm/bin/npm-cli.js",
+    ]
+    if rt.npm:
+        candidates.append(Path(rt.npm).resolve().parent / "npm-cli.js")
+    for entry in candidates:
+        if entry.is_file():
+            return [str(binary), str(entry)]
+    return None
+
+
+def usable(rt):
+    if rt is None or (major_of(rt.version) or 0) < MIN_NODE_MAJOR:
+        return False
+    cmd = npm_command(rt)
+    if not cmd:
+        return False
+    try:
+        kwargs = (
+            {"creationflags": subprocess.CREATE_NO_WINDOW}
+            if sys.platform == "win32"
+            else {}
+        )
+        result = subprocess.run(
+            cmd + ["--version"], capture_output=True, text=True, timeout=20, **kwargs
+        )
+        return result.returncode == 0 and bool(
+            re.match(r"^\d+\.", result.stdout.strip())
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
 
 
 def _platform_suffix():
@@ -498,7 +540,7 @@ def ensure_sidecar(log=None) -> Optional[NodeRuntime]:
     """Return Node >= MIN_NODE_MAJOR with npm, downloading both if needed.
     Idempotent: a no-op when a suitable Node already resolves."""
     rt = resolve()
-    if rt is not None and (major_of(rt.version) or 0) >= MIN_NODE_MAJOR and rt.npm:
+    if usable(rt):
         return rt
     if rt is not None and rt.source == "override":
         if log:

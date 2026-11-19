@@ -52,14 +52,14 @@ def inject_memory_event(query: str, session_id: Optional[str] = None) -> None:
         session_id: Target task/event-stream id. When None, the main
             (conversation) stream is used.
     """
-    message = memory_event_message(query)
+    message = memory_event_message(query, session_id)
     if message:
         log_memory_event(message, session_id)
 
 
-def memory_event_message(query: str) -> Optional[str]:
+def memory_event_message(query: str, session_id: Optional[str] = None) -> Optional[str]:
     """The `relevant_memories` event text for `query`, or None when memory is
-    off or nothing passes the threshold.
+    off, `session_id` is an isolated app task, or nothing passes the threshold.
 
     Blocking (embedding + vector search): callers on the event loop run it in
     a worker thread and log the result with log_memory_event.
@@ -75,7 +75,7 @@ def memory_event_message(query: str) -> Optional[str]:
         and state.current_session
         and getattr(state.current_session, "isolated_app_task", False)
     ):
-        return
+        return None
 
     if not _is_memory_enabled():
         return None

@@ -301,7 +301,7 @@ class ActionSetManager:
                 if integration not in integrations:
                     integrations[integration] = self.integration_description(
                         integration
-            )
+                    )
                 name, what = integrations[integration]
                 description = f"{name}: {what}" if what else name
             else:
@@ -309,7 +309,7 @@ class ActionSetManager:
                 more = len(actions) - _LISTED_ACTIONS
                 description = f"Actions: {shown}" + (
                     f", and {more} more" if more > 0 else ""
-                    )
+                )
             discovered_sets[set_name] = description
 
         return discovered_sets

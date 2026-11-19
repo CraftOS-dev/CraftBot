@@ -56,11 +56,12 @@ class NodeStage:
                 Status.DEGRADED,
                 f"Node >= {node_runtime.MIN_NODE_MAJOR} required; found {rt.version or 'unusable runtime'}",
             )
-        if not rt.npm or not Path(rt.npm).is_file():
+        npm_command = node_runtime.npm_command(rt)
+        if not npm_command:
             return StageResult(Status.MISSING, "npm is missing from the Node runtime")
         try:
             npm = proc.run(
-                [rt.npm, "--version"],
+                npm_command + ["--version"],
                 timeout=30,
                 env=node_runtime.child_env(),
                 echo=False,

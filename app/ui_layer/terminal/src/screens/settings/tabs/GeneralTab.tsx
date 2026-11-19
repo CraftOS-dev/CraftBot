@@ -107,6 +107,8 @@ export function GeneralTab() {
   const [exportOpen, setExportOpen] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [importState, setImportState] = useState<ImportState | null>(null)
+  // Agent App packages of the last import, installing in the background.
+  const [installNotes, setInstallNotes] = useState<{ message?: string; errors: string[] } | null>(null)
   const [resetOpen, setResetOpen] = useState(false)
   const [resetChoice, setResetChoice] = useState<string[]>(RESET_ITEMS.filter(i => !i.destructive).map(i => i.id))
   const [resetting, setResetting] = useState(false)
@@ -145,8 +147,10 @@ export function GeneralTab() {
   useInbound('reset', data => {
     if (!resetting) return
     setResetting(false)
-    const d = data as { success: boolean }
-    say(d.success ? t('general.reset.done') : t('general.reset.failed'), d.success ? 'success' : 'error')
+    const d = data as { success: boolean; error?: string }
+    // A failure stays until something replaces it, as in the browser.
+    if (d.success) say(t('general.reset.done'), 'success')
+    else say(d.error || t('general.reset.failed'), 'error', null)
   })
   useInbound(['agent_profile_picture_upload', 'agent_profile_picture_remove'], (data, type) => {
     const d = data as { success: boolean; error?: string }
@@ -315,7 +319,15 @@ export function GeneralTab() {
         const apps = (summary.agent_app_added?.length ?? 0) + (summary.agent_app_renamed?.length ?? 0)
         if (apps) parts.push(t('general.profile.apps', { count: apps }))
         const what = parts.length ? parts.join(', ') : t('general.profile.profileWord')
-        say(mode === 'overwrite' ? t('general.profile.importedOverwrite', { what }) : t('general.profile.importedMerge', { what }), 'success', 10000)
+        const errors = (summary.framework_install_errors ?? []).map(e =>
+          t('general.profile.installError', { app: e.package?.from || t('general.profile.unnamedApp'), error: e.error }),
+        )
+        say(
+          mode === 'overwrite' ? t('general.profile.importedOverwrite', { what }) : t('general.profile.importedMerge', { what }),
+          errors.length ? 'error' : 'success',
+          10000,
+        )
+        setInstallNotes(summary.framework_install_message || errors.length ? { message: summary.framework_install_message, errors } : null)
         setImportState(null)
       } catch (err) {
         setImportState({ phase: 'preview', path, bundle, mode })
@@ -477,10 +489,13 @@ export function GeneralTab() {
           label: t('general.profile.import'),
           detail: t('general.profile.importDetail'),
           onRun: () => {
+            setInstallNotes(null)
             setImportState({ phase: 'path' })
             form.startEdit('import', '')
           },
         },
+        ...(installNotes?.message ? [{ kind: 'note', text: installNotes.message, indent: 4 } as FormRow] : []),
+        ...(installNotes?.errors ?? []).map((text): FormRow => ({ kind: 'note', tone: 'error', text, indent: 4 })),
       ]
     }
     if (importState.phase === 'path') {

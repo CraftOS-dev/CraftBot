@@ -27,8 +27,7 @@ two things onto the disk that Python cannot fetch for itself:
 
 1. **A Python interpreter.** It downloads
    [python-build-standalone](https://github.com/astral-sh/python-build-standalone)
-   3.10 — pinned with its checksum in `app/runtime-manifest.json`, embedded
-   in the launcher and shared with `app/provision/runtimes.py` — into the same
+   3.10 — the same build `app/provision/runtimes.py` uses — into the same
    location (`<user data>/runtime/python/python/`). When install.py's own
    `python` stage runs later, it finds this one and accepts it.
 2. **The source payload.** `CraftBot-src.zip` from the GitHub release
@@ -74,23 +73,6 @@ Before anything is downloaded the launcher checks the macOS version
 user's data, and that the drive holding the data root (which receives the
 packages and runtimes) has `MIN_FREE_GB` (3 GB) free.
 
-Node/npm, the Agent App tooling dependencies and PocketBase are required
-provisioning stages. Setup only completes when those stages succeed. Node
-is pinned in the same runtime manifest; PocketBase keeps its version pin
-and per-asset checksums under `agent-app/spec/`. ZIP extraction does not
-require Git, tar or unzip on the user's machine.
-
-Python remains on 3.10 to match the existing dependency locks. Its portable
-build is pinned to the last verified release that includes this version;
-migrating off this end-of-life Python line also requires regenerating and
-testing the application locks. Runtime pins must be updated with their
-official SHA-256 digests, not by resolving upstream `latest` at install time.
-
-Run `python -m unittest discover -s tests/install_bootstrap -v` for the
-stdlib-only bootstrap regressions. `python scripts/test_runtime_bootstrap.py`
-exercises fresh runtime downloads, app scaffolding/build/serving and reuse
-in a temporary installation with an empty PATH. It does not install the
-full Python application dependencies or register the CraftBot service.
 Install and Repair refresh login startup through `craftbot.py install`, using
 the current interpreter, source directory and saved ports. Automatic startup
 defaults to enabled; `craftbot.py autostart disable` opts out without uninstalling
@@ -168,20 +150,6 @@ docker run --rm -v "$PWD:/src" -w /src/launcher quay.io/pypa/manylinux_2_28_x86_
   'curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal && . ~/.cargo/env &&
    cargo build --release && bash packaging/linux/check_binary.sh target/release/CraftBotInstaller'
 ```
-
-Windows builds statically link the C runtime through the repository's
-`.cargo/config.toml`. The executable must start on a fresh Windows before
-Python provisioning installs the VC++ Redistributable for application wheels.
-The launcher refuses to compile with a dynamic MSVC runtime.
-
-Windows downloads use Schannel so certificate chains resolve on a fresh
-machine, including roots Windows retrieves on demand. Other platforms use
-rustls with the OS trust store. The downloader honors proxy environment
-variables and always verifies TLS and pinned runtime checksums.
-
-Linux font discovery uses optional `dlopen` loading for fontconfig. The
-headless installer can start on a minimal OS without desktop font libraries;
-opening the window still requires a working graphical session.
 
 The CraftBot version is baked in at build time: `CRAFTBOT_VERSION=1.4.0
 cargo build --release`, or a `VERSION` file at the repo root, or "latest"

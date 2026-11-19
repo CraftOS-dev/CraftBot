@@ -15,14 +15,12 @@ on:
     paths:
       - "launcher/**"
       - ".cargo/config.toml"
-      - "app/runtime-manifest.json"
       - "app/provision/python_downloads.json"
       - ".github/workflows/launcher.yml"
   pull_request:
     paths:
       - "launcher/**"
       - ".cargo/config.toml"
-      - "app/runtime-manifest.json"
       - "app/provision/python_downloads.json"
       - ".github/workflows/launcher.yml"
   workflow_dispatch:
@@ -179,9 +177,6 @@ jobs:
 
       - name: Test
         run: cargo test --release
-
-      - name: Bootstrap pinned Python without a system interpreter
-        run: cargo test --release live_python_bootstrap -- --ignored
 
       - name: Build
         run: cargo build --release

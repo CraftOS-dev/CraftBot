@@ -157,7 +157,6 @@
     "sections_one": "{{count}} 個區段",
     "sections_other": "{{count}} 個區段",
     "meta": {
-      "category": "類別",
       "saved": "儲存時間",
       "links": "連結",
       "file": "檔案",
@@ -168,6 +167,7 @@
     "moreNeighbours": "還有 {{count}} 個",
     "readOnly": "來自已建立索引的檔案（唯讀）",
     "notEditable": "只有對話記憶可以編輯",
+    "notDeletable": "只有對話記憶和實體可以刪除",
     "form": {
       "addTitle": "新增記憶",
       "editTitle": "編輯記憶",
@@ -183,6 +183,9 @@
     "saved": "已儲存記憶",
     "deleted": "已刪除記憶",
     "failed": "無法更新記憶：{{error}}",
+    "confirmDeleteEntity": "刪除實體 {{name}} 及其連結？記憶不會變更。",
+    "entityDeleted": "已刪除實體 {{name}}",
+    "entityDeleteFailed": "無法刪除實體 {{name}}",
     "files": {
       "hint": "勾選的檔案會建立索引：你的 AI 代理可以搜尋其中的區段。",
       "chunks_one": "{{count}} 個區段",
@@ -228,7 +231,6 @@
     "previewEmpty": "空白檔案",
     "previewLoading": "正在讀取...",
     "selectHint": "選取檔案以預覽",
-    "previewFocus": "Tab 返回清單",
     "prompt": {
       "rename": "重新命名為",
       "newFile": "新檔案名稱",

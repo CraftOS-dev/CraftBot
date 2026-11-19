@@ -157,7 +157,6 @@
     "sections_one": "{{count}} sección",
     "sections_other": "{{count}} secciones",
     "meta": {
-      "category": "Categoría",
       "saved": "Guardado",
       "links": "Enlaces",
       "file": "Archivo",
@@ -168,6 +167,7 @@
     "moreNeighbours": "+{{count}} más",
     "readOnly": "De un archivo indexado (solo lectura)",
     "notEditable": "Solo se pueden editar los recuerdos de conversaciones",
+    "notDeletable": "Solo se pueden eliminar los recuerdos de conversaciones y las entidades",
     "form": {
       "addTitle": "Añadir recuerdo",
       "editTitle": "Editar recuerdo",
@@ -183,6 +183,9 @@
     "saved": "Recuerdo guardado",
     "deleted": "Recuerdo eliminado",
     "failed": "No se pudo actualizar la memoria: {{error}}",
+    "confirmDeleteEntity": "¿Eliminar la entidad {{name}} y sus enlaces? Los recuerdos no cambian.",
+    "entityDeleted": "Entidad {{name}} eliminada",
+    "entityDeleteFailed": "No se pudo eliminar la entidad {{name}}",
     "files": {
       "hint": "Los archivos marcados se indexan: tu agente de IA puede buscar en sus secciones.",
       "chunks_one": "{{count}} sección",
@@ -228,7 +231,6 @@
     "previewEmpty": "Archivo vacío",
     "previewLoading": "Leyendo...",
     "selectHint": "Selecciona un archivo para previsualizarlo",
-    "previewFocus": "Tab vuelve a la lista",
     "prompt": {
       "rename": "Cambiar nombre a",
       "newFile": "Nombre del archivo nuevo",

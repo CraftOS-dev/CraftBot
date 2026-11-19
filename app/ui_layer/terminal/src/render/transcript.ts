@@ -98,8 +98,12 @@ export function renderMessage(message: ChatMessage, columns: number): string[] {
   if (message.style === 'error') body = body.map(l => tone.error(l))
   else if (message.style === 'system' || message.style === 'info') body = body.map(l => tone.muted(l))
 
-  // What hangs under the text: files, the answer given, outputs, details.
+  // What hangs under the text: references, files, the answer given, outputs, details.
   const extra: string[] = []
+  if (message.references?.length) {
+    const list = message.references.map(r => stripEmoji(r.label)).join(', ')
+    extra.push(tone.muted(`${g.artifact} ${i18n.t('tui:transcript.references', { list })}`))
+  }
   for (const attachment of message.attachments ?? []) {
     const size = formatBytes(attachment.size)
     extra.push(

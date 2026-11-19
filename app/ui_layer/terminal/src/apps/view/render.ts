@@ -2,13 +2,12 @@
  * Lay a view block out as lines of styled segments for a given width.
  *
  * Pure: no terminal, no React. The terminal client colors the segments and
- * handles keys; `agent-app view` prints them as plain text, so the agent sees
- * exactly what the person sees. Numbers are always printed next to marks.
+ * handles keys. Numbers are always printed next to marks.
  */
-import { formatValue, humanize, isScalar, looksLikeDate } from './format.ts'
-import { get } from './pointer.ts'
-import type { Block, Column, Format, Line, Segment } from './types.ts'
-import { cellWidth, fit, pad, takeCells } from './width.ts'
+import { formatValue, humanize, isScalar, looksLikeDate } from './format'
+import { get } from './pointer'
+import type { Block, Column, Format, Line, Segment } from './types'
+import { cellWidth, fit, pad, takeCells } from './width'
 
 export interface RenderOptions {
   width: number

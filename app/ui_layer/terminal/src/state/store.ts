@@ -22,7 +22,6 @@ import memorySettingsReducer from '../../../browser/frontend/src/store/slices/me
 import skillsSettingsReducer from '../../../browser/frontend/src/store/slices/skillsSettingsSlice'
 import commandsSettingsReducer from '../../../browser/frontend/src/store/slices/commandsSettingsSlice'
 import proactiveSettingsReducer from '../../../browser/frontend/src/store/slices/proactiveSettingsSlice'
-import agentAppSettingsReducer from '../../../browser/frontend/src/store/slices/agentAppSettingsSlice'
 import generalSettingsReducer from '../../../browser/frontend/src/store/slices/generalSettingsSlice'
 import modelSettingsReducer from '../../../browser/frontend/src/store/slices/modelSettingsSlice'
 import reasoningReducer from '../../../browser/frontend/src/store/slices/reasoningSlice'
@@ -30,6 +29,7 @@ import integrationsSettingsReducer from '../../../browser/frontend/src/store/sli
 import chatInputReducer from '../../../browser/frontend/src/store/slices/chatInputSlice'
 import playbooksReducer from '../../../browser/frontend/src/store/slices/playbooksSlice'
 import miniBrowserReducer from '../../../browser/frontend/src/store/slices/miniBrowserSlice'
+import streamReducer from '../../../browser/frontend/src/store/slices/streamSlice'
 import uiReducer from '../../../browser/frontend/src/store/slices/uiSlice'
 import { socketMiddleware } from '../../../browser/frontend/src/store/socket/socketMiddleware'
 import '../../../browser/frontend/src/store/socket/versionWatch'
@@ -57,7 +57,6 @@ export const store = configureStore({
     skillsSettings: skillsSettingsReducer,
     commandsSettings: commandsSettingsReducer,
     proactiveSettings: proactiveSettingsReducer,
-    agentAppSettings: agentAppSettingsReducer,
     generalSettings: generalSettingsReducer,
     modelSettings: modelSettingsReducer,
     reasoning: reasoningReducer,
@@ -65,6 +64,7 @@ export const store = configureStore({
     chatInput: chatInputReducer,
     playbooks: playbooksReducer,
     miniBrowser: miniBrowserReducer,
+    stream: streamReducer,
     ui: uiReducer,
     tui: tuiReducer,
   },

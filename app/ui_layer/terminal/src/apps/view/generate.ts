@@ -1,21 +1,20 @@
 /**
- * Views for an app that declares none, generated from its operations:
+ * An app's screens, generated from the operations it declares:
  *   - Home: the first overview op the app has (home.summary, app.status,
  *     today.get, app.guide), laid out by its shape;
- *   - one screen per area (the op-name prefix: "expenses.add" -> "expenses"),
- *     showing the area's read ops that need no parameters and offering its
- *     other ops as actions.
- * The result has the same shape as a declared views.json, so one renderer
- * serves both.
+ *   - one screen per module (the op's declared module, else its name prefix:
+ *     "expenses.add" -> "expenses"), showing the module's read ops that need
+ *     no parameters and offering its other ops as actions.
  */
-import { humanize } from './format.ts'
-import type { Action, Operation, Screen, ViewsFile } from './types.ts'
+import { humanize } from './format'
+import type { Action, Operation, Screen, ViewsFile } from './types'
 
 export const HOME_OPS = ['home.summary', 'app.status', 'today.get', 'app.guide']
 
-export function areaOf(name: string): string {
-  const i = name.lastIndexOf('.')
-  return i > 0 ? name.slice(0, i) : name
+export function areaOf(op: Pick<Operation, 'name' | 'module'>): string {
+  if (op.module) return op.module
+  const i = op.name.lastIndexOf('.')
+  return i > 0 ? op.name.slice(0, i) : op.name
 }
 
 export function verbOf(name: string): string {
@@ -23,12 +22,9 @@ export function verbOf(name: string): string {
   return i >= 0 ? name.slice(i + 1) : name
 }
 
-/** A read op changes nothing: declared readOnly, else an HTTP GET or a crud list. */
+/** A read op changes nothing: declared read-only and not destructive. */
 export function isReadOp(op: Operation): boolean {
-  if (op.readOnly !== undefined) return op.readOnly
-  const exec = op.executor
-  if (exec.type === 'crud') return (exec.action ?? 'list') === 'list'
-  return (exec.method ?? 'POST').toUpperCase() === 'GET'
+  return op.readOnly === true && op.destructive !== true
 }
 
 export function requiredParams(op: Operation): string[] {
@@ -37,8 +33,11 @@ export function requiredParams(op: Operation): string[] {
     .map(([name]) => name)
 }
 
-export function opLabel(op: Operation): string {
-  return op.label ?? humanize(`${verbOf(op.name)} ${areaOf(op.name) === op.name ? '' : areaOf(op.name).split('.').pop() ?? ''}`.trim())
+/** "expenses.add" reads "Add expenses"; a bare name reads as itself. */
+export function opLabel(op: Pick<Operation, 'name'>): string {
+  const i = op.name.lastIndexOf('.')
+  const area = i > 0 ? (op.name.slice(0, i).split('.').pop() ?? '') : ''
+  return humanize(`${verbOf(op.name)} ${area}`.trim())
 }
 
 const VERB_KEYS: [RegExp, string][] = [
@@ -67,26 +66,40 @@ export function assignKeys(ops: Operation[], reserved: Set<string> = new Set()):
   return actions
 }
 
+/**
+ * The operations that act on one entity, as keys on its record: the param
+ * that names the record (a ref to the entity, or its id) is bound to it.
+ */
+export function recordActions(ops: Operation[], entity: string): Action[] {
+  const bound = ops.filter(op => op.entity === entity && !op.system)
+  return assignKeys(bound, RESERVED_KEYS).map(action => {
+    const op = bound.find(o => o.name === action.op)!
+    const target = Object.entries(op.params ?? {}).find(([name, p]) => (p.type === 'ref' && p.entity === entity) || name === 'id')?.[0]
+    return target ? { ...action, params: { [target]: '$row.id' } } : action
+  })
+}
+
 /** Keys the app screen keeps for itself; generated actions never take them. */
 export const RESERVED_KEYS = new Set(['q', 'j', 'k', 'g', 'h', 'l', 'c', 'r', 'J', 'G', 's', 't', 'p', 'o', 'x', 'v', 'y', 'n'])
 
-export function generateViews(ops: Operation[]): ViewsFile {
+/** `modules` orders the screens (the manifest's order); modules no op names come last. */
+export function generateViews(ops: Operation[], modules: string[] = []): ViewsFile {
   const visible = ops.filter(op => op.system !== true)
   const screens: Screen[] = []
   const home = HOME_OPS.map(name => visible.find(op => op.name === name)).find(
-    (op): op is Operation => op !== undefined && requiredParams(op).length === 0,
+    (op): op is Operation => op !== undefined && isReadOp(op) && requiredParams(op).length === 0,
   )
   if (home) {
     screens.push({ id: 'home', title: 'Home', source: { op: home.name }, blocks: [{ type: 'auto' }] })
   }
 
-  const areas: string[] = []
+  const areas: string[] = [...modules]
   for (const op of visible) {
-    const area = areaOf(op.name)
+    const area = areaOf(op)
     if (!areas.includes(area)) areas.push(area)
   }
   for (const area of areas) {
-    const inArea = visible.filter(op => areaOf(op.name) === area && op.name !== home?.name)
+    const inArea = visible.filter(op => areaOf(op) === area && op.name !== home?.name)
     if (inArea.length === 0) continue
     const reads = inArea.filter(op => isReadOp(op) && requiredParams(op).length === 0)
     const others = inArea.filter(op => !reads.includes(op))

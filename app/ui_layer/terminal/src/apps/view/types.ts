@@ -1,11 +1,7 @@
 /**
- * Agent App views: a declared presentation of an app's operations.
- *
- * An app may ship `views.json` (spec/views.schema.json). Every data source
- * and every action names a declared operation, so what a person sees and
- * what the agent operates are the same thing, and "every feature is reachable
- * through an op" holds by construction. An app without views.json gets the
- * same structure generated from its operations and data schema (generate.ts).
+ * What the app screen shows: blocks of an app's data laid out by shape, and
+ * the operations the app declares (operations.json, the A2App protocol's
+ * vocabulary). Screens are generated from the operations (generate.ts).
  */
 
 export type Format =
@@ -133,49 +129,46 @@ export interface ViewsFile {
   screens: Screen[]
 }
 
-// --- the app's own descriptions (operations.json, /api/_a2app/describe) -------
+// --- the app's own declarations (operations.json) --------------------------------
+
+/** A parameter's type: the protocol's closed set. */
+export type ParamType =
+  | 'string'
+  | 'number'
+  | 'boolean'
+  | 'datetime'
+  | 'enum'
+  | 'ref'
+  | 'list<enum>'
+  | 'list<ref>'
+  | 'json'
+  | 'binary'
 
 export interface OpParam {
-  type: string
+  type: ParamType | string
   description?: string
   required?: boolean
-  enum?: (string | number)[]
-  label?: string
+  /** The choices of an enum or list<enum>. */
+  values?: string[]
+  /** The entity a ref points at. */
+  entity?: string
+  max?: number
   format?: string
 }
 
 export interface Operation {
   name: string
-  description: string
-  label?: string
-  system?: boolean
+  description?: string
   destructive?: boolean
   readOnly?: boolean
-  confirm?: string
-  params?: Record<string, OpParam>
-  executor: { type: string; method?: string; path?: string; collection?: string; action?: string }
-}
-
-export interface EntityField {
-  type: string
-  required?: boolean
-  readOnly?: boolean
-  values?: string[]
+  idempotent?: boolean
+  /** The manifest module it belongs to. */
+  module?: string
+  /** The entity it acts on, when it acts on one. */
   entity?: string
-  format?: string
-}
-
-export interface Entity {
-  label?: string
-  auth?: boolean
-  fields: Record<string, EntityField>
-  records: string
-}
-
-export interface Describe {
-  entities?: Record<string, Entity>
-  operations?: Operation[]
-  triggers?: Record<string, unknown>
+  /** Framework plumbing, never offered to a person. */
+  system?: boolean
+  params?: Record<string, OpParam>
 }
 
 // --- rendered output ------------------------------------------------------------

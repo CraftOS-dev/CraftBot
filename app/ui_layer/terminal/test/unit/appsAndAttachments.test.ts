@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import type { Key } from 'ink'
 import { formKey, formParams, initForm } from '../../src/apps/opForm'
 import { mentionAt, mentionedFiles, pathSuggestions } from '../../src/input/attachments'
-import type { Operation } from '../../../../../agent-app/view/src/index.ts'
+import type { Operation } from '../../src/apps/view'
 
 const key = (over: Partial<Key> = {}): Key => ({
   upArrow: false, downArrow: false, leftArrow: false, rightArrow: false, pageDown: false, pageUp: false,
@@ -21,9 +21,8 @@ const op: Operation = {
     title: { type: 'string', required: true },
     amount: { type: 'number', required: true },
     paid: { type: 'boolean' },
-    kind: { type: 'string', enum: ['food', 'travel'] },
+    kind: { type: 'enum', values: ['food', 'travel'] },
   },
-  executor: { type: 'http', method: 'POST', path: '/api/ops/expenses-add' },
 }
 
 describe('op form', () => {
@@ -53,7 +52,7 @@ describe('op form', () => {
     state = formKey(state, '', key({ rightArrow: true })).state
     const result = formKey(state, '', key({ return: true }))
     expect(result.submit).toBe(true)
-    expect(formParams(result.state)).toEqual({ title: 'Bus', amount: '3', paid: 'true', kind: 'food' })
+    expect(formParams(result.state)).toEqual({ title: 'Bus', amount: 3, paid: true, kind: 'food' })
   })
 
   it('cancels on Esc', () => {

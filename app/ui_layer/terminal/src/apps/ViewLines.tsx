@@ -1,6 +1,6 @@
 /** Draw the view engine's styled lines with the terminal's colors. */
 import { Box, Text } from 'ink'
-import type { Line, Tone } from '../../../../../agent-app/view/src/index.ts'
+import type { Line, Tone } from './view'
 import { ink } from '../theme/theme'
 
 function color(tone: Tone | undefined): { color?: string; bold?: boolean; inverse?: boolean } {

@@ -4,8 +4,11 @@
  * choice the model lacks resolves to, and the chat's context and cache
  * readout: context used against the budget at the chat's current choice
  * (amber from 70%, red from 90%), cache hit rate and the cache's time left.
- * Choosing sends session_reasoning_set for the active chat and closes.
+ * Choosing sends session_reasoning_set for the active chat and closes. f
+ * folds the chat's context now (the /fold command, as the browser's context
+ * button); after a fold the context shows an estimate until the next request.
  */
+import { randomUUID } from 'node:crypto'
 import { useState } from 'react'
 import { Box, Text } from 'ink'
 import { useTranslation } from 'react-i18next'
@@ -18,7 +21,7 @@ import { selectUiState } from '../../../../browser/frontend/src/store/selectors/
 import { upsertSession } from '../../../../browser/frontend/src/store/slices/sessionsSlice'
 import { setUiState } from '../../../../browser/frontend/src/store/slices/uiSlice'
 import { UI_STATE } from '../../../../browser/frontend/src/store/uiState'
-import type { LastRequest, ReasoningChoice } from '../../../../browser/frontend/src/types'
+import type { LastFold, LastRequest, ReasoningChoice } from '../../../../browser/frontend/src/types'
 import type { ReasoningOptions } from '../../../../browser/frontend/src/store/slices/reasoningSlice'
 import { Frame } from '../../ui/Frame'
 import { useScreen, useScreenKeys } from '../context'
@@ -32,6 +35,7 @@ const isChoice = (value: string): value is ReasoningChoice => (CHOICES as string
 
 export function EffortPicker() {
   const { t, i18n } = useTranslation('settingsCore')
+  const { t: tt } = useTranslation('tui')
   const dispatch = useAppDispatch()
   const { columns, rows } = useScreen()
   useResource(RESOURCES.reasoningOptions)
@@ -72,7 +76,21 @@ export function EffortPicker() {
     dispatch(closeScreen())
   }
 
+  const folding = session?.folding ?? false
+  const canFold = sessionId !== 'new' && !!session && !folding
+  // The same /fold the browser's context button sends; the session shows it
+  // folding at once, and the server's session_updated settles it.
+  const fold = () => {
+    if (!canFold || !session) return
+    dispatch(upsertSession({ ...session, folding: true }))
+    send('command', { command: '/fold', sessionId, clientId: randomUUID() })
+  }
+
   useScreenKeys((input, key) => {
+    if (input === 'f') {
+      fold()
+      return true
+    }
     if (!configurable) return false
     if (key.upArrow || input === 'k') setIndex(Math.max(0, cursor - 1))
     else if (key.downArrow || input === 'j') setIndex(Math.min(choices.length - 1, cursor + 1))
@@ -90,16 +108,17 @@ export function EffortPicker() {
     <Frame
       title={t('effort.title')}
       aside={options ? `${sessionTitle} · ${options.model}` : sessionTitle}
-      hints={
-        configurable
+      hints={[
+        ...(configurable
           ? [
               { keys: '↑↓', label: t('hint.move') },
               { keys: 'Enter', label: t('hint.choose') },
               { keys: '1-9', label: t('hint.pick') },
-              { keys: 'Esc', label: t('hint.back') },
             ]
-          : [{ keys: 'Esc', label: t('hint.back') }]
-      }
+          : []),
+        ...(canFold ? [{ keys: 'f', label: tt('fold.hint') }] : []),
+        { keys: 'Esc', label: t('hint.back') },
+      ]}
       columns={columns}
       rows={rows}
     >
@@ -139,9 +158,14 @@ export function EffortPicker() {
               options={options}
               choice={configurable ? requested : 'provider_default'}
               lastRequest={lastRequest}
+              lastFold={session?.lastFold ?? null}
               width={inner}
               locale={i18n.language}
             />
+            <Text> </Text>
+            <Text color={folding ? ink.brand : canFold ? undefined : ink.muted}>
+              {truncate(folding ? `${g.running} ${tt('fold.running')}` : `f  ${tt('fold.action')}  ${g.sep}  /fold`, inner)}
+            </Text>
           </>
         )}
       </Box>
@@ -160,12 +184,15 @@ function ContextReadout({
   options,
   choice,
   lastRequest,
+  lastFold,
   width: inner,
   locale,
 }: {
   options: ReasoningOptions
   choice: ReasoningChoice
   lastRequest: LastRequest | null
+  /** The chat's latest fold: after the last request it lowers the estimate. */
+  lastFold: LastFold | null
   width: number
   locale: string
 }) {
@@ -191,7 +218,9 @@ function ContextReadout({
   }
 
   const budget = options.inputBudgets[choice] ?? options.inputBudgets.provider_default ?? 0
-  const used = lastRequest?.inputTokens ?? null
+  // A fold since the last request: its size less what the fold freed, an estimate.
+  const folded = lastRequest !== null && lastFold !== null && lastFold.at > lastRequest.startedAt
+  const used = lastRequest === null ? null : folded ? Math.max(lastRequest.inputTokens - lastFold!.freedTokens, 0) : lastRequest.inputTokens
   const fill = used === null || !budget ? 0 : used / budget
   const level = contextLevel(fill)
   const barColor = level === 'high' ? ink.error : level === 'warn' ? ink.warn : ink.success
@@ -226,7 +255,7 @@ function ContextReadout({
     <Box flexDirection="column">
       <Text>
         <Text color={ink.muted}>{padEnd(t('effort.context.label'), lw)}</Text>
-        <Text>{`${used === null ? '-' : compact(used)} / ${compact(budget)}`}</Text>
+        <Text>{`${used === null ? '-' : `${folded ? '~' : ''}${compact(used)}`} / ${compact(budget)}`}</Text>
         {used !== null ? <Text color={barColor}>{`   ${percent(fill)}${levelWord}`}</Text> : null}
       </Text>
       <Text color={barColor}>{meter(fill, barWidth, null, g.vbar === '|' ? ASCII_METER : UNICODE_METER)}</Text>

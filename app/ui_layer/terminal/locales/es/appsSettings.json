@@ -1,0 +1,193 @@
+{
+  "panel": {
+    "name": "Nombre",
+    "status": "Estado",
+    "port": "Puerto",
+    "path": "Ruta",
+    "pathDesc": "La carpeta de la app en este equipo",
+    "address": "Dirección",
+    "addressDesc": "Dónde se sirve la app en este equipo",
+    "origin": "Origen",
+    "signedInAs": "Sesión iniciada como",
+    "connection": "Conexión",
+    "loading": "Cargando...",
+    "gone": "Esta app ya no está en la lista de apps.",
+    "disconnected": "Se perdió la conexión. Vuelve a conectarte para cambiar esta app.",
+    "working": "trabajando...",
+    "on": "Sí",
+    "off": "No"
+  },
+  "status": {
+    "running": "En ejecución",
+    "stopped": "Detenida",
+    "starting": "Iniciando...",
+    "stopping": "Deteniendo...",
+    "missing": "Falta la carpeta de la app",
+    "unreachable": "No disponible"
+  },
+  "connectionStatus": {
+    "online": "En línea",
+    "offline": "Sin conexión",
+    "unreachable": "No disponible",
+    "expired": "La sesión expiró"
+  },
+  "lifecycle": {
+    "start": "Iniciar",
+    "stop": "Detener",
+    "startDesc": "Inicia la app con sus pasos de compilación y arranque",
+    "stopDesc": "Detiene la app y su puente de solicitudes. Las instancias de desarrollo siguen en ejecución.",
+    "failed": "La app no pudo completar el comando.",
+    "unknown": "Se interrumpió la conexión. Es posible que el comando siga en ejecución. Revisa el estado de la app al volver a conectarte antes de intentarlo de nuevo.",
+    "remaining": "Una instancia de desarrollo o un puente de tareas sigue en ejecución.",
+    "notSent": "No se envió. Vuelve a conectarte e inténtalo de nuevo.",
+    "busy": "Espera a que la app termine de iniciarse o detenerse."
+  },
+  "sections": {
+    "preferences": "Preferencias",
+    "requests": "Solicitudes",
+    "backups": "Copias de seguridad",
+    "share": "Compartir",
+    "appearance": "Apariencia",
+    "package": "Paquete",
+    "remove": "Quitar"
+  },
+  "prefs": {
+    "autoStart": "Iniciar automáticamente",
+    "autoStartDesc": "Inicia esta app cuando arranca tu agente de IA",
+    "logCleanup": "Limpiar registros al iniciar",
+    "logCleanupDesc": "Elimina los archivos de registro antiguos cada vez que se inicia la app"
+  },
+  "requests": {
+    "allow": "Permitir solicitudes a CraftBot",
+    "allowDesc": "Permite que esta app envíe a tu agente de IA las solicitudes que declara",
+    "view": "Ver solicitudes ({{count}})",
+    "hide": "Ocultar solicitudes",
+    "listDesc": "Las solicitudes que esta app puede enviar cuando se permiten",
+    "ownerTools": "Acceso del propietario a herramientas locales",
+    "ownerToolsDesc": "Permite que el propietario de la app lea y escriba archivos locales y ejecute comandos con los permisos de tu agente de IA",
+    "needsAllow": "Primero permite las solicitudes."
+  },
+  "backups": {
+    "scheduled": "Copias de seguridad programadas",
+    "scheduledDesc": "Haz copia de seguridad de los datos y archivos de esta app automáticamente",
+    "frequency": "Frecuencia",
+    "frequencyDesc": "Cada cuánto se hace una copia programada",
+    "interval": {
+      "hourly": "Cada hora",
+      "6h": "Cada 6 horas",
+      "daily": "Diaria",
+      "weekly": "Semanal"
+    },
+    "keep": "Copias que conservar",
+    "keepDesc": "Las copias programadas más antiguas por encima de este número se eliminan",
+    "lastFailed": "La última copia de seguridad falló: {{error}}",
+    "last": "Última copia {{when}}",
+    "kept": "{{count}} guardadas",
+    "none": "Aún no hay copias de seguridad",
+    "now": "Hacer copia ahora",
+    "nowDesc": "Guarda ahora una copia de los datos y archivos. Una app en ejecución se detiene un momento.",
+    "restoring": "Restaurando. Puede tardar un minuto.",
+    "trigger": {
+      "scheduled": "programada",
+      "manual": "manual",
+      "preRemove": "antes de eliminar",
+      "preUpdate": "antes de actualizar",
+      "preRestore": "antes de restaurar"
+    },
+    "confirmRestore": "¿Restaurar {{name}} a su estado del {{date}}? Los datos posteriores se eliminan. Primero se hace una copia del estado actual.",
+    "confirmDelete": "¿Eliminar definitivamente la copia del {{date}}?",
+    "loadFailed": "No se pudo cargar la lista de copias: {{error}}",
+    "retry": "Cargar de nuevo",
+    "retryDesc": "Vuelve a pedir la lista de copias",
+    "created": "Copia de seguridad creada",
+    "restored": "Copia de seguridad restaurada",
+    "deleted": "Copia de seguridad eliminada"
+  },
+  "share": {
+    "lan": "LAN",
+    "public": "Público",
+    "lanHint": "Dispositivos de tu red, con el enlace",
+    "publicHint": "Cualquiera en internet, con el enlace",
+    "lanDesc": "Un enlace para dispositivos de tu red. Cerrarlo revoca el acceso a todos los visitantes.",
+    "publicDesc": "Un enlace de túnel público. Cerrarlo revoca el acceso a todos los visitantes.",
+    "starting": "Iniciando...",
+    "confirmCloseLan": "¿Cerrar el enlace LAN? Todos los que lo usan pierden el acceso.",
+    "confirmClosePublic": "¿Cerrar el enlace público? Todos los que lo usan pierden el acceso."
+  },
+  "theme": {
+    "label": "Tema",
+    "desc": "El aspecto de las páginas de la app"
+  },
+  "export": {
+    "label": "Exportar paquete",
+    "desc": "Guarda la app como un archivo de paquete que se puede volver a instalar",
+    "value": "un solo archivo con toda la app",
+    "done": "Paquete exportado",
+    "file": "Archivo del paquete",
+    "fileDesc": "Dónde se guardó el paquete exportado"
+  },
+  "remove": {
+    "delete": "Eliminar app",
+    "forget": "Quitar de la lista",
+    "disconnect": "Desconectar",
+    "deleteDesc": "Detiene la app y elimina sus archivos. Sus datos y copias se guardan en el archivo de apps eliminadas.",
+    "forgetDesc": "Borra la entrada guardada. No se elimina ningún archivo.",
+    "disconnectDesc": "Quita la conexión. La app y sus datos permanecen en su host.",
+    "confirmDelete": "¿Eliminar {{name}}? La app se detiene y sus archivos se eliminan. Sus datos y copias se guardan en el archivo de apps eliminadas.",
+    "confirmForget": "¿Quitar {{name}} de la lista de apps? Falta la carpeta de la app. No se elimina ningún archivo.",
+    "confirmKeepFiles": "No se pudo verificar que la carpeta de {{name}} pertenezca a la app, así que no se eliminó ningún archivo. ¿Quitar la app de la lista y conservar sus archivos?",
+    "confirmDisconnect": "¿Desconectar {{name}}? La app y sus datos permanecen en su host.",
+    "deleted": "Se eliminó {{name}}",
+    "forgotten": "Se quitó {{name}} de la lista de apps. Sus archivos se conservaron.",
+    "disconnected": "Se desconectó {{name}}",
+    "removedFromList": "Se quitó {{name}} de la lista de apps."
+  },
+  "common": {
+    "copied": "Copiado al portapapeles",
+    "copyFailed": "No se pudo copiar al portapapeles",
+    "opened": "Abierto con tu app predeterminada",
+    "openFailed": "No se pudo abrir",
+    "failed": "La app no pudo completar esta acción.",
+    "busy": "Otra acción sigue en curso.",
+    "notReady": "Aún no está listo. Inténtalo de nuevo en un momento.",
+    "listStale": "La lista de apps no está al día. Espera a que se actualice."
+  },
+  "hint": {
+    "move": "j/k mover",
+    "switch": "Enter cambiar",
+    "run": "Enter ejecutar",
+    "showHide": "Enter mostrar u ocultar",
+    "change": "Enter cambiar",
+    "adjust": "Left/Right cambiar",
+    "save": "Enter guardar",
+    "cancel": "Esc cancelar",
+    "choose": "Enter elegir",
+    "apply": "Enter aplicar",
+    "copy": "c copiar",
+    "open": "o abrir",
+    "restore": "r restaurar",
+    "delete": "x eliminar",
+    "closeLink": "x cerrar",
+    "createLink": "Enter crear un enlace",
+    "retry": "Enter cargar de nuevo",
+    "confirm": "y confirma, cualquier otra tecla cancela",
+    "back": "volver",
+    "openApp": "abrir",
+    "startStop": "iniciar o detener",
+    "reload": "recargar"
+  },
+  "tab": {
+    "apps_one": "{{count}} app",
+    "apps_other": "{{count}} apps",
+    "running": "{{count}} en ejecución",
+    "loading": "Cargando apps...",
+    "empty": "Aún no hay Agent Apps. Pide a tu agente de IA que cree una o añade una desde la pantalla Agent Apps.",
+    "failed": "No se pudo cargar la lista de apps: {{error}}",
+    "warning": "Aviso del registro: {{warning}}",
+    "disconnected": "Se perdió la conexión. El estado de las apps puede no estar al día.",
+    "lastKnown": "último conocido: {{status}}",
+    "connected": "conectada",
+    "refreshing": "Actualizando la lista de apps",
+    "notSupported": "Iniciar y detener solo sirve para apps de este equipo que estén en ejecución o detenidas."
+  }
+}

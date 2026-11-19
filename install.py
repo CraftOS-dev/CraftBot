@@ -432,7 +432,7 @@ def _conda_in_known_homes() -> Optional[str]:
         for home in _CONDA_HOMES:
             if sys.platform == "win32":
                 candidate = os.path.join(root, home, "condabin", "conda.bat")
-        else:
+            else:
                 candidate = os.path.join(root, home, "bin", "conda")
             if os.path.isfile(candidate):
                 return candidate
@@ -464,7 +464,7 @@ def install_miniconda():
         arch = "aarch64"
     system = {"win32": "Windows", "linux": "Linux", "darwin": "MacOSX"}.get(
         sys.platform
-            )
+    )
     if not arch or not system or (system == "Windows" and arch != "x86_64"):
         print(f"Conda auto-install is not available for {sys.platform}/{machine}.")
         print("Install Miniforge from https://conda-forge.org/download/ and run again.")
@@ -496,15 +496,15 @@ def install_miniconda():
         else:
             sp.run(["bash", installer, "-b", "-p", target], check=True)
         print(f"Miniforge installed at {target}")
-            return True
+        return True
     except Exception as e:
         print(f"Miniforge installation failed: {e}")
         return False
     finally:
-            try:
-                os.remove(installer)
+        try:
+            os.remove(installer)
         except OSError:
-                pass
+            pass
 
 
 def get_conda_command() -> str:
@@ -1218,7 +1218,7 @@ if __name__ == "__main__":
 
             # Ask user if they want to auto-install
             try:
-            choice = input("Select option (1-3): ").strip()
+                choice = input("Select option (1-3): ").strip()
             except EOFError:
                 choice = "3"  # unattended: continue without conda
             if choice == "1":

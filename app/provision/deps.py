@@ -183,8 +183,9 @@ class PipStage:
     it. Nothing in the repo chose between them.
 
     Two independent sources of that drift:
-      * the sidecar's pip is whatever the pinned python-build-standalone
-        release bundled, which need not match our dependency lock tooling;
+      * the sidecar's pip is whatever python-build-standalone bundled on the
+        day it was downloaded, and the release tag is resolved from
+        /releases/latest rather than pinned;
       * PythonStage may hand the install to an interpreter already on the
         machine (steps 2 and 3 of its resolution order), bringing that
         machine's pip with it.
@@ -234,9 +235,9 @@ class PipStage:
         if have is None:
             return StageResult(Status.MISSING, "pip is not available", {"want": want})
         if have != want:
-        return StageResult(
-            Status.DEGRADED, f"pip {have}, want {want}", {"pip": have, "want": want}
-        )
+            return StageResult(
+                Status.DEGRADED, f"pip {have}, want {want}", {"pip": have, "want": want}
+            )
         want_uv = _pinned_pip_version(bootstrap, "uv")
         have_uv = _uv_version(ctx.python()) if want_uv else None
         if want_uv and have_uv != want_uv:
@@ -604,13 +605,12 @@ class PlaywrightStage:
 
 
 class _NpmTreeStage:
-    """Shared logic for the npm trees CraftBot ships."""
+    """Shared logic for the two npm trees CraftBot ships."""
 
     name = "npm"
     description = "npm dependencies"
     optional = True
     rel_dir = ""
-    install_args = ("install",)
     #: A file that only exists once `npm install` has succeeded.
     sentinel = "node_modules"
 
@@ -637,7 +637,7 @@ class _NpmTreeStage:
         d = self._dir(ctx)
         if not d.is_dir():
             return StageResult(Status.SKIPPED, f"{self.rel_dir} not present")
-        cmd = npm + list(self.install_args) + ["--no-audit", "--no-fund"]
+        cmd = npm + ["install", "--no-audit", "--no-fund"]
 
         # A pre-warmed npm cache turns ~50 MB from the registry into local
         # reads. --prefer-offline rather than --offline: it uses the cache
@@ -655,94 +655,8 @@ class _NpmTreeStage:
         # child_env() exists for exactly this and was going unused.
         res = proc.run(cmd, log, cwd=str(d), stream=True, env=node_runtime.child_env())
         if res.returncode != 0:
-            log("\n".join(filter(None, [res.stdout, res.stderr])))
             return StageResult(Status.FAILED, proc.failure_detail(res, "npm failed"))
         return self.check(ctx)
-
-
-class AgentAppToolsStage(_NpmTreeStage):
-    """Install the CLI's own dependencies before it can fetch PocketBase."""
-
-    name = "agent-app-tools"
-    description = "Agent App tooling"
-    optional = False
-    rel_dir = "agent-app"
-    install_args = ("ci", "--ignore-scripts", "--include=dev")
-
-    def check(self, ctx: Context) -> StageResult:
-        from app import node_runtime
-
-        directory = self._dir(ctx)
-        if not (directory / "tools/src/cli.ts").is_file():
-            return StageResult(
-                Status.FAILED, "Agent App tooling is missing from this installation"
-            )
-        result = super().check(ctx)
-        if not result.ok:
-            return result
-        installed_at = (directory / "node_modules/.package-lock.json").stat().st_mtime
-        for workspace in ("kit", "tools"):
-            manifest = directory / workspace / "package.json"
-            if not manifest.is_file() or manifest.stat().st_mtime > installed_at:
-                return StageResult(
-                    Status.MISSING, f"{workspace}/package.json changed or is missing"
-                )
-        node = node_runtime.node_cmd()
-        if not node:
-            return StageResult(Status.MISSING, "Node is unavailable")
-        probe = proc.run(
-            [node, "--input-type=module", "-e", "await import('fflate')"],
-            cwd=str(directory / "tools"),
-            timeout=30,
-            echo=False,
-            env=node_runtime.child_env(),
-        )
-        if probe.returncode != 0:
-            return StageResult(
-                Status.MISSING, proc.failure_detail(probe, "ZIP dependency is missing")
-            )
-        return StageResult(Status.SATISFIED, "Agent App tooling ready")
-
-
-class PocketBaseStage:
-    name = "pocketbase"
-    description = "PocketBase runtime"
-    optional = False
-
-    def _run(self, ctx: Context, subcommand: str, log=None):
-        from app import node_runtime
-
-        node = node_runtime.node_cmd()
-        if not node:
-            return StageResult(Status.MISSING, "Node is unavailable")
-        cli = Path(ctx.code_root) / "agent-app/tools/src/cli.ts"
-        result = proc.run(
-            [node, str(cli), "pb", subcommand],
-            log,
-            timeout=900,
-            env=node_runtime.child_env(),
-        )
-        if result.returncode:
-            if log:
-                log("\n".join(filter(None, [result.stdout, result.stderr])))
-            return StageResult(
-                Status.FAILED if subcommand == "fetch" else Status.MISSING,
-                proc.failure_detail(result, "PocketBase setup failed"),
-            )
-        return StageResult(
-            Status.SATISFIED, (result.stdout or "").strip().splitlines()[-1]
-        )
-
-    def check(self, ctx: Context) -> StageResult:
-        return self._run(ctx, "check")
-
-    def apply(self, ctx: Context, log: LogFn) -> StageResult:
-        if ctx.offline:
-            return StageResult(
-                Status.FAILED,
-                "Offline: PocketBase is not cached; retry setup with a connection",
-            )
-        return self._run(ctx, "fetch", log)
 
 
 class FrontendStage(_NpmTreeStage):

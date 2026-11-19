@@ -157,7 +157,6 @@
     "sections_one": "{{count}} section",
     "sections_other": "{{count}} sections",
     "meta": {
-      "category": "Category",
       "saved": "Saved",
       "links": "Links",
       "file": "File",
@@ -168,6 +167,7 @@
     "moreNeighbours": "+{{count}} more",
     "readOnly": "From an indexed file (read only)",
     "notEditable": "Only conversation memories can be edited",
+    "notDeletable": "Only conversation memories and entities can be deleted",
     "form": {
       "addTitle": "Add memory",
       "editTitle": "Edit memory",
@@ -183,6 +183,9 @@
     "saved": "Memory saved",
     "deleted": "Memory deleted",
     "failed": "Could not update memory: {{error}}",
+    "confirmDeleteEntity": "Delete entity {{name}} and its links? Memories are not changed.",
+    "entityDeleted": "Entity {{name}} deleted",
+    "entityDeleteFailed": "Could not delete the entity {{name}}",
     "files": {
       "hint": "Checked files are indexed: your AI agent can search their sections.",
       "chunks_one": "{{count}} section",
@@ -228,7 +231,6 @@
     "previewEmpty": "Empty file",
     "previewLoading": "Reading...",
     "selectHint": "Select a file to preview it",
-    "previewFocus": "Tab back to the list",
     "prompt": {
       "rename": "Rename to",
       "newFile": "New file name",

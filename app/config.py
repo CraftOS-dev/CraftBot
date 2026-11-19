@@ -226,7 +226,7 @@ def get_app_version() -> str:
         shipped = json.loads(
             (paths.CODE_ROOT / "app" / "config" / "settings.default.json").read_text(
                 encoding="utf-8"
-    )
+            )
         )
     except (OSError, ValueError):
         shipped = None

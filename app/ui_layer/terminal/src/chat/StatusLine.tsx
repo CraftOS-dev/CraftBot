@@ -36,7 +36,7 @@ export function StatusLine({ columns, hint, hintColor }: StatusLineProps) {
   const sessions = useAppSelector(selectSessions)
   const lastIds = useAppSelector(selectLastMessageIdBySession)
   const seen = useAppSelector(s => selectUiState(s, UI_STATE.chat.lastSeenMessageIds)) as Record<string, string>
-  const runningApps = useAppSelector(s => s.agentApp.projects.filter(p => p.status === 'running').length)
+  const runningApps = useAppSelector(s => s.agentApp.framework.apps.filter(a => a.status === 'running').length)
 
   const titleOf = (id: string) =>
     id === 'main'

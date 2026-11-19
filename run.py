@@ -1148,10 +1148,12 @@ def launch_agent_background(
     # skips re-resolution and both processes agree on the same binary. Not
     # in conda mode: there the env's own node (>= 24 via environment.yml,
     # first on PATH under conda run) is the intended runtime.
-    if not use_conda and "CRAFTBOT_NODE" not in agent_env:
-        _rt = node_runtime.resolve()
-        if _rt:
-            agent_env["CRAFTBOT_NODE"] = _rt.node
+    if not use_conda:
+        agent_env.update(node_runtime.path_env())
+        if "CRAFTBOT_NODE" not in agent_env:
+            _rt = node_runtime.resolve()
+            if _rt:
+                agent_env["CRAFTBOT_NODE"] = _rt.node
 
     # When running as a PyInstaller frozen binary, run main() in a thread
     # instead of spawning a subprocess (sys.executable is the binary itself)
@@ -1457,7 +1459,9 @@ def _ensure_terminal_client(silent: bool = False) -> bool:
     reason = npm_tree_stale(client_dir)
     if reason is not None:
         if not silent:
-            print(f"Terminal client dependencies out of date ({reason}); running npm install...")
+            print(
+                f"Terminal client dependencies out of date ({reason}); running npm install..."
+            )
         if sys.platform == "win32" and npm_cmd.lower().endswith((".cmd", ".bat")):
             install_cmd = ["cmd.exe", "/d", "/c", npm_cmd, "install"]
         else:
@@ -1525,7 +1529,9 @@ def _terminal_ports(previous_instance, explicit_ports: bool) -> None:
         print("\nCraftBot could not find a free port to use:")
         for blocker in blockers:
             print(f"   {blocker}")
-        print("\n   Choose one yourself:\n     python run.py --tui --backend-port 8926\n")
+        print(
+            "\n   Choose one yourself:\n     python run.py --tui --backend-port 8926\n"
+        )
         sys.exit(1)
     print(
         f"\n  Port {BACKEND_PORT} is in use by another program, so CraftBot "
@@ -1640,6 +1646,7 @@ def run_terminal_edition(
         cleanup_background_processes()
     sys.exit(exit_code)
 
+
 # ==========================================
 # MAIN
 # ==========================================
@@ -1723,9 +1730,7 @@ def _fail_agent_exited(process, use_conda: bool, env_name: Optional[str]) -> Non
     print(f"   The agent process exited with code {code} before it was ready.")
     print("   The messages above show the cause.")
     if use_conda and env_name:
-        print(
-            f"   To run it directly: conda run -n {env_name} python main.py"
-        )
+        print(f"   To run it directly: conda run -n {env_name} python main.py")
     else:
         print("   To run it directly: python main.py")
     print("=" * 52 + "\n", flush=True)

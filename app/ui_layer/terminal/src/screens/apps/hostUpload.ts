@@ -1,13 +1,12 @@
 /**
  * File transfer for the Agent App host screens, by path instead of a file
- * picker: reference files staged for the create wizard
- * (POST /api/agent-app/stage), ZIP imports (POST /api/agent-app/import) and
- * project exports (GET /api/agent-app/<id>/export). Plus copying text to the
- * terminal's clipboard with OSC 52 (sharing links, the project path).
+ * picker: reference files and an icon staged for a new build
+ * (POST /api/agent-app/stage) and ZIP imports (POST /api/agent-app/import).
+ * Plus copying text to the terminal's clipboard with OSC 52.
  */
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { basename, dirname, join, resolve } from 'node:path'
+import { basename, join, resolve } from 'node:path'
 import { getApiBaseUrl } from '../../platform/connection'
 
 /** A typed path: surrounding quotes dropped, `~` expanded, made absolute. */
@@ -47,16 +46,16 @@ function formWithFile(path: string): FormData {
   return form
 }
 
-/** Stage one reference file for the wizard `wizardId` (moved into the project at finalize). */
-export async function stageReference(wizardId: string, path: string): Promise<void> {
-  const params = new URLSearchParams({ wizardId, kind: 'reference' })
-  const resp = await fetch(`${getApiBaseUrl()}/api/agent-app/stage?${params}`, { method: 'POST', body: formWithFile(path) })
+/** Stage one file for a new build; the builder copies it into the app's reference folder. */
+export async function stageReference(path: string): Promise<{ name: string; path: string }> {
+  const resp = await fetch(`${getApiBaseUrl()}/api/agent-app/stage`, { method: 'POST', body: formWithFile(path) })
   if (!resp.ok) throw new Error(await errorOf(resp))
-  const body = (await resp.json().catch(() => ({}))) as { error?: string }
-  if (body.error) throw new Error(body.error)
+  const body = (await resp.json().catch(() => ({}))) as { path?: string; error?: string }
+  if (!body.path) throw new Error(body.error || `HTTP ${resp.status}`)
+  return { name: basename(path), path: body.path }
 }
 
-/** Upload a ZIP for import; returns the server-side path to hand to `agent_app_import`. */
+/** Upload a ZIP for import; returns the server-side path to install from. */
 export async function uploadImportZip(path: string, name: string): Promise<{ path: string; name: string }> {
   const form = formWithFile(path)
   form.append('name', name)
@@ -65,22 +64,6 @@ export async function uploadImportZip(path: string, name: string): Promise<{ pat
   const body = (await resp.json()) as { success?: boolean; path?: string; name?: string; error?: string }
   if (!body.success || !body.path) throw new Error(body.error || `HTTP ${resp.status}`)
   return { path: body.path, name: body.name || name }
-}
-
-/** Where an export goes by default: the Downloads folder when there is one, else home. */
-export function defaultExportPath(fileName: string): string {
-  const downloads = join(homedir(), 'Downloads')
-  return join(existsSync(downloads) ? downloads : homedir(), fileName)
-}
-
-/** Download the project's ZIP export to `target`. Returns the bytes written. */
-export async function exportProject(projectId: string, target: string): Promise<number> {
-  const resp = await fetch(`${getApiBaseUrl()}/api/agent-app/${encodeURIComponent(projectId)}/export`)
-  if (!resp.ok) throw new Error(await errorOf(resp))
-  const bytes = Buffer.from(await resp.arrayBuffer())
-  mkdirSync(dirname(target), { recursive: true })
-  writeFileSync(target, bytes)
-  return bytes.length
 }
 
 /** Copy text to the clipboard through the terminal (OSC 52). */
