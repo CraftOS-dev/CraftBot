@@ -296,6 +296,11 @@ class AgentBase:
                 until API key is configured (useful for first-time setup).
         """
 
+        # Model factories read subscription credentials during construction.
+        # Bind the runtime profile before any client can fall back to the CWD.
+        # Listener setup and the remaining integration config happen in boot().
+        _configure_integrations(project_root=Path(PROJECT_ROOT), logger=logger)
+
         # persistence & memory
         self.db_interface = self._build_db_interface(
             data_dir=data_dir, chroma_path=chroma_path
