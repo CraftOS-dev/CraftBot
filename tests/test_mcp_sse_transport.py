@@ -36,7 +36,9 @@ class _MockSSEServer:
                 msg = await self._queue.get()
                 if msg is None:  # stop() sentinel: end the stream
                     break
-                await resp.write(f"event: message\ndata: {json.dumps(msg)}\n\n".encode())
+                await resp.write(
+                    f"event: message\ndata: {json.dumps(msg)}\n\n".encode()
+                )
         except (asyncio.CancelledError, ConnectionResetError):
             pass
         return resp
