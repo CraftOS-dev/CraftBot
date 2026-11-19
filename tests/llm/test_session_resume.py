@@ -104,6 +104,18 @@ def test_another_providers_history_is_not_restored(monkeypatch):
     assert new_iface._session_histories == {}
 
 
+def test_a_history_saved_under_another_format_is_not_restored(monkeypatch):
+    # A history saved before the decision instructions moved into the system
+    # prompt opens with them; continuing it would send them twice.
+    iface, _, stream = _session_before_restart(monkeypatch)
+    saved = json.loads(json.dumps(iface.export_session("s1")))
+    assert saved[ACTION]["history_format"] == 2
+    del saved[ACTION]["history_format"]
+    new_iface, _ = build_interface(monkeypatch, "openai", "gpt-6-luna")
+    assert new_iface.import_session("s1", saved, stream) is None
+    assert new_iface._session_histories == {}
+
+
 def test_a_stream_folded_since_is_not_continued(monkeypatch):
     iface, _, stream = _session_before_restart(monkeypatch)
     saved = json.loads(json.dumps(iface.export_session("s1")))

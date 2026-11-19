@@ -14,7 +14,7 @@ old instance/client until done.
 
 The interface caps internal polling with ``poll_timeout_seconds`` (default
 1500s = 25min, covering realistic generation times) but the outer
-DEFAULT_ACTION_TIMEOUT (6000s) is the real ceiling.
+DEFAULT_ACTION_TIMEOUT (30000s) is the real ceiling.
 """
 
 from __future__ import annotations
@@ -47,7 +47,7 @@ from agent_core.utils.logger import logger
 
 # Default polling cadence: start tight to catch fast Seedance jobs, back off to
 # avoid hammering for slow Veo jobs.
-_DEFAULT_POLL_TIMEOUT = 1500  # 25 min — well under DEFAULT_ACTION_TIMEOUT (100 min)
+_DEFAULT_POLL_TIMEOUT = 1500  # 25 min — well under DEFAULT_ACTION_TIMEOUT (500 min)
 _DEFAULT_POLL_INITIAL = 5
 _DEFAULT_POLL_MAX = 15
 
@@ -314,7 +314,7 @@ class VideoGenInterface:
             watermark: BytePlus Seedance only — apply watermark to output.
             callback_url: BytePlus Seedance only — webhook for completion.
             poll_timeout_seconds: Internal polling cap (default 1500s).
-                Always remains below DEFAULT_ACTION_TIMEOUT (6000s).
+                Always remains below DEFAULT_ACTION_TIMEOUT (30000s).
 
         Returns:
             List of absolute file paths to the generated MP4 files.

@@ -91,6 +91,7 @@ _RESULT = {
     input_schema={
         "url": {
             "type": "string",
+            "required": True,
             "example": "https://www.amazon.com",
             "description": (
                 "A URL or bare domain (example.com), words to search the web "
@@ -99,6 +100,7 @@ _RESULT = {
         },
         "timeout_ms": {
             "type": "integer",
+            "required": False,
             "example": 30000,
             "description": (
                 "Optional. Page-load timeout in milliseconds (1000-60000). "
@@ -108,6 +110,8 @@ _RESULT = {
     },
     output_schema=_RESULT,
     test_payload={"url": "https://example.com", "simulated_mode": True},
+    display_param="url",
+    icon="Compass",
 )
 async def mini_browser_navigate(input_data: dict) -> dict:
     if input_data.get("simulated_mode"):
@@ -144,6 +148,7 @@ async def mini_browser_navigate(input_data: dict) -> dict:
     input_schema={
         "max_text_chars": {
             "type": "integer",
+            "required": False,
             "example": 4000,
             "description": (
                 "Optional. Maximum characters of page text to return "
@@ -152,11 +157,13 @@ async def mini_browser_navigate(input_data: dict) -> dict:
         },
         "max_elements": {
             "type": "integer",
+            "required": False,
             "example": 150,
             "description": "Optional. Maximum elements to list. Defaults to 150.",
         },
         "text_offset": {
             "type": "integer",
+            "required": False,
             "example": 0,
             "description": (
                 "Optional. Character offset into the page text, to continue "
@@ -197,6 +204,8 @@ async def mini_browser_navigate(input_data: dict) -> dict:
         "error_code": _ERROR_CODE,
     },
     test_payload={"simulated_mode": True},
+    display_param=None,
+    icon="BookOpenText",
 )
 async def mini_browser_read(input_data: dict) -> dict:
     if input_data.get("simulated_mode"):
@@ -237,22 +246,27 @@ async def mini_browser_read(input_data: dict) -> dict:
     input_schema={
         "element_id": {
             "type": "integer",
+            "required": True,
             "example": 3,
             "description": _ELEMENT_ID,
         },
         "button": {
             "type": "string",
+            "required": False,
             "example": "left",
             "description": "Optional. 'left', 'right' or 'middle'. Defaults to 'left'.",
         },
         "double": {
             "type": "boolean",
+            "required": False,
             "example": False,
             "description": "Optional. true for a double-click. Defaults to false.",
         },
     },
     output_schema=_RESULT,
     test_payload={"element_id": 0, "simulated_mode": True},
+    display_param=None,
+    icon="MousePointerClick",
 )
 async def mini_browser_click(input_data: dict) -> dict:
     if input_data.get("simulated_mode"):
@@ -293,21 +307,25 @@ async def mini_browser_click(input_data: dict) -> dict:
     input_schema={
         "element_id": {
             "type": "integer",
+            "required": True,
             "example": 2,
             "description": _ELEMENT_ID,
         },
         "text": {
             "type": "string",
+            "required": True,
             "example": "wireless headphones",
             "description": "The text to type.",
         },
         "submit": {
             "type": "boolean",
+            "required": False,
             "example": True,
             "description": "Optional. Press Enter after typing. Defaults to false.",
         },
         "clear": {
             "type": "boolean",
+            "required": False,
             "example": True,
             "description": "Optional. Clear the field before typing. Defaults to true.",
         },
@@ -319,6 +337,8 @@ async def mini_browser_click(input_data: dict) -> dict:
         "submit": True,
         "simulated_mode": True,
     },
+    display_param="text",
+    icon="TextCursorInput",
 )
 async def mini_browser_type(input_data: dict) -> dict:
     if input_data.get("simulated_mode"):
@@ -352,6 +372,7 @@ async def mini_browser_type(input_data: dict) -> dict:
     input_schema={
         "keys": {
             "type": "string",
+            "required": True,
             "example": "Enter",
             "description": (
                 "Key or combination, e.g. 'Enter', 'Escape', 'Tab', "
@@ -361,6 +382,7 @@ async def mini_browser_type(input_data: dict) -> dict:
         },
         "element_id": {
             "type": "integer",
+            "required": False,
             "example": 2,
             "description": (
                 "Optional. Element to focus first (number from the latest "
@@ -370,6 +392,8 @@ async def mini_browser_type(input_data: dict) -> dict:
     },
     output_schema=_RESULT,
     test_payload={"keys": "Enter", "simulated_mode": True},
+    display_param="keys",
+    icon="Keyboard",
 )
 async def mini_browser_press_key(input_data: dict) -> dict:
     if input_data.get("simulated_mode"):
@@ -402,17 +426,21 @@ async def mini_browser_press_key(input_data: dict) -> dict:
     input_schema={
         "element_id": {
             "type": "integer",
+            "required": True,
             "example": 12,
             "description": _ELEMENT_ID,
         },
         "value": {
             "type": "string",
+            "required": True,
             "example": "M",
             "description": "The option's value or visible label (case-insensitive).",
         },
     },
     output_schema=_RESULT,
     test_payload={"element_id": 0, "value": "M", "simulated_mode": True},
+    display_param="value",
+    icon="ListChecks",
 )
 async def mini_browser_select_option(input_data: dict) -> dict:
     if input_data.get("simulated_mode"):
@@ -445,12 +473,15 @@ async def mini_browser_select_option(input_data: dict) -> dict:
     input_schema={
         "element_id": {
             "type": "integer",
+            "required": True,
             "example": 5,
             "description": _ELEMENT_ID,
         },
     },
     output_schema=_RESULT,
     test_payload={"element_id": 0, "simulated_mode": True},
+    display_param=None,
+    icon="MousePointer2",
 )
 async def mini_browser_hover(input_data: dict) -> dict:
     if input_data.get("simulated_mode"):
@@ -484,11 +515,13 @@ async def mini_browser_hover(input_data: dict) -> dict:
     input_schema={
         "direction": {
             "type": "string",
+            "required": False,
             "example": "down",
             "description": "Optional. 'down', 'up', 'top' or 'bottom'. Defaults to 'down'.",
         },
         "amount": {
             "type": "integer",
+            "required": False,
             "example": 800,
             "description": (
                 "Optional. Pixels to scroll for 'down' / 'up' (50-5000). "
@@ -505,6 +538,8 @@ async def mini_browser_hover(input_data: dict) -> dict:
         "at_bottom": {"type": "boolean", "description": "True at the end of the page."},
     },
     test_payload={"direction": "down", "simulated_mode": True},
+    display_param="direction",
+    icon="ArrowDownUp",
 )
 async def mini_browser_scroll(input_data: dict) -> dict:
     if input_data.get("simulated_mode"):
@@ -543,16 +578,19 @@ async def mini_browser_scroll(input_data: dict) -> dict:
     input_schema={
         "seconds": {
             "type": "number",
+            "required": False,
             "example": 2,
             "description": "Optional. Seconds to wait (0-60).",
         },
         "text": {
             "type": "string",
+            "required": False,
             "example": "Order confirmed",
             "description": "Optional. Wait until this text is visible on the page.",
         },
         "for_user": {
             "type": "boolean",
+            "required": False,
             "example": True,
             "description": (
                 "Optional. true = wait until the user takes control of your "
@@ -561,6 +599,7 @@ async def mini_browser_scroll(input_data: dict) -> dict:
         },
         "timeout_ms": {
             "type": "integer",
+            "required": False,
             "example": 10000,
             "description": (
                 "Optional. Maximum wait for 'text' (default 10000, at most "
@@ -571,6 +610,8 @@ async def mini_browser_scroll(input_data: dict) -> dict:
     },
     output_schema=_RESULT,
     test_payload={"seconds": 1, "simulated_mode": True},
+    display_param="text",
+    icon="Hourglass",
 )
 async def mini_browser_wait(input_data: dict) -> dict:
     if input_data.get("simulated_mode"):
@@ -602,11 +643,13 @@ async def mini_browser_wait(input_data: dict) -> dict:
     input_schema={
         "element_id": {
             "type": "integer",
+            "required": True,
             "example": 7,
             "description": "Number of the file input (or its upload button) in the latest page observation.",
         },
         "paths": {
             "type": "array",
+            "required": True,
             "items": {"type": "string"},
             "example": ["C:/Users/user/agent_file_system/workspace/report.pdf"],
             "description": "Absolute paths of files inside the agent workspace (max 10).",
@@ -618,6 +661,8 @@ async def mini_browser_wait(input_data: dict) -> dict:
         "paths": ["C:/workspace/report.pdf"],
         "simulated_mode": True,
     },
+    display_param="paths",
+    icon="Upload",
 )
 async def mini_browser_upload_file(input_data: dict) -> dict:
     if input_data.get("simulated_mode"):
@@ -661,6 +706,7 @@ async def mini_browser_upload_file(input_data: dict) -> dict:
     input_schema={
         "login_name": {
             "type": "string",
+            "required": False,
             "example": "Work account",
             "description": (
                 "Optional. The saved login's name/label in Settings > Credentials "
@@ -671,6 +717,7 @@ async def mini_browser_upload_file(input_data: dict) -> dict:
         },
         "username": {
             "type": "string",
+            "required": False,
             "example": "me@example.com",
             "description": (
                 "Optional. The account's actual username or email, never the "
@@ -680,6 +727,7 @@ async def mini_browser_upload_file(input_data: dict) -> dict:
         },
         "submit": {
             "type": "boolean",
+            "required": False,
             "example": True,
             "description": "Optional. Submit the form after filling. Defaults to true.",
         },
@@ -706,6 +754,8 @@ async def mini_browser_upload_file(input_data: dict) -> dict:
         },
     },
     test_payload={"simulated_mode": True},
+    display_param="login_name",
+    icon="LogIn",
 )
 async def mini_browser_login(input_data: dict) -> dict:
     if input_data.get("simulated_mode"):
@@ -742,6 +792,7 @@ async def mini_browser_login(input_data: dict) -> dict:
     input_schema={
         "full_page": {
             "type": "boolean",
+            "required": False,
             "example": False,
             "description": (
                 "Optional. true = capture the whole scrollable page instead of "
@@ -757,6 +808,8 @@ async def mini_browser_login(input_data: dict) -> dict:
         },
     },
     test_payload={"simulated_mode": True},
+    display_param=None,
+    icon="Camera",
 )
 async def mini_browser_screenshot(input_data: dict) -> dict:
     if input_data.get("simulated_mode"):
@@ -791,11 +844,13 @@ async def mini_browser_screenshot(input_data: dict) -> dict:
     input_schema={
         "action": {
             "type": "string",
+            "required": False,
             "example": "list",
             "description": "'list', 'new', 'switch' or 'close'.",
         },
         "tab": {
             "type": "integer",
+            "required": False,
             "example": 1,
             "description": (
                 "Optional. For 'switch' / 'close': the tab's index from the "
@@ -804,6 +859,7 @@ async def mini_browser_screenshot(input_data: dict) -> dict:
         },
         "url": {
             "type": "string",
+            "required": False,
             "example": "https://www.google.com",
             "description": "Optional. For 'new': the page to open in the new tab.",
         },
@@ -825,6 +881,8 @@ async def mini_browser_screenshot(input_data: dict) -> dict:
         "error_code": _ERROR_CODE,
     },
     test_payload={"action": "list", "simulated_mode": True},
+    display_param="action",
+    icon="Layers",
 )
 async def mini_browser_tabs(input_data: dict) -> dict:
     if input_data.get("simulated_mode"):

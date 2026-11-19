@@ -163,7 +163,7 @@ def test_workspace_paths_follow_the_owner(monkeypatch, tmp_path):
         },
         subagents={
             "sub_1234abcd": types.SimpleNamespace(
-                parent_task_id="chat-1",
+                parent_session_id="chat-1",
                 agent_type="browser_agent",
                 created_at="2026-01-01T00:00:00",
             )
@@ -1045,7 +1045,7 @@ def test_release_owner_closes_its_tabs(eng, monkeypatch):
         sessions={},
         subagents={
             "sub_leaver01": types.SimpleNamespace(
-                parent_task_id=SESSION,
+                parent_session_id=SESSION,
                 agent_type="browser_agent",
                 created_at=datetime.utcnow().isoformat(),
             )
@@ -1084,7 +1084,7 @@ def test_owner_labels_and_kinds(eng, monkeypatch):
         },
         subagents={
             "sub_label01": types.SimpleNamespace(
-                parent_task_id="chat-7",
+                parent_session_id="chat-7",
                 agent_type="browser_agent",
                 created_at=datetime.utcnow().isoformat(),
             )
@@ -1601,10 +1601,10 @@ def test_revoked_subagents_get_stopped(eng, monkeypatch):
     before = (datetime.utcnow() - timedelta(minutes=1)).isoformat()
     subs = {
         "sub_known001": types.SimpleNamespace(
-            parent_task_id="chat-p", agent_type="browser_agent", created_at=before
+            parent_session_id="chat-p", agent_type="browser_agent", created_at=before
         ),
         "sub_unseen01": types.SimpleNamespace(
-            parent_task_id="chat-p", agent_type="browser_agent", created_at=before
+            parent_session_id="chat-p", agent_type="browser_agent", created_at=before
         ),
     }
     _fake_agent_runtime(monkeypatch, sessions={}, subagents=subs)
@@ -1617,7 +1617,7 @@ def test_revoked_subagents_get_stopped(eng, monkeypatch):
     assert eng.op("sub_unseen01", "echo")["error_code"] == "MINI_BROWSER_STOPPED"
     # A sub-agent started after the stop (a new run), and the parent itself, carry on.
     subs["sub_later001"] = types.SimpleNamespace(
-        parent_task_id="chat-p",
+        parent_session_id="chat-p",
         agent_type="browser_agent",
         created_at=(datetime.utcnow() + timedelta(seconds=1)).isoformat(),
     )

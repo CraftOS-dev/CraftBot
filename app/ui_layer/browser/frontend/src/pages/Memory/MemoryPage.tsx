@@ -269,6 +269,10 @@ export function MemoryPage() {
           // behind other still-pending index jobs and defer the refresh.
         }),
       ),
+      onMessage('memory_entity_remove', (data) => {
+        const d = data as { success: boolean; error?: string }
+        if (!d.success) showToast('error', d.error || t('memory:toast.entityDeleteFailed'))
+      }),
     ]
     return () => unsubs.forEach(u => u())
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -550,6 +554,21 @@ export function MemoryPage() {
     )
   }
 
+  const handleDeleteEntity = (node: MemoryGraphNode) => {
+    confirm(
+      {
+        title: t('memory:entity.deleteTitle'),
+        message: t('memory:entity.deleteMessage', { name: node.label }),
+        confirmText: t('common:actions.delete'),
+        variant: 'danger',
+      },
+      () => {
+        send('memory_entity_remove', { name: node.label })
+        setSelected(null)
+      },
+    )
+  }
+
   // Additive per-file mutations: the backend reads the persisted list fresh
   // and adds/removes just this path. Sending the whole list (derived from the
   // stale `extraFiles` memo) meant rapid clicks each rebuilt their payload
@@ -812,6 +831,18 @@ export function MemoryPage() {
                     size="sm"
                     icon={<Trash2 size={13} />}
                     onClick={() => handleDeleteItem(selectedItem)}
+                  >
+                    {t('common:actions.delete')}
+                  </Button>
+                </div>
+              )}
+              {selected.kind === 'entity' && (
+                <div className={styles.detailFooter}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    icon={<Trash2 size={13} />}
+                    onClick={() => handleDeleteEntity(selected)}
                   >
                     {t('common:actions.delete')}
                   </Button>

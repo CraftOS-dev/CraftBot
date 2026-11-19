@@ -9,11 +9,13 @@ from agent_core import action
     input_schema={
         "image_path": {
             "type": "string",
+            "required": True,
             "example": "C:\\\\Users\\\\user\\\\Pictures\\\\sample.jpg",
             "description": "Absolute path to the image file.",
         },
         "prompt": {
             "type": "string",
+            "required": False,
             "example": "Describe the content of this image in detail, including objects, colours, and spatial relationships.",
             "description": "REQUIRED: The prompt telling the VLM what to describe or look for in the image. Without a prompt, the description will be empty.",
         },
@@ -40,6 +42,8 @@ from agent_core import action
         "prompt": "Highlight objects, colours and spatial relationships.",
         "simulated_mode": True,
     },
+    display_param="image_path",
+    icon="Image",
 )
 def view_image(input_data: dict) -> dict:
     import os

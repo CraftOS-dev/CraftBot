@@ -1,16 +1,8 @@
 /**
- * ConstructionDock — the read-only build visualizer shown while a Agent App is
- * being created.
- *
- * It is a pure presentational surface driven by two inputs the platform
- * already produces: the agent's todos (progress bar + "Step N of M") and the
- * build-event feed derived read-only by the backend observer
- * (construction_events.py). It shows built-so-far chips, a paced + coalesced
- * feed of what's happening, and a live CodePeek of the code being written.
- *
- * It observes only — nothing here touches or drives the build. There is no app
- * preview behind it (the dock is the whole view); when the build completes and
- * the app launches, AgentAppPage swaps this out for the running app iframe.
+ * CraftBot's construction view: a framework build as it happens. The bar,
+ * status line and counts come from the build's feed (what the builder has
+ * done), falling back to the app conversation's todos before the first row.
+ * The shared workspace replaces it with the running app after promotion.
  */
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
@@ -31,15 +23,16 @@ import {
   ListChecks,
 } from 'lucide-react'
 import { DraftMascot } from '@mascot'
-import type { AgentAppProject, AgentAppBuildEvent } from '../../types'
-import type { AgentAppTodo, AgentAppSnapshot } from '../../store/slices/agentAppSlice'
+import type { AgentAppBuildEvent, BuildSnapshot } from '../../types'
+import type { AgentAppTodo } from '../../store/slices/agentAppSlice'
 import styles from './AgentAppPage.module.css'
 
 interface Props {
-  project: AgentAppProject
+  project: { name: string; status: string }
   todos: AgentAppTodo[] | undefined
   events: AgentAppBuildEvent[]
-  snapshot: AgentAppSnapshot | null
+  snapshot: BuildSnapshot | null
+  activity?: string
 }
 
 // ── progress derived from the agent's todos ────────────────────────────────
@@ -132,56 +125,6 @@ function coalesce(events: AgentAppBuildEvent[]): FeedRow[] {
   return rows
 }
 
-// ── code peek ───────────────────────────────────────────────────────────────
-
-// Typing speed: 4 characters every 16ms.
-const TYPE_CHARS = 4
-const TYPE_STEP_MS = 16
-
-function CodePeek({ file, snippet }: { file: string; snippet: string }) {
-  const preRef = useRef<HTMLPreElement>(null)
-  const textRef = useRef<HTMLSpanElement>(null)
-  const cursorRef = useRef<HTMLSpanElement>(null)
-
-  // The typing animation writes straight to the DOM once per animation frame
-  // instead of setting React state every 16ms, so nothing re-renders while
-  // it types. Restarts from empty whenever the snippet changes.
-  useEffect(() => {
-    const pre = preRef.current
-    const text = textRef.current
-    const cursor = cursorRef.current
-    if (!pre || !text || !cursor) return
-    let raf = 0
-    let shown = -1
-    const start = performance.now()
-    const frame = (now: number) => {
-      const chars = Math.min(
-        snippet.length,
-        Math.floor((now - start) / TYPE_STEP_MS) * TYPE_CHARS,
-      )
-      if (chars !== shown) {
-        shown = chars
-        text.textContent = snippet.slice(0, chars)
-        cursor.hidden = chars >= snippet.length
-        pre.scrollTop = pre.scrollHeight
-      }
-      if (chars < snippet.length) raf = requestAnimationFrame(frame)
-    }
-    frame(start)
-    return () => cancelAnimationFrame(raf)
-  }, [snippet])
-
-  return (
-    <div className={styles.codePeek}>
-      <div className={styles.codePeekFile}>{file}</div>
-      <pre ref={preRef} className={styles.codePeekBody}>
-        <span ref={textRef} />
-        <span ref={cursorRef} className={styles.codePeekCursor}>▌</span>
-      </pre>
-    </div>
-  )
-}
-
 // ── feed icons ──────────────────────────────────────────────────────────────
 
 const AREA_ICONS: Record<AgentAppBuildEvent['area'], JSX.Element> = {
@@ -261,40 +204,47 @@ function PoppingChip({
 
 // ── main view ───────────────────────────────────────────────────────────────
 
-export function ConstructionDock({ project, todos, events, snapshot }: Props) {
+export function ConstructionDock({ project, todos, events, snapshot, activity }: Props) {
   const { t } = useTranslation(['agentapp', 'common'])
   const displayed = usePacedEvents(events)
   const view = useMemo(() => deriveProgress(todos), [todos])
   const isLaunching = project.status !== 'creating'
 
-  // Built-so-far chips: counts come from the persisted authoritative snapshot
-  // (backend disk scan, stored in the slice so it survives event eviction).
+  // The bar, status line and counts follow the row being shown, so a burst
+  // of rows plays out step by step instead of everything jumping at once.
+  const shown = useMemo(() => {
+    for (let i = displayed.length - 1; i >= 0; i--) if (displayed[i].snapshot) return displayed[i].snapshot!
+    return events.length === 0 ? snapshot : null
+  }, [displayed, events.length, snapshot])
   const summary = {
-    components: snapshot?.components ?? 0,
-    collections: snapshot?.collections ?? 0,
-    routes: snapshot?.routes ?? 0,
+    tasksDone: shown?.tasksDone ?? 0,
+    tasksTotal: shown?.tasksTotal ?? 0,
+    components: shown?.components ?? 0,
+    files: shown?.files ?? 0,
   }
-
-  const latestSnippet = useMemo(() => {
-    for (let i = displayed.length - 1; i >= 0; i--) {
-      const e = displayed[i]
-      if (e.snippet && e.file) return { file: e.file, snippet: e.snippet }
-    }
-    return null
-  }, [displayed])
+  // Never less than the bar has already shown: a build only moves forward.
+  // Before anything is known it is an empty bar, not a busy stripe that
+  // would shrink to the first real value.
+  const peak = useRef(0)
+  peak.current = Math.max(peak.current, shown ? shown.progress : view.indeterminate ? 0 : view.progress)
+  const progress = peak.current
+  const stageLabel = !shown ? '' : shown.fixing
+    ? t('agentapp:construction.fixing')
+    : shown.stage === 'building' && shown.task
+      ? t('agentapp:construction.stage.buildingTask', { task: shown.task })
+      : t(`agentapp:construction.stage.${shown.stage}`)
 
   const feed = useMemo(() => coalesce(displayed).slice(-5).reverse(), [displayed])
 
   const activityLabel =
+    activity ||
+    stageLabel ||
     view.todoLabel ||
     (isLaunching
       ? t('agentapp:construction.finalChecks')
       : t('agentapp:construction.preparingWorkspace'))
 
-  const hasSummary =
-    summary.collections > 0 ||
-    summary.routes > 0 ||
-    summary.components > 0
+  const hasSummary = summary.tasksTotal > 0 || summary.components > 0 || summary.files > 0
 
   return (
     <div className={styles.constructionDockCenter}>
@@ -313,8 +263,8 @@ export function ConstructionDock({ project, todos, events, snapshot }: Props) {
 
         <div className={styles.progressBar}>
           <div
-            className={`${styles.progressFill} ${view.indeterminate ? styles.indeterminate : ''}`}
-            style={view.indeterminate ? undefined : { width: `${view.progress}%` }}
+            className={styles.progressFill}
+            style={{ width: `${progress}%` }}
           />
         </div>
 
@@ -322,19 +272,19 @@ export function ConstructionDock({ project, todos, events, snapshot }: Props) {
 
         {hasSummary && (
           <div className={styles.railChips}>
+            {summary.tasksTotal > 0 && (
+              <PoppingChip value={summary.tasksDone}>
+                <ListChecks size={11} /> {t('agentapp:construction.taskCount', { done: summary.tasksDone, total: summary.tasksTotal })}
+              </PoppingChip>
+            )}
             {summary.components > 0 && (
               <PoppingChip value={summary.components}>
                 <PanelsTopLeft size={11} /> {t('agentapp:construction.componentCount', { count: summary.components })}
               </PoppingChip>
             )}
-            {summary.collections > 0 && (
-              <PoppingChip value={summary.collections}>
-                <Server size={11} /> {t('agentapp:construction.collectionCount', { count: summary.collections })}
-              </PoppingChip>
-            )}
-            {summary.routes > 0 && (
-              <PoppingChip value={summary.routes}>
-                <Package size={11} /> {t('agentapp:construction.routeCount', { count: summary.routes })}
+            {summary.files > 0 && (
+              <PoppingChip value={summary.files}>
+                <FileText size={11} /> {t('agentapp:construction.fileCount', { count: summary.files })}
               </PoppingChip>
             )}
           </div>
@@ -351,10 +301,6 @@ export function ConstructionDock({ project, todos, events, snapshot }: Props) {
                 </div>
               ))}
             </div>
-          )}
-
-          {latestSnippet && (
-            <CodePeek file={latestSnippet.file} snippet={latestSnippet.snippet} />
           )}
         </div>
       </div>

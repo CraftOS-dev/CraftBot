@@ -194,6 +194,7 @@ class GeminiClient:
             "prompt_tokens": prompt_tokens,
             "completion_tokens": completion_tokens,
             "cached_tokens": cached_tokens,
+            "cut_off": self._cut_off(response),
         }
 
     def generate_text_multiturn(
@@ -270,6 +271,7 @@ class GeminiClient:
             "prompt_tokens": prompt_tokens,
             "completion_tokens": completion_tokens,
             "cached_tokens": cached_tokens,
+            "cut_off": self._cut_off(response),
         }
 
     def generate_multimodal(
@@ -525,6 +527,7 @@ class GeminiClient:
             "prompt_tokens": prompt_tokens,
             "completion_tokens": completion_tokens,
             "cached_tokens": cached_tokens,
+            "cut_off": self._cut_off(response),
         }
 
     def generate_multimodal_with_cache(
@@ -838,29 +841,117 @@ class GeminiClient:
         return f"{self._api_base}/{self._api_version}/{path.lstrip('/')}"
 
     def _post_json(self, path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-        """Send POST request and return JSON response."""
+        """Send POST request and return JSON response.
+
+        A generateContent call made while the caller streams the reply
+        (agent_core.core.impl.llm.streaming) goes to streamGenerateContent
+        instead; the chunks are merged into the response generateContent
+        returns, so every caller reads it the same way.
+        """
+        from agent_core.core.impl.llm.streaming import current_sink
+
+        sink = current_sink()
+        if sink is not None and path.endswith(":generateContent"):
+            return self._post_stream(
+                path[: -len(":generateContent")] + ":streamGenerateContent",
+                payload,
+                sink,
+            )
         response = requests.post(
             self._endpoint(path),
             headers={"x-goog-api-key": self._api_key},
             json=payload,
             timeout=self._timeout,
         )
-
-        # Log response details before raising for status (helps debug API errors)
-        if not response.ok:
-            try:
-                error_json = response.json()
-                logger.warning(
-                    f"[GEMINI ERROR] Status: {response.status_code}, Body: {error_json}"
-                )
-            except Exception:
-                logger.warning(
-                    f"[GEMINI ERROR] Status: {response.status_code}, "
-                    f"Raw text: {response.text[:1000]}"
-                )
-
+        self._log_error_response(response)
         response.raise_for_status()
         return response.json()
+
+    @staticmethod
+    def _log_error_response(response: requests.Response) -> None:
+        """Log a failed response's body before raising for status (helps
+        debug API errors)."""
+        if response.ok:
+            return
+        try:
+            error_json = response.json()
+            logger.warning(
+                f"[GEMINI ERROR] Status: {response.status_code}, Body: {error_json}"
+            )
+        except Exception:
+            logger.warning(
+                f"[GEMINI ERROR] Status: {response.status_code}, "
+                f"Raw text: {response.text[:1000]}"
+            )
+
+    def _post_stream(self, path: str, payload: Dict[str, Any], sink) -> Dict[str, Any]:
+        """streamGenerateContent (server-sent events), handing each answer
+        text piece to ``sink``; returns the chunks merged into one
+        generateContent-shaped response.
+
+        Each chunk carries the next parts of every candidate. Parts are
+        appended in order (adjacent plain text parts are joined, which
+        _extract_text does anyway); the last chunk's finishReason, safety
+        ratings and usageMetadata are the response's, as is the first
+        promptFeedback.
+        """
+        import json
+
+        from agent_core.core.impl.llm.streaming import begin, check_cancelled, emit
+
+        begin(sink)
+        response = requests.post(
+            self._endpoint(path),
+            headers={"x-goog-api-key": self._api_key},
+            params={"alt": "sse"},
+            json=payload,
+            timeout=self._timeout,
+            stream=True,
+        )
+        merged: Dict[str, Any] = {}
+        candidates: Dict[int, Dict[str, Any]] = {}
+        try:
+            self._log_error_response(response)
+            response.raise_for_status()
+            for raw in response.iter_lines(decode_unicode=True):
+                check_cancelled(sink)
+                if not raw or not raw.startswith("data:"):
+                    continue
+                chunk = json.loads(raw[len("data:") :].strip())
+                if "promptFeedback" in chunk and "promptFeedback" not in merged:
+                    merged["promptFeedback"] = chunk["promptFeedback"]
+                if "usageMetadata" in chunk:
+                    merged["usageMetadata"] = chunk["usageMetadata"]
+                for position, candidate in enumerate(chunk.get("candidates") or []):
+                    index = candidate.get("index", position)
+                    target = candidates.setdefault(
+                        index, {"content": {"role": "model", "parts": []}}
+                    )
+                    for key, value in candidate.items():
+                        if key not in ("content", "index"):
+                            target[key] = value
+                    parts = target["content"]["parts"]
+                    for part in (candidate.get("content") or {}).get("parts") or []:
+                        text = part.get("text")
+                        plain = isinstance(text, str) and set(part) == {"text"}
+                        if plain and parts and set(parts[-1]) == {"text"}:
+                            parts[-1] = {"text": parts[-1]["text"] + text}
+                        else:
+                            parts.append(dict(part))
+                        if index == 0 and isinstance(text, str) and not part.get("thought"):
+                            emit(sink, text)
+        finally:
+            response.close()
+        merged["candidates"] = [candidates[i] for i in sorted(candidates)]
+        return merged
+
+    @staticmethod
+    def _cut_off(response: Dict[str, Any]) -> bool:
+        """Whether Gemini stopped the reply at the output limit."""
+        return any(
+            candidate.get("finishReason") == "MAX_TOKENS"
+            for candidate in response.get("candidates", []) or []
+        )
 
     @staticmethod
     def _extract_text(response: Dict[str, Any]) -> str:

@@ -20,6 +20,7 @@ from agent_core.core.impl.action.manager import (
     OnActionEndHook,
     GetParentIdHook,
 )
+from agent_core.core.impl.action.step import ActionCheck, AgentStep
 
 __all__ = [
     # Executor
@@ -37,4 +38,7 @@ __all__ = [
     "OnActionStartHook",
     "OnActionEndHook",
     "GetParentIdHook",
+    # Step
+    "ActionCheck",
+    "AgentStep",
 ]

@@ -54,6 +54,8 @@ from agent_core import action
         ],
         "simulated_mode": True,
     },
+    display_param="todos",
+    icon="ListTodo",
 )
 def update_todos(input_data: dict) -> dict:
     """Update the todo list for the current session."""

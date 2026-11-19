@@ -9,11 +9,13 @@ from agent_core import action
     input_schema={
         "input_file": {
             "type": "string",
+            "required": True,
             "example": "C:/Users/user/Documents/input.txt",
             "description": "Absolute path to the input file (txt, md, docx). Use full absolute paths (e.g., C:/Users/user/file.txt or /home/user/file.txt).",
         },
         "output_md": {
             "type": "string",
+            "required": False,
             "example": "C:/Users/user/Documents/output.md",
             "description": "Absolute path where the cleaned Markdown file will be saved.",
         },
@@ -31,6 +33,8 @@ from agent_core import action
         "output_md": "C:/Users/user/Documents/output.md",
         "simulated_mode": True,
     },
+    display_param="input_file",
+    icon="FileCode",
 )
 def clean_to_md(input_data: dict) -> dict:
     import os

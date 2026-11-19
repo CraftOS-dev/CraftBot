@@ -1,6 +1,7 @@
+import { useNavigate } from 'react-router-dom'
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  ArrowLeft, ArrowRight, Box, ChevronDown, Loader2, Paperclip,
+  Box, ChevronDown, Loader2, Paperclip,
   Sparkles, Upload, X,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -8,48 +9,28 @@ import { Button } from './Button'
 import { AGENT_APP_ICONS } from './AgentAppIcon'
 import { PRESET_THEMES, ThemeMiniPreview } from '../../pages/AgentApp/themeCatalog'
 import { formatNumber } from '../../i18n/format'
+import { BuildCheckpoints } from '../../features/agentApps/BuildCheckpoints'
 import styles from './CreateCustomWizard.module.css'
 
 /**
- * Create Custom wizard — three steps inside the Add Agent App modal:
+ * The Build tab of the Add Agent App modal:
  *
  *   1. CONFIGURE  name/description, layout silhouette, theme, icon,
  *                 access mode, reference attachments
- *   2. INTERVIEW  LLM-generated questions (option chips + free text),
- *                 count scales with the app's complexity
- *   3. CREATING   requirements synthesis + project creation + build run;
- *                 on success the caller navigates to the new project
+ *   2. BUILD      the builder agent starts, and the build's stops for the
+ *                 person show here: its questions, then the requirements it
+ *                 wrote, to edit and approve. On approval the caller's view
+ *                 moves to the build.
  *
- * The backend does the thinking (agent_app_wizard_interview /
- * agent_app_wizard_finalize); this component owns only the flow state.
+ * The builder does the thinking (the framework's creator skill and its
+ * checkpoints); this component owns only the configure form.
  */
 
 interface CreateCustomWizardProps {
-  send: (type: string, data?: Record<string, unknown>) => void
-  onMessage: (type: string, handler: (data: any) => void) => () => void
   onClose: () => void
-  onCreated?: (projectId: string) => void
-  /** Chat-path entry (agent_app_wizard_open broadcast): the scaffold action
-   *  generated round-1 questions without creating anything — open at the
-   *  interview step with config pre-seeded. Finalize then creates the
-   *  project exactly as the modal path does (Chat → Interview → Finalize →
-   *  Scaffold); a cancelled popup leaves nothing behind. */
-  initial?: {
-    wizardId: string
-    config: Record<string, any>
-    questions: InterviewQuestion[]
-    /** Session that ran agent_app_scaffold — round-tripped to finalize so
-     *  the backend can tell that agent which project was created. */
-    originSessionId?: string
-  }
-}
-
-interface InterviewQuestion {
-  id: string
-  question: string
-  why?: string
-  multiSelect: boolean
-  options: string[]
+  /** Start the build; resolves with its session. */
+  onConfigure: (config: Record<string, unknown>, files: File[], icon: File | null) => Promise<string>
+  disabled?: boolean
 }
 
 const MAX_WORDS = 5000
@@ -148,13 +129,9 @@ const ACCESS_CHOICES: { value: 'none' | 'multi-user'; labelKey: 'none' | 'multiU
   { value: 'multi-user', labelKey: 'multiUser' },
 ]
 
-function newWizardId(): string {
-  return `w_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`
-}
-
 // ── component ───────────────────────────────────────────────────────────────
 
-export function CreateCustomWizard({ send, onMessage, onClose, onCreated, initial }: CreateCustomWizardProps) {
+export function CreateCustomWizard({ onClose, onConfigure, disabled }: CreateCustomWizardProps) {
   const { t } = useTranslation(['components', 'common', 'agentapp'])
 
   // Explicit (type-checked) key literals for the configure-step vocabulary.
@@ -173,19 +150,16 @@ export function CreateCustomWizard({ send, onMessage, onClose, onCreated, initia
     multiUser: t('components:createCustomWizard.access.multiUser'),
   }
 
-  const wizardIdRef = useRef(initial?.wizardId || newWizardId())
-
-  const [step, setStep] = useState<'configure' | 'interview' | 'creating'>(initial ? 'interview' : 'configure')
+  const navigate = useNavigate()
+  const [sessionId, setSessionId] = useState<string>()
 
   // — configure state —
-  const [name, setName] = useState(String(initial?.config?.name || ''))
-  const [description, setDescription] = useState(String(initial?.config?.description || ''))
+  const [name, setName] = useState('')
+  const [description, setDescription] = useState('')
   const [errors, setErrors] = useState<{ name?: string; description?: string }>({})
-  const [layout, setLayout] = useState(String(initial?.config?.layout || 'free'))
+  const [layout, setLayout] = useState('free')
   const [uiTheme, setUiTheme] = useState('craftbot')
-  const [authMode, setAuthMode] = useState<'none' | 'multi-user'>(
-    initial?.config?.authMode === 'multi-user' ? 'multi-user' : 'none'
-  )
+  const [authMode, setAuthMode] = useState<'none' | 'multi-user'>('none')
   const [iconChoice, setIconChoice] = useState<string | null>(null)
   const [iconFile, setIconFile] = useState<File | null>(null)
   const [iconPreview, setIconPreview] = useState<string | null>(null)
@@ -196,58 +170,9 @@ export function CreateCustomWizard({ send, onMessage, onClose, onCreated, initia
   const nameInputRef = useRef<HTMLInputElement>(null)
   const wordCount = useMemo(() => countWords(description), [description])
 
-  // — interview state —
-  const [interviewLoading, setInterviewLoading] = useState(false)
-  const [interviewError, setInterviewError] = useState<string | null>(null)
-  const [questions, setQuestions] = useState<InterviewQuestion[]>(initial?.questions || [])
-  const [qIndex, setQIndex] = useState(0)
-  const [answers, setAnswers] = useState<Record<string, string[]>>({})
-  const [freeText, setFreeText] = useState('')
-  // True once the backend has run its one adapt follow-up round — sent back
-  // on finalize so it never loops.
-  const [followupDone, setFollowupDone] = useState(false)
-
-  // — creating state —
-  const [createError, setCreateError] = useState<string | null>(null)
-
   useEffect(() => {
     setTimeout(() => nameInputRef.current?.focus(), 100)
   }, [])
-
-  useEffect(() => {
-    const wid = wizardIdRef.current
-    const cleanups = [
-      onMessage('agent_app_wizard_interview', (data: any) => {
-        if (data?.wizardId !== wid) return
-        setInterviewLoading(false)
-        if (data.success && Array.isArray(data.questions) && data.questions.length > 0) {
-          setQuestions(data.questions)
-          setQIndex(0)
-          setInterviewError(null)
-        } else {
-          setInterviewError(data.error || t('components:createCustomWizard.interviewFailed'))
-        }
-      }),
-      onMessage('agent_app_wizard_finalize', (data: any) => {
-        if (data?.wizardId !== wid) return
-        if (data.success && Array.isArray(data.followupQuestions) && data.followupQuestions.length > 0) {
-          // Second interview round (user chose "install & adapt"): the
-          // backend wants to know WHAT to adapt. Finalize only fires after
-          // the last question, so qIndex sits on it — append and step in.
-          setFollowupDone(true)
-          setQuestions(prev => [...prev, ...data.followupQuestions])
-          setQIndex(i => i + 1)
-          setStep('interview')
-        } else if (data.success && data.projectId) {
-          onCreated?.(data.projectId)
-          onClose()
-        } else {
-          setCreateError(data.error || t('components:createCustomWizard.createFailed'))
-        }
-      }),
-    ]
-    return () => cleanups.forEach(c => c())
-  }, [onMessage, onClose, onCreated])
 
   // ── configure helpers ──────────────────────────────────────────────────
 
@@ -298,239 +223,22 @@ export function CreateCustomWizard({ send, onMessage, onClose, onCreated, initia
     authMode,
     icon: iconFile ? null : iconChoice, // an uploaded icon wins server-side
     attachments: files.map(f => ({ name: f.name, kind: 'reference' })),
-    // Chat-path prompt material (features + the user's verbatim words) —
-    // must round-trip to finalize so synthesis sees what the interview saw.
-    ...(initial?.config?.context ? { context: initial.config.context } : {}),
   })
 
-  const uploadStaged = async (): Promise<boolean> => {
-    const wid = wizardIdRef.current
-    setUploading(true)
-    setUploadError(null)
-    try {
-      const uploadOne = async (file: File, kind: 'reference' | 'icon') => {
-        const form = new FormData()
-        form.append('file', file)
-        const params = new URLSearchParams({ wizardId: wid, kind })
-        const resp = await fetch(`/api/agent-app/stage?${params}`, {
-          method: 'POST',
-          body: form,
-        })
-        const result = await resp.json().catch(() => ({}))
-        if (!resp.ok || result.error) {
-          throw new Error(result.error || t('components:createCustomWizard.uploadFailed', { name: file.name }))
-        }
-      }
-      if (iconFile) await uploadOne(iconFile, 'icon')
-      for (const f of files) await uploadOne(f, 'reference')
-      return true
-    } catch (err) {
-      setUploadError(err instanceof Error ? err.message : String(err))
-      return false
-    } finally {
-      setUploading(false)
-    }
-  }
-
   const handleNext = async () => {
+    if (disabled || uploading) return
     if (!validate()) return
-    if (!(await uploadStaged())) return
-    setStep('interview')
-    setInterviewLoading(true)
-    setInterviewError(null)
-    send('agent_app_wizard_interview', {
-      wizardId: wizardIdRef.current,
-      config: buildConfig(),
-    })
+    setUploading(true); setUploadError(null)
+    try { setSessionId(await onConfigure(buildConfig(), files, iconFile)) }
+    catch (error) { setUploadError(error instanceof Error ? error.message : String(error)) }
+    finally { setUploading(false) }
   }
-
-  // ── interview helpers ──────────────────────────────────────────────────
-
-  const finalize = (finalAnswers: Record<string, string[]>) => {
-    setStep('creating')
-    setCreateError(null)
-    const answerList = questions
-      .filter(q => (finalAnswers[q.id] || []).length > 0)
-      .map(q => ({
-        id: q.id,
-        question: q.question,
-        answer: (finalAnswers[q.id] || []).join(', '),
-      }))
-    send('agent_app_wizard_finalize', {
-      wizardId: wizardIdRef.current,
-      config: buildConfig(),
-      answers: answerList,
-      followupDone,
-      ...(initial?.originSessionId ? { originSessionId: initial.originSessionId } : {}),
-    })
-  }
-
-  const advance = (next: Record<string, string[]>) => {
-    setAnswers(next)
-    setFreeText('')
-    if (qIndex + 1 < questions.length) setQIndex(qIndex + 1)
-    else finalize(next)
-  }
-
-  const selectSingle = (value: string) => {
-    const q = questions[qIndex]
-    setAnswers({ ...answers, [q.id]: [value] })
-  }
-
-  const toggleMulti = (value: string) => {
-    const q = questions[qIndex]
-    const current = answers[q.id] || []
-    const next = current.includes(value)
-      ? current.filter(v => v !== value)
-      : [...current, value]
-    setAnswers({ ...answers, [q.id]: next })
-  }
-
-  // Continue: a typed answer joins (multi) or replaces (single) the
-  // selection; otherwise the checked options carry the answer.
-  const handleContinue = () => {
-    const q = questions[qIndex]
-    const text = freeText.trim()
-    const selected = answers[q.id] || []
-    let final: string[]
-    if (text) final = q.multiSelect ? [...selected, text] : [text]
-    else final = selected
-    if (final.length === 0) return
-    advance({ ...answers, [q.id]: final })
-  }
-
-  const question = questions[qIndex]
-  const canContinue =
-    !!question &&
-    ((answers[question.id] || []).length > 0 || freeText.trim().length > 0)
 
   // ── render ──────────────────────────────────────────────────────────────
 
-  if (step === 'creating') {
-    return (
-      <div className={styles.stateScreen}>
-        {createError ? (
-          <>
-            <p className={styles.stateError}>{createError}</p>
-            <div className={styles.stateActions}>
-              <Button variant="secondary" onClick={() => setStep(questions.length > 0 ? 'interview' : 'configure')}>
-                {t('common:actions.back')}
-              </Button>
-              <Button variant="primary" onClick={() => finalize(answers)}>{t('common:actions.retry')}</Button>
-            </div>
-          </>
-        ) : (
-          <>
-            <Loader2 size={28} className={styles.spinner} />
-            <p className={styles.stateTitle}>{t('components:createCustomWizard.creatingTitle')}</p>
-            <p className={styles.stateSub}>
-              {t('components:createCustomWizard.creatingSub')}
-            </p>
-          </>
-        )}
-      </div>
-    )
-  }
-
-  if (step === 'interview') {
-    return (
-      <div className={styles.wizardBody}>
-        {interviewLoading ? (
-          <div className={styles.stateScreen}>
-            <Loader2 size={28} className={styles.spinner} />
-            <p className={styles.stateTitle}>{t('components:createCustomWizard.preparingTitle')}</p>
-            <p className={styles.stateSub}>
-              {t('components:createCustomWizard.preparingSub')}
-            </p>
-          </div>
-        ) : interviewError ? (
-          <div className={styles.stateScreen}>
-            <p className={styles.stateError}>{interviewError}</p>
-            <div className={styles.stateActions}>
-              <Button variant="secondary" onClick={() => setStep('configure')}>{t('common:actions.back')}</Button>
-              <Button
-                variant="secondary"
-                onClick={() => finalize({})}
-              >
-                {t('components:createCustomWizard.skipInterview')}
-              </Button>
-              <Button variant="primary" onClick={() => void handleNext()}>{t('common:actions.retry')}</Button>
-            </div>
-          </div>
-        ) : question ? (
-          <div className={styles.interview}>
-            <div className={styles.interviewHeader}>
-              <button
-                type="button"
-                className={styles.backLink}
-                onClick={() => {
-                  if (qIndex > 0) setQIndex(qIndex - 1)
-                  else setStep('configure')
-                }}
-              >
-                <ArrowLeft size={13} /> {t('common:actions.back')}
-              </button>
-              <span className={styles.interviewProgress}>
-                {t('components:createCustomWizard.questionProgress', {
-                  current: formatNumber(qIndex + 1),
-                  total: formatNumber(questions.length),
-                })}
-              </span>
-              <button
-                type="button"
-                className={styles.skipLink}
-                onClick={() => finalize(answers)}
-              >
-                {t('components:createCustomWizard.skipRemaining')}
-              </button>
-            </div>
-            <h3 className={styles.questionText}>{question.question}</h3>
-            {question.why && <p className={styles.questionWhy}>{question.why}</p>}
-            <div className={styles.optionList}>
-              {question.options.map(opt => {
-                const selected = (answers[question.id] || []).includes(opt)
-                return (
-                  <label
-                    key={opt}
-                    className={`${styles.optionRow} ${selected ? styles.optionRowActive : ''}`}
-                  >
-                    <input
-                      type={question.multiSelect ? 'checkbox' : 'radio'}
-                      name={`cw-q-${question.id}`}
-                      className={styles.optionInput}
-                      checked={selected}
-                      onChange={() =>
-                        question.multiSelect ? toggleMulti(opt) : selectSingle(opt)
-                      }
-                    />
-                    <span>{opt}</span>
-                  </label>
-                )
-              })}
-            </div>
-            <div className={styles.freeAnswerRow}>
-              <input
-                className={styles.input}
-                placeholder={question.multiSelect
-                  ? t('components:createCustomWizard.freeTextMulti')
-                  : t('components:createCustomWizard.freeTextSingle')}
-                value={freeText}
-                onChange={e => setFreeText(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter' && canContinue) handleContinue() }}
-              />
-              <Button
-                variant="primary"
-                icon={<ArrowRight size={14} />}
-                onClick={handleContinue}
-                disabled={!canContinue}
-              >
-                {t('common:actions.continue')}
-              </Button>
-            </div>
-          </div>
-        ) : null}
-      </div>
-    )
+  if (sessionId) {
+    const openBuild = () => { navigate(`/session/${sessionId}`); onClose() }
+    return <BuildCheckpoints sessionId={sessionId} onApproved={openBuild} onOpenBuild={openBuild} />
   }
 
   // step === 'configure'
@@ -674,7 +382,7 @@ export function CreateCustomWizard({ send, onMessage, onClose, onCreated, initia
               ))}
             </div>
           )}
-          {uploadError && <span className={styles.errorText}>{uploadError}</span>}
+          {uploadError && <span role="alert" className={styles.errorText}>{uploadError}</span>}
         </div>
 
         <div className={styles.formGroup}>
@@ -737,7 +445,7 @@ export function CreateCustomWizard({ send, onMessage, onClose, onCreated, initia
           type="button"
           icon={uploading ? <Loader2 size={16} className={styles.spinner} /> : <Sparkles size={16} />}
           onClick={() => void handleNext()}
-          disabled={uploading}
+          disabled={uploading || disabled}
         >
           {uploading ? t('common:status.uploading') : t('common:actions.next')}
         </Button>

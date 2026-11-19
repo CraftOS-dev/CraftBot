@@ -22,7 +22,7 @@
       "description": "一键从社区市场安装现成的应用。"
     },
     "agent-app-custom": {
-      "title": "自定义创建",
+      "title": "构建",
       "description": "描述你想要的内容，智能体便会构建它：配置几项基础设置，回答一个简短的访谈，然后它会编写规格并构建应用。"
     },
     "agent-app-import": {

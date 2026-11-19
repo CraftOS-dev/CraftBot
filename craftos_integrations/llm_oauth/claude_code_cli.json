@@ -1,0 +1,20 @@
+{
+  "setup_guide": "https://code.claude.com/docs/en/setup",
+  "npm": {
+    "package": "@anthropic-ai/claude-code",
+    "binary": "bin/claude.exe",
+    "node_script": "cli.js"
+  },
+  "native_installer": {
+    "windows": [
+      "powershell",
+      "-NoProfile",
+      "-NonInteractive",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-Command",
+      "irm https://claude.ai/install.ps1 | iex"
+    ],
+    "posix": ["bash", "-c", "curl -fsSL https://claude.ai/install.sh | bash"]
+  }
+}

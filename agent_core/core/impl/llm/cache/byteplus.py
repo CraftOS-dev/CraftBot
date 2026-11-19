@@ -385,6 +385,13 @@ class BytePlusCacheManager:
         session_key = self._make_session_key(task_id, call_type)
         return self._session_cache_registry.get(session_key)
 
+    def set_session_cache(self, task_id: str, call_type: str, response_id: str) -> None:
+        """Point the session's chain at ``response_id`` (e.g. back at its head
+        after a side request, which must not become part of the session)."""
+        self._session_cache_registry[self._make_session_key(task_id, call_type)] = (
+            response_id
+        )
+
     def end_session(self, task_id: str, call_type: str) -> None:
         """Clean up session cache for a specific call type when task ends."""
         session_key = self._make_session_key(task_id, call_type)

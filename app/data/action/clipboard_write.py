@@ -10,6 +10,7 @@ from agent_core import action
     input_schema={
         "content": {
             "type": "string",
+            "required": True,
             "example": "Text to copy to clipboard",
             "description": "Text content to write to the clipboard.",
         }
@@ -27,6 +28,8 @@ from agent_core import action
     },
     requirement=["pyperclip"],
     test_payload={"content": "Test clipboard content", "simulated_mode": True},
+    display_param="content",
+    icon="ClipboardCopy",
 )
 def clipboard_write(input_data: dict) -> dict:
     import sys
