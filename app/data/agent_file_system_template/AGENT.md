@@ -1826,6 +1826,7 @@ endpoints:
 
 web_search:
   google_cse_id: string          (Google Custom Search Engine ID for web_search action)
+  google_cse_base_url: string    (override for the Custom Search API root URL; empty uses Google's)
 ```
 <!-- /schema:settings.json -->
 
