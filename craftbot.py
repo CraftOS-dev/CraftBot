@@ -552,9 +552,8 @@ def _current_url(args: Optional[List[str]] = None) -> str:
     return _frontend_url(args)
 
 
-#: How long cmd_start keeps probing the browser UI once the agent is ready.
-#: run.py binds the frontend before it launches the agent, so by now the UI
-#: should already answer; this only absorbs a slow first response.
+#: How long cmd_start probes the browser UI after run.py reports readiness.
+#: The UI should already answer; this absorbs a slow first response.
 FRONTEND_READY_TIMEOUT_S = 30
 
 #: Present in the UI's index.html (dev and built). A 200 without it is not
@@ -567,7 +566,7 @@ def _frontend_serving(url: str) -> bool:
 
     The agent readiness marker says nothing about the frontend, and a server
     that answers is not necessarily one that can serve the page: a 404 is
-    exactly what the user saw when the URL was shown too early. urlopen
+    exactly what the user saw when the URL was shown too early. The opener
     raises on every 4xx/5xx, so any HTTP error counts as not ready.
     """
     try:
