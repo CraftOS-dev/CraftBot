@@ -21,12 +21,7 @@ def test_live_owner_routing_typing_and_delivery(tmp_path, monkeypatch):
         current_message_origin,
     )
     from app.agent_base import AgentBase
-    from app.agent_app import (
-        AgentAppManager,
-        set_agent_app_manager,
-        get_agent_app_manager,
-    )
-    from app.data.action.agent_app_actions import agent_app_list_projects
+    from app.data.action.agent_app_framework_actions import agent_app_framework_list
     from app.data.action.integrations import _helpers
     from app.data.action.integrations.telegram.telegram_actions import (
         send_telegram_bot_message,
@@ -113,14 +108,13 @@ def test_live_owner_routing_typing_and_delivery(tmp_path, monkeypatch):
                 "is_self_message",
             )
         }
-        previous_manager = get_agent_app_manager()
-        set_agent_app_manager(AgentAppManager(tmp_path / "apps"))
+        monkeypatch.setenv("A2APP_HOME", str(tmp_path / "apps"))
         origin_token = current_message_origin.set(origin)
         typing = start_typing(origin)
         try:
-            apps = await agent_app_list_projects({})
+            apps = await agent_app_framework_list({})
             assert apps["status"] == "success"
-            assert apps["projects"] == []
+            assert apps["data"]["apps"] == []
             await asyncio.sleep(
                 6
             )  # Exercise expiry and refresh, not just one API call.
@@ -153,6 +147,5 @@ def test_live_owner_routing_typing_and_delivery(tmp_path, monkeypatch):
             typing.cancel()
             await asyncio.gather(typing, return_exceptions=True)
             current_message_origin.reset(origin_token)
-            set_agent_app_manager(previous_manager)
 
     asyncio.run(scenario())

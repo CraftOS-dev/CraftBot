@@ -111,6 +111,47 @@ def test_bad_hint_never_pollutes_cache_and_is_llm_friendly(system):
     assert system.registry.get_cached_client("gmail", "ghost") is None
 
 
+def test_a_build_overtaken_by_a_credential_change_is_redone(system):
+    # Clients are built in worker threads; a re-auth that lands mid-build
+    # must not leave a client holding the old token in the cache.
+    provider = system.registry.get("gmail")
+    build = provider.build_client
+    reauthed = []
+
+    def build_while_reauthing(credential, persist):
+        client = build(credential, persist)
+        if not reauthed:
+            reauthed.append(True)
+            system.store_credential(
+                "gmail", "a@x.com", cred("a@x.com", access_token="new")
+            )
+        return client
+
+    provider.build_client = build_while_reauthing
+    client = system.client_for("gmail", "a@x.com")
+    assert client.credential["access_token"] == "new"
+    assert system.registry.get_cached_client("gmail", "a@x.com") is client
+
+
+def test_concurrent_first_builds_share_one_cached_client(system):
+    provider = system.registry.get("gmail")
+    first = provider.build_client
+    raced = []
+
+    def build_after_another_builder_won(credential, persist):
+        client = first(credential, persist)
+        if not raced:
+            raced.append(True)
+            # Another builder caches its client while this one builds.
+            system.registry.cache_client("gmail", "a@x.com", first(credential, persist))
+        return client
+
+    provider.build_client = build_after_another_builder_won
+    client = system.client_for("gmail", "a@x.com")
+    assert system.registry.get_cached_client("gmail", "a@x.com") is client
+    assert system.client_for("gmail", "a@x.com") is client
+
+
 def test_set_alias_invalidates_cached_client(system):
     run(system.execute("gmail", "whoami", {}, account="school"))
     system.set_alias("gmail", "b@y.com", "uni")

@@ -49,39 +49,87 @@ Além de ser um agente de IA capaz de criar e operar suas próprias ferramentas 
 - **Agente proativo.** Aprende suas preferências, hábitos e objetivos de vida. Em seguida, planeja e inicia tarefas (com sua aprovação, claro) para te ajudar a evoluir.
 - **Integração com ferramentas externas.** Conecte-se aos seus apps como Google Workspace, Slack, Notion, Zoom, LinkedIn, Discord, Telegram e mais (e muito mais por vir!), com suporte a OAuth ou usando sua própria chave. Você pode conectar várias contas a cada integração.
 - **Skills e MCP.** Mais de 150 MCPs e 170 Skills prontos para uso. Instalação rápida de novos Skills e MCPs. Crie ou melhore Skills a partir de tarefas concluídas com um clique.
-- **Interface de navegador e suporte a CLI.** Use o CraftBot do jeito que melhor te servir: pela UI simples no navegador para o dia a dia, ou via CLI para scripts e ambientes headless.
+- **Navegador ou terminal.** Use o CraftBot do jeito que melhor te servir: pela UI simples no navegador para o dia a dia, ou pela edição completa para terminal (`python run.py --tui`), com os mesmos chats, configurações e Agent Apps.
 
 ---
 
 
 ## 🧰 Começando
 
-Pré-requisitos: Python 3.10+ · Node.js 18+ para o modo navegador
+**Pré-requisitos**
+
+- Windows 10 ou 11 (x64), macOS 12 ou posterior (Apple Silicon ou Intel), ou Linux (x86_64 ou ARM64)
+- Pelo menos 5 GB de espaço livre em disco
+- Uma chave de API de um provedor de LLM como OpenAI, Anthropic, Google Gemini ou OpenRouter, ou um modelo local servido pelo Ollama
+- Apenas para a instalação pelo código-fonte: Python 3.8 ou posterior. O Node.js não é necessário.
+
+### Opção 1: Instalador (recomendado, sem Python nem Git)
+
+Baixe o arquivo do seu sistema na [versão mais recente](https://github.com/CraftOS-dev/CraftBot/releases/latest):
+
+| Sistema | Arquivo |
+|---|---|
+| Windows (x64) | `CraftBotInstaller-windows.exe` |
+| macOS (Apple Silicon e Intel) | `CraftBotInstaller-macos.zip` |
+| Linux (x86_64) | `CraftBotInstaller-linux-x86_64` |
+| Linux (ARM64) | `CraftBotInstaller-linux-aarch64` |
+
+Abra o arquivo e clique em **Install CraftBot**. O instalador baixa tudo de que o CraftBot precisa, inicia o CraftBot e o abre no navegador.
+
+Os instaladores ainda não têm assinatura de código, então a primeira execução exige um passo extra:
+
+- **Windows:** se o SmartScreen mostrar "O Windows protegeu o computador", clique em **Mais informações** (More info) e depois em **Executar assim mesmo** (Run anyway).
+- **macOS:** descompacte o arquivo e abra `CraftBotInstaller.app`. No macOS 15 ou posterior, a primeira tentativa é bloqueada: abra **Ajustes do Sistema > Privacidade e Segurança**, clique em **Abrir Mesmo Assim** (Open Anyway) ao lado da mensagem sobre o CraftBotInstaller e confirme. No macOS 12 a 14, clique com o botão direito no app e escolha **Abrir** (Open).
+- **Linux:** torne o arquivo executável e execute-o a partir de uma sessão de desktop (em um servidor sem desktop, use a instalação pelo código-fonte):
+  ```bash
+  chmod +x CraftBotInstaller-linux-x86_64
+  ./CraftBotInstaller-linux-x86_64
+  ```
+
+### Opção 2: Instalar pelo código-fonte
+
+Qualquer Python 3.8 ou posterior que já esteja no seu computador funciona. O CraftBot baixa seu próprio Python 3.10 e Node.js 24 privados e nunca altera o Python ou o Node.js instalados no seu sistema.
 
 ```bash
-# 1. Clone o repositório
-git clone https://github.com/CraftOS-dev/CraftBot.git
+git clone --depth 1 https://github.com/CraftOS-dev/CraftBot.git
 cd CraftBot
-
-# 2. Instale, registre o autoinício e inicie o CraftBot
-python craftbot.py install
 ```
 
-Pronto. O terminal se fecha sozinho, o CraftBot roda em segundo plano e o navegador abre automaticamente. Um **atalho na área de trabalho** é criado para que você possa reabrir o navegador quando quiser.
+Depois execute o comando de instalação do seu sistema:
 
-**Gerenciando o serviço após a instalação:**
+```bash
+# Windows
+python craftbot.py install        # ou: py craftbot.py install
+
+# macOS e Linux
+python3 craftbot.py install
+```
+
+- **Sem Git?** Na [página do repositório](https://github.com/CraftOS-dev/CraftBot), clique em **Code > Download ZIP**, descompacte, abra um terminal na pasta descompactada e execute o mesmo comando.
+- **Sem Python, ou com versão anterior à 3.8?** Use o instalador (opção 1).
+
+A primeira instalação baixa cerca de 1 GB, o que leva alguns minutos em uma conexão comum. Ao terminar, o CraftBot fica rodando em segundo plano, abre http://localhost:7925 no navegador e cria um atalho na área de trabalho. Se a porta 7925 ou 7926 já estiver em uso, o CraftBot escolhe as próximas portas livres e mostra o endereço a abrir.
+
+Na primeira execução, o onboarding no navegador pede sua chave de API do LLM. O CraftBot a guarda em `app/config/settings.json` (você pode alterá-la depois em Configurações) e não lê chaves de API de um arquivo `.env`.
+
+### Gerenciando o CraftBot
+
+Use o mesmo comando `python` ou `python3` da instalação:
 
 ```bash
 python craftbot.py start      # Inicia o CraftBot em segundo plano
 python craftbot.py stop       # Para o CraftBot
 python craftbot.py restart    # Reinicia o CraftBot
 python craftbot.py status     # Verifica se está rodando e se o autoinício está ativo
-python craftbot.py logs       # Exibe a saída recente dos logs
-python craftbot.py uninstall  # Para o serviço, remove o autoinício e desinstala os pacotes
+python craftbot.py logs       # Mostra as últimas 50 linhas do log (mais com logs -n 200)
+python craftbot.py uninstall  # Para, remove o autoinício e desinstala os pacotes
+python run.py --tui           # Executa no terminal em vez do navegador
 ```
 
+Quem usa o instalador pode fazer o mesmo pela janela do instalador (**Start**, **Stop**, **Repair**, **Uninstall**).
+
 > [!TIP]
-> Depois de `install` ou `start`, um **atalho do CraftBot na área de trabalho** é criado automaticamente. Se você fechar o navegador, basta dar duplo clique no atalho para abri-lo de novo.
+> Depois de `install` ou `start`, um **atalho do CraftBot na área de trabalho** é criado automaticamente. Se você fechar o navegador, dê um duplo clique no atalho para abri-lo de novo.
 
 ---
 
@@ -149,63 +197,136 @@ Construa, personalize e evolua sua própria Agent App, e dependa menos de ferram
 
 ## 🔧 Solução de problemas e dúvidas comuns
 
-### Falta o Node.js (para o modo navegador)
-Se ao rodar `python run.py` você vir **"npm not found in PATH"**:
-1. Baixe a versão LTS em [nodejs.org](https://nodejs.org/)
-2. Instale e reinicie o terminal
-3. Rode `python run.py` novamente
+**Comece pelo log.** `python craftbot.py logs` mostra as últimas 50 linhas (mais com `logs -n 200`). Quando `install` ou `start` falha, o comando mostra o final do log e termina com erro. `python craftbot.py doctor` verifica cada etapa da instalação sem alterar nada. No instalador, clique em **Open log**.
 
-**Alternativa:** Use o modo CLI (sem necessidade de Node.js):
+**Executar a instalação de novo é seguro.** `python craftbot.py install` pula as etapas que já deram certo e tenta novamente apenas o restante. No instalador, clique em **Repair**.
+
+### As portas 7925 ou 7926 já estão em uso
+
+O CraftBot passa para as próximas portas livres e mostra o endereço a abrir. Para escolher as portas você mesmo:
+
 ```bash
-python run.py --cli
+python craftbot.py start --frontend-port 8925 --backend-port 8926
 ```
 
-### A instalação falha por dependências
-O instalador agora exibe mensagens detalhadas com possíveis soluções. Se a instalação falhar:
-- **Verifique a versão do Python:** confirme que tem Python 3.10+ (`python --version`)
-- **Verifique a internet:** as dependências são baixadas durante a instalação
-- **Limpe o cache do pip:** rode `pip install --upgrade pip` e tente novamente
+### Proxy ou rede corporativa
 
-### Problemas na instalação do Playwright
-A instalação do Chromium do Playwright é opcional. Se falhar:
-- O agente **continua funcionando** para outras tarefas
-- Você pode pular essa etapa e instalar depois com `playwright install chromium`
-- Só é necessário para a integração com o WhatsApp Web
+Todos os downloads (Python, pip, npm, Node.js) usam as variáveis de proxy padrão. Defina-as no mesmo terminal antes de instalar:
 
-Para uma solução de problemas mais detalhada, veja [INSTALLATION_FIX.md](INSTALLATION_FIX.md).
+```bash
+# macOS e Linux
+export HTTPS_PROXY=http://proxy.example.com:8080
+export HTTP_PROXY=http://proxy.example.com:8080
+export NO_PROXY=localhost,127.0.0.1
+python3 craftbot.py install
+```
+
+```powershell
+# Windows PowerShell
+$env:HTTPS_PROXY = "http://proxy.example.com:8080"
+$env:HTTP_PROXY = "http://proxy.example.com:8080"
+$env:NO_PROXY = "localhost,127.0.0.1"
+python craftbot.py install
+```
+
+Redes que inspecionam o tráfego TLS não exigem nenhum passo extra: o CraftBot confia nos certificados do repositório de certificados do seu sistema operacional.
+
+### Downloads lentos ou bloqueados (por exemplo, na China continental)
+
+Antes de instalar, aponte os downloads para mirrors:
+
+| Variável | Uso | Exemplo |
+|---|---|---|
+| `PIP_INDEX_URL` | Pacotes Python | `https://pypi.tuna.tsinghua.edu.cn/simple` |
+| `npm_config_registry` | Pacotes npm | `https://registry.npmmirror.com` |
+| `HF_ENDPOINT` | Modelo de embeddings | `https://hf-mirror.com` |
+| `CRAFTBOT_MIRRORS` | Downloads de Python, Node.js, PocketBase e do modelo de embeddings | veja abaixo |
+
+`CRAFTBOT_MIRRORS` é uma lista, separada por ponto e vírgula, de reescritas de URL no formato `prefix=replacement` (prefixo=substituição):
+
+```bash
+export CRAFTBOT_MIRRORS="https://github.com/=https://<your-github-proxy>/https://github.com/;https://nodejs.org/dist/=https://npmmirror.com/mirrors/node/"
+```
+
+Os pacotes Python e o modelo de embeddings da memória continuam sendo verificados por checksums SHA-256 fixados, então um mirror não consegue alterá-los. Os runtimes de Python e Node.js não são fixados, então use para eles apenas um mirror de confiança. No Windows PowerShell, defina as variáveis com `$env:NAME = "value"` em vez de `export`.
+
+### Servidor sem desktop
+
+Instale pelo código-fonte no servidor sem abrir um navegador:
+
+```bash
+python3 craftbot.py install --no-open-browser
+```
+
+O CraftBot escuta em `localhost` e só aceita conexões do navegador endereçadas a `localhost`. Para usá-lo no seu próprio computador, abra um túnel SSH que encaminhe as duas portas com os mesmos números e depois abra http://localhost:7925 no seu computador:
+
+```bash
+ssh -L 7925:localhost:7925 -L 7926:localhost:7926 user@server
+```
+
+`CRAFTBOT_BIND_HOST` faz o CraftBot escutar em outra interface de rede (a imagem Docker usa `0.0.0.0`). Para acesso remoto, o túnel SSH continua sendo o caminho recomendado.
+
+### Linux: o CraftBot não inicia depois de reiniciar
+
+O autoinício é um serviço de usuário do systemd, por isso precisa de uma sessão de usuário do systemd. Para que o CraftBot inicie no boot sem login e continue rodando depois do logout, ative o lingering uma vez:
+
+```bash
+loginctl enable-linger $USER
+```
+
+Sem systemd (por exemplo, no WSL com o systemd desativado), execute `python3 craftbot.py start` depois de cada boot.
+
+### macOS: o instalador é bloqueado
+
+O instalador ainda não tem assinatura de código. No macOS 15 ou posterior, tente abri-lo uma vez, depois abra **Ajustes do Sistema > Privacidade e Segurança** e clique em **Abrir Mesmo Assim** (Open Anyway). No macOS 12 a 14, clique com o botão direito no app e escolha **Abrir** (Open).
+
+### Windows: o SmartScreen bloqueia o instalador
+
+Clique em **Mais informações** (More info) e depois em **Executar assim mesmo** (Run anyway). O aviso aparece porque o instalador ainda não tem assinatura de código.
+
+### Windows: `python` abre a Microsoft Store
+
+O Python não está instalado. Use o instalador, ou instale o Python pelo [python.org](https://www.python.org/downloads/) e execute `py craftbot.py install`.
+
+### Guardar os dados do CraftBot em outro lugar
+
+Antes de instalar, defina `CRAFTBOT_HOME` com uma pasta para guardar ali todos os dados do CraftBot e os runtimes baixados, por exemplo em um disco maior. O autoinício mantém essa configuração.
+
+### Recursos de navegador (Playwright)
+
+O Mini Browser e a automação do navegador usam o Chromium do Playwright. Se o download dele falhar, o restante do CraftBot continua funcionando. Execute `python craftbot.py install` de novo mais tarde para tentar outra vez.
 
 ---
+
 ## 🐳 Rodar com container
 
-A raiz do repositório inclui uma configuração Docker com Python 3.10, pacotes de sistema essenciais (incluindo Tesseract para OCR) e todas as dependências Python definidas em `requirements.txt`, para que o agente rode de forma consistente em ambientes isolados. 
+A imagem Docker executa o CraftBot no modo navegador com tudo pré-instalado: Python 3.10 com as dependências fixadas, Node.js 24, a interface do navegador, o PocketBase e o Chromium do Playwright.
 
-Abaixo estão as instruções para rodar nosso agente em container.
-
-### Construir a imagem
-
-A partir da raiz do repositório:
+Na raiz do repositório:
 
 ```bash
-docker build -t craftbot .
+docker compose up -d
 ```
 
-### Executar o container
+O primeiro build leva vários minutos. Depois abra http://localhost:7925 e informe sua chave de API do LLM no onboarding.
 
-A imagem está configurada para iniciar o agente com `python -m app.main` por padrão. Para rodar de forma interativa:
+Configurações e chaves de API, arquivos do agente, memória e logs ficam no volume `craftbot-data`, então são mantidos entre reinícios e novos builds da imagem.
 
 ```bash
-docker run --rm -it craftbot
+docker compose logs -f craftbot              # Acompanha o log
+docker compose ps                            # Status, incluindo o health check
+docker compose down                          # Para (o volume de dados é mantido)
+git pull && docker compose up -d --build     # Atualiza para a versão mais recente
 ```
 
-Se precisar passar variáveis de ambiente, use um arquivo env (por exemplo, baseado em `.env.example`):
-
-```bash
-docker run --rm -it --env-file .env craftbot
-```
-
-Monte com `-v` os diretórios que precisam persistir fora do container (por exemplo, pastas de dados ou cache) e ajuste portas ou outras flags conforme seu deploy. A imagem traz dependências de sistema para OCR (`tesseract`) e clientes HTTP comuns, para o agente trabalhar com arquivos e APIs de rede dentro do container.
-
-Por padrão, a imagem usa Python 3.10 e empacota as dependências Python de `requirements.txt`, então `python -m app.main` funciona de cara.
+- As portas são publicadas apenas em `127.0.0.1`, porque a interface do CraftBot não tem login próprio. Em um servidor remoto, mantenha assim e conecte-se pelo túnel SSH descrito em Solução de problemas. Mantenha as portas do host em 7925 e 7926: o CraftBot só aceita conexões do navegador endereçadas a `localhost` nessas portas.
+- As configurações de proxy e mirrors (`HTTPS_PROXY`, `PIP_INDEX_URL`, `HF_ENDPOINT`, `CRAFTBOT_MIRRORS` e as demais listadas em `.env.example`) são repassadas ao container quando estão definidas no seu shell ou em um arquivo `.env` ao lado do `docker-compose.yml`.
+- As Agent Apps rodam nas portas 3100 a 3199 dentro do container e ainda não podem ser abertas pelo navegador do host. Para trabalhar com Agent Apps, use o instalador ou a instalação pelo código-fonte.
+- Sem o Compose:
+  ```bash
+  docker build -t craftbot .
+  docker run -d --name craftbot -p 127.0.0.1:7925:7925 -p 127.0.0.1:7926:7926 --shm-size 1g -v craftbot-data:/data craftbot
+  ```
 
 ---
 

@@ -5,7 +5,7 @@ Sub-agent registry.
 Every sub-agent type lives in its own module under :mod:`app.subagent.definitions`
 and calls :func:`register_subagent` at import time. That gives each type a
 single place where its prompt, allowed actions, and runtime caps are
-defined — no scattering across ``types.py`` + ``prompts/``.
+defined.
 
 ``sub_task_end`` is the universal terminator action. The registry appends
 it to every definition's action list automatically; it must NEVER be
@@ -27,6 +27,10 @@ from app.logger import logger
 # definitions cannot accidentally omit it or list it twice.
 SUB_TASK_END_ACTION = "sub_task_end"
 
+# A veto on premature sub_task_end calls: (sub, parameters) → rejection text,
+# or None to allow the end.
+EarlyEndGuard = Callable[["SubAgent", Dict[str, object]], Optional[str]]
+
 
 @dataclass(frozen=True)
 class SubAgentDefinition:
@@ -39,16 +43,21 @@ class SubAgentDefinition:
             Shown to the spawning agent in the ``spawn_subagent`` action's
             description — keep it tight: ~80–120 chars, no trailing period
             needed.
-        system_prompt: The system-prompt template. Must contain
-            ``{action_list}`` and ``{output_format}`` placeholders — the
-            context engine fills these in per turn.
+        system_prompt: The type's own system prompt: its role, workflow,
+            rules and ending. The runtime appends the decision instructions
+            (batching rules, reply format, the <actions> list) and the
+            environment, so the prompt never lists actions or the format.
         actions: Frozen tuple of action names this type may invoke,
             INCLUDING ``sub_task_end`` (auto-injected). Anything outside
             this set is refused by the runner.
-        max_iterations: Hard cap on action turns before the runner ends
-            the sub-agent as ``failed``.
+        max_iterations: Hard cap on turns before the runner ends the
+            sub-agent as ``failed``.
         max_wall_seconds: Hard cap on wall-clock execution before the
             runner ends the sub-agent as ``timeout``.
+        early_end_guard: Optional veto on premature sub_task_end calls. The
+            runner logs the rejection into the sub's stream (costing one
+            turn) and the loop continues; on the final turn it is not
+            consulted, so it can never trap a sub-agent into the turn cap.
     """
 
     name: str
@@ -57,33 +66,7 @@ class SubAgentDefinition:
     actions: Tuple[str, ...]
     max_iterations: int
     max_wall_seconds: int
-    # Forced parameters per action: ((action_name, ((param, value), ...)), ...)
-    # e.g. scope shared-browser console reads to recent entries only.
-    param_overrides: Tuple[Tuple[str, Tuple[Tuple[str, object], ...]], ...] = ()
-    # Optional veto on premature sub_task_end calls: (sub, parameters) →
-    # rejection text, or None to allow the end. The runner logs the rejection
-    # into the sub's stream (costing one turn) and the loop continues —
-    # structural enforcement for types whose models surrender early (a
-    # verifier with 50 turns concluded at turn 8 citing "limited turns").
-    early_end_guard: Optional[
-        Callable[["SubAgent", Dict[str, object]], Optional[str]]
-    ] = None
-    # Context compaction (scoped walk-verify Phase 3): action names whose
-    # OLDER outputs are replaced by a short stub once `compact_keep` newer
-    # ones exist — a browser snapshot is superseded by the next snapshot, so
-    # keeping 40 of them in context buys nothing. Takes effect when the
-    # provider-side session is rebuilt: every `session_reset_every` turns
-    # (0 = only on summarization).
-    compact_actions: Tuple[str, ...] = ()
-    compact_keep: int = 2
-    session_reset_every: int = 0
-
-    def overrides_for(self, action_name: str) -> Dict[str, object]:
-        """The forced parameters for one action ({} when none)."""
-        for name, pairs in self.param_overrides:
-            if name == action_name:
-                return dict(pairs)
-        return {}
+    early_end_guard: Optional[EarlyEndGuard] = None
 
     @property
     def compiled_actions(self) -> List[str]:
@@ -104,13 +87,7 @@ def register_subagent(
     actions: Iterable[str],
     max_iterations: int,
     max_wall_seconds: int,
-    param_overrides: Tuple[Tuple[str, Tuple[Tuple[str, object], ...]], ...] = (),
-    early_end_guard: Optional[
-        Callable[["SubAgent", Dict[str, object]], Optional[str]]
-    ] = None,
-    compact_actions: Iterable[str] = (),
-    compact_keep: int = 2,
-    session_reset_every: int = 0,
+    early_end_guard: Optional[EarlyEndGuard] = None,
 ) -> None:
     """Register a sub-agent type.
 
@@ -118,12 +95,13 @@ def register_subagent(
         name: Unique agent_type identifier (e.g. ``"research_agent"``).
         description: One short sentence shown to the spawning agent in
             the ``spawn_subagent`` action description. Keep it tight.
-        system_prompt: System-prompt template with ``{action_list}`` and
-            ``{output_format}`` placeholders.
+        system_prompt: The type's own system prompt (see
+            :class:`SubAgentDefinition`).
         actions: Action names this type may invoke. ``sub_task_end`` is
             auto-appended; do NOT list it here.
-        max_iterations: Hard cap on action turns.
+        max_iterations: Hard cap on turns.
         max_wall_seconds: Hard cap on wall-clock execution.
+        early_end_guard: Optional veto on premature sub_task_end calls.
 
     Raises:
         ValueError: if ``name`` is already registered, ``description`` is
@@ -172,11 +150,7 @@ def register_subagent(
         actions=tuple(cleaned),
         max_iterations=max_iterations,
         max_wall_seconds=max_wall_seconds,
-        param_overrides=param_overrides,
         early_end_guard=early_end_guard,
-        compact_actions=tuple(dict.fromkeys(compact_actions)),
-        compact_keep=max(1, int(compact_keep)),
-        session_reset_every=max(0, int(session_reset_every)),
     )
     logger.debug(
         f"[SubAgentRegistry] Registered {name!r} "
@@ -200,15 +174,11 @@ def list_subagent_names() -> List[str]:
     return sorted(_REGISTRY)
 
 
-def is_subagent_registered(name: str) -> bool:
-    return name in _REGISTRY
-
-
 __all__ = [
     "SUB_TASK_END_ACTION",
+    "EarlyEndGuard",
     "SubAgentDefinition",
     "register_subagent",
     "get_subagent_definition",
     "list_subagent_names",
-    "is_subagent_registered",
 ]

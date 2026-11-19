@@ -140,6 +140,7 @@ def build_operations() -> List[Operation]:
             unwrap_envelope=True,
             fail_message="Failed to fetch channel.",
             input_schema={},
+            display_param=None,
         ),
         _lean_op(
             client_op(
@@ -157,26 +158,30 @@ def build_operations() -> List[Operation]:
                 input_schema={
                     "query": {
                         "type": "string",
+                        "required": True,
                         "description": "Search terms.",
                         "example": "claude code tutorial",
                     },
                     "type": {
                         "type": "string",
+                        "required": False,
                         "description": "What to search for: video, channel, or playlist.",
                         "example": "video",
                     },
                     "max_results": {
                         "type": "integer",
+                        "required": False,
                         "description": "Max number of results.",
                         "example": 25,
                     },
-                    "include_metadata": dict(_INCLUDE_METADATA_SCHEMA),
+                    "include_metadata": dict(_INCLUDE_METADATA_SCHEMA, required=False),
                 },
                 arg_map=lambda d: {
                     "query": d["query"],
                     "type_filter": d.get("type", "video"),
                     "max_results": d.get("max_results", 25),
                 },
+                display_param="query",
             ),
             _lean_search,
         ),
@@ -193,10 +198,12 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "video_id": {
                     "type": "string",
+                    "required": True,
                     "description": "The YouTube video ID.",
                     "example": "dQw4w9WgXcQ",
                 },
             },
+            display_param="video_id",
         ),
         _lean_op(
             client_op(
@@ -214,17 +221,20 @@ def build_operations() -> List[Operation]:
                 input_schema={
                     "max_results": {
                         "type": "integer",
+                        "required": False,
                         "description": "Max number of subscriptions to return.",
                         "example": 50,
                     },
                     "include_metadata": {
                         **_INCLUDE_METADATA_SCHEMA,
+                        "required": False,
                         "description": (
                             "Return raw subscription resources (default false = lean)."
                         ),
                     },
                 },
                 arg_map=lambda d: {"max_results": d.get("max_results", 50)},
+                display_param=None,
             ),
             _lean_subscriptions,
         ),
@@ -243,17 +253,20 @@ def build_operations() -> List[Operation]:
                 input_schema={
                     "max_results": {
                         "type": "integer",
+                        "required": False,
                         "description": "Max number of playlists to return.",
                         "example": 50,
                     },
                     "include_metadata": {
                         **_INCLUDE_METADATA_SCHEMA,
+                        "required": False,
                         "description": (
                             "Return raw playlist resources (default false = lean)."
                         ),
                     },
                 },
                 arg_map=lambda d: {"max_results": d.get("max_results", 50)},
+                display_param=None,
             ),
             _lean_playlists,
         ),
@@ -272,16 +285,19 @@ def build_operations() -> List[Operation]:
                 input_schema={
                     "playlist_id": {
                         "type": "string",
+                        "required": True,
                         "description": "The playlist ID.",
                         "example": "PLrAXt...",
                     },
                     "max_results": {
                         "type": "integer",
+                        "required": False,
                         "description": "Max number of items to return.",
                         "example": 50,
                     },
                     "include_metadata": {
                         **_INCLUDE_METADATA_SCHEMA,
+                        "required": False,
                         "description": (
                             "Return raw playlistItem resources (default false = lean)."
                         ),
@@ -291,6 +307,7 @@ def build_operations() -> List[Operation]:
                     "playlist_id": d["playlist_id"],
                     "max_results": d.get("max_results", 50),
                 },
+                display_param="playlist_id",
             ),
             _lean_playlist_items,
         ),
@@ -305,10 +322,12 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "channel_id": {
                     "type": "string",
+                    "required": True,
                     "description": "The channel ID to subscribe to.",
                     "example": "UC...",
                 },
             },
+            display_param="channel_id",
         ),
         client_op(
             "unsubscribe_from_youtube_channel",
@@ -324,10 +343,12 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "subscription_id": {
                     "type": "string",
+                    "required": True,
                     "description": "The subscription record ID.",
                     "example": "abc123...",
                 },
             },
+            display_param="subscription_id",
         ),
         client_op(
             "rate_youtube_video",
@@ -339,15 +360,18 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "video_id": {
                     "type": "string",
+                    "required": True,
                     "description": "The YouTube video ID.",
                     "example": "dQw4w9WgXcQ",
                 },
                 "rating": {
                     "type": "string",
+                    "required": True,
                     "description": "One of: like, dislike, none.",
                     "example": "like",
                 },
             },
+            display_param="rating",
         ),
         client_op(
             "post_youtube_comment",
@@ -362,15 +386,18 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "video_id": {
                     "type": "string",
+                    "required": True,
                     "description": "The YouTube video ID.",
                     "example": "dQw4w9WgXcQ",
                 },
                 "text": {
                     "type": "string",
+                    "required": True,
                     "description": "Comment text.",
                     "example": "Great video!",
                 },
             },
+            display_param="text",
         ),
         _lean_op(
             client_op(
@@ -388,16 +415,19 @@ def build_operations() -> List[Operation]:
                 input_schema={
                     "video_id": {
                         "type": "string",
+                        "required": True,
                         "description": "The YouTube video ID.",
                         "example": "dQw4w9WgXcQ",
                     },
                     "max_results": {
                         "type": "integer",
+                        "required": False,
                         "description": "Max number of comments to return.",
                         "example": 50,
                     },
                     "include_metadata": {
                         **_INCLUDE_METADATA_SCHEMA,
+                        "required": False,
                         "description": (
                             "Return raw commentThread resources (default false = lean)."
                         ),
@@ -407,6 +437,7 @@ def build_operations() -> List[Operation]:
                     "video_id": d["video_id"],
                     "max_results": d.get("max_results", 50),
                 },
+                display_param="video_id",
             ),
             _lean_comments,
         ),

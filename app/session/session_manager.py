@@ -72,7 +72,9 @@ def _make_on_session_persist(event_stream_manager: EventStreamManager):
     Persists the session row AND its event stream on every state change
     (create, clear, rename, todo updates, run start, touch). Persisting the
     stream here — instead of only at graceful shutdown — is what lets a
-    session's context survive a crash or hard kill.
+    session's context survive a crash or hard kill. The hook runs on the
+    event loop, so it snapshots and leaves the SQLite writes to the
+    storage's writer thread.
     """
 
     def on_session_persist(session: Session) -> None:
@@ -80,9 +82,9 @@ def _make_on_session_persist(event_stream_manager: EventStreamManager):
             from app.usage.session_storage import get_session_storage
 
             storage = get_session_storage()
-            storage.persist_session(session)
+            storage.persist_session_later(session)
             if event_stream_manager.has_stream(session.id):
-                storage.persist_event_stream(
+                storage.persist_event_stream_later(
                     session.id, event_stream_manager.get_stream_by_id(session.id)
                 )
         except Exception as e:
@@ -101,7 +103,7 @@ def _on_session_delete(session_id: str) -> None:
     try:
         from app.usage.session_storage import get_session_storage
 
-        get_session_storage().remove_session(session_id)
+        get_session_storage().remove_session_later(session_id)
     except Exception as e:
         logger.warning(
             f"[SessionManager] Failed to remove persisted session {session_id}: {e}"
@@ -117,7 +119,7 @@ def _on_session_delete(session_id: str) -> None:
     try:
         from app.usage.action_storage import get_action_storage
 
-        get_action_storage().clear_items(session_id)
+        get_action_storage().clear_items_later(session_id)
     except Exception as e:
         logger.warning(
             f"[SessionManager] Failed to clear activity rows for {session_id}: {e}"

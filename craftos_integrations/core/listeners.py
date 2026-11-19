@@ -20,6 +20,7 @@ import copy
 import json
 import os
 import stat
+import threading
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -42,6 +43,9 @@ class FileCursorStore:
     atomic (tmp + os.replace) so a crash can never tear a file; there is
     deliberately no cross-process locking — losing a cursor is harmless
     (a poller re-scans and dedups), so locking heroics would buy nothing.
+    In-process writers (the manager persists from worker threads) are
+    serialized so two accounts of one provider never drop each other's
+    read-modify-write.
     """
 
     def __init__(self, root: Optional[Path] = None) -> None:
@@ -50,6 +54,7 @@ class FileCursorStore:
         default FileCredentialStore uses (resolved lazily — the host sets
         ``ConfigStore.project_root`` at startup)."""
         self._root = root
+        self._write_lock = threading.Lock()
 
     def _dir(self) -> Path:
         base = self._root or (ConfigStore.project_root / ".credentials")
@@ -83,15 +88,17 @@ class FileCursorStore:
         return cursor if isinstance(cursor, dict) else None
 
     def set(self, provider_id: str, identity: str, cursor: Dict[str, Any]) -> None:
-        data = self.load_all(provider_id)
-        data[identity] = cursor
-        self._write(provider_id, data)
+        with self._write_lock:
+            data = self.load_all(provider_id)
+            data[identity] = cursor
+            self._write(provider_id, data)
 
     def remove(self, provider_id: str, identity: str) -> None:
-        data = self.load_all(provider_id)
-        if identity in data:
-            del data[identity]
-            self._write(provider_id, data)
+        with self._write_lock:
+            data = self.load_all(provider_id)
+            if identity in data:
+                del data[identity]
+                self._write(provider_id, data)
 
     def _write(self, provider_id: str, data: Dict[str, Any]) -> None:
         path = self._path(provider_id)
@@ -119,6 +126,7 @@ class _Instance:
     listener: Listener
     credential: Dict[str, Any]  # deepcopy of what it was built with
     delay: float = 0.0  # stagger delay before first start
+    persisted_cursor: Optional[Dict[str, Any]] = None  # last cursor on disk
     task: Optional[asyncio.Task] = None
     state: str = "starting"  # starting|running|backoff|paused|stopped
     failures: int = 0  # consecutive failures
@@ -279,6 +287,7 @@ class ListenerManager:
                 identity=identity,
                 listener=listener,
                 credential=credential,
+                persisted_cursor=copy.deepcopy(cursor),
             )
         except Exception as e:
             logger.warning(
@@ -322,7 +331,7 @@ class ListenerManager:
                     backoff = min(backoff * 2, self._backoff_cap)
                     continue
                 # Clean return = one successful cycle.
-                self._persist_cursor(instance)
+                await self._persist_cursor(instance)
                 instance.failures = 0
                 instance.detail = ""
                 backoff = self._backoff_base
@@ -351,14 +360,25 @@ class ListenerManager:
                 await instance.task
             except (asyncio.CancelledError, Exception):
                 pass
-        self._persist_cursor(instance)
+        await self._persist_cursor(instance)
         instance.state = "stopped"
 
-    def _persist_cursor(self, instance: _Instance) -> None:
+    async def _persist_cursor(self, instance: _Instance) -> None:
+        """Write the listener's cursor when it moved since the last write.
+
+        The file write runs in a worker thread: disk writes can stall for
+        seconds, and on the event loop that froze every session and the UI.
+        The cursor is snapshotted here, on the loop, so the listener can keep
+        mutating its own state while the copy is written."""
         try:
             cursor = instance.listener.cursor()
-            if cursor is not None:
-                self.cursors.set(instance.provider_id, instance.identity, cursor)
+            if cursor is None or cursor == instance.persisted_cursor:
+                return
+            snapshot = copy.deepcopy(cursor)
+            await asyncio.to_thread(
+                self.cursors.set, instance.provider_id, instance.identity, snapshot
+            )
+            instance.persisted_cursor = snapshot
         except Exception as e:
             logger.warning(
                 f"[LISTEN] persisting {instance.provider_id}/"

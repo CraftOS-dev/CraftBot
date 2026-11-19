@@ -116,10 +116,12 @@ export component InstallerWindow inherits Window {
     title: "CraftBot Setup";
     icon: @image-url("../assets/craftbot_mark_192.png");
     // Fixed size: an installer is a fixed-size dialog on every OS. The
-    // height is the content height plus its margins — 540px was sized for
-    // the older stack and left a void above the footer.
+    // height is the content height plus its margins. When the error panel
+    // shows, the mark makes way for it and the window grows by the rest
+    // (see the details rows below), staying under 560px so it fits a
+    // 1080p screen at 150% scaling.
     width: 440px;
-    height: 492px;
+    height: root.details-visible ? 492px + root.details-growth : 492px;
     background: Palette.base;
     default-font-size: 12px;
 
@@ -150,6 +152,16 @@ export component InstallerWindow inherits Window {
     in property <float> progress: 0.0;   // 0..1 when determinate
 
     in property <string> version-label: "";
+
+    // The end of the setup output after a failure, one line per row. Empty
+    // hides the panel.
+    in property <string> details: "";
+    property <bool> details-visible: root.details != "";
+    // Panel height: 15 rows of 10px text plus the inner padding.
+    property <length> details-height: 192px;
+    // Removed when the panel shows: the mark (96) and its gap (20), and the
+    // group gap shrinks from 52 to 16. Added: an 8px gap and the panel.
+    property <length> details-growth: 8px + root.details-height - 96px - 20px - (root.group-gap - 16px);
 
     // Actions
     callback primary-clicked();
@@ -192,7 +204,8 @@ export component InstallerWindow inherits Window {
 
         // The mark
         Rectangle {
-            height: 96px;
+            height: root.details-visible ? 0px : 96px;
+            visible: !root.details-visible;
             vertical-stretch: 0;
             Image {
                 source: @image-url("../assets/craftbot_mark_192.png");
@@ -210,7 +223,7 @@ export component InstallerWindow inherits Window {
             }
         }
 
-        Rectangle { height: 20px; vertical-stretch: 0; }
+        Rectangle { height: root.details-visible ? 0px : 20px; vertical-stretch: 0; }
 
         // Identity + status
         Text {
@@ -232,12 +245,40 @@ export component InstallerWindow inherits Window {
             animate color { duration: 200ms; }
         }
 
+        // The error panel: the last lines of the setup output, anchored to
+        // the bottom so the newest line is always the one in view. The full
+        // output is behind "Open log".
+        Rectangle { height: root.details-visible ? 8px : 0px; vertical-stretch: 0; }
+        Rectangle {
+            height: root.details-visible ? root.details-height : 0px;
+            visible: root.details-visible;
+            vertical-stretch: 0;
+            background: Palette.surface;
+            border-radius: 6px;
+            border-width: 1px;
+            border-color: Palette.hairline;
+            clip: true;
+            Text {
+                x: 10px;
+                y: 6px;
+                width: parent.width - 20px;
+                height: parent.height - 12px;
+                text: root.details;
+                font-size: 10px;
+                color: Palette.text-dim;
+                wrap: no-wrap;
+                overflow: elide;
+                horizontal-alignment: left;
+                vertical-alignment: bottom;
+            }
+        }
+
         // The gap between the identity block and the actions. The progress
         // bar lives inside it, centred, so the whitespace stays exactly
-        // group-gap whether the bar is showing or not — the controls below
+        // group-gap whether the bar is showing or not: the controls below
         // never shift at the moment the user clicks Install.
         Rectangle {
-            height: root.group-gap;
+            height: root.details-visible ? 16px : root.group-gap;
             vertical-stretch: 0;
             Rectangle {
                 x: (parent.width - self.width) / 2;

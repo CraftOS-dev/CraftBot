@@ -14,6 +14,10 @@ static LOG: OnceLock<Mutex<Option<File>>> = OnceLock::new();
 
 fn handle() -> &'static Mutex<Option<File>> {
     LOG.get_or_init(|| {
+        // Unit tests must not write into the real user profile.
+        if cfg!(test) {
+            return Mutex::new(None);
+        }
         let path = crate::paths::launcher_log();
         if let Some(dir) = path.parent() {
             let _ = std::fs::create_dir_all(dir);

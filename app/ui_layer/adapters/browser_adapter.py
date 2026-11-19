@@ -15,10 +15,11 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path, PurePosixPath, PureWindowsPath
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple
 
 from aiohttp.client_exceptions import ClientConnectionResetError
 
+from agent_core.core.action_framework import action_row_display
 from agent_core.core.impl.memory.tuning import (
     PROCESSING_THRESHOLD_DEFAULT,
     SCHEDULE_HOUR_DEFAULT,
@@ -44,11 +45,22 @@ from app.ui_layer.settings import (
     get_scheduler_config,
     update_scheduler_config,
     toggle_schedule_runtime,
-    get_recurring_tasks,
-    add_recurring_task,
-    update_recurring_task,
-    remove_recurring_task,
-    reset_recurring_tasks,
+    HEARTBEAT_SCHEDULE_ID,
+    DAY_PLANNER_SCHEDULE_ID,
+    WEEK_PLANNER_SCHEDULE_ID,
+    MONTH_PLANNER_SCHEDULE_ID,
+    heartbeat_schedule_expression,
+    day_planner_schedule_expression,
+    week_planner_schedule_expression,
+    month_planner_schedule_expression,
+    get_proactive_schedule,
+    get_cron_jobs,
+    add_cron_job,
+    update_cron_job,
+    remove_cron_job,
+    reset_cron_jobs,
+    get_heartbeat_checklist,
+    set_heartbeat_checklist,
     reload_proactive_manager,
     # Memory settings
     get_memory_mode,
@@ -74,6 +86,7 @@ from app.ui_layer.settings import (
     get_available_providers,
     get_model_settings,
     update_model_settings,
+    remove_api_key,
     test_connection,
     validate_can_save,
     get_ollama_models,
@@ -84,6 +97,7 @@ from app.ui_layer.settings import (
     disconnect_subscription,
     get_subscription_status,
     prepare_subscription_async,
+    setup_subscription,
     # MCP settings
     list_mcp_servers,
     add_mcp_server_from_json,
@@ -129,7 +143,7 @@ from app.ui_layer.commands.executor import CommandExecutor
 from app.ui_layer.onboarding import OnboardingFlowController
 from app.ui_layer.metrics import MetricsCollector
 from app.ui_layer.diagnostics import LoopStallMonitor
-from app.ui_layer.adapters.ws_channel import ClientChannel
+from app.ui_layer.adapters.ws_channel import CLIENT_PROTOCOL, ClientChannel
 from app.ui_layer.adapters.ws_lanes import message_lane
 from app.ui_layer.adapters.ws_auth import WS_PROTOCOL, WsAuth
 from app.ui_layer.adapters.session_buffer import (
@@ -142,17 +156,10 @@ from app.ui_layer.events.change_detection import ChangeDetection
 
 from app.ui_layer.events.resource_changes import (
     get_notifier as get_resource_notifier,
-    Resource,
     notify_resource_changed,
     resource_changes_for_message,
 )
-from app.agent_app import (
-    AgentAppManager,
-    set_agent_app_manager,
-    register_broadcast_callbacks,
-    make_todo_broadcast_hook,
-)
-from app.agent_app.sharing import ShareError
+from app.agent_app.broadcast import make_todo_broadcast_hook
 
 if TYPE_CHECKING:
     from app.ui_layer.controller.ui_controller import UIController
@@ -182,11 +189,32 @@ def _with_request_id(message: Dict[str, Any]) -> Dict[str, Any]:
     return {**message, "data": {**data, "requestId": request_id}}
 
 
-def _make_static_or_spa(dist: Path):
+def _index_response(index_path: Path, backend_port: Optional[int]):
+    """index.html, told which backend port this run uses (app/instance.py)."""
+    from aiohttp import web
+
+    if backend_port is None:
+        return web.FileResponse(index_path)
+    from app.instance import inject_runtime_config
+
+    try:
+        html = index_path.read_bytes()
+    except OSError:
+        raise web.HTTPNotFound()
+    return web.Response(
+        body=inject_runtime_config(html, backend_port),
+        content_type="text/html",
+        charset="utf-8",
+        headers={"Cache-Control": "no-cache"},
+    )
+
+
+def _make_static_or_spa(dist: Path, backend_port: Optional[int] = None):
     """Build the catch-all handler: serve a file from dist/, else index.html.
 
     Every request path is resolved and must land inside the resolved dist/
     (symlinks included); anything else is a 404, never a file from elsewhere.
+    With ``backend_port``, index.html carries that port for the UI to use.
     """
     from aiohttp import web
 
@@ -196,7 +224,7 @@ def _make_static_or_spa(dist: Path):
     async def _static_or_spa(request: web.Request) -> web.StreamResponse:
         req_path = request.match_info.get("path", "")
         if not req_path:
-            return web.FileResponse(index_path)
+            return _index_response(index_path, backend_port)
         # Refuse drive/root/UNC paths before touching the filesystem: joining
         # an absolute path replaces dist/ outright, and resolving //host/share
         # makes Windows authenticate to that host.
@@ -208,9 +236,9 @@ def _make_static_or_spa(dist: Path):
             raise web.HTTPNotFound()
         if not file_path.is_relative_to(dist_root):
             raise web.HTTPNotFound()
-        if file_path.is_file():
+        if file_path.is_file() and file_path != index_path:
             return web.FileResponse(file_path)
-        return web.FileResponse(index_path)
+        return _index_response(index_path, backend_port)
 
     return _static_or_spa
 
@@ -352,10 +380,15 @@ class BrowserChatComponent(ChatComponentProtocol):
             requires_choice=not stored.is_question,
             details=stored.details,
             ui_artifact=stored.ui_artifact,
+            references=stored.references,
         )
 
-    async def append_message(self, message: ChatMessage) -> None:
+    async def append_message(
+        self, message: ChatMessage, *, require_persistence: bool = False
+    ) -> None:
         """Append message and broadcast to clients."""
+        if require_persistence and not self._storage:
+            raise RuntimeError("Chat storage is unavailable")
         self._messages.append(message)
         self._trim_buffer()
 
@@ -397,10 +430,13 @@ class BrowserChatComponent(ChatComponentProtocol):
                     allow_free_text=message.allow_free_text,
                     details=message.details,
                     ui_artifact=message.ui_artifact,
+                    references=message.references,
                 )
                 await self.run_storage(self._storage.insert_message, stored)
             except Exception:
-                pass
+                if require_persistence:
+                    self._messages.remove(message)
+                    raise
 
         # ChatMessage.to_dict() is the WS wire format (always emits sessionId).
         await self._adapter._broadcast(
@@ -574,13 +610,14 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
             logger.exception("[ActionStorage] Failed to initialize activity storage")
 
     def _persist_item(self, item: ActionItem) -> None:
-        """Write-through an item's full current state to storage."""
+        """Write-through an item's full current state to storage (written on
+        the storage's writer thread, in order)."""
         if not self._storage:
             return
         try:
             from app.usage.action_storage import StoredActionItem
 
-            self._storage.save_item(
+            self._storage.save_item_later(
                 StoredActionItem(
                     id=item.id,
                     name=item.name,
@@ -599,8 +636,12 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
 
     @staticmethod
     def _item_payload(item: ActionItem) -> Dict[str, Any]:
-        """Wire payload for an activity item (always carries sessionId)."""
-        return {
+        """Wire payload for an activity item (always carries sessionId).
+
+        An action item also carries how its row shows it: the action's
+        display_param, icon and integration (ActionMetadata), looked up by
+        name when it is sent, so a stored item shows the same way."""
+        payload = {
             "id": item.id,
             "name": item.name,
             "status": item.status,
@@ -615,6 +656,9 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
             "output": item.output_data,
             "error": item.error_message,
         }
+        if item.item_type == "action":
+            payload.update(action_row_display(item.name))
+        return payload
 
     async def add_item(self, item: ActionItem) -> None:
         """Add item, persist it, and broadcast. Prevents duplicates by ID."""
@@ -747,7 +791,7 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
         self._items = [i for i in self._items if i.id != item_id]
         if self._storage:
             try:
-                self._storage.delete_item(item_id)
+                self._storage.delete_item_later(item_id)
             except Exception:
                 pass
 
@@ -766,7 +810,7 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
         self._items.clear()
         if self._storage:
             try:
-                self._storage.clear_items()
+                self._storage.clear_items_later()
             except Exception:
                 pass
 
@@ -901,12 +945,21 @@ class BrowserAdapter(InterfaceAdapter):
     def __init__(
         self,
         controller: "UIController",
-        host: str = "localhost",
+        host: Optional[str] = None,
         port: int = 7926,
     ) -> None:
         super().__init__(controller, "browser")
-        self._host = host
+        # CRAFTBOT_BIND_HOST (app/instance.py): loopback unless set, e.g. to
+        # 0.0.0.0 in Docker. The Host/Origin guard stays loopback-only.
+        from app.instance import bind_host
+
+        self._host = host or bind_host()
         self._port = int(os.environ.get("BROWSER_PORT", port))
+        # Host services for the Agent Apps CraftBot launches. Set up before the
+        # agent restores its apps, so an app started then reaches it too.
+        from app.agent_app.integration_bridge import IntegrationBridge
+
+        self._integration_bridge = IntegrationBridge(self._port)
         # Origin allowlist + per-process session token for /ws (ws_auth.py).
         self._ws_auth = WsAuth(self._port)
         self._theme_adapter = BrowserThemeAdapter(BaseTheme())
@@ -921,8 +974,10 @@ class BrowserAdapter(InterfaceAdapter):
         self._channels: Dict[Any, ClientChannel] = {}
         self._lane_locks: Dict[tuple, asyncio.Lock] = {}
         self._lane_tasks: Set[asyncio.Task] = set()
-        # Latest build todo list per Agent App, replayed to reconnecting tabs.
-        self._agent_app_todos: Dict[str, list] = {}
+        # One shared read-only query of the framework registry.
+        self._framework_app_list_task: Optional[asyncio.Task] = None
+        self._framework_app_list_version = 0
+        self._framework_lifecycle_pending: Dict[str, dict] = {}
         self._metrics_subscribers: Set = set()
         # Chat browser panels (every session's Mini Browser): their viewers,
         # live views and requests. Constructing it starts nothing (no browser
@@ -951,55 +1006,39 @@ class BrowserAdapter(InterfaceAdapter):
         # Staged bundle bytes keyed by short-lived token (inspect → import flow)
         self._staged_bundles: Dict[str, bytes] = {}
 
-        # Agent App manager
-        self._agent_app_manager = AgentAppManager(workspace_root=AGENT_WORKSPACE_ROOT)
-        # Wizard: reference-image VLM notes cached between interview and
-        # finalize (keyed by wizardId) so images are described only once.
-        self._wizard_image_notes: Dict[str, List[str]] = {}
-        # Bind session manager and trigger service for project sessions
+        from app.agent_app.framework_host import FrameworkHost
+
         agent = self._controller.agent
-        self._agent_app_manager.bind_session_manager(
-            agent.session_manager, agent.trigger_service
-        )
+        self._framework_host = getattr(agent, "framework_host", None)
+        if self._framework_host is None or self._framework_host.closing:
+            self._framework_host = FrameworkHost(agent, self._framework_changed)
+            agent.framework_host = self._framework_host
+        else:
+            self._framework_host.changed = self._framework_changed
 
-        # Clean up orphan processes and folders from previous sessions
-        self._agent_app_manager.cleanup_on_startup()
+        # Sub-agent activity arrives under its own stream id (sub_*); clients
+        # that read subagent_link learn which session it belongs to.
+        from app.subagent.manager import add_lifecycle_observer
 
-        # Start watchdog to monitor running Agent App processes
-        self._agent_app_manager.start_watchdog()
+        add_lifecycle_observer(self._on_subagent_lifecycle)
 
-        # Auto-launch projects that have auto_launch enabled
-        asyncio.create_task(self._agent_app_manager.auto_launch_projects())
+    def _on_subagent_lifecycle(self, event: str, sub: Any) -> None:
+        """Tell capable clients a sub-agent started or ended (any thread)."""
+        from app.state.agent_state import STATE
 
-        # Register global accessor and callbacks for Agent App actions
-        set_agent_app_manager(self._agent_app_manager)
-        register_broadcast_callbacks(
-            broadcast_ready=self.broadcast_agent_app_ready,
-            broadcast_progress=self.broadcast_agent_app_progress,
-            broadcast_todos=self.broadcast_agent_app_todos,
-            broadcast_created=self.broadcast_agent_app_created,
-            broadcast_build_event=self.broadcast_agent_app_build_event,
-            broadcast_wizard_open=self.broadcast_agent_app_wizard_open,
-        )
-
-        # Subscribe the Agent App module to SessionManager todo updates so
-        # that the agent's build breakdown streams to the browser automatically.
-        agent.session_manager.add_post_update_todos_hook(make_todo_broadcast_hook())
-
-        # READ-ONLY build observer: derive construction-dock build events from
-        # the actions the agent already performs (write_file / stream_edit /
-        # agent_app_scaffold / agent_app_notify_ready). These hooks are
-        # single-callback and currently unset; the executor wraps them in
-        # try/except and the observer swallows all exceptions, so this can
-        # never affect a build. It reads inputs/outputs only, mutates nothing.
-        try:
-            from app.agent_app import construction_events
-
-            on_start, on_end = construction_events.make_action_hooks()
-            agent.action_manager._on_action_start = on_start
-            agent.action_manager._on_action_end = on_end
-        except Exception as e:
-            logger.warning(f"[AGENT_APP] build-event observer not attached: {e}")
+        loop = getattr(STATE, "main_loop", None)
+        if loop is None or loop.is_closed():
+            return
+        message = {
+            "type": "subagent_link",
+            "data": {
+                "subId": sub.id,
+                "parentId": sub.parent_session_id,
+                "agentType": sub.agent_type,
+                "state": "running" if event == "spawn" else str(sub.status),
+            },
+        }
+        loop.call_soon_threadsafe(self._broadcast_capable, "subagent_link", message)
 
     @property
     def theme_adapter(self) -> ThemeAdapter:
@@ -1125,6 +1164,24 @@ class BrowserAdapter(InterfaceAdapter):
 
     async def _on_start(self) -> None:
         """Start the browser interface."""
+        self._controller.agent.session_manager.add_post_update_todos_hook(
+            make_todo_broadcast_hook(self._broadcast)
+        )
+        # The construction dock follows each build from the builder's own actions.
+        feed = self._framework_host.feed
+        feed.broadcast = self._broadcast
+        from app.agent_app.framework_build_feed import BuildFeed
+
+        manager = getattr(self._controller.agent, "action_manager", None)
+        # Take the hooks when free, or from a previous host's feed; never another observer's.
+        if manager is not None and all(
+            hook is None or isinstance(getattr(hook, "__self__", None), BuildFeed)
+            for hook in (manager._on_action_start, manager._on_action_end)
+        ):
+            manager._on_action_start, manager._on_action_end = (
+                feed.on_start,
+                feed.on_end,
+            )
         from aiohttp import web
         from app.onboarding import onboarding_manager
         import uuid
@@ -1176,16 +1233,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         )
 
         # Agent App export/import routes
-        self._app.router.add_get(
-            "/api/agent-app/{project_id}/export", self._agent_app_export_handler
-        )
         self._app.router.add_post(
             "/api/agent-app/import", self._agent_app_import_handler
         )
         self._app.router.add_post("/api/agent-app/stage", self._agent_app_stage_handler)
-        self._app.router.add_get(
-            "/api/agent-app/icon/{project_id}", self._agent_app_icon_handler
-        )
 
         # Workspace and chat HTTP upload routes
         self._app.router.add_post(
@@ -1200,15 +1251,16 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         self._app.router.add_post("/api/profile/inspect", self._profile_inspect_handler)
         self._app.router.add_post("/api/profile/import", self._profile_import_handler)
 
-        # Integration bridge routes (Agent App → external APIs)
-        from app.agent_app.integration_bridge import IntegrationBridge
-
-        self._integration_bridge = IntegrationBridge(self._agent_app_manager)
+        # Agent App host services: language model, integration actions, requests
         self._integration_bridge.register_routes(self._app)
 
-        # Serve Vite-built frontend (production)
+        # Serve Vite-built frontend (production). The terminal edition has no
+        # web UI: its client is the Ink app, which only needs /ws and /api.
+        from app import edition
+
+        serve_web_ui = not edition.is_terminal()
         frontend_dist = Path(__file__).parent.parent / "browser" / "frontend" / "dist"
-        if frontend_dist.exists():
+        if serve_web_ui and frontend_dist.exists():
             # Serve static assets from /assets/
             assets_path = frontend_dist / "assets"
             if assets_path.exists():
@@ -1217,20 +1269,33 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             # Serve static files from dist/ (public/ files copied by Vite build)
             # This must come before the SPA catch-all so images, fonts, etc. are served directly
             self._app.router.add_get("/", self._spa_handler)
-            self._app.router.add_get("/{path:.*}", _make_static_or_spa(frontend_dist))
-        else:
+            self._app.router.add_get(
+                "/{path:.*}", _make_static_or_spa(frontend_dist, self._port)
+            )
+        elif serve_web_ui:
             # Fallback to inline HTML for development without build
             self._app.router.add_get("/", self._index_handler)
             self._app.router.add_get("/{path:.*}", self._index_handler)
+        else:
+            # A browser that lands here (the desktop icon, the launcher's
+            # "Open CraftBot") learns where the terminal edition is opened.
+            self._app.router.add_get("/", self._terminal_edition_page)
 
         # Serve static files if they exist (legacy)
         static_path = Path(__file__).parent.parent / "browser" / "static"
-        if static_path.exists():
+        if serve_web_ui and static_path.exists():
             self._app.router.add_static("/static/", static_path)
 
         self._runner = web.AppRunner(self._app)
         await self._runner.setup()
         site = web.TCPSite(self._runner, self._host, self._port)
+        if (
+            getattr(self, "_framework_host", None)
+            and not self._framework_host.restoring
+        ):
+            self._framework_host.restoring = asyncio.create_task(
+                self._framework_host.startup()
+            )
         await site.start()
         self._started_at = time.monotonic()
         self._loop_monitor.start()
@@ -1245,11 +1310,11 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             self._change_detection = None
             logger.warning(f"[BROWSER ADAPTER] change detection unavailable: {e}")
 
+        from app.instance import display_url
+
         # Only print URL info if not using browser startup UI (run.py handles it)
         if os.getenv("BROWSER_STARTUP_UI", "0") != "1":
-            print(
-                f"\nCraftBot Browser Interface running at http://{self._host}:{self._port}"
-            )
+            print(f"\nCraftBot Browser Interface running at {display_url(self._port)}")
             print("Open this URL in your browser to interact with CraftBot.\n")
 
         # Emit ready event
@@ -1258,7 +1323,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 type=UIEventType.INTERFACE_READY,
                 data={
                     "adapter": "browser",
-                    "url": f"http://{self._host}:{self._port}",
+                    "url": display_url(self._port),
                 },
                 source_adapter=self._adapter_id,
             )
@@ -1273,12 +1338,20 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
     async def _on_stop(self) -> None:
         """Stop the browser interface."""
-        # Stop all running Agent App projects
-        if self._agent_app_manager:
-            await self._agent_app_manager.stop_all_projects()
+        if getattr(self, "_framework_host", None):
+            if self._framework_host is getattr(
+                self._controller.agent, "framework_host", None
+            ):
+                from app.agent_app.framework_host import no_ui_change
 
-        # Close integration bridge HTTP client
-        if hasattr(self, "_integration_bridge"):
+                self._framework_host.changed = no_ui_change
+            else:
+                await self._framework_host.close()
+        if self._framework_app_list_task is not None:
+            self._framework_app_list_task.cancel()
+            await asyncio.gather(self._framework_app_list_task, return_exceptions=True)
+            self._framework_app_list_task = None
+        if getattr(self, "_integration_bridge", None) is not None:
             await self._integration_bridge.cleanup()
 
         # Close the Mini Browser while the loop still runs (Chromium holds a
@@ -1370,6 +1443,15 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             )
             return ws
 
+        # The connect snapshot's blocking reads run in worker threads BEFORE
+        # this client joins the broadcast set: from joining until init is
+        # queued nothing awaits, so init still precedes every broadcast.
+        try:
+            snapshot_reads = await self._initial_state_reads()
+        except Exception:
+            await ws.close()
+            return ws
+
         is_first_client = len(self._ws_clients) == 0
         self._ws_clients.add(ws)
         channel = ClientChannel(ws)
@@ -1390,7 +1472,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         # Send initial state (through the channel, so it stays ordered with
         # broadcasts queued for this client)
         try:
-            initial_state = self._get_initial_state()
+            initial_state = self._get_initial_state(*snapshot_reads)
             channel.send_json(
                 {
                     "type": "init",
@@ -1403,23 +1485,12 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     "data": self._get_skill_meta(),
                 }
             )
-            # Push the Agent App list on connect instead of relying on the
-            # client to request it. The frontend's request is sent from an
-            # onOpen handler registered after React mounts; when the socket
-            # opens before that (middleware connects during store bootstrap),
-            # the request was never sent and the side panel stayed empty
-            # until the next reconnect.
-            channel.send_json(
-                {
-                    "type": "agent_app_list",
-                    "data": {
-                        "success": True,
-                        "projects": [
-                            p.to_dict() for p in self._agent_app_manager.list_projects()
-                        ],
-                    },
-                }
-            )
+            # Do not wait for CLI probes before entering the socket reader.
+            self._schedule_framework_app_list()
+            for operation in getattr(self, "_framework_lifecycle_pending", {}).values():
+                channel.send_json(
+                    {"type": "agent_app_framework_lifecycle", "data": operation}
+                )
         except Exception:
             self._ws_clients.discard(ws)
             self._channels.pop(ws, None)
@@ -1436,6 +1507,8 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                             # Liveness probe, answered by the reader itself: the
                             # reply only fails to arrive when the loop is blocked.
                             channel.send_json({"type": "pong"})
+                        elif data.get("type") == "client_hello":
+                            self._handle_client_hello(channel, data)
                         else:
                             self._dispatch_in_lane(ws, data)
                     elif msg.type == WSMsgType.ERROR:
@@ -1482,6 +1555,43 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
         return ws
 
+    def _handle_client_hello(
+        self, channel: ClientChannel, data: Dict[str, Any]
+    ) -> None:
+        """A client introduces itself and declares the extra frames it reads.
+
+        Only the terminal client says hello; the browser never does, so it
+        never receives a capability-gated frame (``_broadcast_capable``).
+        """
+        from app import edition
+        from app.config import get_app_version
+
+        client = data.get("client")
+        capabilities = data.get("capabilities")
+        channel.declare(
+            client if isinstance(client, str) else "",
+            capabilities if isinstance(capabilities, list) else [],
+        )
+        channel.send_json(
+            {
+                "type": "client_hello",
+                "data": {
+                    "protocol": CLIENT_PROTOCOL,
+                    "edition": edition.current(),
+                    "version": get_app_version(),
+                    "capabilities": sorted(channel.capabilities),
+                },
+            }
+        )
+
+    def _broadcast_capable(self, capability: str, message: Dict[str, Any]) -> None:
+        """Queue a message for every client that declared ``capability``."""
+        text = None
+        for channel in list(self._channels.values()):
+            if capability in channel.capabilities:
+                text = text or json.dumps(message)
+                channel.send_text(text)
+
     def _dispatch_in_lane(self, ws: Any, data: Dict[str, Any]) -> None:
         """Handle a browser message as its own task, serialized only with
         earlier messages from this connection in the same lane (ws_lanes.py)."""
@@ -1517,6 +1627,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             # User sent a message (may include attachments)
             content = data.get("content", "")
             attachments = data.get("attachments", [])
+            references = data.get("references", [])
             session_id = data.get("sessionId") or "main"
             client_id = data.get("clientId")
 
@@ -1557,10 +1668,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             # can immediately read the next frame. Otherwise rapid-fire sends are
             # serialised behind each message's per-session processing, which
             # makes optimistic bubbles un-gray one-by-one instead of all at once.
-            if attachments:
+            if attachments or references:
                 asyncio.create_task(
                     self._handle_chat_message_with_attachments(
-                        content, attachments, session_id, client_id
+                        content, attachments, session_id, client_id, references, ws
                     )
                 )
             elif content:
@@ -1782,25 +1893,31 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             updates = data.get("updates", {})
             await self._handle_scheduler_config_update(updates)
 
-        elif msg_type == "proactive_tasks_get":
+        elif msg_type == "cron_jobs_get":
             frequency = data.get("frequency")
-            await self._handle_proactive_tasks_get(frequency)
+            await self._handle_cron_jobs_get(frequency)
 
-        elif msg_type == "proactive_task_add":
-            task_data = data.get("task", {})
-            await self._handle_proactive_task_add(task_data)
+        elif msg_type == "cron_job_add":
+            job_data = data.get("job", {})
+            await self._handle_cron_job_add(job_data)
 
-        elif msg_type == "proactive_task_update":
-            task_id = data.get("taskId", "")
+        elif msg_type == "cron_job_update":
+            job_id = data.get("jobId", "")
             updates = data.get("updates", {})
-            await self._handle_proactive_task_update(task_id, updates)
+            await self._handle_cron_job_update(job_id, updates)
 
-        elif msg_type == "proactive_task_remove":
-            task_id = data.get("taskId", "")
-            await self._handle_proactive_task_remove(task_id)
+        elif msg_type == "cron_job_remove":
+            job_id = data.get("jobId", "")
+            await self._handle_cron_job_remove(job_id)
 
-        elif msg_type == "proactive_tasks_reset":
-            await self._handle_proactive_tasks_reset()
+        elif msg_type == "cron_jobs_reset":
+            await self._handle_cron_jobs_reset()
+
+        elif msg_type == "heartbeat_checklist_get":
+            await self._handle_heartbeat_checklist_get(ws)
+
+        elif msg_type == "heartbeat_checklist_set":
+            await self._handle_heartbeat_checklist_set(data.get("checklist", ""))
 
         elif msg_type == "proactive_file_read":
             await self._handle_proactive_file_read()
@@ -1811,6 +1928,12 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         elif msg_type == "proactive_mode_set":
             enabled = data.get("enabled", True)
             await self._handle_proactive_mode_set(enabled)
+
+        elif msg_type == "proactive_schedule_get":
+            await self._handle_proactive_schedule_get(ws)
+
+        elif msg_type == "proactive_schedule_set":
+            await self._handle_proactive_schedule_set(data)
 
         # Memory operations
         elif msg_type == "memory_mode_get":
@@ -1840,6 +1963,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         elif msg_type == "memory_item_remove":
             item_id = data.get("itemId", "")
             await self._handle_memory_item_remove(item_id)
+
+        elif msg_type == "memory_entity_remove":
+            name = data.get("name", "")
+            await self._handle_memory_entity_remove(name)
 
         elif msg_type == "memory_reset":
             await self._handle_memory_reset()
@@ -1883,6 +2010,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
         elif msg_type == "model_settings_update":
             await self._handle_model_settings_update(data)
+
+        elif msg_type == "model_api_key_remove":
+            await self._handle_model_api_key_remove(data.get("provider", ""))
 
         elif msg_type == "model_connection_test":
             provider = data.get("provider", "")
@@ -1935,6 +2065,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
         elif msg_type == "model_subscription_status":
             await self._handle_model_subscription_status(data.get("provider", ""))
+
+        elif msg_type == "model_subscription_setup":
+            await self._handle_model_subscription_setup(data.get("provider", ""))
 
         elif msg_type == "model_subscription_prepare":
             await self._handle_model_subscription_prepare(data.get("provider", ""))
@@ -2101,58 +2234,6 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         elif msg_type == "figma_canvas_control":
             await self._handle_figma_canvas_control(data)
 
-        # Agent App settings handlers
-        elif msg_type == "agent_app_settings_get":
-            await self._handle_agent_app_settings_get()
-
-        elif msg_type == "agent_app_project_setting_update":
-            project_id = data.get("projectId", "")
-            setting = data.get("setting", "")
-            value = data.get("value")
-            await self._handle_agent_app_project_setting_update(
-                project_id, setting, value
-            )
-
-        elif msg_type == "agent_app_backups_list":
-            await self._handle_agent_app_backups_list(data.get("projectId", ""))
-
-        elif msg_type == "agent_app_backup_now":
-            await self._handle_agent_app_backup_now(data.get("projectId", ""))
-
-        elif msg_type == "agent_app_backup_restore":
-            await self._handle_agent_app_backup_restore(
-                data.get("projectId", ""),
-                data.get("filename", ""),
-                data.get("sourceProjectId") or None,
-            )
-
-        elif msg_type == "agent_app_backup_delete":
-            await self._handle_agent_app_backup_delete(
-                data.get("projectId", ""),
-                data.get("filename", ""),
-                orphan=bool(data.get("orphan", False)),
-            )
-
-        elif msg_type == "agent_app_marketplace_list":
-            await self._handle_marketplace_list()
-
-        elif msg_type == "agent_app_marketplace_install":
-            app_id = data.get("appId", "")
-            app_name = data.get("appName", "")
-            app_description = data.get("appDescription", "")
-            custom_fields = data.get("customFields", {})
-            # Run as background task so the WS loop stays unblocked for concurrent installs
-            asyncio.create_task(
-                self._handle_marketplace_install(
-                    app_id, app_name, app_description, custom_fields
-                )
-            )
-
-        elif msg_type == "agent_app_import":
-            source = data.get("source", "")
-            name = data.get("name", "External App")
-            asyncio.create_task(self._handle_agent_app_import(source, name))
-
         # Playbook catalogue handlers
         elif msg_type == "playbook_list":
             await self._handle_playbook_list()
@@ -2216,52 +2297,18 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             model = data.get("model", "")
             base_url = data.get("baseUrl")
             await self._handle_local_llm_pull_model(model, base_url)
-        # Agent App handlers
-        elif msg_type == "agent_app_create":
-            await self._handle_agent_app_create(data)
-
-        elif msg_type == "agent_app_wizard_interview":
-            await self._handle_agent_app_wizard_interview(data)
-
-        elif msg_type == "agent_app_wizard_finalize":
-            await self._handle_agent_app_wizard_finalize(data)
-
-        elif msg_type == "agent_app_theme_update":
-            await self._handle_agent_app_theme_update(data)
 
         elif msg_type == "agent_app_list":
             await self._handle_agent_app_list()
 
-        elif msg_type == "agent_app_launch":
-            project_id = data.get("projectId", "")
-            await self._handle_agent_app_launch(project_id)
+        elif msg_type == "agent_app_framework_open":
+            await self._handle_framework_app_open(data, ws)
 
-        elif msg_type == "agent_app_stop":
-            project_id = data.get("projectId", "")
-            await self._handle_agent_app_stop(project_id)
+        elif msg_type == "agent_app_framework_request":
+            await self._handle_framework_request(data, ws)
 
-        elif msg_type == "agent_app_delete":
-            project_id = data.get("projectId", "")
-            await self._handle_agent_app_delete(
-                project_id, delete_backups=bool(data.get("deleteBackups", False))
-            )
-
-        elif msg_type == "agent_app_state_update":
-            await self._handle_agent_app_state_update(data)
-
-        elif msg_type == "agent_app_share_open":
-            await self._handle_agent_app_share(
-                data.get("projectId", ""), data.get("channel", ""), open_it=True
-            )
-
-        elif msg_type == "agent_app_share_close":
-            await self._handle_agent_app_share(
-                data.get("projectId", ""), data.get("channel", ""), open_it=False
-            )
-
-        elif msg_type == "agent_app_sharing_info":
-            project_id = data.get("projectId", "")
-            await self._handle_agent_app_sharing_info(project_id)
+        elif msg_type == "agent_app_framework_lifecycle":
+            await self._handle_framework_app_lifecycle(data, ws)
 
         # Update operations
         elif msg_type == "check_update":
@@ -3005,705 +3052,201 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
     # Agent App Handlers
     # -------------------------------------------------------------------------
 
-    async def _handle_agent_app_wizard_interview(self, data: Dict[str, Any]) -> None:
-        """Wizard step 2: generate interview questions from the Step-1
-        configuration via a direct LLM call (no project/session exists yet)."""
-        from app.agent_app import wizard
-
-        wizard_id = str(data.get("wizardId", ""))
-        try:
-            config = data.get("config") or {}
-            agent_app_dir = Path(self._agent_app_manager.agent_app_dir)
-            wizard.sweep_stale_staging(agent_app_dir)
-
-            # Reference images are described once and reused at finalize.
-            image_notes = await wizard.describe_staged_images(agent_app_dir, wizard_id)
-            self._wizard_image_notes[wizard_id] = image_notes
-
-            questions = await wizard.generate_interview(config, image_notes)
-            await self._broadcast(
-                {
-                    "type": "agent_app_wizard_interview",
-                    "data": {
-                        "success": True,
-                        "wizardId": wizard_id,
-                        "questions": questions,
-                    },
-                }
-            )
-        except Exception as e:
-            logger.error(f"[AGENT_APP:WIZARD] interview failed: {e}")
-            await self._broadcast(
-                {
-                    "type": "agent_app_wizard_interview",
-                    "data": {
-                        "success": False,
-                        "wizardId": wizard_id,
-                        "error": str(e),
-                    },
-                }
-            )
-
-    async def _handle_agent_app_wizard_finalize(self, data: Dict[str, Any]) -> None:
-        """Wizard step 3: synthesize the requirements document, create the
-        project, move staged attachments in, queue the build run in the
-        project's session, and hand the frontend its projectId to navigate to."""
-        from app.agent_app import wizard
-
-        wizard_id = str(data.get("wizardId", ""))
-        try:
-            config = data.get("config") or {}
-            answers = data.get("answers") or []
-            name = str(config.get("name", "")).strip()
-            description = str(config.get("description", "")).strip()
-            if not name or not description:
-                raise ValueError(tui("agentapp_name_desc_required"))
-
-            agent_app_dir = Path(self._agent_app_manager.agent_app_dir)
-            image_notes = self._wizard_image_notes.pop(wizard_id, None)
-            if image_notes is None:
-                image_notes = await wizard.describe_staged_images(
-                    agent_app_dir, wizard_id
-                )
-
-            # SECOND INTERVIEW ROUND (one, at most): with a marketplace
-            # match, round 1 collapses to the marketplace question — correct
-            # for the install path, but the other two answers need the real
-            # questions asked NOW (both observed live 2026-08-05):
-            #   adapt  → targeted "what should be different" follow-ups
-            #            (else synthesis fabricates the adaptation list);
-            #   fresh  → the standard requirement interview, catalogue
-            #            withheld (else the build synthesizes from a
-            #            one-line description with zero questions asked).
-            # Fail-open: no follow-ups → synthesize as before.
-            if not bool(data.get("followupDone")):
-                followups = []
-                try:
-                    if wizard.adapt_chosen(answers):
-                        followups = await wizard.generate_followup_questions(
-                            config, answers, image_notes
-                        )
-                    elif wizard.fresh_build_chosen(answers) and len(answers) <= 1:
-                        followups = await wizard.generate_interview(
-                            config, image_notes, include_marketplace=False
-                        )
-                except Exception as e:
-                    logger.warning(f"[AGENT_APP:WIZARD] round 2 skipped: {e}")
-                    followups = []
-                if followups:
-                    # Re-id: a model reusing "q1" would collide with the
-                    # marketplace question and overwrite its answer in the
-                    # frontend's answers map.
-                    for i, q in enumerate(followups):
-                        q["id"] = f"r2-{i + 1}"
-                    self._wizard_image_notes[wizard_id] = image_notes
-                    await self._broadcast(
-                        {
-                            "type": "agent_app_wizard_finalize",
-                            "data": {
-                                "success": True,
-                                "wizardId": wizard_id,
-                                "followupQuestions": followups,
-                            },
-                        }
-                    )
-                    return
-
-            requirements_doc = await wizard.synthesize_requirements(
-                config, answers, image_notes
-            )
-
-            auth_mode = str(config.get("authMode") or "none")
-            # stylePack is derived by the frontend from the theme catalog
-            # (style-bearing theme id, or "" for pinned color themes).
-            style_pack = str(config.get("stylePack") or "")
-            project = await self._agent_app_manager.create_project(
-                name=name,
-                description=description,
-                auth_mode=auth_mode,
-                style_pack=style_pack,
-            )
-
-            # Staged files: uploaded icon → app favicon, references →
-            # <project>/reference/. An uploaded icon wins over a lucide pick.
-            moved = wizard.move_staging_into_project(
-                agent_app_dir, wizard_id, Path(project.path)
-            )
-            if moved["icon"]:
-                project.icon = moved["icon"]
-                # Favicon injection edited the system-owned index.html —
-                # re-canonize hashes so the validation gate stays green.
-                try:
-                    await self._agent_app_manager.runner.kit_sync(Path(project.path))
-                except Exception as e:
-                    logger.warning(f"[AGENT_APP:WIZARD] re-canon failed: {e}")
-            elif str(config.get("icon", "")).startswith("lucide:"):
-                project.icon = str(config.get("icon"))
-
-            # The wizard's theme pick becomes the project's default display
-            # theme — the Agent App page adopts it (absent a local override)
-            # and pushes it to the app via the agentapp-theme protocol.
-            ui_theme = str(config.get("uiTheme") or "").strip()
-            if ui_theme:
-                project.ui_theme = {"themeId": ui_theme}
-            self._agent_app_manager._save_projects()
-
-            # The build's binding specification (walk-verify reads it too).
-            reference_dir = Path(project.path) / "reference"
-            reference_dir.mkdir(parents=True, exist_ok=True)
-            (reference_dir / "requirements.md").write_text(
-                requirements_doc, encoding="utf-8"
-            )
-
-            # Create the project's session BEFORE broadcasting so the project
-            # snapshot carries sessionId — the Agent App page keys its chat
-            # panel on project.sessionId, and nothing back-fills it later.
-            # (start_development_run reuses this session; ensure is idempotent.)
-            self._agent_app_manager.ensure_project_session(project)
-
-            # Same broadcast the plain create path uses — the store's
-            # agent_app_create handler adds the project tab.
-            await self._broadcast(
-                {
-                    "type": "agent_app_create",
-                    "data": {
-                        "success": True,
-                        "projectId": project.id,
-                        "project": project.to_dict(),
-                        "stylePack": style_pack,
-                    },
-                }
-            )
-
-            # Post the "what you asked for" summary as the first bubble in the
-            # PROJECT'S session (never main) — it heads the Agent App chat the
-            # user is auto-switched into, so the build has a visible cause.
-            try:
-                await self._display_chat_message(
-                    "System",
-                    f"**Agent App: {name}**\n\n{description}\n\n"
-                    "Building your app now — follow the progress here.",
-                    "system",
-                    session_id=project.session_id,
-                )
-            except Exception as e:
-                logger.debug(f"[AGENT_APP] create chat message failed: {e}")
-
-            await self._broadcast(
-                {
-                    "type": "agent_app_status",
-                    "data": {
-                        "projectId": project.id,
-                        "phase": "initializing",
-                        "progress": 10,
-                        "message": tui("agentapp_project_created"),
-                    },
-                }
-            )
-
-            # Queue the build run in the project's dedicated session.
-            session_id = await self._agent_app_manager.start_development_run(project.id)
-            if not session_id:
-                raise RuntimeError(tui("agentapp_dev_run_failed"))
-
-            # CHAT-PATH tail: tell the session that ran agent_app_scaffold
-            # which project resulted. Without this the origin agent's last
-            # knowledge is "no project created yet" — observed live
-            # 2026-08-05: asked to "add data to it", it searched the
-            # filesystem and then asked the user for the project id.
-            origin_session = str(data.get("originSessionId") or "").strip()
-            if origin_session:
-                # Persist for the machine's ready/stuck announcements — the
-                # created-trigger below only covers build START.
-                try:
-                    from app.factory.host_craftbot import get_factory_host
-
-                    get_factory_host().set_origin_session(project.id, origin_session)
-                except Exception as e:
-                    logger.debug(f"[AGENT_APP:WIZARD] origin persist failed: {e}")
-                try:
-                    from app.triggers import TriggerSource, TriggerSpec
-
-                    await self._agent_app_manager._trigger_service.emit(
-                        TriggerSpec(
-                            source=TriggerSource.AGENT_APP_CREATED,
-                            description=(
-                                f"FYI: the setup questions were answered — "
-                                f"Agent App '{project.name}' (project_id "
-                                f"{project.id}) has been created and its "
-                                "build is running in its own session. No "
-                                "action and no message needed: acknowledge "
-                                "silently with end_turn unless the user has "
-                                "asked for something. Remember the "
-                                "project_id for future requests about this "
-                                "app."
-                            ),
-                            priority=10,
-                            session_id=origin_session,
-                            payload={"project_id": project.id},
-                        )
-                    )
-                except Exception as e:
-                    logger.debug(
-                        f"[AGENT_APP:WIZARD] origin-session notify failed: {e}"
-                    )
-
-            await self._broadcast(
-                {
-                    "type": "agent_app_wizard_finalize",
-                    "data": {
-                        "success": True,
-                        "wizardId": wizard_id,
-                        "projectId": project.id,
-                    },
-                }
-            )
-        except Exception as e:
-            logger.error(f"[AGENT_APP:WIZARD] finalize failed: {e}")
-            await self._broadcast(
-                {
-                    "type": "agent_app_wizard_finalize",
-                    "data": {
-                        "success": False,
-                        "wizardId": wizard_id,
-                        "error": str(e),
-                    },
-                }
-            )
-
-    async def _handle_agent_app_theme_update(self, data: Dict[str, Any]) -> None:
-        """Persist a project's display theme so it follows the user across
-        browsers ({"projectId", "theme": {"themeId", "customColors"}})."""
-        try:
-            project_id = str(data.get("projectId", ""))
-            theme = data.get("theme")
-            if project_id:
-                self._agent_app_manager.set_project_ui_theme(project_id, theme)
-                # Other tabs and browsers refetch the list, which carries uiTheme.
-                notify_resource_changed(Resource.AGENT_APPS, [project_id])
-        except Exception as e:
-            logger.debug(f"[AGENT_APP] theme update failed: {e}")
-
-    async def _handle_agent_app_create(self, data: Dict[str, Any]) -> None:
-        """Create a new Agent App project."""
-        try:
-            name = data.get("name", "")
-            description = data.get("description", "")
-            features = data.get("features", [])
-            data_source = data.get("dataSource")
-            theme = data.get("theme", "system")
-
-            if not name or not description:
-                await self._broadcast(
-                    {
-                        "type": "agent_app_error",
-                        "data": {
-                            "projectId": "",
-                            "error": tui("agentapp_name_desc_required"),
-                        },
-                    }
-                )
-                return
-
-            # Create the project (directory/template)
-            auth_mode = data.get("authMode", "none")
-            layout = data.get("layout", "")
-            style_pack = data.get("stylePack", "")
-            ref_files = data.get("referenceFiles") or []
-
-            # Fold wizard choices into the build description so they land in
-            # the task instruction and reference/requirements.md.
-            extras = []
-            if layout and layout != "free":
-                extras.append(f"Layout preference: {layout}")
-            if style_pack:
-                extras.append(f"Style pack (visual theme): {style_pack}")
-            if ref_files:
-                names = ", ".join(Path(f).name for f in ref_files[:10])
-                extras.append(
-                    f"Reference files (design sketches/docs) in reference/: {names} — "
-                    "study them before designing the UI."
-                )
-            if extras:
-                description = description + "\n\n" + "\n".join(extras)
-
-            project = await self._agent_app_manager.create_project(
-                name=name,
-                description=description,
-                features=features,
-                data_source=data_source,
-                theme=theme,
-                auth_mode=auth_mode,
-                style_pack=style_pack,
-            )
-
-            # Move staged reference files into the project.
-            if ref_files:
-                ref_dir = Path(project.path) / "reference"
-                ref_dir.mkdir(parents=True, exist_ok=True)
-                for f in ref_files[:10]:
-                    src = Path(f)
-                    staging_root = (
-                        Path(self._agent_app_manager.agent_app_dir) / "_staging"
-                    )
-                    if src.exists() and staging_root in src.parents:
-                        await asyncio.to_thread(
-                            shutil.move, str(src), str(ref_dir / src.name)
-                        )
-
-            # Create the session BEFORE broadcasting so the project snapshot
-            # carries sessionId (the Agent App page's chat panel keys on it;
-            # nothing back-fills it later). start_development_run reuses it.
-            self._agent_app_manager.ensure_project_session(project)
-
-            # Broadcast project created
-            await self._broadcast(
-                {
-                    "type": "agent_app_create",
-                    "data": {
-                        "success": True,
-                        "projectId": project.id,
-                        "project": project.to_dict(),
-                        "stylePack": style_pack,
-                    },
-                }
-            )
-
-            # Post the "what you asked for" summary as the first bubble in the
-            # PROJECT'S session (never main) — it heads the Agent App chat the
-            # user is auto-switched into, so the build has a visible cause.
-            try:
-                await self._display_chat_message(
-                    "System",
-                    f"**Agent App: {name}**\n\n{description}\n\n"
-                    "Building your app now — follow the progress here.",
-                    "system",
-                    session_id=project.session_id,
-                )
-            except Exception as e:
-                logger.debug(f"[AGENT_APP] create chat message failed: {e}")
-
-            # Broadcast initial status update
-            await self._broadcast(
-                {
-                    "type": "agent_app_status",
-                    "data": {
-                        "projectId": project.id,
-                        "phase": "initializing",
-                        "progress": 10,
-                        "message": tui("agentapp_project_created"),
-                    },
-                }
-            )
-
-            # Queue the build run in the project's dedicated session.
-            # The manager handles: session creation, status update, trigger firing.
-            session_id = await self._agent_app_manager.start_development_run(project.id)
-
-            if session_id:
-                logger.info(
-                    f"[AGENT_APP] Queued build run in session {session_id} "
-                    f"for project {project.id}"
-                )
-            else:
-                logger.error(
-                    f"[AGENT_APP] Failed to start development run for project {project.id}"
-                )
-                await self._broadcast(
-                    {
-                        "type": "agent_app_error",
-                        "data": {
-                            "projectId": project.id,
-                            "error": tui("agentapp_dev_run_failed"),
-                        },
-                    }
-                )
-
-        except Exception as e:
-            logger.error(f"[AGENT_APP] Error creating project: {e}")
-            await self._broadcast(
-                {
-                    "type": "agent_app_error",
-                    "data": {
-                        "projectId": "",
-                        "error": str(e),
-                    },
-                }
-            )
-
     async def _handle_agent_app_list(self) -> None:
-        """Get list of all Agent App projects."""
+        self._schedule_framework_app_list()
+
+    async def _framework_changed(self) -> None:
+        await self._handle_agent_app_list()
+        await self._handle_session_list()
+
+    async def _handle_framework_request(self, data: Dict[str, Any], ws) -> None:
         try:
-            projects = self._agent_app_manager.list_projects()
-            await self._broadcast(
-                {
-                    "type": "agent_app_list",
-                    "data": {
-                        "success": True,
-                        "projects": [p.to_dict() for p in projects],
-                    },
-                }
-            )
-            # Replay buffered build events for any in-progress build so a
-            # reconnecting client repopulates the construction dock feed.
-            try:
-                from app.agent_app import construction_events
+            result = await self._framework_host.request(data)
+            response = {"status": "success", "result": result}
+        except Exception as exc:
+            response = {"status": "error", "message": str(exc)}
+        await self._send_to(
+            ws,
+            {
+                "type": "agent_app_framework_response",
+                "data": {"requestId": data.get("requestId"), **response},
+            },
+        )
 
-                live_ids = {p.id for p in projects}
-                for stale_id in [
-                    pid for pid in self._agent_app_todos if pid not in live_ids
-                ]:
-                    del self._agent_app_todos[stale_id]
-                for p in projects:
-                    if getattr(p, "status", None) not in ("creating", "error"):
-                        continue
-                    todos = self._agent_app_todos.get(p.id)
-                    if todos:
-                        await self._broadcast(
-                            {
-                                "type": "agent_app_todos",
-                                "data": {"projectId": p.id, "todos": todos},
-                            }
-                        )
-                    events = construction_events.get_buffered_events(p.id)
-                    if events:
-                        await self._broadcast(
-                            {
-                                "type": "agent_app_build_events_replay",
-                                "data": {"projectId": p.id, "events": events},
-                            }
-                        )
-            except Exception as e:
-                logger.debug(f"[AGENT_APP] build-event replay skipped: {e}")
-        except Exception as e:
-            logger.error(f"[AGENT_APP] Error listing projects: {e}")
-            await self._broadcast(
-                {
-                    "type": "agent_app_list",
-                    "data": {
-                        "success": False,
-                        "error": str(e),
-                    },
-                }
-            )
+    async def _handle_framework_app_open(self, data: Dict[str, Any], ws) -> None:
+        from app.agent_app.framework import open_app_view
 
-    async def _handle_agent_app_launch(self, project_id: str) -> None:
-        """Launch a Agent App project."""
+        if self.client_channel(ws) is None:
+            return
+        request_id = data.get("requestId")
+        if not isinstance(request_id, str) or not request_id or len(request_id) > 128:
+            return
         try:
-            success = await self._agent_app_manager.launch_project(project_id)
-            project = self._agent_app_manager.get_project(project_id)
+            result = await open_app_view(data.get("path"), data.get("appId"))
+        except Exception as exc:
+            result = {"status": "error", "code": "query_failed", "message": str(exc)}
+        # Opening is a presentation request from one tab, never a broadcast or
+        # a legacy manager action. Late replies cannot navigate another tab.
+        self.send_only_to(
+            ws,
+            {
+                "type": "agent_app_framework_open",
+                "data": {**result, "requestId": request_id},
+            },
+        )
 
-            if success and project:
-                await self._broadcast(
-                    {
-                        "type": "agent_app_launch",
-                        "data": {
-                            "success": True,
-                            "projectId": project_id,
-                            "url": project.url,
-                            "port": project.port,
-                        },
-                    }
-                )
-            else:
-                await self._broadcast(
-                    {
-                        "type": "agent_app_launch",
-                        "data": {
-                            "success": False,
-                            "projectId": project_id,
-                            "error": project.error if project else "Project not found",
-                        },
-                    }
-                )
-        except Exception as e:
-            logger.error(f"[AGENT_APP] Error launching project: {e}")
-            await self._broadcast(
+    async def _handle_framework_app_lifecycle(self, data: Dict[str, Any], ws) -> None:
+        from app.agent_app.framework import change_app_state
+
+        if self.client_channel(ws) is None:
+            return
+        fields = {
+            name: data.get(name) for name in ("requestId", "path", "appId", "operation")
+        }
+        if any(not isinstance(value, str) or not value for value in fields.values()):
+            return
+        if len(fields["requestId"]) > 128 or fields["operation"] not in (
+            "start",
+            "stop",
+        ):
+            return
+        pending = self._framework_lifecycle_pending
+        path = fields["path"]
+        if path in pending:
+            # A second tab joins the in-flight operation, never queues a hidden
+            # Stop behind Start or accidentally starts a second instance.
+            self.send_only_to(
+                ws,
                 {
-                    "type": "agent_app_launch",
+                    "type": "agent_app_framework_lifecycle",
                     "data": {
-                        "success": False,
-                        "projectId": project_id,
-                        "error": str(e),
+                        **pending[path],
+                        "message": "An operation is already in progress. Wait for it to finish before sending another command.",
                     },
-                }
-            )
-
-    async def _handle_agent_app_stop(self, project_id: str) -> None:
-        """Stop a running Agent App project."""
-        try:
-            success = await self._agent_app_manager.stop_project(project_id)
-            await self._broadcast(
-                {
-                    "type": "agent_app_stop",
-                    "data": {
-                        "success": success,
-                        "projectId": project_id,
-                    },
-                }
-            )
-        except Exception as e:
-            logger.error(f"[AGENT_APP] Error stopping project: {e}")
-            await self._broadcast(
-                {
-                    "type": "agent_app_stop",
-                    "data": {
-                        "success": False,
-                        "projectId": project_id,
-                        "error": str(e),
-                    },
-                }
-            )
-
-    async def _handle_agent_app_delete(
-        self, project_id: str, delete_backups: bool = False
-    ) -> None:
-        """Delete a Agent App project (and its dedicated session)."""
-        try:
-            project = self._agent_app_manager.get_project(project_id)
-            session_id = project.session_id if project else None
-
-            success = await self._agent_app_manager.delete_project(
-                project_id, delete_backups=delete_backups
-            )
-            try:
-                from app.agent_app import construction_events
-
-                construction_events.clear_buffer(project_id)
-            except Exception:
-                pass
-            await self._broadcast(
-                {
-                    "type": "agent_app_delete",
-                    "data": {
-                        "success": success,
-                        "projectId": project_id,
-                    },
-                }
-            )
-            # The manager deletes the project's session as part of
-            # delete_project — tell the sidebar to drop it too.
-            if success and session_id:
-                await self._broadcast(
-                    {
-                        "type": "session_deleted",
-                        "data": {"sessionId": session_id},
-                    }
-                )
-        except Exception as e:
-            logger.error(f"[AGENT_APP] Error deleting project: {e}")
-            await self._broadcast(
-                {
-                    "type": "agent_app_delete",
-                    "data": {
-                        "success": False,
-                        "projectId": project_id,
-                        "error": str(e),
-                    },
-                }
-            )
-
-    async def _agent_app_export_handler(self, request: "web.Request") -> "web.Response":
-        """HTTP handler: download a Agent App project as a ZIP file."""
-        from aiohttp import web
-
-        project_id = request.match_info["project_id"]
-        try:
-            zip_path = self._agent_app_manager.export_project_zip(project_id)
-            project = self._agent_app_manager.get_project(project_id)
-            filename = (
-                f"{project.name.replace(' ', '_')}.zip"
-                if project
-                else f"{project_id}.zip"
-            )
-
-            response = web.FileResponse(
-                zip_path,
-                headers={
-                    "Content-Disposition": f'attachment; filename="{filename}"',
-                    "Content-Type": "application/zip",
                 },
             )
-            # Schedule cleanup after response is sent
-            response._zip_cleanup_path = zip_path
-            return response
-        except (ValueError, FileNotFoundError) as e:
-            from agent_core.core.errors import ErrorCategory, ErrorInfo, redact
-            from app.errors.web import error_json_response
-
-            return error_json_response(
-                ErrorInfo(
-                    category=ErrorCategory.NOT_FOUND,
-                    code="AGENT_APP_EXPORT_NOT_FOUND",
-                    title="Export not found",
-                    message=redact(str(e)),
-                ),
-                status=404,
+            return
+        pending[path] = {**fields, "status": "running"}
+        await self._broadcast(
+            {"type": "agent_app_framework_lifecycle", "data": pending[path]}
+        )
+        try:
+            try:
+                result = await change_app_state(
+                    path, fields["appId"], fields["operation"]
+                )
+            except Exception as exc:
+                result = {"status": "error", "code": "uncertain", "message": str(exc)}
+            snapshot = result.pop("registry", None)
+            version = result.pop("registry_version", None)
+            if snapshot is not None:
+                await self._publish_framework_app_list(snapshot, version)
+            else:
+                await self._refresh_framework_app_list()
+            await self._broadcast(
+                {"type": "agent_app_framework_lifecycle", "data": {**fields, **result}}
             )
-        except Exception as e:
-            logger.error(f"[AGENT_APP] Export error: {e}")
-            from agent_core.core.errors import ErrorCategory, ErrorInfo, redact
-            from app.errors.web import error_json_response
+        finally:
+            pending.pop(path, None)
 
-            return error_json_response(
-                ErrorInfo(
-                    category=ErrorCategory.INTERNAL,
-                    code="AGENT_APP_EXPORT_FAILED",
-                    title="Export failed",
-                    message=redact(str(e)),
-                ),
-                status=500,
+    def _schedule_framework_app_list(self) -> None:
+        """Coalesce concurrent clients/refreshes into one framework query."""
+        task = self._framework_app_list_task
+        if task is None or task.done():
+            self._framework_app_list_task = asyncio.create_task(
+                self._refresh_framework_app_list()
             )
+        else:
+            # A mutation may have landed after the running read started.
+            self._framework_app_list_dirty = True
+
+    async def _refresh_framework_app_list(self) -> None:
+        from app.agent_app.framework import list_apps, registry_observation
+
+        while True:
+            self._framework_app_list_dirty = False
+            version = registry_observation()
+            await self._broadcast(
+                {"type": "agent_app_framework_list", "data": {"status": "loading"}}
+            )
+            try:
+                result = await list_apps()
+            except Exception as exc:
+                result = {"status": "error", "message": str(exc)}
+            if version < getattr(self, "_framework_app_list_version", 0):
+                # A newly connected tab may have joined this obsolete read after
+                # the newer snapshot was broadcast. Give it a fresh observation.
+                continue
+            # Publish registry identity and status as one coherent snapshot.
+            await self._publish_framework_app_list(result, version)
+            if self._framework_app_list_dirty:
+                continue
+            return
+
+    async def _publish_framework_app_list(self, result: dict, version: int) -> None:
+        # A pre-command probe must not overwrite the post-command snapshot when
+        # it finishes late. This orders observations, not app/process state.
+        if version < getattr(self, "_framework_app_list_version", 0):
+            return
+        self._framework_app_list_version = version
+        host = getattr(self, "_framework_host", None)
+        if result.get("status") == "success" and host is not None:
+            # Theme choices belong to this CraftBot profile, not app manifests.
+            preferences = {
+                (a["path"], a["appId"]): a.get("uiTheme")
+                for a in (await host.snapshot())["attachments"]
+            }
+            if version < self._framework_app_list_version:
+                return
+            apps = [
+                {**row, "uiTheme": preferences.get((row["path"], row["id"]))}
+                for row in result["data"]["apps"]
+            ]
+            aliases = {}
+            for receipt in host.store.all("migration"):
+                if receipt.get("phase") == "complete" and any(
+                    row["path"] == receipt["target"] and row["id"] == receipt["appId"]
+                    for row in result["data"]["apps"]
+                ):
+                    aliases[receipt["legacyId"]] = "framework:" + json.dumps(
+                        [receipt["target"], receipt["appId"]],
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                    )
+                else:
+                    aliases.pop(receipt["legacyId"], None)
+            result = {
+                **result,
+                "data": {**result["data"], "apps": apps, "aliases": aliases},
+            }
+        await self._broadcast({"type": "agent_app_framework_list", "data": result})
 
     async def _agent_app_stage_handler(self, request: "web.Request") -> "web.Response":
         """Stage a reference file (sketch/screenshot/doc) for a NEW Agent App.
 
         Saves under agent_app/_staging/refs/ and returns {"path": ...}. The
         create flow moves staged files into the project's reference/ dir.
-
-        Wizard mode: with ?wizardId=<id> (and optional &kind=icon) the file
-        stages under agent_app/_staging/wizard/<id>/ instead; icons are
-        normalized to icon.<ext> so finalize can find them.
         """
         from aiohttp import web
 
-        from app.agent_app import wizard
-
-        wizard_id = request.query.get("wizardId", "")
-        kind = request.query.get("kind", "reference")
         try:
             reader = await request.multipart()
             saved = None
             async for part in reader:
                 if part.name == "file":
                     filename = Path(part.filename or "reference.bin").name
-                    if wizard_id:
-                        staging = wizard.staging_dir(
-                            Path(self._agent_app_manager.agent_app_dir), wizard_id
-                        )
-                        if kind == "icon":
-                            filename = f"icon{Path(filename).suffix.lower() or '.png'}"
-                    else:
-                        staging = (
-                            Path(self._agent_app_manager.agent_app_dir)
-                            / "_staging"
-                            / "refs"
-                        )
+                    staging = (
+                        Path(AGENT_WORKSPACE_ROOT) / "agent_app" / "_staging" / "refs"
+                    )
                     staging.mkdir(parents=True, exist_ok=True)
                     target = staging / filename
-                    if wizard_id and kind == "icon":
-                        # Re-picking the icon replaces it (finalize looks
-                        # for exactly icon.<ext>); clear stale extensions.
-                        for old in staging.glob("icon.*"):
-                            old.unlink(missing_ok=True)
-                    else:
-                        i = 1
-                        while target.exists():
-                            target = (
-                                staging
-                                / f"{target.stem.split('__')[0]}__{i}{target.suffix}"
-                            )
-                            i += 1
+                    i = 1
+                    while target.exists():
+                        target = (
+                            staging
+                            / f"{target.stem.split('__')[0]}__{i}{target.suffix}"
+                        )
+                        i += 1
                     with open(target, "wb") as f:
                         while True:
                             chunk = await part.read_chunk()
@@ -3717,37 +3260,18 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         except Exception as e:
             return web.json_response({"error": str(e)}, status=500)
 
-    async def _agent_app_icon_handler(
-        self, request: "web.Request"
-    ) -> "web.StreamResponse":
-        """Serve a project's uploaded icon (project.icon == "file:<relpath>")."""
-        from aiohttp import web
-
-        project = self._agent_app_manager.get_project(
-            request.match_info.get("project_id", "")
-        )
-        if project and (project.icon or "").startswith("file:"):
-            icon_path = (Path(project.path) / project.icon[5:]).resolve()
-            # The relpath is server-written, but never serve outside the project.
-            if icon_path.is_file() and str(icon_path).startswith(
-                str(Path(project.path).resolve())
-            ):
-                return web.FileResponse(icon_path)
-        return web.json_response({"error": "no icon"}, status=404)
-
     async def _agent_app_import_handler(self, request: "web.Request") -> "web.Response":
         """HTTP handler: stage a ZIP file upload and return the temp path.
 
-        The frontend then sends a agent_app_import WebSocket message with
-        the path so the agent handles extraction via the importer skill.
+        The frontend then inspects and installs it through the existing CLI.
         """
         from aiohttp import web
 
+        zip_path = None
         try:
             import tempfile
 
             reader = await request.multipart()
-            zip_path = None
             name = ""
 
             async for part in reader:
@@ -3755,23 +3279,26 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     name = (await part.read()).decode("utf-8")
                 elif part.name == "file":
                     # Save uploaded file to a staging location
-                    staging_dir = (
-                        Path(self._agent_app_manager.agent_app_dir) / "_staging"
-                    )
+                    staging_dir = Path(AGENT_WORKSPACE_ROOT) / "agent_app" / "_staging"
                     staging_dir.mkdir(parents=True, exist_ok=True)
-                    tmp = tempfile.NamedTemporaryFile(
+                    with tempfile.NamedTemporaryFile(
                         suffix=".zip",
                         prefix="import_",
                         dir=str(staging_dir),
                         delete=False,
-                    )
-                    while True:
-                        chunk = await part.read_chunk()
-                        if not chunk:
-                            break
-                        tmp.write(chunk)
-                    tmp.close()
-                    zip_path = tmp.name
+                    ) as tmp:
+                        zip_path = tmp.name
+                        size = 0
+                        while True:
+                            chunk = await part.read_chunk()
+                            if not chunk:
+                                break
+                            size += len(chunk)
+                            if size > 512 * 1024 * 1024:
+                                raise ValueError(
+                                    "Agent-App packages must be 512 MiB or smaller. Export without dependencies, build output or local data."
+                                )
+                            tmp.write(chunk)
 
             if not zip_path:
                 return web.json_response({"error": tui("agentapp_no_zip")}, status=400)
@@ -3783,7 +3310,13 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     "name": name,
                 }
             )
+        except ValueError as e:
+            if zip_path:
+                Path(zip_path).unlink(missing_ok=True)
+            return web.json_response({"error": str(e)}, status=413)
         except Exception as e:
+            if zip_path:
+                Path(zip_path).unlink(missing_ok=True)
             logger.error(f"[AGENT_APP] Upload staging error: {e}")
             return web.json_response({"error": str(e)}, status=500)
 
@@ -4043,14 +3576,29 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 tmp.write(bundle_bytes)
                 tmp_path = tmp.name
 
-            # Pass the live AgentAppManager so imported projects land in its
-            # in-memory state. Without this, the manager's stale state will
-            # overwrite our file on the next status update / watchdog tick.
             result = import_profile(
                 tmp_path,
                 mode=mode,
-                agent_app_manager=self._agent_app_manager,
             )
+            if result.get("success"):
+                # Packages install alongside existing apps through upstream.
+                # Importing a shared profile never restores task grants or data.
+                jobs = []
+                package_errors = []
+                for package in result.pop("framework_packages", []):
+                    try:
+                        job = await self._framework_host.start_install(
+                            package, uuid.uuid4().hex
+                        )
+                        jobs.append(job["id"])
+                    except Exception as error:
+                        package_errors.append({"package": package, "error": str(error)})
+                result["framework_install_jobs"] = jobs
+                result["framework_install_errors"] = package_errors
+                if jobs or package_errors:
+                    result["framework_install_message"] = (
+                        "Profile imported. App installations run in the background. Successfully installed apps appear under Agent App."
+                    )
         except Exception as exc:
             logger.error(f"[PROFILE_BUNDLE] Import failed: {exc}", exc_info=True)
             return web.json_response({"error": str(exc)}, status=500)
@@ -4063,230 +3611,6 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     pass
 
         return web.json_response(result)
-
-    async def _handle_agent_app_state_update(self, data: Dict[str, Any]) -> None:
-        """Handle state update from a Agent App for agent awareness."""
-        try:
-            project_id = data.get("projectId", "")
-            state = data.get("state", {})
-
-            # Store the state for agent context
-            from app.state import STATE
-
-            if hasattr(STATE, "update_agent_app_state"):
-                STATE.update_agent_app_state(project_id, state)
-
-            # Also forward to any listening clients (for debugging/monitoring)
-            await self._broadcast(
-                {
-                    "type": "agent_app_state_update",
-                    "data": {
-                        "projectId": project_id,
-                        "state": state,
-                    },
-                }
-            )
-        except Exception as e:
-            logger.error(f"[AGENT_APP] Error handling state update: {e}")
-
-    async def _handle_agent_app_sharing_info(
-        self, project_id: str, error: Optional[Dict[str, str]] = None
-    ) -> None:
-        """Broadcast the project's share links: {channel: link | None}. A
-        link carries its secret — the bare URL admits nobody."""
-        await self._broadcast(
-            {
-                "type": "agent_app_sharing_info",
-                "data": {
-                    "projectId": project_id,
-                    "links": self._agent_app_manager.share_links(project_id),
-                    "error": error,
-                },
-            }
-        )
-
-    async def _handle_agent_app_share(
-        self, project_id: str, channel: str, open_it: bool
-    ) -> None:
-        """Open or close one share channel ("lan" | "tunnel"), then answer
-        with the current links (and why, if opening failed)."""
-        error = None
-        try:
-            if open_it:
-                await self._agent_app_manager.open_share(project_id, channel)
-            else:
-                await self._agent_app_manager.close_share(project_id, channel)
-        except Exception as e:
-            logger.error(
-                f"[AGENT_APP] Share {channel} {'open' if open_it else 'close'} "
-                f"failed for {project_id}: {e}",
-                exc_info=not isinstance(e, ShareError),
-            )
-            error = {"channel": channel, "message": str(e)}
-        await self._handle_agent_app_sharing_info(project_id, error)
-
-    async def broadcast_agent_app_ready(
-        self, project_id: str, url: str, port: int
-    ) -> bool:
-        """
-        Broadcast that a Agent App is ready (called from agent action).
-
-        This method launches the Agent App server via the manager and notifies
-        the browser. The agent should NOT start the server itself - just build
-        and call this action.
-
-        Returns:
-            True if project was found and launched successfully, False otherwise
-        """
-        project = self._agent_app_manager.get_project(project_id)
-        if not project:
-            logger.error(
-                f"[AGENT_APP] Project not found for ready notification: {project_id}"
-            )
-            # Broadcast error to browser so it can display the error state
-            await self._broadcast(
-                {
-                    "type": "agent_app_error",
-                    "data": {
-                        "projectId": project_id,
-                        "error": f"Project '{project_id}' not found. Check that the project_id matches the one from the build instruction.",
-                    },
-                }
-            )
-            return False
-
-        # The delivery/deploy paths (finalize_first_delivery, finalize_modify)
-        # hand this method an app that is ALREADY running and healthy — the
-        # unconditional status-flip + launch_project below then killed the
-        # just-delivered app and re-ran the full pipeline a second time
-        # (observed 2026-08-04, kanban_board_1bb64990: every delivery and
-        # every modify-flip restarted the app twice, ~9 s of extra downtime
-        # right after the user was told "ready"). Launch only when the app
-        # is not actually up.
-        if (
-            project.status == "running"
-            and project.port
-            and self._agent_app_manager._is_port_in_use(project.port)
-        ):
-            success = True
-        else:
-            # Update project status to "ready" (build complete, about to launch)
-            self._agent_app_manager.update_project_status(project_id, "ready")
-
-            # Launch the project server via manager (centralizes process management)
-            success = await self._agent_app_manager.launch_project(project_id)
-
-        if success:
-            # Get updated project info with URL
-            project = self._agent_app_manager.get_project(project_id)
-            await self._broadcast(
-                {
-                    "type": "agent_app_ready",
-                    "data": {
-                        "projectId": project_id,
-                        "url": project.url if project else url,
-                        "port": project.port if project else port,
-                        "sessionId": project.session_id if project else None,
-                    },
-                }
-            )
-            logger.info(f"[AGENT_APP] Project {project_id} launched and ready")
-            # Build finished — drop the buffered construction-dock feed so a
-            # later rebuild of the same project starts from a clean slate.
-            try:
-                from app.agent_app import construction_events
-
-                construction_events.clear_buffer(project_id)
-            except Exception:
-                pass
-            return True
-        else:
-            # Launch failed
-            await self._broadcast(
-                {
-                    "type": "agent_app_error",
-                    "data": {
-                        "projectId": project_id,
-                        "error": tui("agentapp_launch_failed"),
-                    },
-                }
-            )
-            logger.error(f"[AGENT_APP] Failed to launch project {project_id}")
-            return False
-
-    async def broadcast_agent_app_wizard_open(self, payload: Dict[str, Any]) -> None:
-        """Open the Create Custom wizard at the interview step (chat-path
-        requirements phase: agent_app_scaffold has questions for the user)."""
-        await self._broadcast({"type": "agent_app_wizard_open", "data": payload})
-
-    async def broadcast_agent_app_created(self, project: Dict[str, Any]) -> None:
-        """Broadcast that a Agent App project was created (called from agent action).
-
-        Mirrors the modal create flow's broadcast so a chat-created Agent App is
-        registered in the browser's project list and shows its build progress.
-        """
-        await self._broadcast(
-            {
-                "type": "agent_app_create",
-                "data": {
-                    "success": True,
-                    "projectId": project.get("id", ""),
-                    "project": project,
-                },
-            }
-        )
-
-    async def broadcast_agent_app_progress(
-        self, project_id: str, phase: str, progress: int, message: str
-    ) -> None:
-        """Broadcast Agent App creation progress (called from agent action)."""
-        await self._broadcast(
-            {
-                "type": "agent_app_status",
-                "data": {
-                    "projectId": project_id,
-                    "phase": phase,
-                    "progress": progress,
-                    "message": message,
-                },
-            }
-        )
-
-    async def broadcast_agent_app_todos(
-        self,
-        project_id: str,
-        todos: list,
-    ) -> None:
-        """Broadcast the agent's current todo list for a Agent App build.
-
-        Fired from the SessionManager's post-update-todos hook whenever the
-        agent updates its todos during a Agent App build run.
-        """
-        self._agent_app_todos[project_id] = todos
-        await self._broadcast(
-            {
-                "type": "agent_app_todos",
-                "data": {
-                    "projectId": project_id,
-                    "todos": todos,
-                },
-            }
-        )
-
-    async def broadcast_agent_app_build_event(
-        self, project_id: str, event: dict
-    ) -> None:
-        """Broadcast one construction-dock build event (from the read-only
-        observer in construction_events). Fire-and-forget UI observation."""
-        await self._broadcast(
-            {
-                "type": "agent_app_build_event",
-                "data": {
-                    "projectId": project_id,
-                    "event": event,
-                },
-            }
-        )
 
     async def _handle_option_click(
         self, value: str, session_id: str, message_id: str
@@ -4441,8 +3765,13 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         """SessionInfo wire shape for a Session."""
         from agent_core.core.impl.llm import LLMCallType
 
-        usage = self._controller.agent.llm.last_request(
-            session.id, LLMCallType.ACTION_SELECTION
+        agent = self._controller.agent
+        usage = agent.llm.last_request(session.id, LLMCallType.ACTION_SELECTION)
+        streams = agent.event_stream_manager
+        fold = (
+            streams.get_stream_by_id(session.id).last_fold
+            if streams.has_stream(session.id)
+            else None
         )
         return {
             "id": session.id,
@@ -4451,8 +3780,15 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             "createdAt": session.created_at,
             "lastActiveAt": session.last_active_at,
             "agentAppProjectId": session.agent_app_project_id,
+            "agentAppFrameworkKey": getattr(session, "agent_app_framework_key", None),
+            "agentAppFrameworkPending": getattr(
+                session, "agent_app_framework_pending", False
+            ),
+            "agentAppBuild": self._framework_host.build_info(session)
+            if getattr(self, "_framework_host", None)
+            else None,
             "reasoningEffort": session.reasoning_effort,
-            # The last decision request, for the reasoning menu's context and
+            # The last decision request, for the context menu's context and
             # cache readout; null until the session's first request.
             "lastRequest": (
                 {
@@ -4465,6 +3801,15 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 if usage is not None
                 else None
             ),
+            # The stream's latest fold: until a request after it reports its
+            # size, the readout takes it off the last request's.
+            "lastFold": (
+                {"at": round(fold.at * 1000), "freedTokens": fold.freed_tokens}
+                if fold is not None
+                else None
+            ),
+            # A fold the user asked for (/fold) is summarizing the stream.
+            "folding": session.id in agent.folding_sessions,
         }
 
     @staticmethod
@@ -4589,7 +3934,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             except Exception:
                 pass
             try:
-                get_action_storage().clear_items(session_id)
+                get_action_storage().clear_items_later(session_id)
             except Exception:
                 pass
             await self.broadcast_session_cleared(session_id)
@@ -4659,6 +4004,13 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             await self._send_to(ws, message)
         else:
             await self._broadcast(message)
+
+    async def broadcast_agent_stream(self, data: Dict[str, Any]) -> None:
+        """Broadcast a decision reply as the model writes it (ReplyStream):
+        its reasoning, the actions being prepared and the reply message so
+        far ("update"), then which of them run ("end"). Not stored: the
+        events the turn logs replace it."""
+        await self._broadcast({"type": "agent_stream", "data": data})
 
     async def broadcast_session_updated(self, session_id: str) -> None:
         """Broadcast a session's refreshed metadata (title, last-active, ...).
@@ -4924,14 +4276,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     }
                 )
 
-            # If AgentApp apps were deleted, push refreshed (now-empty) lists so
-            # the frontend reflects the deletion. Both the main AgentApp page
-            # (agent_app_list) and the Settings > AgentApp page
-            # (agent_app_settings_get) cache their own project lists and won't
-            # refetch on their own, so we must push to both.
+            # Publish the registry after reset so all app views reconcile.
             if components is not None and "agentapp" in components:
                 await self._handle_agent_app_list()
-                await self._handle_agent_app_settings_get()
 
             await self._broadcast(
                 {
@@ -4977,6 +4324,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             "craftbot-skill-improve",
             "memory-processor",
             "heartbeat-processor",
+            "cron-job-runner",
             "user-profile-interview",
             "day-planner",
             "week-planner",
@@ -5002,6 +4350,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             "memory-processor",
             "user-profile-interview",
             "heartbeat-processor",
+            "cron-job-runner",
             "day-planner",
             "week-planner",
             "month-planner",
@@ -5404,210 +4753,161 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
             )
 
-    async def _handle_proactive_tasks_get(self, frequency: str = None) -> None:
-        """Get proactive tasks from PROACTIVE.md."""
+    async def _handle_cron_jobs_get(self, frequency: str = None) -> None:
+        """Send the cron jobs in PROACTIVE.md."""
         agent = self._controller.agent
         proactive_manager = getattr(agent, "proactive_manager", None)
 
-        # Reload from file before getting tasks
+        # Reload from file before listing
         if proactive_manager:
             reload_proactive_manager(proactive_manager)
 
-        result = get_recurring_tasks(
-            proactive_manager,
-            frequency=frequency,
-            enabled_only=False,
+        result = get_cron_jobs(
+            proactive_manager, frequency=frequency, enabled_only=False
         )
 
         if result.get("success"):
+            # The chat each job runs in; None once that chat is deleted.
+            sessions = getattr(agent, "session_manager", None)
+
+            def _chat(session_id):
+                return sessions.get(session_id) if sessions else None
+
             # Convert to frontend format (camelCase)
-            tasks_data = []
-            for task in result.get("tasks", []):
-                task_dict = {
-                    "id": task.get("id"),
-                    "name": task.get("name"),
-                    "frequency": task.get("frequency"),
-                    "instruction": task.get("instruction"),
-                    "enabled": task.get("enabled"),
-                    "priority": task.get("priority"),
-                    "permissionTier": task.get("permission_tier"),
-                    "time": task.get("time"),
-                    "day": task.get("day"),
-                    "runCount": task.get("run_count", 0),
-                    "lastRun": task.get("last_executed"),
-                    "nextRun": task.get("next_run"),
-                    "outcomeHistory": task.get("outcome_history", []),
-                }
-                tasks_data.append(task_dict)
-
-            await self._broadcast(
+            jobs_data = [
                 {
-                    "type": "proactive_tasks_get",
-                    "data": {
-                        "tasks": tasks_data,
-                        "success": True,
-                    },
+                    "id": job.get("id"),
+                    "name": job.get("name"),
+                    "frequency": job.get("frequency"),
+                    "instruction": job.get("instruction"),
+                    "enabled": job.get("enabled"),
+                    "priority": job.get("priority"),
+                    "permissionTier": job.get("permission_tier"),
+                    "sessionId": job.get("session_id"),
+                    "sessionTitle": getattr(
+                        _chat(job.get("session_id")), "title", None
+                    ),
+                    "available": _chat(job.get("session_id")) is not None,
+                    "time": job.get("time"),
+                    "day": job.get("day"),
+                    "runCount": job.get("run_count", 0),
+                    "lastRun": job.get("last_executed"),
+                    "nextRun": job.get("next_run"),
+                    "outcomeHistory": job.get("outcome_history", []),
                 }
-            )
+                for job in result.get("jobs", [])
+            ]
+            data = {"jobs": jobs_data, "success": True}
         else:
-            await self._broadcast(
-                {
-                    "type": "proactive_tasks_get",
-                    "data": {
-                        "tasks": [],
-                        "success": False,
-                        "error": result.get("error", "Unknown error"),
-                    },
-                }
-            )
+            data = {
+                "jobs": [],
+                "success": False,
+                "error": result.get("error", "Unknown error"),
+            }
+        await self._broadcast({"type": "cron_jobs_get", "data": data})
 
-    async def _handle_proactive_task_add(self, task_data: Dict[str, Any]) -> None:
-        """Add a new proactive task."""
+    async def _handle_cron_job_add(self, job_data: Dict[str, Any]) -> None:
+        """Add a cron job."""
         agent = self._controller.agent
         proactive_manager = getattr(agent, "proactive_manager", None)
 
-        result = add_recurring_task(
+        result = add_cron_job(
             proactive_manager,
-            name=task_data.get("name", "New Task"),
-            frequency=task_data.get("frequency", "daily"),
-            instruction=task_data.get("instruction", ""),
-            enabled=task_data.get("enabled", True),
-            priority=task_data.get("priority", 50),
-            permission_tier=task_data.get("permissionTier", 1),
-            time=task_data.get("time"),
-            day=task_data.get("day"),
+            name=job_data.get("name", "New cron job"),
+            frequency=job_data.get("frequency", "daily"),
+            instruction=job_data.get("instruction", ""),
+            enabled=job_data.get("enabled", True),
+            priority=job_data.get("priority", 50),
+            permission_tier=job_data.get("permissionTier", 1),
+            time=job_data.get("time"),
+            day=job_data.get("day"),
         )
 
         if result.get("success"):
-            await self._broadcast(
-                {
-                    "type": "proactive_task_add",
-                    "data": {
-                        "taskId": result.get("task", {}).get("id"),
-                        "success": True,
-                    },
-                }
-            )
+            data = {"jobId": result.get("job", {}).get("id"), "success": True}
         else:
-            await self._broadcast(
-                {
-                    "type": "proactive_task_add",
-                    "data": {
-                        "success": False,
-                        "error": result.get("error", "Unknown error"),
-                    },
-                }
-            )
+            data = {"success": False, "error": result.get("error", "Unknown error")}
+        await self._broadcast({"type": "cron_job_add", "data": data})
 
-    async def _handle_proactive_task_update(
-        self, task_id: str, updates: Dict[str, Any]
+    async def _handle_cron_job_update(
+        self, job_id: str, updates: Dict[str, Any]
     ) -> None:
-        """Update a proactive task."""
+        """Update a cron job."""
         agent = self._controller.agent
         proactive_manager = getattr(agent, "proactive_manager", None)
 
         # Convert camelCase to snake_case for the UI layer
-        update_dict = {}
-        if "name" in updates:
-            update_dict["name"] = updates["name"]
-        if "instruction" in updates:
-            update_dict["instruction"] = updates["instruction"]
-        if "enabled" in updates:
-            update_dict["enabled"] = updates["enabled"]
-        if "priority" in updates:
-            update_dict["priority"] = updates["priority"]
-        if "permissionTier" in updates:
-            update_dict["permission_tier"] = updates["permissionTier"]
-        if "time" in updates:
-            update_dict["time"] = updates["time"]
-        if "day" in updates:
-            update_dict["day"] = updates["day"]
-        if "frequency" in updates:
-            update_dict["frequency"] = updates["frequency"]
+        field_names = {
+            "name": "name",
+            "instruction": "instruction",
+            "enabled": "enabled",
+            "priority": "priority",
+            "permissionTier": "permission_tier",
+            "time": "time",
+            "day": "day",
+            "frequency": "frequency",
+            "sessionId": "session_id",
+        }
+        update_dict = {
+            field: updates[key] for key, field in field_names.items() if key in updates
+        }
 
-        result = update_recurring_task(proactive_manager, task_id, update_dict)
+        result = update_cron_job(proactive_manager, job_id, update_dict)
 
-        if result.get("success"):
-            await self._broadcast(
-                {
-                    "type": "proactive_task_update",
-                    "data": {
-                        "taskId": task_id,
-                        "success": True,
-                    },
-                }
-            )
-        else:
-            await self._broadcast(
-                {
-                    "type": "proactive_task_update",
-                    "data": {
-                        "taskId": task_id,
-                        "success": False,
-                        "error": result.get("error", "Unknown error"),
-                    },
-                }
-            )
+        data = {"jobId": job_id, "success": bool(result.get("success"))}
+        if not result.get("success"):
+            data["error"] = result.get("error", "Unknown error")
+        await self._broadcast({"type": "cron_job_update", "data": data})
 
-    async def _handle_proactive_task_remove(self, task_id: str) -> None:
-        """Remove a proactive task."""
+    async def _handle_cron_job_remove(self, job_id: str) -> None:
+        """Remove a cron job."""
         agent = self._controller.agent
         proactive_manager = getattr(agent, "proactive_manager", None)
 
-        result = remove_recurring_task(proactive_manager, task_id)
+        result = remove_cron_job(proactive_manager, job_id)
 
         if result.get("success"):
-            await self._broadcast(
-                {
-                    "type": "proactive_task_remove",
-                    "data": {
-                        "taskId": task_id,
-                        "removed": True,
-                        "success": True,
-                    },
-                }
-            )
+            data = {"jobId": job_id, "removed": True, "success": True}
         else:
-            await self._broadcast(
-                {
-                    "type": "proactive_task_remove",
-                    "data": {
-                        "taskId": task_id,
-                        "success": False,
-                        "error": result.get("error", "Unknown error"),
-                    },
-                }
-            )
+            data = {
+                "jobId": job_id,
+                "success": False,
+                "error": result.get("error", "Unknown error"),
+            }
+        await self._broadcast({"type": "cron_job_remove", "data": data})
 
-    async def _handle_proactive_tasks_reset(self) -> None:
-        """Reset all proactive tasks (restore from template)."""
-        result = reset_recurring_tasks()
+    async def _handle_cron_jobs_reset(self) -> None:
+        """Reset the cron jobs (restore PROACTIVE.md from the template)."""
+        result = reset_cron_jobs()
 
         if result.get("success"):
-            # Reload proactive manager
             agent = self._controller.agent
             proactive_manager = getattr(agent, "proactive_manager", None)
             if proactive_manager:
                 reload_proactive_manager(proactive_manager)
-
-            await self._broadcast(
-                {
-                    "type": "proactive_tasks_reset",
-                    "data": {
-                        "success": True,
-                    },
-                }
-            )
+            data = {"success": True}
         else:
-            await self._broadcast(
-                {
-                    "type": "proactive_tasks_reset",
-                    "data": {
-                        "success": False,
-                        "error": result.get("error", "Unknown error"),
-                    },
-                }
-            )
+            data = {"success": False, "error": result.get("error", "Unknown error")}
+        await self._broadcast({"type": "cron_jobs_reset", "data": data})
+
+    async def _handle_heartbeat_checklist_get(self, ws=None) -> None:
+        """Send the Heartbeat checklist (what the heartbeat reads each tick)."""
+        proactive_manager = getattr(self._controller.agent, "proactive_manager", None)
+        result = get_heartbeat_checklist(proactive_manager)
+        if result.get("success"):
+            data = {"success": True, "checklist": result["checklist"]}
+        else:
+            data = {"success": False, "error": result.get("error", "Unknown error")}
+        await self._send_to(ws, {"type": "heartbeat_checklist_get", "data": data})
+
+    async def _handle_heartbeat_checklist_set(self, checklist: str) -> None:
+        """Replace the Heartbeat checklist."""
+        proactive_manager = getattr(self._controller.agent, "proactive_manager", None)
+        result = set_heartbeat_checklist(proactive_manager, str(checklist or ""))
+        data = {"success": bool(result.get("success"))}
+        if not result.get("success"):
+            data["error"] = result.get("error", "Unknown error")
+        await self._broadcast({"type": "heartbeat_checklist_set", "data": data})
 
     async def _handle_proactive_file_read(self) -> None:
         """Read the raw PROACTIVE.md file content."""
@@ -5653,6 +4953,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
     async def _handle_proactive_mode_set(self, enabled: bool) -> None:
         """Set the proactive mode on or off."""
         result = set_proactive_mode(enabled)
+        # Due cron jobs wake the scheduler only while proactive mode is on.
+        scheduler = getattr(self._controller.agent, "scheduler", None)
+        if result.get("success") and scheduler is not None:
+            scheduler.rearm_proactive()
 
         await self._broadcast(
             {
@@ -5664,6 +4968,78 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 },
             }
         )
+
+    async def _handle_proactive_schedule_get(self, ws=None) -> None:
+        """Send the heartbeat interval + planner schedules to the panel."""
+        result = get_proactive_schedule()
+        if result.get("success"):
+            data = {
+                "success": True,
+                "heartbeatMinutes": result["heartbeat_minutes"],
+                "heartbeatOptions": result["heartbeat_options"],
+                "dayPlannerTime": result["day_planner_time"],
+                "weekPlannerDay": result["week_planner_day"],
+                "weekPlannerTime": result["week_planner_time"],
+                "monthPlannerDay": result["month_planner_day"],
+                "monthPlannerTime": result["month_planner_time"],
+            }
+        else:
+            data = {"success": False, "error": result.get("error", "Unknown error")}
+        await self._send_to(ws, {"type": "proactive_schedule_get", "data": data})
+
+    async def _handle_proactive_schedule_set(self, data: dict) -> None:
+        """Apply the heartbeat interval and/or planner schedules.
+
+        Like the memory-processing time: applied live via update_schedule
+        (persists + reschedules), or through the config file when the
+        scheduler holds no runtime copy (master switch off).
+        """
+        try:
+            updates: Dict[str, str] = {}
+            if "heartbeatMinutes" in data:
+                updates[HEARTBEAT_SCHEDULE_ID] = heartbeat_schedule_expression(
+                    int(data["heartbeatMinutes"])
+                )
+            if "dayPlannerHour" in data or "dayPlannerMinute" in data:
+                updates[DAY_PLANNER_SCHEDULE_ID] = day_planner_schedule_expression(
+                    int(data.get("dayPlannerHour", 0)),
+                    int(data.get("dayPlannerMinute", 0)),
+                )
+            if "weekPlannerDay" in data:
+                updates[WEEK_PLANNER_SCHEDULE_ID] = week_planner_schedule_expression(
+                    str(data["weekPlannerDay"]),
+                    int(data.get("weekPlannerHour", 0)),
+                    int(data.get("weekPlannerMinute", 0)),
+                )
+            if "monthPlannerDay" in data:
+                updates[MONTH_PLANNER_SCHEDULE_ID] = month_planner_schedule_expression(
+                    int(data["monthPlannerDay"]),
+                    int(data.get("monthPlannerHour", 0)),
+                    int(data.get("monthPlannerMinute", 0)),
+                )
+            scheduler = getattr(self._controller.agent, "scheduler", None)
+            for schedule_id, expression in updates.items():
+                applied = bool(
+                    scheduler
+                    and scheduler.get_schedule(schedule_id)
+                    and scheduler.update_schedule(schedule_id, schedule=expression)
+                )
+                if not applied:
+                    result = update_scheduler_config(
+                        {"schedule_updates": {schedule_id: {"schedule": expression}}}
+                    )
+                    if not result.get("success"):
+                        raise RuntimeError(result.get("error", "Update failed"))
+            await self._broadcast(
+                {"type": "proactive_schedule_set", "data": {"success": True}}
+            )
+        except Exception as e:
+            await self._broadcast(
+                {
+                    "type": "proactive_schedule_set",
+                    "data": {"success": False, "error": str(e)},
+                }
+            )
 
     # ─────────────────────────────────────────────────────────────────────
     # Memory Operation Handlers
@@ -5832,6 +5208,27 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
             )
 
+    async def _handle_memory_entity_remove(self, name: str) -> None:
+        """Delete an entity from ENTITIES.md and push the rebuilt graph.
+
+        The fresh graph rides in this reply (like the per-file index
+        mutations) so the node disappears in one round-trip.
+        """
+        try:
+            agent = self._controller.agent
+            removed = await asyncio.to_thread(agent.memory_manager.remove_entity, name)
+            data: Dict[str, Any] = {"success": removed, "name": name}
+            if removed:
+                data["graph"] = await self._memory_graph_snapshot()
+            await self._broadcast({"type": "memory_entity_remove", "data": data})
+        except Exception as e:
+            await self._broadcast(
+                {
+                    "type": "memory_entity_remove",
+                    "data": {"success": False, "name": name, "error": str(e)},
+                }
+            )
+
     async def _handle_memory_reset(self) -> None:
         """Reset memory: restore MEMORY.md + ENTITIES.md from template, clear
         unprocessed events, then FORCE-rebuild the index.
@@ -5971,6 +5368,8 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 return
 
             sched = task.schedule
+            # Counts the events in every session's queue file: off the loop.
+            unprocessed = await asyncio.to_thread(get_unprocessed_event_count)
             await self._send_to(
                 ws,
                 {
@@ -5987,7 +5386,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         },
                         "threshold": get_memory_processing_threshold(),
                         "threshold_max": get_memory_processing_threshold_max(),
-                        "unprocessed": get_unprocessed_event_count(),
+                        "unprocessed": unprocessed,
                     },
                 },
             )
@@ -6039,7 +5438,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         agent = self._controller.agent
         snapshot = await asyncio.to_thread(agent.memory_manager.graph_snapshot)
         stats = snapshot.get("stats", {})
-        memory_stats = get_memory_stats()
+        memory_stats = await asyncio.to_thread(get_memory_stats)
         if memory_stats.get("success"):
             stats["unprocessed_events"] = memory_stats.get("unprocessed_events", 0)
             stats["memory_item_count"] = memory_stats.get("total_items", 0)
@@ -6069,8 +5468,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         """Send the indexed-files list and addable candidates."""
         try:
             agent = self._controller.agent
-            files = agent.memory_manager.get_index_files_info()
-            candidates_result = list_indexable_candidates()
+            # Both walk the disk: off the loop.
+            files = await asyncio.to_thread(agent.memory_manager.get_index_files_info)
+            candidates_result = await asyncio.to_thread(list_indexable_candidates)
             await self._broadcast(
                 {
                     "type": "memory_indexed_files_get",
@@ -6500,6 +5900,56 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
             )
 
+    async def _handle_model_api_key_remove(self, provider: str) -> None:
+        """Delete a provider's stored API key.
+
+        The LLM/VLM needs no reinit: remove_api_key refuses the active
+        provider's only credential, so the active model is either another
+        provider or signed in with a subscription, which the factory prefers
+        over the key. Fallback providers re-check their key on every walk.
+        Image and video generation hold the key in their live client, so they
+        are rebuilt from the updated settings even when that leaves them
+        without a credential.
+        """
+        try:
+            async with self._model_change_lock():
+                result = await asyncio.to_thread(remove_api_key, provider)
+                if result.get("success"):
+                    agent = self._controller.agent
+                    if result.get("image_gen_provider") == provider:
+                        try:
+                            agent.reinitialize_image_gen(
+                                provider, keep_live_on_failure=False
+                            )
+                        except Exception as e:
+                            logger.warning(
+                                f"[BROWSER] Image gen rebuild after {provider} "
+                                f"API key removal failed: {e}"
+                            )
+                    if result.get("video_gen_provider") == provider:
+                        try:
+                            agent.reinitialize_video_gen(
+                                provider, keep_live_on_failure=False
+                            )
+                        except Exception as e:
+                            logger.warning(
+                                f"[BROWSER] Video gen rebuild after {provider} "
+                                f"API key removal failed: {e}"
+                            )
+            await self._broadcast(
+                {
+                    "type": "model_api_key_remove",
+                    "data": {**result, "provider": provider},
+                }
+            )
+        except Exception as e:
+            await self._broadcast(
+                {
+                    "type": "model_api_key_remove",
+                    "data": {"success": False, "provider": provider, "error": str(e)},
+                }
+            )
+
     async def _handle_model_connection_test(
         self,
         provider: str,
@@ -6876,6 +6326,41 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             await self._broadcast(
                 {
                     "type": "model_subscription_status",
+                    "data": {
+                        "success": False,
+                        "provider": provider,
+                        "error": str(e),
+                    },
+                }
+            )
+
+    async def _handle_model_subscription_setup(self, provider: str) -> None:
+        """Install or update the CLI a subscription sign-in runs through.
+
+        Offered when status reports a ``setup`` step (Claude Code missing or
+        too old for ``claude auth``). Blocks for the download, so it runs off
+        the event loop; the refreshed status clears the step once it is done.
+        """
+        try:
+            success, message = await asyncio.to_thread(setup_subscription, provider)
+            await self._broadcast(
+                {
+                    "type": "model_subscription_setup",
+                    "data": {
+                        "success": success,
+                        "provider": provider,
+                        "message": message,
+                        "status": await asyncio.to_thread(
+                            get_subscription_status, provider
+                        ),
+                    },
+                }
+            )
+        except Exception as e:
+            logger.error(f"[BROWSER] subscription setup failed: {e}")
+            await self._broadcast(
+                {
+                    "type": "model_subscription_setup",
                     "data": {
                         "success": False,
                         "provider": provider,
@@ -8366,129 +7851,6 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
             )
 
-    # ==========================
-    # Agent App Settings Handlers
-    # ==========================
-
-    async def _handle_agent_app_settings_get(self) -> None:
-        """Get all Agent App projects with their settings."""
-        from app.ui_layer.settings.agent_app_settings import get_agent_app_projects
-
-        result = get_agent_app_projects()
-        await self._broadcast({"type": "agent_app_settings_get", "data": result})
-
-    async def _handle_agent_app_project_setting_update(
-        self, project_id: str, setting: str, value
-    ) -> None:
-        """Update a per-project setting."""
-        from app.ui_layer.settings.agent_app_settings import update_project_setting
-
-        result = update_project_setting(project_id, setting, value)
-        await self._broadcast(
-            {"type": "agent_app_project_setting_update", "data": result}
-        )
-
-    # Backups (spec docs/plans/agent-app-backups-plan.md Phase 4). Thin
-    # handlers: all policy lives in the manager/BackupStore. Restore and
-    # backup-now run as background tasks (stop+relaunch can take a minute)
-    # so the WS loop stays responsive; results broadcast with *_result types.
-
-    async def _handle_agent_app_backups_list(self, project_id: str) -> None:
-        from app.agent_app import get_agent_app_manager
-
-        payload = {"projectId": project_id, "backups": [], "totalSize": 0}
-        try:
-            manager = get_agent_app_manager()
-            entries = manager.backups.store.list_backups(project_id)
-            payload["backups"] = [
-                {
-                    "filename": e.filename,
-                    "ts": int(e.ts * 1000),
-                    "trigger": e.trigger,
-                    "size": e.size,
-                }
-                for e in entries
-            ]
-            payload["totalSize"] = sum(e.size for e in entries)
-        except Exception as e:
-            payload["error"] = str(e)
-        await self._broadcast({"type": "agent_app_backups_list", "data": payload})
-
-    async def _handle_agent_app_backup_now(self, project_id: str) -> None:
-        from app.agent_app import get_agent_app_manager
-
-        async def _run() -> None:
-            try:
-                result = await get_agent_app_manager().backup_now(project_id)
-            except Exception as e:
-                result = {"status": "error", "errors": [str(e)]}
-            await self._broadcast(
-                {
-                    "type": "agent_app_backup_now_result",
-                    "data": {"projectId": project_id, **result},
-                }
-            )
-            await self._handle_agent_app_backups_list(project_id)
-
-        asyncio.create_task(_run())
-
-    async def _handle_agent_app_backup_restore(
-        self, project_id: str, filename: str, source_project_id: str | None = None
-    ) -> None:
-        """source_project_id: restore an archive from ANOTHER project's
-        backup dir (a deleted app's leftovers) into project_id."""
-        from app.agent_app import get_agent_app_manager
-
-        async def _run() -> None:
-            try:
-                result = await get_agent_app_manager().restore_backup(
-                    project_id, filename, source_project_id=source_project_id
-                )
-            except Exception as e:
-                result = {"status": "error", "errors": [str(e)]}
-            await self._broadcast(
-                {
-                    "type": "agent_app_backup_restore_result",
-                    "data": {"projectId": project_id, "filename": filename, **result},
-                }
-            )
-            await self._handle_agent_app_backups_list(project_id)
-
-        asyncio.create_task(_run())
-
-    async def _handle_agent_app_backup_delete(
-        self, project_id: str, filename: str, orphan: bool = False
-    ) -> None:
-        from app.agent_app import get_agent_app_manager
-
-        data = {"projectId": project_id, "filename": filename, "success": True}
-        orphan_reaped = False
-        try:
-            manager = get_agent_app_manager()
-            if orphan:
-                # Whole-dir cleanup of a deleted project's leftovers (D5) —
-                # refuse if the id is (again) a registered project.
-                if project_id in manager.projects:
-                    raise ValueError("not an orphan — project exists")
-                manager.backups.store.delete_project_backups(project_id)
-            else:
-                manager.backups.store.delete(project_id, filename)
-                # An unregistered (deleted-app) dir whose last archive just
-                # went is pure residue (meta.json only) — reap it so the
-                # orphan row disappears instead of lingering empty.
-                if project_id not in manager.projects and not (
-                    manager.backups.store.list_backups(project_id)
-                ):
-                    manager.backups.store.delete_project_backups(project_id)
-                    orphan_reaped = True
-        except Exception as e:
-            data = {**data, "success": False, "error": str(e)}
-        await self._broadcast({"type": "agent_app_backup_delete", "data": data})
-        if not orphan:
-            await self._handle_agent_app_backups_list(project_id)
-        if orphan or orphan_reaped:
-            await self._handle_agent_app_settings_get()
-
     # =====================
     # Playbook Handlers
     # =====================
@@ -8548,298 +7910,6 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     },
                 }
             )
-
-    # =====================
-    # Marketplace Handlers
-    # =====================
-
-    @staticmethod
-    def _fetch_catalogue() -> dict:
-        """Blocking fetch + parse of the marketplace catalogue.
-
-        Split out so the caller can run it off the event loop — see
-        _handle_marketplace_list.
-        """
-        from app.agent_app import marketplace_source
-
-        return marketplace_source.fetch_catalogue(timeout=15)
-
-    async def _handle_marketplace_list(self) -> None:
-        """Fetch marketplace catalogue from GitHub."""
-        try:
-            # MUST run off the event loop. urlopen is blocking, and this used
-            # to be called inline in an async handler: a slow fetch froze the
-            # whole loop, so the websocket could neither deliver this reply
-            # nor anything else. `timeout=15` does not bound it either — name
-            # resolution happens before the socket timeout applies, so a DNS
-            # blackhole hangs indefinitely and the UI spinner never resolves.
-            # Every other network call in this module already uses to_thread.
-            catalogue = await asyncio.wait_for(
-                asyncio.to_thread(self._fetch_catalogue),
-                timeout=30,
-            )
-            # The shared fetcher resolves thumbnails against the repository
-            # and branch that actually supplied the catalogue.
-            apps = catalogue.get("apps", [])
-            await self._broadcast(
-                {
-                    "type": "agent_app_marketplace_list",
-                    "data": {"success": True, "apps": apps},
-                }
-            )
-        except asyncio.TimeoutError:
-            # str(TimeoutError()) is "", which would reach the UI as a blank
-            # error and read as "it failed for no reason".
-            await self._broadcast(
-                {
-                    "type": "agent_app_marketplace_list",
-                    "data": {
-                        "success": False,
-                        "error": (
-                            "The marketplace did not respond within 30 seconds. "
-                            "Check your internet connection and try again."
-                        ),
-                        "apps": [],
-                    },
-                }
-            )
-        except Exception as e:
-            await self._broadcast(
-                {
-                    "type": "agent_app_marketplace_list",
-                    "data": {
-                        "success": False,
-                        "error": f"{type(e).__name__}: {e}",
-                        "apps": [],
-                    },
-                }
-            )
-
-    async def _handle_marketplace_install(
-        self,
-        app_id: str,
-        app_name: str,
-        app_description: str,
-        custom_fields: dict = None,
-    ) -> None:
-        """Install a marketplace app."""
-        if not app_id or not app_name:
-            await self._broadcast(
-                {
-                    "type": "agent_app_marketplace_install",
-                    "data": {
-                        "success": False,
-                        "error": tui("agentapp_app_id_name_required"),
-                        "appId": app_id,
-                    },
-                }
-            )
-            return
-
-        # A second copy of an app you already have is a legitimate thing to
-        # want, and a very easy thing to install by accident. Either way the
-        # user has to KNOW: the two run on different ports, and work done on
-        # one never appears in the other (observed live 2026-09-02).
-        try:
-            existing = self._agent_app_manager.find_marketplace_installs(app_id)
-        except Exception as e:
-            logger.debug(f"[AGENT_APP] duplicate-install check skipped: {e}")
-            existing = []
-        if existing:
-            logger.warning(
-                f"[AGENT_APP] '{app_id}' is already installed as "
-                + ", ".join(f"{p.name} ({p.id})" for p in existing)
-                + " — installing an additional separate copy."
-            )
-
-        # Spawn a placeholder tab immediately so the user sees the install is
-        # underway (the install itself is synchronous and can take a while).
-        # install_from_marketplace adopts this id so the same tab becomes the
-        # running app.
-        placeholder = self._agent_app_manager.create_placeholder_project(
-            app_name, app_description
-        )
-        project_id = placeholder.id
-        await self.broadcast_agent_app_created(placeholder.to_dict())
-        await self._broadcast(
-            {
-                "type": "agent_app_status",
-                "data": {
-                    "projectId": project_id,
-                    "phase": "initializing",
-                    "progress": 10,
-                    "message": tui("agentapp_installing_marketplace"),
-                },
-            }
-        )
-
-        result = await self._agent_app_manager.install_from_marketplace(
-            app_id=app_id,
-            app_name=app_name,
-            app_description=app_description,
-            custom_fields=custom_fields,
-            project_id=project_id,
-        )
-
-        if result.get("status") == "success":
-            # The project already exists as a tab (placeholder adopted) — flip
-            # it to running so the iframe loads.
-            await self._broadcast(
-                {
-                    "type": "agent_app_ready",
-                    "data": {
-                        "projectId": project_id,
-                        "url": result.get("url"),
-                        "port": result["project"].get("port"),
-                        "sessionId": result["project"].get("sessionId"),
-                    },
-                }
-            )
-
-            # Mirror the install into chat as a system message so the request
-            # is visible in the conversation (not just the new tab).
-            body = f"{app_description}\n\n" if app_description else ""
-            note = "Installed from the marketplace — open it in the new tab."
-            if existing:
-                others = ", ".join(f"**{p.name}**" for p in existing)
-                note = (
-                    "Installed from the marketplace as a **second, separate "
-                    f"copy** — you already have {others}. The two run "
-                    "independently on different ports, so changes I make to "
-                    "one will not appear in the other. Open the new tab to "
-                    "use this copy."
-                )
-            try:
-                await self._display_chat_message(
-                    "System",
-                    f"**Agent App: {app_name}**\n\n{body}{note}",
-                    "system",
-                )
-            except Exception as e:
-                logger.debug(f"[AGENT_APP] marketplace chat message failed: {e}")
-        else:
-            # Install failed — surface the error on the spawned tab. The
-            # placeholder must be settled in the manager too, or the next
-            # agent_app_list overwrites the error state with the stale
-            # "creating" record and the spinner comes back for good.
-            error_msg = result.get("error", "Marketplace install failed")
-            self._agent_app_manager.fail_placeholder_project(project_id, error_msg)
-            await self._broadcast(
-                {
-                    "type": "agent_app_error",
-                    "data": {
-                        "projectId": project_id,
-                        "error": error_msg,
-                    },
-                }
-            )
-
-        await self._broadcast(
-            {
-                "type": "agent_app_marketplace_install",
-                "data": {**result, "projectId": project_id, "appId": app_id},
-            }
-        )
-
-    async def _handle_agent_app_import(self, source: str, name: str) -> None:
-        """Import a Agent App from a ZIP, a local folder path, or a git URL
-        (one door — LIFECYCLE-PLAN Phase 4). After registering, a
-        launch-and-verify run is queued in the project's session so the
-        import finishes as a running, verified app without further clicks."""
-        if not source:
-            return
-        # Every outcome is LOGGED and answered with agent_app_import_result:
-        # the first live test failed with no server log line and no UI
-        # feedback at all (2026-08-05 — "I paste the path and nothing
-        # happens"), because failures only broadcast a generic error the
-        # already-closed modal never saw.
-        logger.info(f"[AGENT_APP] import requested: {source!r} (name={name!r})")
-        # Mirror progress to the browser for the duration of THIS import.
-        # The fetch/extract/copy run on a worker thread (they used to block
-        # the event loop for 13 minutes), so the sink has to hop back onto
-        # the loop — run_coroutine_threadsafe, never a bare await.
-        from app.agent_app.manager import set_import_progress_sink
-
-        loop = asyncio.get_running_loop()
-
-        def _sink(event: Dict[str, Any]) -> None:
-            try:
-                asyncio.run_coroutine_threadsafe(
-                    self._broadcast(
-                        {
-                            "type": "agent_app_import_progress",
-                            "data": {**event, "source": source, "name": name},
-                        }
-                    ),
-                    loop,
-                )
-            except Exception:
-                pass
-
-        set_import_progress_sink(_sink)
-        # Tell the UI the import is under way NOW, so the modal can close and
-        # hand the outcome to a toast instead of holding a dialog open for
-        # the length of a 300MB download.
-        await self._broadcast(
-            {
-                "type": "agent_app_import_progress",
-                "data": {
-                    "phase": "starting",
-                    "done": 0,
-                    "total": 0,
-                    "unit": "files",
-                    "source": source,
-                    "name": name,
-                },
-            }
-        )
-        try:
-            project = await self._agent_app_manager.import_project_source(
-                source, name or None
-            )
-            await self.broadcast_agent_app_created(project.to_dict())
-            await self._broadcast(
-                {
-                    "type": "agent_app_import_result",
-                    "data": {"success": True, "projectId": project.id},
-                }
-            )
-            try:
-                from app.triggers import TriggerSource
-
-                is_ext = getattr(project, "project_type", "native") == "external"
-                await self._agent_app_manager.start_development_run(
-                    project.id,
-                    brief=self._agent_app_manager.post_import_brief(project),
-                    trigger_source=TriggerSource.AGENT_APP_IMPORT,
-                    workflow_skill=(
-                        "agent-app-importer" if is_ext else "agent-app-modify"
-                    ),
-                    # External adoption is a build-like run: "creating" shows
-                    # the construction dock while the agent writes the
-                    # pipeline verbs + operations map. Native imports stay
-                    # untouched (verify-only).
-                    status=("creating" if is_ext else None),
-                )
-            except Exception as e:
-                logger.warning(f"[AGENT_APP] import verify dispatch failed: {e}")
-        except Exception as e:
-            logger.error(f"[AGENT_APP] import failed for {source!r}: {e}")
-            await self._broadcast(
-                {
-                    "type": "agent_app_import_result",
-                    "data": {"success": False, "error": f"Import failed: {e}"},
-                }
-            )
-            await self._broadcast(
-                {
-                    "type": "agent_app_error",
-                    "data": {"projectId": "", "error": f"Import failed: {e}"},
-                }
-            )
-        finally:
-            set_import_progress_sink(None)
-        return
 
     async def _send_to(self, ws, message: Dict[str, Any]) -> None:
         """Send to one connection (session-scoped flows); falls back to a
@@ -9003,7 +8073,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         while self._running:
             try:
                 if self._metrics_subscribers:
-                    metrics = self._metrics_collector.get_metrics()
+                    # Reads every integration's account file: a worker thread.
+                    metrics = await asyncio.to_thread(
+                        self._metrics_collector.get_metrics
+                    )
                     payload = {"type": "dashboard_metrics", "data": metrics.to_dict()}
                     text = json.dumps(payload)
                     for ws in self._metrics_subscribers.copy():
@@ -9060,25 +8133,27 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
     ) -> None:
         """List files in a directory within the workspace with pagination and search."""
         try:
-            workspace = Path(AGENT_WORKSPACE_ROOT).resolve()
-
-            # Ensure workspace exists
-            if not workspace.exists():
-                workspace.mkdir(parents=True, exist_ok=True)
-
-            if directory:
-                target = self._validate_path(directory)
-            else:
-                target = workspace
-
-            if not target.exists():
-                raise FileNotFoundError(f"Directory not found: {directory}")
-
-            if not target.is_dir():
-                raise ValueError(f"Path is not a directory: {directory}")
 
             def _list_page():
-                # Collect and sort all files (a stat per entry: off the loop)
+                # Every step stats the disk: all of it runs off the loop.
+                workspace = Path(AGENT_WORKSPACE_ROOT).resolve()
+
+                # Ensure workspace exists
+                if not workspace.exists():
+                    workspace.mkdir(parents=True, exist_ok=True)
+
+                if directory:
+                    target = self._validate_path(directory)
+                else:
+                    target = workspace
+
+                if not target.exists():
+                    raise FileNotFoundError(f"Directory not found: {directory}")
+
+                if not target.is_dir():
+                    raise ValueError(f"Path is not a directory: {directory}")
+
+                # Collect and sort all files (a stat per entry)
                 all_files = sorted(
                     target.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower())
                 )
@@ -9126,27 +8201,32 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
     async def _handle_file_read(self, file_path: str) -> None:
         """Read file content."""
         try:
-            target = self._validate_path(file_path)
 
-            if not target.exists():
-                raise FileNotFoundError(f"File not found: {file_path}")
+            def _read():
+                # Up to 10 MB from disk: off the loop.
+                target = self._validate_path(file_path)
 
-            if target.is_dir():
-                raise ValueError(f"Cannot read directory as file: {file_path}")
+                if not target.exists():
+                    raise FileNotFoundError(f"File not found: {file_path}")
 
-            # Check file size (limit to 10MB for text preview)
-            if target.stat().st_size > 10 * 1024 * 1024:
-                raise ValueError("File too large to preview (max 10MB)")
+                if target.is_dir():
+                    raise ValueError(f"Cannot read directory as file: {file_path}")
 
-            # Try to read as text, fallback to binary info
-            try:
-                content = target.read_text(encoding="utf-8")
-                is_binary = False
-            except UnicodeDecodeError:
-                content = None
-                is_binary = True
+                # Check file size (limit to 10MB for text preview)
+                if target.stat().st_size > 10 * 1024 * 1024:
+                    raise ValueError("File too large to preview (max 10MB)")
 
-            file_info = self._get_file_info(target)
+                # Try to read as text, fallback to binary info
+                try:
+                    content = target.read_text(encoding="utf-8")
+                    is_binary = False
+                except UnicodeDecodeError:
+                    content = None
+                    is_binary = True
+
+                return content, is_binary, self._get_file_info(target)
+
+            content, is_binary, file_info = await asyncio.to_thread(_read)
 
             await self._broadcast(
                 {
@@ -9595,13 +8675,85 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         attachments: List[Dict[str, Any]],
         session_id: str = "main",
         client_id: Optional[str] = None,
+        references: Optional[List[Dict[str, Any]]] = None,
+        ws=None,
     ) -> None:
-        """Handle user chat message with attachments."""
+        """Deduplicate retries of one client submission before resolving
+        sources, saving attachments or enqueueing."""
+        if not client_id or not self._chat._storage:
+            await self._submit_chat_context(
+                content, attachments, session_id, client_id, references, ws
+            )
+            return
+        from app.references.service import SubmissionGate, submission_message_id
+
+        if not hasattr(self, "_reference_submission_gate"):
+            self._reference_submission_gate = SubmissionGate()
+        key = submission_message_id(session_id, client_id)
+        async with self._reference_submission_gate.hold(key):
+            try:
+                previous = await self._chat.run_storage(
+                    self._chat._storage.get_message_by_id, session_id, key
+                )
+            except Exception:
+                if not references:
+                    # Attachment-only messages stay best-effort, as before:
+                    # an unreadable store must not block them.
+                    previous = None
+                else:
+                    await self._send_to(
+                        ws,
+                        {
+                            "type": "message_rejected",
+                            "data": {
+                                "sessionId": session_id,
+                                "clientId": client_id,
+                                "error": "Chat storage is unavailable. Please retry.",
+                            },
+                        },
+                    )
+                    return
+            if previous:
+                message = self._chat._stored_to_chat_message(previous)
+                message.client_id = client_id
+                await self._send_to(
+                    ws, {"type": "chat_message", "data": message.to_dict()}
+                )
+                return
+            await self._submit_chat_context(
+                content, attachments, session_id, client_id, references, ws
+            )
+
+    async def _submit_chat_context(
+        self,
+        content: str,
+        attachments: List[Dict[str, Any]],
+        session_id: str = "main",
+        client_id: Optional[str] = None,
+        references: Optional[List[Dict[str, Any]]] = None,
+        ws=None,
+    ) -> None:
+        """Normalize attachments/references and submit one enriched user message."""
         import uuid
         from app.ui_layer.state.ui_state import AgentStateType
         from app.ui_layer.events import UIEvent, UIEventType
 
+        accepted = False
         try:
+            from app.references import ReferenceService, create_reference_service
+
+            snapshots: List[Dict[str, Any]] = []
+            # Only a message that carries references depends on the reference
+            # service (and its model-window budget); attachments never do.
+            if references:
+                service = create_reference_service(
+                    sessions=self._controller.agent.session_manager,
+                    storage=self._chat._storage,
+                    llm=self._controller.agent.llm,
+                )
+                snapshots = await service.resolve(references, session_id)
+            if snapshots and not content.strip():
+                content = "Referenced: " + ", ".join(r["label"] for r in snapshots)
             processed_attachments: List[Attachment] = []
             attachment_note = ""
 
@@ -9674,14 +8826,25 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 style="user",
                 timestamp=time.time(),
                 attachments=processed_attachments if processed_attachments else None,
+                references=snapshots or None,
                 session_id=session_id,
                 client_id=client_id,
             )
-            await self._chat.append_message(user_message)
+            if client_id:
+                # Deterministic per client submission, so a retry finds it.
+                from app.references.service import submission_message_id
+
+                user_message.message_id = submission_message_id(session_id, client_id)
+            await self._chat.append_message(
+                user_message, require_persistence=bool(snapshots)
+            )
+            accepted = True
 
             # Combine content with attachment info for agent context
             # (This is what the agent sees in the event stream - includes file paths)
-            agent_context = content + attachment_note
+            agent_context = (
+                content + attachment_note + ReferenceService.render(snapshots)
+            )
 
             if not agent_context.strip():
                 return
@@ -9718,19 +8881,49 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 "session_id": session_id,
             }
 
+            payload["strict_session"] = bool(snapshots)
             await self._controller._agent._handle_chat_message(payload)
 
         except Exception as e:
             import traceback
 
-            print(
-                f"[BROWSER ADAPTER] Error in _handle_chat_message_with_attachments: {e}"
+            from app.references import ReferenceError
+
+            if accepted:
+                # Saved and echoed already: resending the same submission is
+                # deduplicated, so only a new message reaches the agent.
+                error = (
+                    "Your message was saved, but the agent could not start on "
+                    "it. Send it again as a new message."
+                )
+            elif isinstance(e, ReferenceError):
+                error = str(e)
+            else:
+                error = "The message could not be submitted. Please retry."
+            if not accepted:
+                await self._send_to(
+                    ws,
+                    {
+                        "type": "message_rejected",
+                        "data": {
+                            "sessionId": session_id,
+                            "clientId": client_id,
+                            "error": error,
+                        },
+                    },
+                )
+            logger.warning(
+                "[BROWSER ADAPTER] Reference/attachment submission failed: %s",
+                type(e).__name__,
             )
             traceback.print_exc()
-            # Still try to display an error message to the user
+            if client_id and not accepted:
+                return
+            # A failure after acceptance needs a visible error, not a retry of
+            # an already accepted message with potentially changed snapshots.
             error_message = ChatMessage(
                 sender="System",
-                content=f"Error processing attachment: {str(e)}",
+                content=error,
                 style="error",
                 timestamp=time.time(),
                 session_id=session_id,
@@ -10150,15 +9343,31 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             await self._chat.append_message(error_message)
             return {"success": False, "files_sent": 0, "errors": [str(e)]}
 
-    def _get_initial_state(self) -> Dict[str, Any]:
-        """Get initial state for new connections."""
+    async def _initial_state_reads(self) -> Tuple[Any, Dict[str, Any]]:
+        """The blocking parts of the connect snapshot, read in worker threads:
+        (dashboard metrics, last-seen message ids). Metrics read every
+        integration's account file; the ids are a chat-storage query, run on
+        the ordered chat worker so they see every earlier insert."""
+        metrics = await asyncio.to_thread(self._metrics_collector.get_metrics)
+        storage = self._chat._storage
+        last_seen = (
+            await self._chat.run_storage(storage.get_last_seen_message_ids)
+            if storage is not None
+            else {}
+        )
+        return metrics, last_seen
+
+    def _get_initial_state(
+        self, metrics: Any, last_seen_message_ids: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Get initial state for new connections, from the blocking reads
+        _initial_state_reads made."""
         from app.onboarding import onboarding_manager
         from app.ui_layer.settings.general_settings import (
             get_agent_profile_picture_info,
         )
 
         state = self._controller.state
-        metrics = self._metrics_collector.get_metrics()
 
         from app.config import get_app_version
 
@@ -10183,11 +9392,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             # older history through chat_history. ChatMessage.to_dict() always
             # carries sessionId.
             "messages": [m.to_dict() for m in self._chat.get_recent_messages()],
-            "lastSeenMessageIds": (
-                self._chat._storage.get_last_seen_message_ids()
-                if self._chat._storage is not None
-                else {}
-            ),
+            "lastSeenMessageIds": last_seen_message_ids,
             # Recent activity items (per-session inline feed); each carries sessionId.
             "actions": [
                 BrowserActionPanelComponent._item_payload(a)
@@ -10211,10 +9416,22 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         index_path = frontend_dist / "index.html"
 
         if index_path.exists():
-            return web.FileResponse(index_path)
+            return _index_response(index_path, self._port)
         else:
             # Fallback to inline HTML
             return web.Response(text=self._get_index_html(), content_type="text/html")
+
+    async def _terminal_edition_page(self, request: "web.Request") -> "web.Response":
+        """What a browser sees at the terminal edition's address."""
+        from aiohttp import web
+
+        return web.Response(
+            text=(
+                "CraftBot is running as the terminal edition.\n"
+                "Open it in a terminal with: python craftbot.py tui\n"
+            ),
+            content_type="text/plain",
+        )
 
     async def _index_handler(self, request: "web.Request") -> "web.Response":
         """Serve the main HTML page (fallback when no build exists)."""
@@ -10274,7 +9491,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         """API endpoint for current state."""
         from aiohttp import web
 
-        return web.json_response(self._get_initial_state())
+        return web.json_response(
+            self._get_initial_state(*await self._initial_state_reads())
+        )
 
     async def _debug_loop_handler(self, request: "web.Request") -> "web.Response":
         """Event-loop stall statistics (app/ui_layer/diagnostics/loop_monitor.py)."""

@@ -1000,7 +1000,9 @@ def test_stop_before_the_host_starts_still_revokes_subagents(tmp_path, monkeypat
         sessions={"chat-x": types.SimpleNamespace(title="Chat X", workspace_dir=None)},
         subagents={
             "sub_early001": types.SimpleNamespace(
-                parent_task_id="chat-x", agent_type="browser_agent", created_at=created
+                parent_session_id="chat-x",
+                agent_type="browser_agent",
+                created_at=created,
             )
         },
     )

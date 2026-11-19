@@ -10,7 +10,7 @@ download a private copy into STATE_ROOT/runtime/.
 from __future__ import annotations
 
 import os
-import shutil
+import platform
 import subprocess
 import sys
 from pathlib import Path
@@ -18,42 +18,80 @@ from typing import Optional
 
 from app.provision.types import Context, LogFn, StageResult, Status
 
-from app import runtime_manifest
+from app import python_runtime
 
-# The dependency locks remain on this Python major/minor line.
-TARGET_PYTHON = tuple(int(v) for v in runtime_manifest.version("python").split(".")[:2])
+# python-build-standalone: relocatable CPython for all three platforms, with
+# pip. python.org's embeddable package is Windows-only and ships without pip,
+# so it cannot serve the same role.
+#
+# The native launcher embeds this same file. Keep download locations and
+# the compatible fallback release together so the two install paths agree.
+PBS_CONFIG_PATH = Path(__file__).with_name("python_downloads.json")
+
+# The version the locks are generated for. NOT a minimum: a lock is valid
+# for exactly one (platform, python) pair, so accepting "3.10 or newer" would
+# mean a user on 3.14 has no lock at all — which is precisely what happened on
+# a machine whose conda env had drifted to 3.14.7 while environment.yml still
+# said 3.10.19. Anything else gets the sidecar, which costs a download and
+# buys the reproducibility the lock exists for.
+TARGET_PYTHON = (3, 10)
 
 
 class NodeStage:
     name = "node"
-    description = "Node.js runtime"
+    description = "Node.js and npm (Agent Apps)"
     optional = False
 
     def check(self, ctx: Context) -> StageResult:
         from app import node_runtime
+        from app.provision import proc
 
         rt = node_runtime.resolve(refresh=True)
-        if not node_runtime.usable(rt):
+        if rt is None:
             return StageResult(
-                Status.MISSING, "a working Node >= 24 and matching npm are required"
+                Status.MISSING, f"no Node >= {node_runtime.MIN_NODE_MAJOR} found"
+            )
+        if (node_runtime.major_of(rt.version) or 0) < node_runtime.MIN_NODE_MAJOR:
+            return StageResult(
+                Status.DEGRADED,
+                f"Node >= {node_runtime.MIN_NODE_MAJOR} required; found {rt.version or 'unusable runtime'}",
+            )
+        npm_command = node_runtime.npm_command(rt)
+        if not npm_command:
+            return StageResult(Status.MISSING, "npm is missing from the Node runtime")
+        try:
+            npm = proc.run(
+                npm_command + ["--version"],
+                timeout=30,
+                env=node_runtime.child_env(),
+                echo=False,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            return StageResult(Status.DEGRADED, f"npm could not start: {exc}")
+        if npm.returncode != 0 or not npm.stdout.strip():
+            return StageResult(
+                Status.DEGRADED, proc.failure_detail(npm, "npm could not start")
             )
         return StageResult(
             Status.SATISFIED,
-            f"{rt.version or '?'} ({rt.source})",
-            {"node": rt.node, "version": rt.version, "source": rt.source},
+            f"{rt.version} / npm {npm.stdout.strip()} ({rt.source})",
+            {
+                "node": rt.node,
+                "npm": rt.npm,
+                "version": rt.version,
+                "source": rt.source,
+            },
         )
 
     def apply(self, ctx: Context, log: LogFn) -> StageResult:
+        if ctx.offline:
+            return StageResult(Status.FAILED, "offline: cannot download Node")
         from app import node_runtime
 
-        rt = node_runtime.ensure_sidecar(log=log, offline=ctx.offline)
+        rt = node_runtime.ensure_sidecar(log=log)
         if rt is None:
             return StageResult(Status.FAILED, "sidecar download failed")
-        return StageResult(
-            Status.SATISFIED,
-            f"{rt.version or '?'} ({rt.source})",
-            {"node": rt.node, "version": rt.version},
-        )
+        return self.check(ctx)
 
 
 class RipgrepStage:
@@ -127,6 +165,7 @@ def _probe_python(exe: str) -> Optional[tuple]:
             capture_output=True,
             text=True,
             timeout=20,
+            env=python_runtime.isolated_env(),
             **kwargs,
         )
         if out.returncode != 0:
@@ -138,19 +177,85 @@ def _probe_python(exe: str) -> Optional[tuple]:
 
 
 def _pbs_triple() -> Optional[str]:
-    try:
-        return runtime_manifest.target("python")
-    except ValueError:
-        return None
+    """The python-build-standalone platform triple for this machine."""
+    machine = platform.machine().lower()
+    arch = "aarch64" if machine in ("arm64", "aarch64") else "x86_64"
+    if sys.platform == "win32":
+        # No win-arm64 build is published; arm64 Windows runs the x64 build
+        # under emulation, which is slower but works.
+        return "x86_64-pc-windows-msvc"
+    if sys.platform == "darwin":
+        return f"{arch}-apple-darwin"
+    return f"{arch}-unknown-linux-gnu"
 
 
 def _pbs_download_url(log: LogFn) -> Optional[str]:
-    """Resolve locally, including offline; never depend on upstream 'latest'."""
-    try:
-        return runtime_manifest.asset("python")["url"]
-    except ValueError as exc:
-        log(str(exc))
+    """Resolve the download URL for a TARGET_PYTHON build, or None.
+
+    Tries the newest release, then the configured compatible fallback release,
+    and picks the asset matching this machine's triple. `install_only` extracts to a
+    ready-to-run tree; the full builds carry object files and headers nobody
+    here needs.
+    """
+    import json
+    import ssl
+    import urllib.request
+
+    triple = _pbs_triple()
+    if not triple:
         return None
+
+    try:
+        config = json.loads(PBS_CONFIG_PATH.read_text(encoding="utf-8"))
+        api = f"{config['api_base'].rstrip('/')}/repos/{config['repository']}/releases"
+        release = config["fallback_release"]
+        version = config["fallback_version"]
+        compatible = version.startswith(f"{TARGET_PYTHON[0]}.{TARGET_PYTHON[1]}.")
+        archive = (
+            f"{config['download_base'].rstrip('/')}/{config['repository']}"
+            f"/releases/download/{release}/cpython-{version}%2B{release}"
+            f"-{triple}-install_only.tar.gz"
+            if compatible and triple in config["fallback_platforms"]
+            else None
+        )
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
+        log(f"    invalid Python download configuration: {error}")
+        return None
+
+    try:
+        import certifi
+
+        ctx = ssl.create_default_context(cafile=certifi.where())
+    except ImportError:
+        ctx = ssl.create_default_context()
+
+    prefix = f"cpython-{TARGET_PYTHON[0]}.{TARGET_PYTHON[1]}."
+    suffix = f"-{triple}-install_only.tar.gz"
+    indexes = [f"{api}/latest"]
+    if compatible:
+        indexes.append(f"{api}/tags/{release}")
+    for index in indexes:
+        try:
+            req = urllib.request.Request(index, headers={"User-Agent": "CraftBot"})
+            with urllib.request.urlopen(req, timeout=60, context=ctx) as response:
+                data = json.load(response)
+        except Exception as e:
+            log(f"    could not reach the Python download index: {str(e)[:160]}")
+            # Shared/public IPs can exhaust GitHub's unauthenticated API quota.
+            # Release assets have a separate download endpoint. Keep the known
+            # compatible build available even when metadata cannot be queried.
+            if archive:
+                log(f"    using the archived Python {version} release download")
+                return archive
+            return None
+        for asset in data.get("assets", []):
+            name = asset.get("name") or ""
+            if name.startswith(prefix) and name.endswith(suffix):
+                url = asset.get("browser_download_url")
+                if url:
+                    return url
+        log(f"    no {prefix}*{suffix} in release {data.get('tag_name')}")
+    return None
 
 
 class PythonStage:
@@ -198,98 +303,105 @@ class PythonStage:
         if ctx.conda_env:
             return StageResult(Status.SKIPPED, f"conda env {ctx.conda_env}")
 
-        # 0. An interpreter the CALLER pinned wins over anything we would
-        #    resolve. Without this the stage silently redirected every later
-        #    stage at its own choice: an end-to-end test that provisioned into
-        #    a fresh venv had its dependencies installed into the developer's
-        #    site-packages instead, and then reported success because they
-        #    were already there.
+        # 0. An interpreter the CALLER pinned (CRAFTBOT_PYTHON, a test's
+        #    venv, Docker's image Python) wins over anything we would resolve,
+        #    and must be the right line: a pinned interpreter is a promise
+        #    that every later stage installs into it.
         pinned = list(ctx.service_python or [])
-        if len(pinned) == 1 and os.path.isfile(pinned[0]):
-            ver = _probe_python(pinned[0])
+        if pinned:
+            ver = _probe_python(pinned[0]) if len(pinned) == 1 else None
             if ver and ver[:2] == TARGET_PYTHON:
                 return self._accept(ctx, pinned[0], "provided", ver)
+            got = f"{ver[0]}.{ver[1]}" if ver else "not runnable"
+            return StageResult(
+                Status.FAILED,
+                f"the pinned interpreter {' '.join(pinned)} is {got}; CraftBot "
+                f"needs Python {want}. Unset CRAFTBOT_PYTHON to use a private copy.",
+            )
 
-        # 1. An already-downloaded sidecar wins: it is the one we control.
+        # 1. Otherwise ONLY the private interpreter. Never the one running
+        #    us or one found on PATH, even when it is the right version:
+        #    Ubuntu's system 3.10 has no pip or ensurepip, Homebrew's is
+        #    externally managed, an old build's SQLite cannot load chromadb,
+        #    and installing 200 pinned packages into a user's own Python
+        #    rewrites their other projects' dependencies.
         sidecar = self._sidecar_exe(ctx)
         if sidecar.is_file():
             ver = _probe_python(str(sidecar))
             if ver and ver[:2] == TARGET_PYTHON:
-                return self._accept(ctx, str(sidecar), "sidecar", ver)
+                return self._accept(ctx, str(sidecar), "private", ver)
 
-        # 2. The interpreter running us, when it is real and the right line.
-        if not getattr(sys, "frozen", False):
-            ver = sys.version_info[:2]
-            if ver == TARGET_PYTHON:
-                return self._accept(ctx, sys.executable, "current", ver)
-
-        # 3. Anything matching on PATH. python3 first on unix, python first on
-        #    Windows — there python3.exe is usually the Store redirect stub.
-        names = ("python", "python3") if os.name == "nt" else ("python3", "python")
-        for name in names:
-            found = shutil.which(name)
-            if not found:
-                continue
-            if os.name == "nt" and "WindowsApps" in found:
-                continue  # Store stub, exits 9009
-            ver = _probe_python(found)
-            if ver and ver[:2] == TARGET_PYTHON:
-                return self._accept(ctx, found, "path", ver)
-
-        running = ".".join(str(v) for v in sys.version_info[:2])
         return StageResult(
             Status.MISSING,
-            f"need Python {want} (this is {running}); will fetch a private copy",
+            f"private Python {want} not installed yet; will download it (~40 MB)",
         )
 
     def apply(self, ctx: Context, log: LogFn) -> StageResult:
+        if ctx.service_python and not ctx.conda_env:
+            return self.check(ctx)  # a wrong pinned interpreter: report it
+        if ctx.offline:
+            return StageResult(Status.FAILED, "offline: cannot download Python")
+
+        import shutil as _shutil
         import tarfile
-        import tempfile
+
         from app import downloads
 
         dest = Path(ctx.state_root) / "runtime" / "python"
         dest.mkdir(parents=True, exist_ok=True)
+        archive = dest / "_download.tar.gz"
+
+        # Look in the cache BEFORE asking the network anything. Resolving the
+        # URL means fetching a large release index, which is itself a failure
+        # point on a slow link - and failing there while holding the very file
+        # we need would be perverse.
+        triple = _pbs_triple()
+        cached = (
+            downloads.find_cached(
+                f"cpython-{TARGET_PYTHON[0]}.{TARGET_PYTHON[1]}.*-{triple}-install_only.tar.gz"
+            )
+            if triple
+            else None
+        )
+
+        url = None
+        if not cached:
+            url = _pbs_download_url(log)
+            if not url:
+                return StageResult(
+                    Status.FAILED,
+                    f"no portable Python {TARGET_PYTHON[0]}.{TARGET_PYTHON[1]} "
+                    f"available for {platform.machine()} on {sys.platform}",
+                )
+
         try:
-            asset = runtime_manifest.asset("python")
-            # Staging keeps failed extraction from leaving a seemingly ready runtime.
-            with tempfile.TemporaryDirectory(prefix=".python-", dir=dest) as staging:
-                stage = Path(staging)
-                archive = stage / "python.tar.gz"
+            if cached:
+                log(f"    using cached {os.path.basename(cached)}")
+                _shutil.copyfile(cached, archive)
+            else:
                 downloads.download(
-                    asset["url"],
+                    url,
                     str(archive),
                     log=log,
-                    label="Python " + runtime_manifest.version("python"),
-                    expected_sha256=asset["sha256"],
-                    offline=ctx.offline,
+                    label=f"Python {TARGET_PYTHON[0]}.{TARGET_PYTHON[1]}",
                 )
-                log("    extracting Python...")
-                with tarfile.open(archive, mode="r:*") as tf:
-                    tf.extractall(stage, filter="data")
-                relative_exe = (
-                    Path("python.exe")
-                    if sys.platform == "win32"
-                    else Path("bin/python3")
-                )
-                candidate = stage / "python" / relative_exe
-                if _probe_python(str(candidate)) != TARGET_PYTHON:
-                    raise RuntimeError("Downloaded Python failed its execution check")
-                installed = dest / "python"
-                backup = dest / ".python-previous"
-                if backup.exists():
-                    shutil.rmtree(backup)
-                if installed.exists():
-                    installed.rename(backup)
-                try:
-                    (stage / "python").rename(installed)
-                except Exception:
-                    if backup.exists():
-                        backup.rename(installed)
-                    raise
-                if backup.exists():
-                    shutil.rmtree(backup, ignore_errors=True)
-            return self._accept(
-                ctx, str(self._sidecar_exe(ctx)), "sidecar", TARGET_PYTHON
-            )
-        except Exception as exc:
-            return StageResult(Status.FAILED, f"Python setup failed: {exc}")
+            log("    extracting...")
+            # tar preserves the executable bit, which a zip would not — that
+            # matters on macOS/Linux where the extracted python must be +x.
+            with tarfile.open(archive, mode="r:*") as tf:
+                downloads.safe_extract_tar(tf, str(dest))
+        except Exception as e:
+            return StageResult(Status.FAILED, f"download failed: {str(e)[:200]}")
+        finally:
+            try:
+                archive.unlink()
+            except OSError:
+                pass
+
+        exe = self._sidecar_exe(ctx)
+        if not exe.is_file():
+            return StageResult(Status.FAILED, f"extracted, but {exe} is missing")
+        ver = _probe_python(str(exe))
+        if not ver or ver[:2] != TARGET_PYTHON:
+            return StageResult(Status.FAILED, f"sidecar will not run ({ver})")
+        return self._accept(ctx, str(exe), "private", ver)

@@ -39,13 +39,16 @@ from typing import List
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
-# Gitignored build outputs that ARE required at runtime. Kept short and
-# explicit: every entry here is a hole in the "git decides" guarantee.
-BUILD_OUTPUTS = [
+# Gitignored build outputs that ARE required at runtime, each with the
+# command that builds it. Kept short and explicit: every entry here is a hole
+# in the "git decides" guarantee.
+BUILD_OUTPUTS = {
     # The compiled browser UI. Users have no Node toolchain at install time
     # and must not need one to see a working interface.
-    "app/ui_layer/browser/frontend/dist",
-]
+    "app/ui_layer/browser/frontend/dist": "cd app/ui_layer/browser/frontend && npx vite build",
+    # The terminal edition's client, one bundled ES module run by Node 24+.
+    "app/ui_layer/terminal/dist": "cd app/ui_layer/terminal && npm ci && node build.mjs",
+}
 
 # Tracked paths that are pure development weight. Excluded to keep the
 # download small; none is reachable at runtime.
@@ -59,13 +62,9 @@ EXCLUDE_PREFIXES = (
 
 EXCLUDE_SUFFIXES = (".md",)
 
-# These Markdown files are runtime inputs, not just repository documentation:
-# create.ts substitutes the blueprint, and the creator skill reads the guide.
-AGENT_APP_RUNTIME_DOCS = {
-    "agent-app/blueprint/AGENT_APP.md",
-    "agent-app/docs/agent-guide.md",
-}
-KEEP_EXACT = {"README.md", "LICENSE"} | AGENT_APP_RUNTIME_DOCS
+# Kept despite the rules above — README is the one doc worth shipping, and
+# the i18n README variants are not.
+KEEP_EXACT = {"README.md", "LICENSE"}
 
 
 def tracked_files() -> List[str]:
@@ -93,6 +92,15 @@ def wanted(rel: str) -> bool:
 
 
 def build(output: Path) -> int:
+    from app import agent_app_package
+
+    # A source payload must carry exactly the reviewed distribution, including
+    # its runtime dependencies and knowledge bundle. Verify before publishing.
+    try:
+        agent_app_package.read_bundle(REPO_ROOT)
+    except (OSError, ValueError, zipfile.BadZipFile) as exc:
+        print(f"error: Agent-App distribution: {exc}", file=sys.stderr)
+        return 1
     files = [f for f in tracked_files() if wanted(f)]
     if not files:
         print("error: git ls-files returned nothing — not a checkout?", file=sys.stderr)
@@ -103,8 +111,8 @@ def build(output: Path) -> int:
         print(
             "error: required build output missing: "
             + ", ".join(missing_outputs)
-            + "\nBuild the frontend first:\n"
-            "  cd app/ui_layer/browser/frontend && npx vite build",
+            + "\nBuild it first:\n"
+            + "\n".join(f"  {BUILD_OUTPUTS[b]}" for b in missing_outputs),
             file=sys.stderr,
         )
         return 1
@@ -137,28 +145,43 @@ def build(output: Path) -> int:
     # ways that surface far from the cause. Fail the build instead.
     required = (
         ripgrep_runtime.bundled_files()
-        + sorted(AGENT_APP_RUNTIME_DOCS)
+        + agent_app_package.bundled_files()
         + [
             "run.py",
             "main.py",
             "requirements.txt",
             "app/paths.py",
+            "app/agent_app_package.py",
+            "app/agent_app/framework.py",
+            "app/agent_app/framework_cli.py",
+            "app/agent_app/framework_connections.py",
+            "app/agent_app/framework_connections.mjs",
+            "app/agent_app/framework_maintenance.py",
+            "app/agent_app/framework_maintenance.mjs",
+            "app/agent_app/framework_sharing.py",
+            "app/data/action/agent_app_framework_actions.py",
+            "app/provision/agent_app_framework.py",
             "app/provision/__init__.py",
-            "app/runtime-manifest.json",
-            "app/runtime_manifest.py",
-            "agent-app/package.json",
-            "agent-app/package-lock.json",
-            "agent-app/tools/package.json",
-            "agent-app/tools/src/cli.ts",
-            "agent-app/spec/pocketbase.version",
-            "agent-app/spec/pocketbase-checksums.json",
+            "app/provision/python_downloads.json",
+            # The memory embedder: without these the backend cannot build its
+            # memory index (torch is deliberately no longer installed).
+            "app/provision/embedding_model.json",
+            "app/embedding_model.py",
+            "agent_core/core/impl/memory/onnx_embedder.py",
+            "app/provision/default_agent_app.py",
+            "app/data/default_agent_app/kanban-board.zip",
+            "app/data/default_agent_app/source.json",
             "app/ui_layer/browser/frontend/dist/index.html",
+            "app/ui_layer/terminal/dist/craftbot-tui.mjs",
             "craftos_integrations/providers/whatsapp_web/bridge.js",
             # craftbot.py imports these at module scope; without them every
             # command fails before parsing its arguments.
             "installer/helpers.py",
             "installer/metadata.py",
             "installer/payload.py",
+            "installer/startup.py",
+            # The desktop icon's progress window (craftbot.py open).
+            "installer/open_window.py",
         ]
     )
     with zipfile.ZipFile(output) as zf:

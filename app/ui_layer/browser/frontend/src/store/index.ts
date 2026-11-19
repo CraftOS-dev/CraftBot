@@ -14,7 +14,6 @@ import memorySettingsReducer from './slices/memorySettingsSlice'
 import skillsSettingsReducer from './slices/skillsSettingsSlice'
 import commandsSettingsReducer from './slices/commandsSettingsSlice'
 import proactiveSettingsReducer from './slices/proactiveSettingsSlice'
-import agentAppSettingsReducer from './slices/agentAppSettingsSlice'
 import generalSettingsReducer from './slices/generalSettingsSlice'
 import modelSettingsReducer from './slices/modelSettingsSlice'
 import reasoningReducer from './slices/reasoningSlice'
@@ -22,6 +21,7 @@ import integrationsSettingsReducer from './slices/integrationsSettingsSlice'
 import chatInputReducer from './slices/chatInputSlice'
 import playbooksReducer from './slices/playbooksSlice'
 import miniBrowserReducer from './slices/miniBrowserSlice'
+import streamReducer from './slices/streamSlice'
 import uiReducer from './slices/uiSlice'
 import { socketMiddleware } from './socket/socketMiddleware'
 import './socket/versionWatch'
@@ -58,7 +58,6 @@ export const store = configureStore({
     skillsSettings: skillsSettingsReducer,
     commandsSettings: commandsSettingsReducer,
     proactiveSettings: proactiveSettingsReducer,
-    agentAppSettings: agentAppSettingsReducer,
     generalSettings: generalSettingsReducer,
     modelSettings: modelSettingsReducer,
     reasoning: reasoningReducer,
@@ -66,6 +65,7 @@ export const store = configureStore({
     chatInput: chatInputReducer,
     playbooks: playbooksReducer,
     miniBrowser: miniBrowserReducer,
+    stream: streamReducer,
     ui: uiReducer,
   },
   // Remembered UI state (panel sizes, filters, scroll…) is restored before

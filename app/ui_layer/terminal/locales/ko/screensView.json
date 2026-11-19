@@ -1,0 +1,120 @@
+{
+  "transcript": {
+    "title": "대화 기록 · {{session}}",
+    "count_one": "메시지 {{count}}개",
+    "count_other": "메시지 {{count}}개",
+    "match": "{{count}}개 중 {{index}}번째 일치",
+    "noMatch": "{{query}}과(와) 일치하는 항목 없음",
+    "loadingOlder": "이전 메시지를 불러오는 중...",
+    "olderAbove": "맨 위에 도달하면 이전 메시지를 불러옵니다",
+    "start": "대화의 시작",
+    "empty": "이 대화에는 아직 아무것도 없습니다.",
+    "reasoning": "추론",
+    "thinking": "생각 중...",
+    "details": "세부 정보",
+    "detailsHidden_one": "세부 정보 숨김 ({{count}}줄) · Enter로 보기",
+    "detailsHidden_other": "세부 정보 숨김 ({{count}}줄) · Enter로 보기",
+    "replyingTo": "답장 대상",
+    "you": "나",
+    "waiting": "답변을 기다리는 중",
+    "status": {
+      "running": "실행 중",
+      "waiting": "대기 중",
+      "paused": "일시 중지됨",
+      "pending": "대기열",
+      "cancelled": "취소됨"
+    },
+    "copied": "Markdown으로 복사했습니다",
+    "copiedTerminal": "터미널 클립보드로 보냈습니다 (OSC 52)",
+    "copyFailed": "복사하지 못했습니다: {{error}}",
+    "replyOnlyAgent": "에이전트의 메시지에만 답장할 수 있습니다",
+    "replyChoose": "이 질문은 채팅에서 옵션으로 답하세요",
+    "editorSaved": "{{path}}에 저장했습니다",
+    "editorFailed": "{{editor}}을(를) 열지 못했습니다: {{error}}",
+    "searchPlaceholder": "대화 기록 검색",
+    "dumpEnd": "대화 기록의 끝",
+    "hint": {
+      "fold": "접기",
+      "search": "검색",
+      "match": "다음 일치",
+      "copy": "복사",
+      "reply": "답장",
+      "scrollback": "터미널로 출력",
+      "editor": "편집기",
+      "back": "뒤로",
+      "keep": "유지",
+      "clear": "지우기"
+    }
+  },
+  "browser": {
+    "title": "브라우저 · {{session}}",
+    "newChat": "새 채팅은 첫 메시지를 보낼 때 브라우저가 생깁니다.",
+    "off": "꺼져 있습니다. 에이전트가 탐색하면 열립니다. s를 누르면 지금 시작합니다.",
+    "starting": "브라우저를 시작하는 중...",
+    "installing": "Chromium을 설치하는 중...",
+    "installDone": "Chromium을 설치했습니다. s를 눌러 브라우저를 시작하세요.",
+    "installFailed": "설치 실패: {{error}}",
+    "installHint": "i를 눌러 Chromium을 설치하세요 (한 번만 다운로드).",
+    "status": {
+      "starting": "시작 중",
+      "ready": "준비됨",
+      "stopped": "꺼짐",
+      "installing": "설치 중",
+      "error": "오류"
+    },
+    "browsing": "에이전트 탐색 중",
+    "tabs_one": "탭 {{count}}개",
+    "tabs_other": "탭 {{count}}개",
+    "col": {
+      "owner": "사용자",
+      "title": "제목",
+      "address": "주소",
+      "state": "상태"
+    },
+    "owner": {
+      "you": "나",
+      "agent": "에이전트",
+      "subagent": "하위 에이전트",
+      "main": "메인",
+      "session": "채팅"
+    },
+    "state": {
+      "crashed": "비정상 종료",
+      "control": "직접 조작 중",
+      "working": "에이전트 작업 중",
+      "loading": "로드 중",
+      "idle": "대기 중"
+    },
+    "untitled": "새 탭",
+    "noTabs": "열린 탭이 없습니다.",
+    "controlNote": "브라우저는 데스크톱의 창으로 실행됩니다. 그 창에서 사용하려면 에이전트의 탭을 직접 조작하세요.",
+    "controlTaken": "직접 조작 중입니다. 브라우저 창을 사용한 뒤 여기서 t를 눌러 탭을 넘겨주세요.",
+    "controlReturned": "탭을 에이전트에게 넘겼습니다.",
+    "linkCopied": "링크를 복사했습니다",
+    "linkCopiedTerminal": "링크를 터미널 클립보드로 보냈습니다 (OSC 52)",
+    "copyFailed": "복사하지 못했습니다: {{error}}",
+    "confirmClose": "{{owner}}이(가) {{title}}에서 작업 중입니다. 그래도 닫을까요?",
+    "stopping": "에이전트 실행을 중지하는 중...",
+    "notBrowsing": "이 탭을 조작하는 에이전트 실행이 없습니다",
+    "event": {
+      "download": "{{name}} 다운로드 완료",
+      "crash": "탭이 비정상 종료되었습니다",
+      "blocked": "페이지가 차단되었습니다",
+      "dialog": "페이지에 대화 상자가 표시되었습니다",
+      "popup": "페이지가 팝업을 열었습니다",
+      "notice": "알림",
+      "problem": "문제"
+    },
+    "hint": {
+      "control": "직접 조작",
+      "handBack": "에이전트에게 넘기기",
+      "show": "보기",
+      "close": "탭 닫기",
+      "copy": "링크 복사",
+      "stop": "에이전트 중지",
+      "start": "시작",
+      "install": "Chromium 설치",
+      "back": "뒤로"
+    }
+  }
+}

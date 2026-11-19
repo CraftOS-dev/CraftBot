@@ -5,18 +5,23 @@ Shared formatters for action lists embedded in LLM prompts.
 This module owns the canonical compact representation used to describe
 available actions to the LLM. It is intentionally tight on tokens:
 
-- One JSON object per action with ``name``, ``description``, ``params``.
-- Each parameter collapses to a single string ``"<type>, required|optional - <desc>"``.
+- One JSON object per action with ``name``, ``description``, ``params``,
+  one action per line, without padding whitespace.
+- Each parameter collapses to a single string ``"<type>, required|optional - <desc>"``,
+  required or optional as its schema's ``required`` flag declares.
+- A parameter every action of the list takes, with the same text, is written
+  once above the list instead of in each action (e.g. an integration's
+  ``account``).
 - No ``example`` fields, no nested type-definitions.
 
-Both ``ActionRouter`` (main agent) and ``SubAgentContextEngine`` (sub-agents)
-should call ``format_action_candidates`` so the format stays in sync.
+Every <actions> list (ActionRouter, for the main agent and sub-agents alike)
+and every action_schemas event renders through ``format_action_candidates``.
 """
 
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 
 def candidate_dict_from_action(action) -> Dict[str, Any]:
@@ -53,7 +58,8 @@ def format_action_candidates(candidates: List[Dict[str, Any]]) -> str:
             to build entries from ``Action`` objects.
 
     Returns:
-        A JSON-formatted string (pretty-printed) describing the candidates.
+        A JSON array of the candidates, one per line, preceded by a line
+        listing the parameters every candidate takes when there are any.
         Returns ``"[]"`` when the list is empty.
     """
     if not candidates:
@@ -67,13 +73,14 @@ def format_action_candidates(candidates: List[Dict[str, Any]]) -> str:
             if isinstance(param_def, dict):
                 ptype = param_def.get("type", "any")
                 desc = param_def.get("description", "") or ""
-                # Match the heuristic used by ActionRouter._format_candidates:
-                # treat parameters whose description mentions "default" or
-                # "optional" as optional, everything else required.
-                low = desc.lower()
-                is_optional = "default" in low or "optional" in low
-                req = "optional" if is_optional else "required"
-                params[param_name] = f"{ptype}, {req} - {desc}"
+                # Required or optional as the schema declares it. A schema
+                # that declares neither gets no label: nothing is inferred.
+                required = param_def.get("required")
+                if isinstance(required, bool):
+                    req = "required" if required else "optional"
+                    params[param_name] = f"{ptype}, {req} - {desc}"
+                else:
+                    params[param_name] = f"{ptype} - {desc}"
             else:
                 params[param_name] = str(param_def)
 
@@ -85,42 +92,34 @@ def format_action_candidates(candidates: List[Dict[str, Any]]) -> str:
             }
         )
 
-    return json.dumps(compact, indent=2, ensure_ascii=False)
+    shared = _params_every_action_takes(compact)
+    for entry in compact:
+        for param_name in shared:
+            del entry["params"][param_name]
+
+    def dump(value) -> str:
+        return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+
+    block = "[\n" + ",\n".join(dump(entry) for entry in compact) + "\n]"
+    if shared:
+        block = f"Every action below also takes these params: {dump(shared)}\n{block}"
+    return block
 
 
-def format_actions_by_name(
-    action_names: List[str],
-    action_library,
-    *,
-    on_missing: Optional[str] = None,
-) -> str:
-    """Convenience: look up actions by name and render them.
-
-    Args:
-        action_names: Ordered list of action names to include.
-        action_library: Anything with ``retrieve_action(name) -> Action | None``.
-        on_missing: Optional log-message prefix for actions that aren't found;
-            when None, missing actions are silently skipped.
-
-    Returns:
-        Compact JSON block (or ``"[]"`` if nothing resolved).
-    """
-    candidates: List[Dict[str, Any]] = []
-    for name in action_names:
-        act = action_library.retrieve_action(name)
-        if act is None:
-            if on_missing is not None:
-                # Use late import to avoid pulling logging deps at module load.
-                from agent_core.utils.logger import logger
-
-                logger.warning(f"{on_missing}: action {name!r} not found in library")
-            continue
-        candidates.append(candidate_dict_from_action(act))
-    return format_action_candidates(candidates)
+def _params_every_action_takes(compact: List[Dict[str, Any]]) -> Dict[str, str]:
+    """The parameters (name and rendered text) every action of the list has,
+    in the first action's order. A list of one action shares nothing."""
+    if len(compact) < 2:
+        return {}
+    first, rest = compact[0]["params"], compact[1:]
+    return {
+        name: text
+        for name, text in first.items()
+        if all(entry["params"].get(name) == text for entry in rest)
+    }
 
 
 __all__ = [
     "candidate_dict_from_action",
     "format_action_candidates",
-    "format_actions_by_name",
 ]

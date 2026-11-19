@@ -1,0 +1,192 @@
+{
+  "panel": {
+    "name": "名称",
+    "status": "状态",
+    "port": "端口",
+    "path": "路径",
+    "pathDesc": "应用在这台电脑上的文件夹",
+    "address": "地址",
+    "addressDesc": "应用在这台电脑上的访问地址",
+    "origin": "来源",
+    "signedInAs": "登录身份",
+    "connection": "连接",
+    "loading": "加载中...",
+    "gone": "此应用已不在应用列表中。",
+    "disconnected": "连接已断开。重新连接后才能更改此应用。",
+    "working": "处理中...",
+    "on": "开",
+    "off": "关"
+  },
+  "status": {
+    "running": "运行中",
+    "stopped": "已停止",
+    "starting": "启动中...",
+    "stopping": "停止中...",
+    "missing": "应用文件夹缺失",
+    "unreachable": "不可用"
+  },
+  "connectionStatus": {
+    "online": "在线",
+    "offline": "离线",
+    "unreachable": "不可用",
+    "expired": "登录已过期"
+  },
+  "lifecycle": {
+    "start": "启动",
+    "stop": "停止",
+    "startDesc": "按应用的构建和启动步骤启动应用",
+    "stopDesc": "停止应用及其请求桥接。开发实例会继续运行。",
+    "failed": "应用无法完成该命令。",
+    "unknown": "连接中断。命令可能仍在运行。重新连接后请先检查应用状态，再重试。",
+    "remaining": "仍有开发实例或任务桥接在运行。",
+    "notSent": "未发送。请重新连接后再试。",
+    "busy": "请等待应用完成启动或停止。"
+  },
+  "sections": {
+    "preferences": "偏好设置",
+    "requests": "请求",
+    "backups": "备份",
+    "share": "分享",
+    "appearance": "外观",
+    "package": "软件包",
+    "remove": "移除"
+  },
+  "prefs": {
+    "autoStart": "自动启动",
+    "autoStartDesc": "你的 AI 智能体启动时启动此应用",
+    "logCleanup": "启动时清理日志",
+    "logCleanupDesc": "每次启动应用时删除旧的日志文件"
+  },
+  "requests": {
+    "allow": "允许向 CraftBot 发送请求",
+    "allowDesc": "允许此应用向你的 AI 智能体发送它声明的请求",
+    "view": "查看请求 ({{count}})",
+    "hide": "隐藏请求",
+    "listDesc": "允许后此应用可以发送的请求",
+    "ownerTools": "所有者访问本地工具",
+    "ownerToolsDesc": "允许应用所有者以你的 AI 智能体的权限读写本地文件并运行命令",
+    "needsAllow": "请先允许请求。"
+  },
+  "backups": {
+    "scheduled": "计划备份",
+    "scheduledDesc": "自动备份此应用的数据和文件",
+    "frequency": "频率",
+    "frequencyDesc": "计划备份的运行间隔",
+    "interval": {
+      "hourly": "每小时",
+      "6h": "每 6 小时",
+      "daily": "每天",
+      "weekly": "每周"
+    },
+    "keep": "保留的备份数",
+    "keepDesc": "超出此数量的较旧计划备份会被移除",
+    "lastFailed": "上次备份失败：{{error}}",
+    "last": "上次备份 {{when}}",
+    "kept": "保留 {{count}} 个",
+    "none": "尚无备份",
+    "now": "立即备份",
+    "nowDesc": "立即备份数据和文件。正在运行的应用会短暂停止。",
+    "restoring": "正在恢复。这可能需要一分钟。",
+    "trigger": {
+      "scheduled": "计划",
+      "manual": "手动",
+      "preRemove": "删除前",
+      "preUpdate": "更新前",
+      "preRestore": "恢复前"
+    },
+    "confirmRestore": "将 {{name}} 恢复到 {{date}} 的状态？之后的数据将被移除。会先备份当前状态。",
+    "confirmDelete": "永久删除 {{date}} 的备份？",
+    "loadFailed": "无法加载备份列表：{{error}}",
+    "retry": "重新加载",
+    "retryDesc": "再次获取备份列表",
+    "created": "备份已创建",
+    "restored": "备份已恢复",
+    "deleted": "备份已删除"
+  },
+  "share": {
+    "lan": "局域网",
+    "public": "公开",
+    "lanHint": "同一网络中的设备 (需凭链接)",
+    "publicHint": "互联网上的任何人 (需凭链接)",
+    "lanDesc": "供同一网络中的设备使用的链接。关闭后，所有访问者都将失去访问权限。",
+    "publicDesc": "公开隧道链接。关闭后，所有访问者都将失去访问权限。",
+    "starting": "启动中...",
+    "confirmCloseLan": "关闭局域网链接？正在使用它的所有人都将失去访问权限。",
+    "confirmClosePublic": "关闭公开链接？正在使用它的所有人都将失去访问权限。"
+  },
+  "theme": {
+    "label": "主题",
+    "desc": "应用页面的外观"
+  },
+  "export": {
+    "label": "导出软件包",
+    "desc": "将应用保存为可再次安装的软件包文件",
+    "value": "整个应用合为一个文件",
+    "done": "软件包已导出",
+    "file": "软件包文件",
+    "fileDesc": "导出的软件包的保存位置"
+  },
+  "remove": {
+    "delete": "删除应用",
+    "forget": "从列表中移除",
+    "disconnect": "断开连接",
+    "deleteDesc": "停止应用并删除其文件。其数据和备份保存在已移除应用的归档中。",
+    "forgetDesc": "清除保存的条目。不会删除任何文件。",
+    "disconnectDesc": "移除连接。应用及其数据保留在其主机上。",
+    "confirmDelete": "删除 {{name}}？应用将被停止，文件将被删除。其数据和备份保存在已移除应用的归档中。",
+    "confirmForget": "从应用列表中移除 {{name}}？其应用文件夹已缺失。不会删除任何文件。",
+    "confirmKeepFiles": "无法确认 {{name}} 的文件夹属于该应用，因此未删除任何文件。是否将应用从列表中移除并保留其文件？",
+    "confirmDisconnect": "断开 {{name}} 的连接？应用及其数据保留在其主机上。",
+    "deleted": "已删除 {{name}}",
+    "forgotten": "已从应用列表中移除 {{name}}。其文件已保留。",
+    "disconnected": "已断开 {{name}}",
+    "removedFromList": "已从应用列表中移除 {{name}}。"
+  },
+  "common": {
+    "copied": "已复制到剪贴板",
+    "copyFailed": "无法复制到剪贴板",
+    "opened": "已用默认应用打开",
+    "openFailed": "无法打开",
+    "failed": "应用无法完成此操作。",
+    "busy": "另一个操作仍在运行。",
+    "notReady": "尚未就绪。请稍后再试。",
+    "listStale": "应用列表已过时。请等待它刷新。"
+  },
+  "hint": {
+    "move": "j/k 移动",
+    "switch": "Enter 切换",
+    "run": "Enter 执行",
+    "showHide": "Enter 显示或隐藏",
+    "change": "Enter 更改",
+    "adjust": "Left/Right 更改",
+    "save": "Enter 保存",
+    "cancel": "Esc 取消",
+    "choose": "Enter 选择",
+    "apply": "Enter 应用",
+    "copy": "c 复制",
+    "open": "o 打开",
+    "restore": "r 恢复",
+    "delete": "x 删除",
+    "closeLink": "x 关闭",
+    "createLink": "Enter 创建链接",
+    "retry": "Enter 重新加载",
+    "confirm": "y 确认，其他任意键取消",
+    "back": "返回",
+    "openApp": "打开",
+    "startStop": "启动或停止",
+    "reload": "刷新"
+  },
+  "tab": {
+    "apps_other": "{{count}} 个应用",
+    "running": "{{count}} 个运行中",
+    "loading": "正在加载应用...",
+    "empty": "还没有 Agent App。请让你的 AI 智能体构建一个，或在 Agent App 界面中添加。",
+    "failed": "无法加载应用列表：{{error}}",
+    "warning": "注册表提示：{{warning}}",
+    "disconnected": "连接已断开。应用状态可能已过时。",
+    "lastKnown": "最后已知：{{status}}",
+    "connected": "已连接",
+    "refreshing": "正在刷新应用列表",
+    "notSupported": "只有这台电脑上正在运行或已停止的应用才能启动和停止。"
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "api_base": "https://api.github.com",
+  "download_base": "https://github.com",
+  "repository": "astral-sh/python-build-standalone",
+  "fallback_release": "20261009",
+  "fallback_version": "3.10.22",
+  "fallback_platforms": [
+    "x86_64-pc-windows-msvc",
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+    "x86_64-apple-darwin",
+    "aarch64-apple-darwin"
+  ]
+}

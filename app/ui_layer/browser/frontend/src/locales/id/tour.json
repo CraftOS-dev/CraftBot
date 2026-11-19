@@ -22,7 +22,7 @@
       "description": "Instal aplikasi siap pakai dari pasar komunitas hanya dengan satu klik."
     },
     "agent-app-custom": {
-      "title": "Buat Kustom",
+      "title": "Bangun",
       "description": "Jelaskan apa yang Anda inginkan dan agen akan membangunnya: konfigurasikan beberapa hal dasar, jawab wawancara singkat, lalu agen menulis spesifikasi dan membangun aplikasinya."
     },
     "agent-app-import": {

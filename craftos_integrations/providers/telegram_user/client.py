@@ -269,7 +269,9 @@ class TelegramUserClient(BasePlatformClient):
         is_saved_messages = chat_id == self._my_user_id
 
         cfg = (
-            load_config(_telegram_user_config_file(), TelegramUserConfig)
+            await asyncio.to_thread(
+                load_config, _telegram_user_config_file(), TelegramUserConfig
+            )
             or TelegramUserConfig()
         )
         if cfg.self_messages_only and not is_saved_messages:

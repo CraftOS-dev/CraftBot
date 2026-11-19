@@ -15,8 +15,10 @@ import sys
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
+from urllib.parse import urljoin, urlparse
 
 from agent_core.utils.logger import logger
+from agent_core.utils.windows_process import hidden_console_kwargs
 from agent_core.core.impl.mcp.config import MCPServerConfig
 
 # Default client info - can be overridden
@@ -225,6 +227,7 @@ class StdioTransport(MCPTransport):
                     stderr=asyncio.subprocess.PIPE,
                     env=full_env,
                     cwd=cwd,
+                    **hidden_console_kwargs(),
                     limit=10
                     * 1024
                     * 1024,  # 10MB limit for large MCP responses (e.g., screenshots)
@@ -447,12 +450,23 @@ class StdioTransport(MCPTransport):
 
 
 class SSETransport(MCPTransport):
-    """SSE (Server-Sent Events) transport for HTTP-based MCP servers."""
+    """SSE (Server-Sent Events) transport for HTTP-based MCP servers.
+
+    Per the MCP SSE spec, the server's first event is ``endpoint`` and carries
+    the URL that JSON-RPC requests must be POSTed to. That URL is not derivable
+    from the SSE URL (the official Python SDK serves ``/sse`` and
+    ``/messages/?session_id=...``), so it is read from the stream.
+    """
+
+    # How long connect() waits for the server's ``endpoint`` event.
+    ENDPOINT_TIMEOUT = 10.0
 
     def __init__(self, url: str, env: Dict[str, str]):
         self.url = url
         self.env = env
         self._connected = False
+        self._endpoint: Optional[str] = None
+        self._endpoint_ready = asyncio.Event()
         self._client = None
         self._request_id = 0
         self._pending_requests: Dict[int, asyncio.Future] = {}
@@ -474,6 +488,17 @@ class SSETransport(MCPTransport):
             # Start SSE listener task
             self._sse_task = asyncio.create_task(self._listen_sse())
 
+            # The server announces where to POST in its first event.
+            try:
+                await asyncio.wait_for(
+                    self._endpoint_ready.wait(), timeout=self.ENDPOINT_TIMEOUT
+                )
+            except asyncio.TimeoutError:
+                logger.warning(
+                    f"SSE server at {self.url} sent no endpoint event; "
+                    f"falling back to {self._post_url()}"
+                )
+
             # Send initialize request
             client_info = get_client_info()
             init_response = await self.send_request(
@@ -491,6 +516,7 @@ class SSETransport(MCPTransport):
                 return False
 
             self._connected = True
+            await self._send_notification("notifications/initialized", {})
             logger.info(f"SSE transport connected to {self.url}")
             return True
 
@@ -524,26 +550,61 @@ class SSETransport(MCPTransport):
                 future.set_exception(Exception("Connection closed"))
         self._pending_requests.clear()
 
+    def _post_url(self) -> str:
+        """URL requests are POSTed to: the announced endpoint, else a guess."""
+        return self._endpoint or self.url.replace("/sse", "/message")
+
+    @staticmethod
+    def _origin(url: str) -> tuple:
+        """(scheme, hostname, effective port), so `:443` equals the default."""
+        parts = urlparse(url)
+        port = parts.port or {"http": 80, "https": 443}.get(parts.scheme)
+        return (parts.scheme, parts.hostname, port)
+
+    def _accept_endpoint(self, data: str) -> None:
+        """Record the endpoint the server announced, if it is same-origin."""
+        endpoint = urljoin(self.url, data)
+        if self._origin(self.url) != self._origin(endpoint):
+            logger.warning(
+                f"Ignoring SSE endpoint {endpoint}: origin differs from {self.url}"
+            )
+            return
+        self._endpoint = endpoint
+        self._endpoint_ready.set()
+
     async def _listen_sse(self) -> None:
         """Listen for SSE events."""
         import json
 
+        # SSE fields arrive in any order; an event is complete at the blank line.
+        event_name = ""
+        data_lines: List[str] = []
         try:
             async with self._client.stream("GET", self.url) as response:
                 async for line in response.aiter_lines():
-                    if line.startswith("data: "):
-                        data = line[6:]
-                        try:
-                            message = json.loads(data)
-                            if (
-                                "id" in message
-                                and message["id"] in self._pending_requests
-                            ):
-                                future = self._pending_requests.pop(message["id"])
-                                if not future.done():
-                                    future.set_result(message)
-                        except json.JSONDecodeError:
-                            continue
+                    if line:
+                        field_name, _, value = line.partition(":")
+                        value = value[1:] if value.startswith(" ") else value
+                        if field_name == "event":
+                            event_name = value
+                        elif field_name == "data":
+                            data_lines.append(value)
+                        continue
+                    data = "\n".join(data_lines)
+                    name, event_name, data_lines = event_name, "", []
+                    if not data:
+                        continue
+                    if name == "endpoint":
+                        self._accept_endpoint(data.strip())
+                        continue
+                    try:
+                        message = json.loads(data)
+                        if "id" in message and message["id"] in self._pending_requests:
+                            future = self._pending_requests.pop(message["id"])
+                            if not future.done():
+                                future.set_result(message)
+                    except json.JSONDecodeError:
+                        continue
         except asyncio.CancelledError:
             pass
         except Exception as e:
@@ -576,8 +637,7 @@ class SSETransport(MCPTransport):
 
         try:
             # Send POST request
-            post_url = self.url.replace("/sse", "/message")
-            await self._client.post(post_url, json=request)
+            await self._client.post(self._post_url(), json=request)
 
             # Wait for response via SSE
             response = await asyncio.wait_for(future, timeout=30.0)
@@ -589,6 +649,22 @@ class SSETransport(MCPTransport):
         except Exception as e:
             self._pending_requests.pop(request_id, None)
             return {"error": {"code": -1, "message": str(e)}}
+
+    async def _send_notification(
+        self, method: str, params: Optional[Dict] = None
+    ) -> None:
+        """Send a JSON-RPC notification (no response expected)."""
+        if not self._client:
+            return
+
+        notification: Dict[str, Any] = {"jsonrpc": "2.0", "method": method}
+        if params is not None:
+            notification["params"] = params
+
+        try:
+            await self._client.post(self._post_url(), json=notification)
+        except Exception as e:
+            logger.warning(f"Failed to send notification: {e}")
 
 
 class WebSocketTransport(MCPTransport):
@@ -943,6 +1019,14 @@ class MCPServerConnection:
                 }
 
             result = response.get("result", {})
+            status = "error" if result.get("isError") is True else "success"
+            # Presence matters: null, false, zero and empty structured values
+            # are still evidence. Keep the existing result/raw_content shape.
+            metadata = {
+                key: result[key]
+                for key in ("isError", "structuredContent", "_meta")
+                if key in result
+            }
 
             # Extract content from MCP result format
             content = result.get("content", [])
@@ -954,14 +1038,16 @@ class MCPServerConnection:
                         text_parts.append(item.get("text", ""))
 
                 return {
-                    "status": "success",
+                    "status": status,
                     "result": "\n".join(text_parts) if text_parts else result,
                     "raw_content": content,
+                    **metadata,
                 }
 
             return {
-                "status": "success",
+                "status": status,
                 "result": result,
+                **metadata,
             }
 
         except Exception as e:

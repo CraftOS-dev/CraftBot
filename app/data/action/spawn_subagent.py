@@ -42,6 +42,7 @@ from app.subagent import list_subagent_names, get_subagent_definition
     input_schema={
         "agent_type": {
             "type": "string",
+            "required": True,
             # Enum built from the registry so new types are picked up
             # automatically. The per-type description above tells the
             # spawning agent how each one behaves.
@@ -53,6 +54,7 @@ from app.subagent import list_subagent_names, get_subagent_definition
         },
         "query": {
             "type": "string",
+            "required": True,
             "description": (
                 "Fully self-contained instruction for the sub-agent. NO "
                 "context from your task carries over — include every file "
@@ -98,15 +100,12 @@ from app.subagent import list_subagent_names, get_subagent_definition
         "query": "What is the capital of France?",
         "simulated_mode": True,
     },
+    display_param="query",
+    icon="Bot",
 )
-def spawn_subagent(input_data: dict) -> dict:
+async def spawn_subagent(input_data: dict) -> dict:
     # Imports inside the function — required by the action runtime model.
-    import asyncio
-
     from app.internal_action_interface import InternalActionInterface
-    from app.logger import logger, add_subagent_log_sink, remove_subagent_log_sink
-    from app.subagent.runner import SubAgentRunner
-    from app.subagent.types import SUBAGENT_TERMINAL_STATUSES
 
     if input_data.get("simulated_mode"):
         return {
@@ -129,33 +128,8 @@ def spawn_subagent(input_data: dict) -> dict:
             "message": "query is required and must be self-contained.",
         }
 
-    # ActionManager injects _session_id; for spawn_subagent this is the
-    # PARENT session's id (recorded on the SubAgent for traceability).
-    parent_task_id = input_data.get("_session_id")
-
-    # Resolve the parent session's workspace dir so the child's event stream
-    # can externalize oversized action outputs (same mechanism as the main
-    # agent). Falls back to None (externalization off) when spawned outside
-    # a session or the session has no workspace dir.
-    parent_temp_dir = None
-    if parent_task_id and InternalActionInterface.session_manager is not None:
-        parent_session = InternalActionInterface.session_manager.get(parent_task_id)
-        if parent_session is not None:
-            parent_temp_dir = getattr(parent_session, "workspace_dir", None) or None
-
-    mgr = InternalActionInterface.subagent_manager
-    action_manager = InternalActionInterface.action_manager
-    action_library = InternalActionInterface.action_library
-    llm = InternalActionInterface.llm_interface
-    event_stream_manager = InternalActionInterface.event_stream_manager
-
-    if (
-        mgr is None
-        or action_manager is None
-        or action_library is None
-        or llm is None
-        or event_stream_manager is None
-    ):
+    manager = InternalActionInterface.subagent_manager
+    if manager is None:
         return {
             "status": "error",
             "result": "",
@@ -163,57 +137,16 @@ def spawn_subagent(input_data: dict) -> dict:
         }
 
     try:
-        sub = mgr.spawn(
-            agent_type=agent_type,
-            query=query,
-            parent_task_id=parent_task_id,
-            parent_temp_dir=parent_temp_dir,
+        # ActionManager injects _session_id: the spawning session's id.
+        sub = manager.spawn(
+            agent_type, query, parent_session_id=input_data.get("_session_id")
         )
     except ValueError as e:
         return {"status": "error", "result": "", "message": str(e)}
 
-    runner = SubAgentRunner(
-        subagent_manager=mgr,
-        action_manager=action_manager,
-        action_library=action_library,
-        event_stream_manager=event_stream_manager,
-        llm_interface=llm,
-    )
-
-    # The runner's ``finally`` block always calls ``mgr.release(sub.id)``,
-    # which drops the per-sub-agent event stream and session caches. By the
-    # time control returns here, those resources are gone — so on a crash
-    # path we MUST NOT call ``mgr.end()`` (its ``subagent_end`` log would
-    # have nowhere valid to go and would leak into the parent's main
-    # stream). Update ``sub`` in memory instead.
-    #
-    # The action body runs inside ``ActionExecutor``'s thread pool — there
-    # is no event loop in that thread, so ``asyncio.run`` is the correct
-    # entry point (nest_asyncio compatibility is irrelevant here).
-    # Tag every log line emitted while this sub-agent runs with its identity, and
-    # route them to a dedicated file. contextualize sets a contextvar that
-    # asyncio.run copies into the new loop, so the runner, ActionManager, LLM
-    # interface and action code all log under "sub:<type>:<id>"; the per-agent
-    # sink (filtered on that tag) captures them into <run>/sub_<type>_<id>.log.
-    short_id = sub.id[4:] if sub.id.startswith("sub_") else sub.id
-    agent_tag = f"sub:{sub.agent_type}:{short_id}"
-    # Nest the sub-agent's log file inside its parent session's folder and
-    # attribute its lines to that session (so all.log / the session's own log
-    # carry the right session tag). The per-agent sink filters on agent_tag,
-    # so the sub-agent's lines land in <run>/<session>/<tag>.log.
-    log_session = parent_task_id or "main"
-    sink_id = add_subagent_log_sink(agent_tag, log_session)
-    try:
-        with logger.contextualize(agent=agent_tag, session=log_session):
-            try:
-                asyncio.run(runner.run_to_completion(sub))
-            except Exception as e:
-                logger.exception(f"[spawn_subagent] runner crashed for {sub.id}: {e}")
-                if sub.status not in SUBAGENT_TERMINAL_STATUSES:
-                    sub.status = "error"
-                    sub.result = f"(sub-agent runner crashed: {e})"
-    finally:
-        remove_subagent_log_sink(sink_id)
+    # An async action runs on the spawning turn's event loop, so stopping
+    # that run cancels the sub-agent with it.
+    await manager.run(sub)
 
     return {
         "status": sub.status,

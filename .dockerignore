@@ -1,29 +1,42 @@
+# Docker build context filter. Patterns match from the repository root;
+# `**/` makes one match at any depth.
+
+# VCS, caches and build output. The Dockerfile builds the browser UI and the
+# npm trees itself, for the image's own platform: a node_modules or dist/
+# copied from a Windows or macOS checkout would carry the wrong native
+# binaries, so none may enter the context.
 .git
 .gitignore
-__pycache__
-*.py[cod]
-*.log
+.github
+**/__pycache__
+**/*.py[cod]
+**/*.log
+**/node_modules
+**/dist
+**/build
+**/*.egg-info
 .venv
 venv
-node_modules
-chroma_db
 __pypackages__
 .cache
 .mypy_cache
 .pytype
-build
-dist
+.pytest_cache
+.ruff_cache
 .DS_Store
-.github
 install.sh
 install.bat
-*.egg-info
 OmniParser_CraftOS
 debug_images
 workspace
 
+# Not needed to run CraftBot: the Rust installer (its target/ directory alone
+# can be gigabytes) and the test suite.
+launcher
+tests
+
 # ---------------------------------------------------------------------------
-# Secrets and per-machine runtime state — never belongs in an image.
+# Secrets and per-machine runtime state: never belongs in an image.
 #
 # `COPY . .` takes whatever is in the build context, i.e. a developer's working
 # tree, and the release workflow pushes the resulting image to a public
@@ -33,6 +46,10 @@ workspace
 # exactly once, on someone's laptop. (Same failure as the old PyInstaller spec's
 # blanket app/data entry, which shipped 1.1 GB of one machine's memory index
 # and databases.) Keep this list in step with .gitignore.
+#
+# The image still gets every shipped default: app/config/<name>.default.json
+# and app/data/agent_file_system_template/ are copied into the /data volume on
+# first start (app/state_sync.py).
 # ---------------------------------------------------------------------------
 
 # Secrets and credentials
@@ -60,6 +77,10 @@ chroma_db_memory
 .craftbot
 **/.craftbot
 .craftbot-managed
+.craftbot-image-id
+.agent-ready
+craftbot.pid
+ui.json
 logs
 **/logs
 **/agent_logs.txt
@@ -71,8 +92,11 @@ logs
 **/onboarding_config.json
 **/gui/config
 **/.whatsapp_web_sessions
+# ...except the shipped templates the agent's files are created from.
+!app/data/agent_file_system_template/USER.md
+!app/data/agent_file_system_template/CONVERSATION_HISTORY.md
 
-# Provisioned runtimes and build caches — re-fetched inside the image
+# Provisioned runtimes and build caches: re-fetched inside the image
 runtime
 wheelhouse
 downloads-cache

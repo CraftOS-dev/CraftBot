@@ -5,6 +5,19 @@
     <link rel="icon" type="image/png" href="/craftbot-favicon-32x32.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
     <title>CraftBot</title>
+    <script>
+      // Apply the saved theme before the first paint, so the blank page and the
+      // splash already match what the app will show. Mirrors UI_STATE.theme in
+      // src/store/uiState/catalog.ts ('craftbot.ui.theme', JSON 'dark' | 'light'
+      // | 'system', default 'dark'); ThemeProvider takes over once React mounts.
+      try {
+        var pref = JSON.parse(localStorage.getItem('craftbot.ui.theme') || '"dark"')
+        var theme = pref === 'system'
+          ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+          : pref === 'light' ? 'light' : 'dark'
+        document.documentElement.setAttribute('data-theme', theme)
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>

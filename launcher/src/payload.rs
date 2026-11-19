@@ -1,14 +1,20 @@
 //! The source payload: `CraftBot-src.zip`, one asset for every platform.
 //!
-//! Mirrors `installer/payload.py`. The launcher is pinned to the CraftBot
-//! version it was built for (see build.rs), so it downloads that release's
-//! asset; a dev build ("latest") takes the newest release. A zip staged
-//! beside the launcher, in `./dist/`, or named by `CRAFTBOT_SRC_ZIP` is used
-//! instead of downloading — that is the developer loop.
+//! The launcher is pinned to the CraftBot version it was built for (see
+//! build.rs), so it downloads that release's asset; a dev build ("latest")
+//! takes the newest release. Every download is checked against the
+//! `CraftBot-src.zip.sha256` asset published beside it by release.yml.
+//!
+//! A zip staged beside the launcher or in `./dist/` is used instead of
+//! downloading only when the VERSION inside it is the version being
+//! installed; a leftover zip from an older release is ignored, not
+//! installed. `CRAFTBOT_SRC_ZIP` names a zip explicitly (the developer loop)
+//! and is always used.
 
 use crate::download;
 use crate::logger;
 use crate::paths;
+use std::cmp::Ordering;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
@@ -29,18 +35,94 @@ pub fn download_url() -> String {
     }
 }
 
-/// A locally staged payload, if any. Explicit override first, then beside
-/// the app, then the local build output.
-pub fn local_zip() -> Option<PathBuf> {
+/// The published digest: `sha256sum` output for the zip.
+pub fn checksum_url() -> String {
+    format!("{}.sha256", download_url())
+}
+
+/// A locally staged payload this launcher may install, if any.
+fn local_zip() -> Option<PathBuf> {
     if let Some(p) = std::env::var_os("CRAFTBOT_SRC_ZIP").map(PathBuf::from) {
         if p.is_file() {
+            logger::log(&format!(
+                "payload: CRAFTBOT_SRC_ZIP={} (version {})",
+                p.display(),
+                zip_version(&p).unwrap_or_else(|| "unknown".into())
+            ));
             return Some(p);
         }
+        logger::log(&format!(
+            "payload: CRAFTBOT_SRC_ZIP={} is not a file; ignoring it",
+            p.display()
+        ));
     }
-    paths::beside_app_dirs()
-        .into_iter()
-        .map(|d| d.join(ASSET))
-        .find(|p| p.is_file())
+    for candidate in paths::beside_app_dirs().into_iter().map(|d| d.join(ASSET)) {
+        if !candidate.is_file() {
+            continue;
+        }
+        match zip_version(&candidate) {
+            Some(v) if same_version(&v, VERSION) => return Some(candidate),
+            found => logger::log(&format!(
+                "payload: ignoring {} (version {}, installing {VERSION})",
+                candidate.display(),
+                found.unwrap_or_else(|| "unreadable".into())
+            )),
+        }
+    }
+    None
+}
+
+/// The VERSION file inside a payload, at its root or under one wrapper
+/// directory. A zip without one is a development build: "latest".
+pub fn zip_version(zip_path: &Path) -> Option<String> {
+    let file = std::fs::File::open(zip_path).ok()?;
+    let mut archive = zip::ZipArchive::new(std::io::BufReader::new(file)).ok()?;
+    let name = archive
+        .file_names()
+        .filter(|n| *n == "VERSION" || (n.ends_with("/VERSION") && n.matches('/').count() == 1))
+        .min_by_key(|n| n.len())
+        .map(str::to_string);
+    let Some(name) = name else {
+        return Some("latest".into());
+    };
+    let mut text = String::new();
+    archive
+        .by_name(&name)
+        .ok()?
+        .take(64)
+        .read_to_string(&mut text)
+        .ok()?;
+    Some(normalize(&text))
+}
+
+fn normalize(v: &str) -> String {
+    v.trim().trim_start_matches('v').to_string()
+}
+
+fn same_version(a: &str, b: &str) -> bool {
+    normalize(a) == normalize(b)
+}
+
+/// `1.4.0` → [1, 4, 0]. None for "latest", "dev" and anything else that is
+/// not a release number, so no comparison is ever made against those.
+fn release_number(v: &str) -> Option<Vec<u64>> {
+    let core = normalize(v);
+    let core = core.split(['-', '+']).next()?;
+    let parts: Option<Vec<u64>> = core.split('.').map(|p| p.parse().ok()).collect();
+    parts.filter(|p| !p.is_empty())
+}
+
+/// How this launcher's version compares with an installed one, when both
+/// are release numbers.
+pub fn compare_with_installed(installed: &str) -> Option<Ordering> {
+    let (mine, theirs) = (release_number(VERSION)?, release_number(installed)?);
+    let len = mine.len().max(theirs.len());
+    let pad = |v: &[u64]| {
+        let mut v = v.to_vec();
+        v.resize(len, 0);
+        v
+    };
+    Some(pad(&mine).cmp(&pad(&theirs)))
 }
 
 /// Where a downloaded payload is kept until it has been extracted.
@@ -49,39 +131,55 @@ fn temp_zip() -> PathBuf {
 }
 
 /// Obtain the payload. Returns the zip path and whether the launcher owns it
-/// (downloaded, so delete after extraction) or not (staged by a developer,
-/// so leave it alone).
+/// (downloaded, so delete after extraction) or not (staged locally, so leave
+/// it alone).
 pub fn obtain(
     say: &mut dyn FnMut(&str),
     progress: &mut dyn FnMut(u64, Option<u64>),
 ) -> Result<(PathBuf, bool), String> {
     if let Some(local) = local_zip() {
         logger::log(&format!("payload: using local {}", local.display()));
-        say("Using local CraftBot package");
+        say("Using the CraftBot package found beside the installer");
         return Ok((local, false));
     }
     let url = download_url();
     logger::log(&format!("payload: {url}"));
-    say(&format!(
-        "Downloading CraftBot {}…",
-        if VERSION == "latest" { "" } else { VERSION }
-    ));
-    let dest = temp_zip();
-    download::to_file(&url, &dest, progress).map_err(|e| {
+    say(&if VERSION == "latest" {
+        "Downloading CraftBot…".to_string()
+    } else {
+        format!("Downloading CraftBot {VERSION}…")
+    });
+    let missing = |e: String| {
         if e.contains("HTTP 404") {
-            format!("{e}\nNo CraftBot {VERSION} release has a {ASSET} asset yet.")
+            let release = if VERSION == "latest" {
+                "The latest CraftBot release".to_string()
+            } else {
+                format!("The CraftBot {VERSION} release")
+            };
+            format!("{release} has no {ASSET} download yet.\n{e}")
         } else {
             e
         }
-    })?;
+    };
+    let digest = parse_checksum(&download::fetch_text(&checksum_url()).map_err(missing)?)
+        .ok_or_else(|| format!("{} is not a SHA-256 checksum", checksum_url()))?;
+    let dest = temp_zip();
+    download::verified_to_file(&url, &dest, &digest, progress).map_err(missing)?;
     Ok((dest, true))
 }
 
+/// The digest from a `sha256sum`-style line: `<64 hex>  CraftBot-src.zip`.
+fn parse_checksum(text: &str) -> Option<String> {
+    let token = text.split_whitespace().next()?.to_ascii_lowercase();
+    let token = token.strip_prefix("sha256:").unwrap_or(&token).to_string();
+    (token.len() == 64 && token.bytes().all(|c| c.is_ascii_hexdigit())).then_some(token)
+}
+
 /// Extract the payload into `target` and return the directory holding
-/// run.py. Tolerates both shapes a zip can have — files at the root, or
+/// run.py. Tolerates both shapes a zip can have: files at the root, or
 /// everything under one wrapper directory (what `git archive` and GitHub's
-/// own zips produce) — because getting this wrong yields an install that
-/// looks fine until nothing can find run.py.
+/// own zips produce). Getting this wrong yields an install that looks fine
+/// until nothing can find run.py.
 pub fn extract(zip_path: &Path, target: &Path) -> Result<PathBuf, String> {
     std::fs::create_dir_all(target)
         .map_err(|e| format!("cannot create {}: {e}", target.display()))?;
@@ -148,7 +246,7 @@ pub fn extract(zip_path: &Path, target: &Path) -> Result<PathBuf, String> {
     ))
 }
 
-/// Stamp an install root as managed — `app.paths.mark_managed_install()`.
+/// Stamp an install root as managed: `app.paths.mark_managed_install()`.
 /// Must happen before anything in that tree imports `app.paths`, because
 /// the marker decides where the user's data goes: without it, the installed
 /// copy looks exactly like a developer checkout and would put databases and
@@ -161,4 +259,67 @@ which an upgrade replaces wholesale.\n\n\
 Delete it only if you are converting this directory into a dev checkout.\n";
     let path = root.join(paths::MANAGED_MARKER);
     std::fs::write(&path, TEXT).map_err(|e| format!("cannot write {}: {e}", path.display()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn zip_with(entries: &[(&str, &str)]) -> (tempfile::TempDir, PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(ASSET);
+        let mut w = zip::ZipWriter::new(std::fs::File::create(&path).unwrap());
+        for (name, body) in entries {
+            w.start_file(*name, zip::write::SimpleFileOptions::default())
+                .unwrap();
+            std::io::Write::write_all(&mut w, body.as_bytes()).unwrap();
+        }
+        w.finish().unwrap();
+        (dir, path)
+    }
+
+    #[test]
+    fn version_is_read_from_the_root_or_one_wrapper() {
+        let (_d, root) = zip_with(&[("VERSION", "v1.5.0\n"), ("run.py", "")]);
+        assert_eq!(zip_version(&root).as_deref(), Some("1.5.0"));
+        let (_d, wrapped) = zip_with(&[("CraftBot-1.5.1/VERSION", "1.5.1"), ("x/y/VERSION", "9")]);
+        assert_eq!(zip_version(&wrapped).as_deref(), Some("1.5.1"));
+        let (_d, dev) = zip_with(&[("run.py", "")]);
+        assert_eq!(zip_version(&dev).as_deref(), Some("latest"));
+    }
+
+    #[test]
+    fn only_the_matching_version_counts() {
+        assert!(same_version("v1.4.0", "1.4.0"));
+        assert!(!same_version("1.3.9", "1.4.0"));
+        assert!(same_version("latest", "latest"));
+    }
+
+    #[test]
+    fn release_numbers_compare_numerically() {
+        assert_eq!(release_number("v1.10.2"), Some(vec![1, 10, 2]));
+        assert_eq!(release_number("1.4.0-rc1"), Some(vec![1, 4, 0]));
+        assert_eq!(release_number("latest"), None);
+        assert_eq!(release_number(""), None);
+    }
+
+    #[test]
+    fn checksum_file_formats() {
+        let hex = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+        assert_eq!(
+            parse_checksum(&format!("{hex}  CraftBot-src.zip\n")).as_deref(),
+            Some(hex)
+        );
+        assert_eq!(
+            parse_checksum(&format!("sha256:{}", hex.to_uppercase())).as_deref(),
+            Some(hex)
+        );
+        assert_eq!(parse_checksum("<html>Not Found</html>"), None);
+        assert_eq!(parse_checksum(""), None);
+    }
+
+    #[test]
+    fn checksum_sits_beside_the_payload() {
+        assert_eq!(checksum_url(), format!("{}.sha256", download_url()));
+    }
 }

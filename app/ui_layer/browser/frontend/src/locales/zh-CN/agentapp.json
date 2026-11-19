@@ -36,10 +36,22 @@
     "preparingWorkspace": "正在准备你的工作区…",
     "componentCount_one": "{{count}} 个组件",
     "componentCount_other": "{{count}} 个组件",
-    "collectionCount_one": "{{count}} 个集合",
-    "collectionCount_other": "{{count}} 个集合",
-    "routeCount_one": "{{count}} 条路由",
-    "routeCount_other": "{{count}} 条路由"
+    "taskCount": "已完成 {{done}}/{{total}} 项任务",
+    "fileCount_one": "{{count}} 个文件",
+    "fileCount_other": "{{count}} 个文件",
+    "fixing": "正在修复检查发现的问题",
+    "stage": {
+      "setup": "正在准备项目",
+      "questions": "正在等待你的回答",
+      "requirements": "正在编写需求",
+      "review": "正在等待你审阅",
+      "planning": "正在规划构建",
+      "building": "正在构建应用",
+      "buildingTask": "正在构建：{{task}}",
+      "checking": "正在运行检查",
+      "verifying": "正在浏览器中验证应用",
+      "launching": "正在启动"
+    }
   },
   "themeModal": {
     "title": "选择主题",

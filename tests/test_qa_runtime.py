@@ -19,7 +19,10 @@ def test_runtime_seeds_assets_but_strips_credentials_and_databases(tmp_path):
             "model_pools",
         )
     }
-    (config / "settings.json").write_text(json.dumps({"version": "1.4.4", **secrets}))
+    # A checkout ships settings.default.json; settings.json is runtime state.
+    (config / "settings.default.json").write_text(
+        json.dumps({"version": "1.4.4", **secrets})
+    )
     actions = code / "app/data/action"
     actions.mkdir(parents=True)
     (actions / "tool.py").write_text("pass")
