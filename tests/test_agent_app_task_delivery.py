@@ -15,7 +15,9 @@ from app.agent_app.framework_store import HostStore
 
 
 def _authority(confined):
-    authority = TaskAuthority("http://127.0.0.1:3115", "tsk_1", "task-token", app_id="app")
+    authority = TaskAuthority(
+        "http://127.0.0.1:3115", "tsk_1", "task-token", app_id="app"
+    )
     authority.confined = confined
 
     async def check():
@@ -62,18 +64,31 @@ def test_the_owners_own_request_runs_other_commands_as_the_chat_would(monkeypatc
     _as(authority, "agent-app", ["list", "--json"])
     _as(authority, "a2app", ["http://127.0.0.1:3110", "todo"])
     _as(authority, "a2app", ["http://127.0.0.1:3115", "brief"])
-    assert [(c[0], c[1]) for c in calls] == [("chat", "agent-app"), ("chat", "a2app"), ("task", "a2app")]
+    assert [(c[0], c[1]) for c in calls] == [
+        ("chat", "agent-app"),
+        ("chat", "a2app"),
+        ("task", "a2app"),
+    ]
     assert "A2APP_TOKEN" not in calls[0][3] and "A2APP_TOKEN" not in calls[1][3]
-    assert calls[2][3]["A2APP_TOKEN"] == "task-token"  # its own app, with its credential
+    assert (
+        calls[2][3]["A2APP_TOKEN"] == "task-token"
+    )  # its own app, with its credential
     # On its own app the task's rules still hold.
     with pytest.raises(PermissionError):
-        _as(authority, "a2app", ["http://127.0.0.1:3115", "tasks", "complete", "tsk_other"])
+        _as(
+            authority,
+            "a2app",
+            ["http://127.0.0.1:3115", "tasks", "complete", "tsk_other"],
+        )
 
 
 def test_another_persons_request_stays_on_its_own_app(monkeypatch):
     calls = _commands(monkeypatch)
     authority = _authority(confined=True)
-    for surface, args in (("agent-app", ["list", "--json"]), ("a2app", ["http://127.0.0.1:3110", "todo"])):
+    for surface, args in (
+        ("agent-app", ["list", "--json"]),
+        ("a2app", ["http://127.0.0.1:3110", "todo"]),
+    ):
         with pytest.raises(PermissionError):
             _as(authority, surface, args)
     assert calls == []
@@ -93,7 +108,9 @@ def _gate(monkeypatch, authority, names):
     logged = []
     agent = agent_base.AgentBase.__new__(agent_base.AgentBase)
     agent.session_manager = SimpleNamespace(get=lambda sid: None)
-    agent.event_stream_manager = SimpleNamespace(log=lambda **event: logged.append(event))
+    agent.event_stream_manager = SimpleNamespace(
+        log=lambda **event: logged.append(event)
+    )
     batch = [(SimpleNamespace(name=n), {"file_path": "C:/secrets.txt"}) for n in names]
     trigger = SimpleNamespace(payload={}, is_self_message=False, query="")
 
@@ -112,14 +129,25 @@ def _gate(monkeypatch, authority, names):
 
 
 def test_the_owners_own_request_has_the_usual_tools(monkeypatch):
-    outcome, logged = _gate(monkeypatch, _authority(confined=False), ["web_search", "read_file", "run_shell"])
+    outcome, logged = _gate(
+        monkeypatch,
+        _authority(confined=False),
+        ["web_search", "read_file", "run_shell"],
+    )
     assert outcome == "passed" and logged == []
 
 
 def test_a_confined_request_is_told_why_an_action_is_refused(monkeypatch):
     result, logged = _gate(monkeypatch, _authority(confined=True), ["web_search"])
-    assert result["status"] == "error" and "web_search is not available" in result["message"]
-    assert logged and logged[0]["kind"] == "action_error" and logged[0]["action_name"] == "web_search"
+    assert (
+        result["status"] == "error"
+        and "web_search is not available" in result["message"]
+    )
+    assert (
+        logged
+        and logged[0]["kind"] == "action_error"
+        and logged[0]["action_name"] == "web_search"
+    )
 
 
 def _bridge(tmp_path):
@@ -153,7 +181,9 @@ def _run(bridge, key, session="chat", queued=False):
         "taskId": "tsk_" + key,
         "grantKey": "grant",
         "status": "working",
-        "authority": TaskAuthority("http://127.0.0.1:3115", "tsk_" + key, "token", app_id="app"),
+        "authority": TaskAuthority(
+            "http://127.0.0.1:3115", "tsk_" + key, "token", app_id="app"
+        ),
         "prompt": f"work {key}",
         "queued": queued,
     }
@@ -222,7 +252,13 @@ def test_a_waiting_request_that_lost_its_claim_is_passed_over(tmp_path):
 def test_a_task_run_reads_only_the_apps_operator_documents(tmp_path):
     app = tmp_path / "app"
     app.mkdir()
-    for name in ("AGENT_APP.md", "manifest.json", "operations.json", ".agent-token", "notes.txt"):
+    for name in (
+        "AGENT_APP.md",
+        "manifest.json",
+        "operations.json",
+        ".agent-token",
+        "notes.txt",
+    ):
         (app / name).write_text("x", encoding="utf-8")
     documents = operator_documents(app)
     assert set(documents) == {"AGENT_APP.md", "manifest.json", "operations.json"}

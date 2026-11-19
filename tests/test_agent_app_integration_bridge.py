@@ -45,7 +45,9 @@ def test_an_install_token_is_bound_to_the_folder_it_reports(tmp_path, store):
     stdout = "\n".join(
         [
             json.dumps({"event": "step", "step": "place"}),
-            json.dumps({"event": "result", "ok": True, "dir": str(folder), "id": "abc"}),
+            json.dumps(
+                {"event": "result", "ok": True, "dir": str(folder), "id": "abc"}
+            ),
         ]
     )
     bridge.bind_installed(stdout, "install-token")
@@ -72,7 +74,10 @@ def test_only_commands_that_start_an_app_carry_the_bridge(tmp_path, store):
     assert bridge.launch_env([str(app), "dev"], home)[0] == env
     assert bridge.launch_env(["abc", "serve"], home)[0] == env  # by registry id
     assert bridge.launch_env([str(app), "import"], home)[0] == env
-    assert bridge.launch_env(["install", "--from", "x", "--into", str(app)], home)[0] == env
+    assert (
+        bridge.launch_env(["install", "--from", "x", "--into", str(app)], home)[0]
+        == env
+    )
 
     env, pending = bridge.launch_env(["install", "kanban-board"], home)
     assert env["CRAFTBOT_BRIDGE_TOKEN"] == pending
@@ -96,7 +101,9 @@ def test_the_cli_passes_the_bridge_to_a_launch_only(tmp_path, store, monkeypatch
     (tmp_path / "bin").mkdir()
     (tmp_path / "bin/agent-app.js").touch()
     monkeypatch.setattr(
-        node_runtime, "resolve", lambda: SimpleNamespace(node=sys.executable, version="v24.0.0")
+        node_runtime,
+        "resolve",
+        lambda: SimpleNamespace(node=sys.executable, version="v24.0.0"),
     )
     monkeypatch.setattr(node_runtime, "child_env", lambda: {})
     monkeypatch.setattr("app.config.get_framework_toolkits_dir", lambda: "toolkits")
@@ -201,7 +208,9 @@ def _action(monkeypatch, *, sets=("google_calendar",), irreversible=False):
 
     impl = SimpleNamespace(
         handler=handler,
-        metadata=SimpleNamespace(action_sets=list(sets), irreversible=irreversible, input_schema={}),
+        metadata=SimpleNamespace(
+            action_sets=list(sets), irreversible=irreversible, input_schema={}
+        ),
     )
     monkeypatch.setattr(
         ActionRegistry,
@@ -211,19 +220,34 @@ def _action(monkeypatch, *, sets=("google_calendar",), irreversible=False):
     return calls
 
 
-def test_an_app_runs_only_the_actions_its_manifest_declares(tmp_path, store, monkeypatch):
+def test_an_app_runs_only_the_actions_its_manifest_declares(
+    tmp_path, store, monkeypatch
+):
     calls = _action(monkeypatch)
     granted = _app(tmp_path / "granted", {"actions": ["list_google_calendar_events"]})
-    body = {"action": "list_google_calendar_events", "params": {"calendar_id": "primary"}}
-    status, payload = asyncio.run(_call(store, granted, "POST", "/api/integrations/action", body))
+    body = {
+        "action": "list_google_calendar_events",
+        "params": {"calendar_id": "primary"},
+    }
+    status, payload = asyncio.run(
+        _call(store, granted, "POST", "/api/integrations/action", body)
+    )
     assert (status, payload["data"]) == (200, {"status": "success", "events": []})
     assert calls == [{"calendar_id": "primary"}]
 
     other = _app(tmp_path / "other")
-    status, _ = asyncio.run(_call(store, other, "POST", "/api/integrations/action", body))
+    status, _ = asyncio.run(
+        _call(store, other, "POST", "/api/integrations/action", body)
+    )
     assert status == 403
     status, _ = asyncio.run(
-        _call(store, granted, "POST", "/api/integrations/action", {"action": "nope", "params": {}})
+        _call(
+            store,
+            granted,
+            "POST",
+            "/api/integrations/action",
+            {"action": "nope", "params": {}},
+        )
     )
     assert status == 404
     assert len(calls) == 1
@@ -233,10 +257,18 @@ def test_an_irreversible_action_needs_its_confirmation(tmp_path, store, monkeypa
     calls = _action(monkeypatch, irreversible=True)
     folder = _app(tmp_path / "app", {"actions": ["list_google_calendar_events"]})
     body = {"action": "list_google_calendar_events", "params": {}}
-    status, _ = asyncio.run(_call(store, folder, "POST", "/api/integrations/action", body))
+    status, _ = asyncio.run(
+        _call(store, folder, "POST", "/api/integrations/action", body)
+    )
     assert status == 400 and calls == []
     status, _ = asyncio.run(
-        _call(store, folder, "POST", "/api/integrations/action", {**body, "confirm_irreversible": True})
+        _call(
+            store,
+            folder,
+            "POST",
+            "/api/integrations/action",
+            {**body, "confirm_irreversible": True},
+        )
     )
     assert status == 200 and len(calls) == 1
 
@@ -245,16 +277,26 @@ def test_a_non_integration_action_is_never_reachable(tmp_path, store, monkeypatc
     calls = _action(monkeypatch, sets=("file_operations",))
     folder = _app(tmp_path / "app", {"actions": ["list_google_calendar_events"]})
     body = {"action": "list_google_calendar_events", "params": {}}
-    status, _ = asyncio.run(_call(store, folder, "POST", "/api/integrations/action", body))
+    status, _ = asyncio.run(
+        _call(store, folder, "POST", "/api/integrations/action", body)
+    )
     assert status == 403 and calls == []
 
 
 def test_a_request_needs_the_integration_declared(tmp_path, store, monkeypatch):
-    monkeypatch.setattr(bridge, "_auth_headers", lambda platform, account: pytest.fail("no credentials may be read"))
+    monkeypatch.setattr(
+        bridge,
+        "_auth_headers",
+        lambda platform, account: pytest.fail("no credentials may be read"),
+    )
     folder = _app(tmp_path / "app", {"integrations": ["github"]})
     body = {"integration": "stripe", "method": "GET", "url": "/v1/subscriptions"}
-    status, _ = asyncio.run(_call(store, folder, "POST", "/api/integrations/proxy", body))
+    status, _ = asyncio.run(
+        _call(store, folder, "POST", "/api/integrations/proxy", body)
+    )
     assert status == 403
     body = {"integration": "github", "method": "GET", "url": "https://evil.example/x"}
-    status, _ = asyncio.run(_call(store, folder, "POST", "/api/integrations/proxy", body))
+    status, _ = asyncio.run(
+        _call(store, folder, "POST", "/api/integrations/proxy", body)
+    )
     assert status == 403

@@ -232,7 +232,11 @@ _SAMPLE_INPUTS: Dict[str, dict] = {
     "hover": {"element_id": 1},
     "scroll": {"direction": "down", "amount": 600},
     "wait": {"seconds": 1},
-    "login": {"login_name": "Work account", "username": "me@example.com", "submit": True},
+    "login": {
+        "login_name": "Work account",
+        "username": "me@example.com",
+        "submit": True,
+    },
     "screenshot": {"full_page": False},
     "tabs": {"action": "list"},
 }
@@ -1071,7 +1075,9 @@ def test_shipped_defaults_do_not_count_as_a_headless_choice(monkeypatch, tmp_pat
 
     monkeypatch.setattr(app_config, "SETTINGS_CONFIG_PATH", tmp_path / "missing.json")
     monkeypatch.setattr(
-        app_config, "get_settings", lambda reload=False: app_config._get_default_settings()
+        app_config,
+        "get_settings",
+        lambda reload=False: app_config._get_default_settings(),
     )
     monkeypatch.setenv(edition.ENV_VAR, "terminal")
     assert mb_config.load_settings().headless is False

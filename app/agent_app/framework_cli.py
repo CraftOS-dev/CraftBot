@@ -245,7 +245,9 @@ class AgentAppCLI:
             # An install that chose its own folder reports it only now.
             from app.agent_app import integration_bridge
 
-            await asyncio.to_thread(integration_bridge.bind_installed, output, bridge_token)
+            await asyncio.to_thread(
+                integration_bridge.bind_installed, output, bridge_token
+            )
         return CLIResult(
             code=124 if timed_out else proc.returncode,
             stdout=output,

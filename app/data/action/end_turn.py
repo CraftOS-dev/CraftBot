@@ -37,13 +37,16 @@ def end_turn(input_data: dict) -> dict:
         from app.agent_app.framework_host import get_host
 
         host = get_host()
-        creation = host.store.get("creation", input_data.get("_session_id")) if host else None
+        creation = (
+            host.store.get("creation", input_data.get("_session_id")) if host else None
+        )
         if creation and creation.get("building"):
             return {
-                "status": "error", "end_turn": False,
+                "status": "error",
+                "end_turn": False,
                 "message": "This app build is unfinished. Continue the framework creator workflow, "
-                           "validate, independently verify and promote before reporting completion. "
-                           "If blocked, explain the blocker or ask the user through send_message.",
+                "validate, independently verify and promote before reporting completion. "
+                "If blocked, explain the blocker or ask the user through send_message.",
             }
 
         import app.internal_action_interface as internal_action_interface

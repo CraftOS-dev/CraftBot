@@ -139,7 +139,9 @@ def build(source: Path, *, update_pin: bool = False) -> None:
             metadata = json.loads(
                 (package / "package.json").read_text(encoding="utf-8")
             )
-            expected = pin["version"] if name == "agent-app-framework" else depends.get(name)
+            expected = (
+                pin["version"] if name == "agent-app-framework" else depends.get(name)
+            )
             if metadata["name"] != name or metadata["version"] != expected:
                 raise RuntimeError(f"Unexpected package identity/version: {relative}")
             if set(metadata.get("dependencies", {})) - PACKAGES.keys():

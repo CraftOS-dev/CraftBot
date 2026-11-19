@@ -207,7 +207,11 @@ class Session:
             agent_app_framework_key=data.get("agent_app_framework_key"),
             agent_app_framework_pending=data.get("agent_app_framework_pending", False),
             isolated_app_task=data.get("isolated_app_task") is True,
-            app_task_actions=[name for name in data.get("app_task_actions", []) if isinstance(name, str)],
+            app_task_actions=[
+                name
+                for name in data.get("app_task_actions", [])
+                if isinstance(name, str)
+            ],
             gui_mode=data.get("gui_mode", False),
             reasoning_effort=_stored_reasoning_effort(data.get("reasoning_effort")),
             action_count=data.get("action_count", 0),

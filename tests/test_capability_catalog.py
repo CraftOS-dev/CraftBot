@@ -85,7 +85,9 @@ def test_every_real_set_is_described(real):
 def _catalog_set_names(catalog: str) -> list:
     """The set names on the catalog's action-set line."""
     lines = catalog.splitlines()
-    i = next(n for n, line in enumerate(lines) if line.startswith("Action sets you can load"))
+    i = next(
+        n for n, line in enumerate(lines) if line.startswith("Action sets you can load")
+    )
     return lines[i + 1].split(", ")
 
 

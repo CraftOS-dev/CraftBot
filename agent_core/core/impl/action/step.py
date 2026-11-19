@@ -48,7 +48,9 @@ class AgentStep:
 
         reasoning = decisions[0].get("reasoning", "")
         logger.debug(f"[AGENT REASONING] {reasoning}")
-        if reasoning and not (reply_stream is not None and reply_stream.reasoning_logged):
+        if reasoning and not (
+            reply_stream is not None and reply_stream.reasoning_logged
+        ):
             self.log_reasoning(
                 session_id,
                 reasoning,

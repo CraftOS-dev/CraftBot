@@ -424,8 +424,18 @@ async def search_stripe_customers(input_data: dict) -> dict:
             "description": "Max results (1-100, default 10).",
             "example": 10,
         },
-        "starting_after": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
-        "ending_before": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
+        "starting_after": {
+            "type": "string",
+            "required": False,
+            "description": "Cursor.",
+            "example": "",
+        },
+        "ending_before": {
+            "type": "string",
+            "required": False,
+            "description": "Cursor.",
+            "example": "",
+        },
         "customer": {
             "type": "string",
             "required": False,
@@ -946,8 +956,18 @@ async def search_stripe_payment_intents(input_data: dict) -> dict:
             "description": "Max results (1-100).",
             "example": 10,
         },
-        "starting_after": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
-        "ending_before": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
+        "starting_after": {
+            "type": "string",
+            "required": False,
+            "description": "Cursor.",
+            "example": "",
+        },
+        "ending_before": {
+            "type": "string",
+            "required": False,
+            "description": "Cursor.",
+            "example": "",
+        },
         "customer": {
             "type": "string",
             "required": False,
@@ -1190,8 +1210,18 @@ async def get_stripe_refund(input_data: dict) -> dict:
             "description": "Max results (1-100).",
             "example": 10,
         },
-        "starting_after": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
-        "ending_before": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
+        "starting_after": {
+            "type": "string",
+            "required": False,
+            "description": "Cursor.",
+            "example": "",
+        },
+        "ending_before": {
+            "type": "string",
+            "required": False,
+            "description": "Cursor.",
+            "example": "",
+        },
         "payment_intent": {
             "type": "string",
             "required": False,
@@ -1276,8 +1306,18 @@ async def list_stripe_refunds(input_data: dict) -> dict:
             "description": "Max results (1-100).",
             "example": 10,
         },
-        "starting_after": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
-        "ending_before": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
+        "starting_after": {
+            "type": "string",
+            "required": False,
+            "description": "Cursor.",
+            "example": "",
+        },
+        "ending_before": {
+            "type": "string",
+            "required": False,
+            "description": "Cursor.",
+            "example": "",
+        },
         "expand": {
             "type": "string",
             "required": False,
@@ -1520,8 +1560,18 @@ async def update_stripe_payment_method(input_data: dict) -> dict:
             "description": "Max results (1-100).",
             "example": 10,
         },
-        "starting_after": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
-        "ending_before": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
+        "starting_after": {
+            "type": "string",
+            "required": False,
+            "description": "Cursor.",
+            "example": "",
+        },
+        "ending_before": {
+            "type": "string",
+            "required": False,
+            "description": "Cursor.",
+            "example": "",
+        },
         "active": {
             "type": "boolean",
             "required": False,
@@ -1698,7 +1748,12 @@ async def get_stripe_product(input_data: dict) -> dict:
             "description": "Singular noun for a unit (e.g. 'seat').",
             "example": "seat",
         },
-        "url": {"type": "string", "required": False, "description": "Public product URL.", "example": ""},
+        "url": {
+            "type": "string",
+            "required": False,
+            "description": "Public product URL.",
+            "example": "",
+        },
         "idempotency_key": {
             "type": "string",
             "required": False,
@@ -1819,8 +1874,18 @@ async def delete_stripe_product(input_data: dict) -> dict:
             "description": "Max results (1-100).",
             "example": 10,
         },
-        "starting_after": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
-        "ending_before": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
+        "starting_after": {
+            "type": "string",
+            "required": False,
+            "description": "Cursor.",
+            "example": "",
+        },
+        "ending_before": {
+            "type": "string",
+            "required": False,
+            "description": "Cursor.",
+            "example": "",
+        },
         "active": {
             "type": "boolean",
             "required": False,
@@ -2118,8 +2183,18 @@ async def update_stripe_price(input_data: dict) -> dict:
             "description": "Max results (1-100).",
             "example": 10,
         },
-        "starting_after": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
-        "ending_before": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
+        "starting_after": {
+            "type": "string",
+            "required": False,
+            "description": "Cursor.",
+            "example": "",
+        },
+        "ending_before": {
+            "type": "string",
+            "required": False,
+            "description": "Cursor.",
+            "example": "",
+        },
         "customer": {
             "type": "string",
             "required": False,
@@ -2750,8 +2825,18 @@ async def get_stripe_upcoming_invoice(input_data: dict) -> dict:
             "description": "Max results (1-100).",
             "example": 10,
         },
-        "starting_after": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
-        "ending_before": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
+        "starting_after": {
+            "type": "string",
+            "required": False,
+            "description": "Cursor.",
+            "example": "",
+        },
+        "ending_before": {
+            "type": "string",
+            "required": False,
+            "description": "Cursor.",
+            "example": "",
+        },
         "customer": {
             "type": "string",
             "required": False,
@@ -2959,8 +3044,18 @@ async def delete_stripe_invoice_item(input_data: dict) -> dict:
             "description": "Max results (1-100).",
             "example": 10,
         },
-        "starting_after": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
-        "ending_before": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
+        "starting_after": {
+            "type": "string",
+            "required": False,
+            "description": "Cursor.",
+            "example": "",
+        },
+        "ending_before": {
+            "type": "string",
+            "required": False,
+            "description": "Cursor.",
+            "example": "",
+        },
         "customer": {
             "type": "string",
             "required": False,
@@ -3383,8 +3478,18 @@ async def resume_stripe_subscription(input_data: dict) -> dict:
             "description": "Max results (1-100).",
             "example": 10,
         },
-        "starting_after": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
-        "ending_before": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
+        "starting_after": {
+            "type": "string",
+            "required": False,
+            "description": "Cursor.",
+            "example": "",
+        },
+        "ending_before": {
+            "type": "string",
+            "required": False,
+            "description": "Cursor.",
+            "example": "",
+        },
         "customer": {
             "type": "string",
             "required": False,
@@ -3683,8 +3788,18 @@ async def expire_stripe_checkout_session(input_data: dict) -> dict:
             "description": "Max results (1-100).",
             "example": 10,
         },
-        "starting_after": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
-        "ending_before": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
+        "starting_after": {
+            "type": "string",
+            "required": False,
+            "description": "Cursor.",
+            "example": "",
+        },
+        "ending_before": {
+            "type": "string",
+            "required": False,
+            "description": "Cursor.",
+            "example": "",
+        },
         "expand": {
             "type": "string",
             "required": False,
@@ -3744,8 +3859,18 @@ async def list_stripe_checkout_line_items(input_data: dict) -> dict:
             "description": "Max results (1-100).",
             "example": 10,
         },
-        "starting_after": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
-        "ending_before": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
+        "starting_after": {
+            "type": "string",
+            "required": False,
+            "description": "Cursor.",
+            "example": "",
+        },
+        "ending_before": {
+            "type": "string",
+            "required": False,
+            "description": "Cursor.",
+            "example": "",
+        },
         "active": {
             "type": "boolean",
             "required": False,
@@ -4061,8 +4186,18 @@ async def create_stripe_billing_portal_session(input_data: dict) -> dict:
             "description": "Max results (1-100).",
             "example": 10,
         },
-        "starting_after": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
-        "ending_before": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
+        "starting_after": {
+            "type": "string",
+            "required": False,
+            "description": "Cursor.",
+            "example": "",
+        },
+        "ending_before": {
+            "type": "string",
+            "required": False,
+            "description": "Cursor.",
+            "example": "",
+        },
         "expand": {
             "type": "string",
             "required": False,
@@ -4340,8 +4475,18 @@ async def delete_stripe_coupon(input_data: dict) -> dict:
             "description": "Max results (1-100).",
             "example": 10,
         },
-        "starting_after": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
-        "ending_before": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
+        "starting_after": {
+            "type": "string",
+            "required": False,
+            "description": "Cursor.",
+            "example": "",
+        },
+        "ending_before": {
+            "type": "string",
+            "required": False,
+            "description": "Cursor.",
+            "example": "",
+        },
         "active": {
             "type": "boolean",
             "required": False,
@@ -4354,7 +4499,12 @@ async def delete_stripe_coupon(input_data: dict) -> dict:
             "description": "Exact code filter.",
             "example": "FRIENDS50",
         },
-        "coupon": {"type": "string", "required": False, "description": "Parent coupon ID.", "example": ""},
+        "coupon": {
+            "type": "string",
+            "required": False,
+            "description": "Parent coupon ID.",
+            "example": "",
+        },
         "customer": {
             "type": "string",
             "required": False,
@@ -4555,8 +4705,18 @@ async def update_stripe_promotion_code(input_data: dict) -> dict:
             "description": "Max results (1-100).",
             "example": 10,
         },
-        "starting_after": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
-        "ending_before": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
+        "starting_after": {
+            "type": "string",
+            "required": False,
+            "description": "Cursor.",
+            "example": "",
+        },
+        "ending_before": {
+            "type": "string",
+            "required": False,
+            "description": "Cursor.",
+            "example": "",
+        },
         "charge": {
             "type": "string",
             "required": False,
@@ -4780,8 +4940,18 @@ async def close_stripe_dispute(input_data: dict) -> dict:
             "description": "Max results (1-100).",
             "example": 10,
         },
-        "starting_after": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
-        "ending_before": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
+        "starting_after": {
+            "type": "string",
+            "required": False,
+            "description": "Cursor.",
+            "example": "",
+        },
+        "ending_before": {
+            "type": "string",
+            "required": False,
+            "description": "Cursor.",
+            "example": "",
+        },
         "status": {
             "type": "string",
             "required": False,
@@ -4843,7 +5013,12 @@ async def list_stripe_payouts(input_data: dict) -> dict:
     description="Retrieve a Payout by ID.",
     action_sets=["stripe_payouts"],
     input_schema={
-        "payout_id": {"type": "string", "required": True, "description": "Payout ID.", "example": "po_…"},
+        "payout_id": {
+            "type": "string",
+            "required": True,
+            "description": "Payout ID.",
+            "example": "po_…",
+        },
         "expand": {
             "type": "string",
             "required": False,
@@ -4976,7 +5151,12 @@ async def create_stripe_payout(input_data: dict) -> dict:
     description="Cancel a Payout. Only valid if status is 'pending'. Returns only {id, status}.",
     action_sets=["stripe_payouts"],
     input_schema={
-        "payout_id": {"type": "string", "required": True, "description": "Payout ID.", "example": "po_…"},
+        "payout_id": {
+            "type": "string",
+            "required": True,
+            "description": "Payout ID.",
+            "example": "po_…",
+        },
         "idempotency_key": {
             "type": "string",
             "required": False,
@@ -5043,8 +5223,18 @@ async def get_stripe_balance(input_data: dict) -> dict:
             "description": "Max results (1-100).",
             "example": 10,
         },
-        "starting_after": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
-        "ending_before": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
+        "starting_after": {
+            "type": "string",
+            "required": False,
+            "description": "Cursor.",
+            "example": "",
+        },
+        "ending_before": {
+            "type": "string",
+            "required": False,
+            "description": "Cursor.",
+            "example": "",
+        },
         "type": {
             "type": "string",
             "required": False,
@@ -5131,8 +5321,18 @@ async def list_stripe_balance_transactions(input_data: dict) -> dict:
             "description": "Max results (1-100).",
             "example": 10,
         },
-        "starting_after": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
-        "ending_before": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
+        "starting_after": {
+            "type": "string",
+            "required": False,
+            "description": "Cursor.",
+            "example": "",
+        },
+        "ending_before": {
+            "type": "string",
+            "required": False,
+            "description": "Cursor.",
+            "example": "",
+        },
         "customer": {
             "type": "string",
             "required": False,
@@ -5194,7 +5394,12 @@ async def list_stripe_quotes(input_data: dict) -> dict:
     description="Retrieve a Quote by ID.",
     action_sets=["stripe_quotes"],
     input_schema={
-        "quote_id": {"type": "string", "required": True, "description": "Quote ID.", "example": "qt_…"},
+        "quote_id": {
+            "type": "string",
+            "required": True,
+            "description": "Quote ID.",
+            "example": "qt_…",
+        },
         "expand": {
             "type": "string",
             "required": False,
@@ -5341,7 +5546,12 @@ async def create_stripe_quote(input_data: dict) -> dict:
     description="Update a draft Quote. Once finalized most fields are locked. Returns only {id, status}.",
     action_sets=["stripe_quotes"],
     input_schema={
-        "quote_id": {"type": "string", "required": True, "description": "Quote ID.", "example": "qt_…"},
+        "quote_id": {
+            "type": "string",
+            "required": True,
+            "description": "Quote ID.",
+            "example": "qt_…",
+        },
         "properties": {
             "type": "object",
             "required": True,
@@ -5464,7 +5674,12 @@ async def accept_stripe_quote(input_data: dict) -> dict:
     description="Cancel a draft or open Quote. Cannot cancel an accepted quote. Returns only {id, status}.",
     action_sets=["stripe_quotes"],
     input_schema={
-        "quote_id": {"type": "string", "required": True, "description": "Quote ID.", "example": "qt_…"},
+        "quote_id": {
+            "type": "string",
+            "required": True,
+            "description": "Quote ID.",
+            "example": "qt_…",
+        },
         "idempotency_key": {
             "type": "string",
             "required": False,
@@ -5514,8 +5729,18 @@ async def cancel_stripe_quote(input_data: dict) -> dict:
             "description": "Max results (1-100).",
             "example": 10,
         },
-        "starting_after": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
-        "ending_before": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
+        "starting_after": {
+            "type": "string",
+            "required": False,
+            "description": "Cursor.",
+            "example": "",
+        },
+        "ending_before": {
+            "type": "string",
+            "required": False,
+            "description": "Cursor.",
+            "example": "",
+        },
         "type": {
             "type": "string",
             "required": False,
@@ -5613,7 +5838,12 @@ async def list_stripe_events(input_data: dict) -> dict:
     description="Retrieve a single Event by ID. Returns lean {id, type, created, data.object.id}; set include_metadata=true for the full payload.",
     action_sets=["stripe_webhooks"],
     input_schema={
-        "event_id": {"type": "string", "required": True, "description": "Event ID.", "example": "evt_…"},
+        "event_id": {
+            "type": "string",
+            "required": True,
+            "description": "Event ID.",
+            "example": "evt_…",
+        },
         "include_metadata": {
             "type": "boolean",
             "required": False,
@@ -5678,8 +5908,18 @@ async def get_stripe_event(input_data: dict) -> dict:
             "description": "Max results (1-100).",
             "example": 10,
         },
-        "starting_after": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
-        "ending_before": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
+        "starting_after": {
+            "type": "string",
+            "required": False,
+            "description": "Cursor.",
+            "example": "",
+        },
+        "ending_before": {
+            "type": "string",
+            "required": False,
+            "description": "Cursor.",
+            "example": "",
+        },
         "expand": {
             "type": "string",
             "required": False,
@@ -5984,7 +6224,12 @@ async def upload_stripe_file(input_data: dict) -> dict:
     description="Retrieve a File metadata record by ID.",
     action_sets=["stripe_files"],
     input_schema={
-        "file_id": {"type": "string", "required": True, "description": "File ID.", "example": "file_…"},
+        "file_id": {
+            "type": "string",
+            "required": True,
+            "description": "File ID.",
+            "example": "file_…",
+        },
         "expand": {
             "type": "string",
             "required": False,
@@ -6036,8 +6281,18 @@ async def get_stripe_file(input_data: dict) -> dict:
             "description": "Max results (1-100).",
             "example": 10,
         },
-        "starting_after": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
-        "ending_before": {"type": "string", "required": False, "description": "Cursor.", "example": ""},
+        "starting_after": {
+            "type": "string",
+            "required": False,
+            "description": "Cursor.",
+            "example": "",
+        },
+        "ending_before": {
+            "type": "string",
+            "required": False,
+            "description": "Cursor.",
+            "example": "",
+        },
         "purpose": {
             "type": "string",
             "required": False,

@@ -511,7 +511,12 @@ def build_operations() -> List[Operation]:
             description="Get sent invitations.",
             tags=("linkedin",),
             input_schema={
-                "count": {"type": "integer", "required": False, "description": "Count.", "example": 50}
+                "count": {
+                    "type": "integer",
+                    "required": False,
+                    "description": "Count.",
+                    "example": 50,
+                }
             },
             arg_map=lambda d: {"count": d.get("count", 50)},
             display_param=None,
@@ -522,7 +527,12 @@ def build_operations() -> List[Operation]:
             description="Get received invitations.",
             tags=("linkedin",),
             input_schema={
-                "count": {"type": "integer", "required": False, "description": "Count.", "example": 50}
+                "count": {
+                    "type": "integer",
+                    "required": False,
+                    "description": "Count.",
+                    "example": 50,
+                }
             },
             arg_map=lambda d: {"count": d.get("count", 50)},
             display_param=None,
@@ -560,7 +570,12 @@ def build_operations() -> List[Operation]:
             description="Get conversations.",
             tags=("linkedin",),
             input_schema={
-                "count": {"type": "integer", "required": False, "description": "Count.", "example": 20}
+                "count": {
+                    "type": "integer",
+                    "required": False,
+                    "description": "Count.",
+                    "example": 20,
+                }
             },
             arg_map=lambda d: {"count": d.get("count", 20)},
             display_param=None,
@@ -604,7 +619,12 @@ def build_operations() -> List[Operation]:
             description="Get job details.",
             tags=("linkedin",),
             input_schema={
-                "job_id": {"type": "string", "required": True, "description": "Job ID.", "example": "123"}
+                "job_id": {
+                    "type": "string",
+                    "required": True,
+                    "description": "Job ID.",
+                    "example": "123",
+                }
             },
             display_param="job_id",
         ),

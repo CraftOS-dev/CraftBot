@@ -337,7 +337,11 @@ class SessionRuntimeManager:
         """
         if framework_task_key is not None:
             current = self._turn_triggers.get(session_id)
-            if current is None or (current.payload or {}).get("framework_task_key") != framework_task_key:
+            if (
+                current is None
+                or (current.payload or {}).get("framework_task_key")
+                != framework_task_key
+            ):
                 return False
         signal = self._stops.get(session_id)
         if signal is not None:
@@ -348,7 +352,11 @@ class SessionRuntimeManager:
         purged = await self._purge_continuations(session_id, framework_task_key)
         if framework_task_key is not None:
             current = self._turn_triggers.get(session_id)
-            if current is None or (current.payload or {}).get("framework_task_key") != framework_task_key:
+            if (
+                current is None
+                or (current.payload or {}).get("framework_task_key")
+                != framework_task_key
+            ):
                 return False
         signal = self._stops.get(session_id)
         if signal is not None:
@@ -407,14 +415,21 @@ class SessionRuntimeManager:
             raise
         return True
 
-    async def _purge_continuations(self, session_id: str, framework_task_key=None) -> int:
+    async def _purge_continuations(
+        self, session_id: str, framework_task_key=None
+    ) -> int:
         """Drop a session's queued run-continuation triggers."""
         queue = self._queues.get(session_id)
         if queue is None:
             return 0
         return await queue.purge(
-            lambda t: t.source == TriggerSource.RUN_CONTINUATION.value
-            and (framework_task_key is None or (t.payload or {}).get("framework_task_key") == framework_task_key)
+            lambda t: (
+                t.source == TriggerSource.RUN_CONTINUATION.value
+                and (
+                    framework_task_key is None
+                    or (t.payload or {}).get("framework_task_key") == framework_task_key
+                )
+            )
         )
 
     async def remove_session(self, session_id: str) -> None:
@@ -581,7 +596,9 @@ class SessionRuntimeManager:
                                         f"[SessionRuntime] stop ack failed: {e}"
                                     )
                         try:
-                            await self._purge_continuations(session_id, signal.framework_task_key)
+                            await self._purge_continuations(
+                                session_id, signal.framework_task_key
+                            )
                             if self._on_stopped:
                                 await self._on_stopped(session_id)
                         except Exception as e:

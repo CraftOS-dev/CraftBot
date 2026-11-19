@@ -184,9 +184,7 @@ class SubAgentRunner:
 
     def _fail(self, cause: str) -> None:
         sub = self.sub
-        logger.error(
-            f"[SubAgentRunner] {sub.id} turn {sub.iterations} failed: {cause}"
-        )
+        logger.error(f"[SubAgentRunner] {sub.id} turn {sub.iterations} failed: {cause}")
         self.manager.event_stream_manager.log(
             kind="subagent_error",
             message=f"Turn {sub.iterations} failed: {cause}",

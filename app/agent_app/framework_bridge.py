@@ -208,7 +208,11 @@ class FrameworkBridge:
             self.http = ClientSession(timeout=ClientTimeout(total=8), trust_env=False)
 
     async def revision(self, path, app_id):
-        from app.agent_app.framework_connections import is_connection, connection_revision
+        from app.agent_app.framework_connections import (
+            is_connection,
+            connection_revision,
+        )
+
         if is_connection(path):
             cli = await asyncio.to_thread(framework.configured_cli)
             return await connection_revision(cli, path, app_id)
@@ -221,14 +225,25 @@ class FrameworkBridge:
         if not grant:
             grant = await self.host.attach(path, app_id)
         if row.get("status") != "running":
-            return {"permissionRequired": False, "needsReview": False, "error": grant.get("bridgeError")}
+            return {
+                "permissionRequired": False,
+                "needsReview": False,
+                "error": grant.get("bridgeError"),
+            }
         try:
             revision = await self.revision(path, app_id)
         except PermissionError as error:
             if not row.get("connection"):
                 raise
-            return {"permissionRequired": False, "needsReview": False, "error": str(error)}
-        allowed = grant.get("tasksAllowed") is True and grant.get("capabilityFingerprint") == revision
+            return {
+                "permissionRequired": False,
+                "needsReview": False,
+                "error": str(error),
+            }
+        allowed = (
+            grant.get("tasksAllowed") is True
+            and grant.get("capabilityFingerprint") == revision
+        )
         waiting = await pending_tasks(cli, path, app_id)
         blocked = grant.get("blockedTask")
         if blocked and not allowed:
@@ -240,14 +255,18 @@ class FrameworkBridge:
             "permissionRequired": required,
             "needsReview": required and grant.get("reviewedRequest") != review_id,
             # Allowed before the app changed: the review is of new or changed requests.
-            "changed": grant.get("tasksAllowed") is True and grant.get("capabilityFingerprint") != revision,
-            "revision": revision, "reviewId": review_id,
+            "changed": grant.get("tasksAllowed") is True
+            and grant.get("capabilityFingerprint") != revision,
+            "revision": revision,
+            "reviewId": review_id,
             "requests": sorted({t.get("capability") or "App request" for t in waiting}),
             "error": grant.get("bridgeError"),
             "retryNeeded": bool(blocked),
         }
 
-    async def consent(self, path, app_id, allow, owner_tools=None, revision=None, review_id=None):
+    async def consent(
+        self, path, app_id, allow, owner_tools=None, revision=None, review_id=None
+    ):
         canonical = os.path.normcase(str(Path(path).resolve()))
         key = (asyncio.get_running_loop(), canonical)
         lock = framework._lifecycle_locks.setdefault(key, asyncio.Lock())
@@ -286,7 +305,11 @@ class FrameworkBridge:
                 if revision and revision != fingerprint:
                     raise ValueError("The app changed. Review its requests again.")
                 attachment = self.store.get("attachment", key) or attachment
-                attachment.update(tasksAllowed=True, ownerToolsAllowed=False, capabilityFingerprint=fingerprint)
+                attachment.update(
+                    tasksAllowed=True,
+                    ownerToolsAllowed=False,
+                    capabilityFingerprint=fingerprint,
+                )
             attachment.pop("bridgeError", None)
             attachment.pop("blockedTask", None)
             self.store.put("attachment", key, attachment)
@@ -385,7 +408,9 @@ class FrameworkBridge:
             try:
                 if grant.get("connection"):
                     await self.start()
-                    await self.host.connections.start_pump(grant["path"], grant["appId"])
+                    await self.host.connections.start_pump(
+                        grant["path"], grant["appId"]
+                    )
                     continue
                 row = await self.host.selected(grant["path"], grant["appId"])
                 if row.get("status") != "running":
@@ -395,7 +420,9 @@ class FrameworkBridge:
                     grant.pop("bridgeError", None)
                     self.store.put("attachment", grant["key"], grant)
                     continue
-                if grant.get("capabilityFingerprint") != await self.revision(grant["path"], grant["appId"]):
+                if grant.get("capabilityFingerprint") != await self.revision(
+                    grant["path"], grant["appId"]
+                ):
                     raise ValueError(
                         "The app changed. Review app task permissions again."
                     )
@@ -502,11 +529,20 @@ class FrameworkBridge:
             if not grant:
                 return
             # Do not persist exception text: upstream/network errors may carry secrets.
-            message = str(error) if isinstance(error, DeliveryError) else "CraftBot could not accept this app request. Try the action again; if it fails, restart the app."
+            message = (
+                str(error)
+                if isinstance(error, DeliveryError)
+                else "CraftBot could not accept this app request. Try the action again; if it fails, restart the app."
+            )
             grant["bridgeError"] = message
             if isinstance(error, DeliveryError) and error.code == "consent_required":
                 task = body.get("task") or {}
-                grant["blockedTask"] = {"id": task.get("id", "blocked"), "capability": (task.get("request") or {}).get("capability", "App request")}
+                grant["blockedTask"] = {
+                    "id": task.get("id", "blocked"),
+                    "capability": (task.get("request") or {}).get(
+                        "capability", "App request"
+                    ),
+                }
             self.store.put("attachment", key, grant)
             await self.host.changed()
         except Exception:
@@ -529,7 +565,10 @@ class FrameworkBridge:
         if not grant.get("tasksAllowed") or grant.get(
             "capabilityFingerprint"
         ) != await self.revision(row["path"], row["id"]):
-            raise DeliveryError("This app needs permission to send requests to CraftBot. Review its requests and try again.", "consent_required")
+            raise DeliveryError(
+                "This app needs permission to send requests to CraftBot. Review its requests and try again.",
+                "consent_required",
+            )
         if (
             row.get("status") != "running"
             or task.get("app") != row["id"]
@@ -539,30 +578,52 @@ class FrameworkBridge:
             raise ValueError("The live task identity or claim is invalid.")
         # Never resolve a directory for delegated operations: a dev record would
         # silently select a different database. Pin the live control address.
-        target = row["path"] if row.get("connection") else f"http://127.0.0.1:{int(row['port'])}"
+        target = (
+            row["path"]
+            if row.get("connection")
+            else f"http://127.0.0.1:{int(row['port'])}"
+        )
         identity = await self.http_json(target, "/api/_a2app", "")
         if identity.get("app", {}).get("id") != row["id"]:
             raise ValueError("A different app is answering.")
         token = (body.get("credential") or {}).get("token")
         local_owner = not token and identity.get("protocol") == "0.1"
         if local_owner:
-            manifest = {} if row.get("connection") else json.loads((Path(row["path"]) / "manifest.json").read_text(encoding="utf-8"))
-            if not row.get("connection") and (manifest.get("authMode") != "none"
-                    or task["request"].get("principal") not in (None, "owner")
-                    or task["claim"].get("principal") != "owner"):
-                raise DeliveryError("This app needs task-scoped credentials for requests from signed-in users. Update the app before trying again.")
+            manifest = (
+                {}
+                if row.get("connection")
+                else json.loads(
+                    (Path(row["path"]) / "manifest.json").read_text(encoding="utf-8")
+                )
+            )
+            if not row.get("connection") and (
+                manifest.get("authMode") != "none"
+                or task["request"].get("principal") not in (None, "owner")
+                or task["claim"].get("principal") != "owner"
+            ):
+                raise DeliveryError(
+                    "This app needs task-scoped credentials for requests from signed-in users. Update the app before trying again."
+                )
             token = await local_owner_token(cli, row["path"], row["id"])
         if not isinstance(token, str) or not token:
-            raise DeliveryError("The app did not supply its task credential. Update or restart the app, then try again.")
+            raise DeliveryError(
+                "The app did not supply its task credential. Update or restart the app, then try again."
+            )
         who = await self.http_json(target, "/api/_a2app/whoami", token)
         if who.get("principal") != (task["request"].get("principal") or "owner"):
             raise PermissionError("The delegated principal does not match.")
         if local_owner and who.get("credentialId") != task["claim"].get("credentialId"):
-            raise DeliveryError("The request is owned by another agent connection. Restart the app connection before trying again.")
+            raise DeliveryError(
+                "The request is owned by another agent connection. Restart the app connection before trying again."
+            )
         task_route = "/api/_a2app/tasks/" + quote(task["id"], safe="")
         current = await self.http_json(target, task_route, token)
-        if (current.get("app") != row["id"] or current.get("request") != task["request"]
-                or current.get("claim") != task["claim"] or current.get("status") != "working"):
+        if (
+            current.get("app") != row["id"]
+            or current.get("request") != task["request"]
+            or current.get("claim") != task["claim"]
+            or current.get("status") != "working"
+        ):
             raise PermissionError("The claim changed before delivery.")
         receipt_key = hashlib.sha256(json.dumps([key, task["id"]]).encode()).hexdigest()
         previous = self.store.get("delivery", receipt_key)
@@ -585,7 +646,9 @@ class FrameworkBridge:
                 raise PermissionError(
                     "Previously delivered work requires review and a new claim; it will not be replayed."
                 )
-            self.store.put("delivery_history", receipt_key + ":" + str(previous["claim"]), previous)
+            self.store.put(
+                "delivery_history", receipt_key + ":" + str(previous["claim"]), previous
+            )
         # The owner's own request from a local app works like a message typed in
         # that app's chat: the usual tools, with this task's credential for this
         # app. Another person's request, or a remote app's, stays confined: the
@@ -602,7 +665,9 @@ class FrameworkBridge:
             else frozenset(os.path.normcase(p) for p in documents.values())
         )
         read_actions = frozenset({"read_file"}) if readable else frozenset()
-        if own_request or who["principal"] == (row.get("connection") or {}).get("principal"):
+        if own_request or who["principal"] == (row.get("connection") or {}).get(
+            "principal"
+        ):
             # The local app's requests belong to its existing side chat, just
             # like messages typed there. Authority belongs to a task/turn, not
             # to the conversation: normal chat must retain its usual tools.
@@ -754,7 +819,11 @@ class FrameworkBridge:
         self.store.put(
             "delivery",
             run["key"],
-            {k: v for k, v in run.items() if k not in {"authority", "route", "ask", "prompt"}},
+            {
+                k: v
+                for k, v in run.items()
+                if k not in {"authority", "route", "ask", "prompt"}
+            },
         )
         if run.get("isolated"):
             self.store.put("task_session", run["sessionId"], {"key": run["key"]})
@@ -769,8 +838,12 @@ class FrameworkBridge:
             payload.get("framework_task_key")
             or trigger.source == "framework_task"
             or self.is_task_session(session_id)
-            or (trigger.source == "user_message" and current
-                and current["authority"].active and current["ask"] is not None)
+            or (
+                trigger.source == "user_message"
+                and current
+                and current["authority"].active
+                and current["ask"] is not None
+            )
         )
 
     def current_run(self, session_id):
@@ -832,10 +905,13 @@ class FrameworkBridge:
             )
         # Carry the exact task through continuations and replies. Never use
         # whichever delivery happened to arrive most recently for this chat.
-        trigger.payload = {**payload, "framework_task_key": run["key"],
-                           "run_source": "framework_task",
-                           "workflow_skills": ["framework-operator"],
-                           "workflow_action_sets": ["a2app"]}
+        trigger.payload = {
+            **payload,
+            "framework_task_key": run["key"],
+            "run_source": "framework_task",
+            "workflow_skills": ["framework-operator"],
+            "workflow_action_sets": ["a2app"],
+        }
         if trigger.source == "run_continuation":
             trigger.next_action_description = (
                 f"Continue Agent App task {run['taskId']} for capability {run['capability']}. "
@@ -946,7 +1022,9 @@ class FrameworkBridge:
         self.save(run)
         grant = self.store.get("attachment", run["grantKey"])
         if grant and reason != "host_shutdown":
-            grant["bridgeError"] = "The app request did not finish. Try the action again in the app."
+            grant["bridgeError"] = (
+                "The app request did not finish. Try the action again in the app."
+            )
             self.store.put("attachment", grant["key"], grant)
             await self.host.changed()
         if cancel and self.executing.get(run["sessionId"]) is run:

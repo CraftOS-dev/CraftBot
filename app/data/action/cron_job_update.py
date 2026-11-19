@@ -3,7 +3,7 @@ from agent_core import action
 
 @action(
     name="cron_job_update",
-    description="Update a cron job in PROACTIVE.md: enable/disable it or change its instruction, frequency, time, day or priority. Re-enabling a job or changing its schedule restarts it from now. Each run is stamped automatically when the job fires; record what a run did with add_outcome. A job runs in the chat that created it; move it to another chat (for example to main after its chat was deleted) with updates={\"session_id\": \"main\"}.",
+    description='Update a cron job in PROACTIVE.md: enable/disable it or change its instruction, frequency, time, day or priority. Re-enabling a job or changing its schedule restarts it from now. Each run is stamped automatically when the job fires; record what a run did with add_outcome. A job runs in the chat that created it; move it to another chat (for example to main after its chat was deleted) with updates={"session_id": "main"}.',
     action_sets=["proactive"],
     input_schema={
         "job_id": {

@@ -73,7 +73,13 @@ class _Host:
 def test_a_finished_walk_of_a_commit_is_the_baseline(verdict):
     # An incomplete walk the verifier finished itself names what it did not
     # reach, which the next walk checks; the rest it passed stays passed.
-    record = {"verdict": verdict, "commit": "abc", "evidence": "report", "stamp": {}, "walked": True}
+    record = {
+        "verdict": verdict,
+        "commit": "abc",
+        "evidence": "report",
+        "stamp": {},
+        "walked": True,
+    }
     assert baseline(_Host(record), "app") == {
         "verdict": verdict,
         "commit": "abc",

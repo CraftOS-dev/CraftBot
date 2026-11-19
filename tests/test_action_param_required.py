@@ -74,7 +74,7 @@ def real():
 def test_every_real_parameter_declares_required(real):
     assert real["params"] > 4000  # the whole registry was read
     assert real["undeclared"] == [], (
-        f"Declare \"required\": True/False on these parameters, decided by "
+        f'Declare "required": True/False on these parameters, decided by '
         f"what the handler does without them: {real['undeclared'][:50]}"
     )
 

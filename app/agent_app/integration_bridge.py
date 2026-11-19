@@ -76,7 +76,10 @@ PROXY_DESTINATIONS: Dict[str, tuple] = {
     "stripe": ("https://api.stripe.com", ("api.stripe.com",)),
     "line": ("https://api.line.me", ("api.line.me",)),
     "lark": ("https://open.feishu.cn", ("open.feishu.cn", "open.larksuite.com")),
-    "lark_calendar": ("https://open.feishu.cn", ("open.feishu.cn", "open.larksuite.com")),
+    "lark_calendar": (
+        "https://open.feishu.cn",
+        ("open.feishu.cn", "open.larksuite.com"),
+    ),
     "lark_drive": ("https://open.feishu.cn", ("open.feishu.cn", "open.larksuite.com")),
     "telegram_bot": ("https://api.telegram.org", ("api.telegram.org",)),
     "telegram_user": ("https://api.telegram.org", ("api.telegram.org",)),
@@ -158,11 +161,17 @@ def _app_folder(arg: str, home: Path) -> Optional[Path]:
     if candidate.is_absolute() and candidate.is_dir():
         return candidate
     try:
-        registry = json.loads((Path(home) / "registry.json").read_text(encoding="utf-8"))
+        registry = json.loads(
+            (Path(home) / "registry.json").read_text(encoding="utf-8")
+        )
     except (OSError, ValueError):
         return None
     for app in registry.get("apps", []):
-        if isinstance(app, dict) and app.get("id") == arg and isinstance(app.get("path"), str):
+        if (
+            isinstance(app, dict)
+            and app.get("id") == arg
+            and isinstance(app.get("path"), str)
+        ):
             return Path(app["path"])
     return None
 
@@ -233,7 +242,10 @@ def _granted(folder: Path, kind: str, name: str) -> tuple[bool, str]:
         return False, why
     declared = (manifest.get("capabilities") or {}).get(kind)
     if not isinstance(declared, list) or name not in declared:
-        return False, f"'{name}' is not declared in the app manifest's capabilities.{kind}"
+        return (
+            False,
+            f"'{name}' is not declared in the app manifest's capabilities.{kind}",
+        )
     return True, ""
 
 
@@ -258,7 +270,9 @@ def resolve_destination(integration: str, url: str) -> tuple[bool, str]:
     host = (parsed.hostname or "").lower()
     if not host:
         return False, "no host in url"
-    if any(host == candidate or host.endswith("." + candidate) for candidate in allowed):
+    if any(
+        host == candidate or host.endswith("." + candidate) for candidate in allowed
+    ):
         return True, raw
     return False, f"host {host!r} is not one of {', '.join(allowed)}"
 
@@ -270,10 +284,13 @@ def _dry_run_param_problems(input_schema: dict, params: dict) -> list:
     for key in params:
         if known and key not in known:
             problems.append(
-                f"unknown param '{key}'; this action's schema has: " + ", ".join(sorted(known))
+                f"unknown param '{key}'; this action's schema has: "
+                + ", ".join(sorted(known))
             )
     for key, value in params.items():
-        if isinstance(value, str) and any(m in value.lower() for m in _PLACEHOLDER_DOMAINS):
+        if isinstance(value, str) and any(
+            m in value.lower() for m in _PLACEHOLDER_DOMAINS
+        ):
             problems.append(
                 f"param '{key}' looks like a placeholder ({value!r}); reserved example "
                 "domains reach nobody. Use a real value, or omit the param if the action resolves it."
@@ -297,7 +314,9 @@ def _auth_headers(platform_id: str, account: Optional[str]) -> Optional[dict]:
             try:
                 return getattr(client, method)()
             except Exception as error:
-                logger.warning(f"[INTEGRATION_BRIDGE] {platform_id} headers failed: {error}")
+                logger.warning(
+                    f"[INTEGRATION_BRIDGE] {platform_id} headers failed: {error}"
+                )
                 return None
     logger.warning(f"[INTEGRATION_BRIDGE] no auth header method for {platform_id}")
     return None
@@ -333,7 +352,9 @@ class IntegrationBridge:
         if not auth.startswith("Bearer "):
             return None
         folder = await asyncio.to_thread(folder_of, auth[7:])
-        if folder is None or not await asyncio.to_thread((folder / "manifest.json").is_file):
+        if folder is None or not await asyncio.to_thread(
+            (folder / "manifest.json").is_file
+        ):
             return None
         return folder
 
@@ -387,37 +408,64 @@ class IntegrationBridge:
         body = data.get("body")
         account = str(data.get("account") or "").strip() or None
         if not integration or not url:
-            return web.json_response({"error": "Missing required fields: integration, url"}, status=400)
+            return web.json_response(
+                {"error": "Missing required fields: integration, url"}, status=400
+            )
         if not isinstance(extra_headers, dict):
             return web.json_response({"error": "headers must be an object"}, status=400)
 
-        granted, why = await asyncio.to_thread(_granted, folder, "integrations", integration)
+        granted, why = await asyncio.to_thread(
+            _granted, folder, "integrations", integration
+        )
         if not granted:
-            logger.warning(f"[INTEGRATION_BRIDGE] BLOCKED proxy app={folder.name} integration={integration!r}: {why}")
-            return web.json_response({"error": f"This app is not permitted to use '{integration}': {why}"}, status=403)
+            logger.warning(
+                f"[INTEGRATION_BRIDGE] BLOCKED proxy app={folder.name} integration={integration!r}: {why}"
+            )
+            return web.json_response(
+                {"error": f"This app is not permitted to use '{integration}': {why}"},
+                status=403,
+            )
         allowed, resolved = resolve_destination(integration, url)
         if not allowed:
-            logger.warning(f"[INTEGRATION_BRIDGE] BLOCKED proxy app={folder.name} integration={integration!r} url={url!r}: {resolved}")
-            return web.json_response({"error": f"Destination not permitted for '{integration}': {resolved}"}, status=403)
+            logger.warning(
+                f"[INTEGRATION_BRIDGE] BLOCKED proxy app={folder.name} integration={integration!r} url={url!r}: {resolved}"
+            )
+            return web.json_response(
+                {"error": f"Destination not permitted for '{integration}': {resolved}"},
+                status=403,
+            )
 
         # A worker thread: building headers can refresh an OAuth token over HTTP.
         headers = await asyncio.to_thread(_auth_headers, integration, account)
         if headers is None:
             detail = f" (account {account!r} not found?)" if account else ""
-            return web.json_response({"error": f"Integration '{integration}' not connected (no credentials){detail}"}, status=424)
+            return web.json_response(
+                {
+                    "error": f"Integration '{integration}' not connected (no credentials){detail}"
+                },
+                status=424,
+            )
         try:
             response = await self._http.request(
                 method=method,
                 url=resolved,
-                headers={**headers, **{str(k): str(v) for k, v in extra_headers.items()}},
+                headers={
+                    **headers,
+                    **{str(k): str(v) for k, v in extra_headers.items()},
+                },
                 json=body if body and method in ("POST", "PUT", "PATCH") else None,
                 params=body if body and method == "GET" else None,
             )
         except httpx.TimeoutException:
-            return error_json_response(make_error("CONNECTION_TIMEOUT", target="the integration API"), status=504)
+            return error_json_response(
+                make_error("CONNECTION_TIMEOUT", target="the integration API"),
+                status=504,
+            )
         except Exception as error:
             logger.error(f"[INTEGRATION_BRIDGE] proxy error: {error}")
-            return error_json_response(make_error("PROXY_ERROR", detail=f"Proxy error: {error}"), status=502)
+            return error_json_response(
+                make_error("PROXY_ERROR", detail=f"Proxy error: {error}"), status=502
+            )
         try:
             payload = response.json()
         except ValueError:
@@ -438,7 +486,9 @@ class IntegrationBridge:
         name = str(data.get("action") or "")
         params = data.get("params") or {}
         if not name:
-            return web.json_response({"error": "Missing required field: action"}, status=400)
+            return web.json_response(
+                {"error": "Missing required field: action"}, status=400
+            )
         if not isinstance(params, dict):
             return web.json_response({"error": "params must be an object"}, status=400)
         dry_run = bool(data.get("dry_run") or data.get("dryRun"))
@@ -453,25 +503,53 @@ class IntegrationBridge:
         sets = set(getattr(impl.metadata, "action_sets", None) or [])
         integration = next((i for i in sorted(PROXY_DESTINATIONS) if i in sets), None)
         if integration is None:
-            return web.json_response({"error": f"'{name}' is not an integration action; only integration actions are callable through the bridge"}, status=403)
+            return web.json_response(
+                {
+                    "error": f"'{name}' is not an integration action; only integration actions are callable through the bridge"
+                },
+                status=403,
+            )
         granted, why = await asyncio.to_thread(_granted, folder, "actions", name)
         if not granted:
-            logger.warning(f"[INTEGRATION_BRIDGE] BLOCKED action app={folder.name} action={name!r}: {why}")
-            return web.json_response({"error": f"This app is not permitted to call '{name}': {why}"}, status=403)
-        if not dry_run and getattr(impl.metadata, "irreversible", False) and not data.get("confirm_irreversible"):
-            logger.warning(f"[INTEGRATION_BRIDGE] REFUSED irreversible action without confirmation app={folder.name} action={name!r}")
-            return web.json_response({"error": f"'{name}' is irreversible (it acts on the user's real account). Retry with \"confirm_irreversible\": true."}, status=400)
+            logger.warning(
+                f"[INTEGRATION_BRIDGE] BLOCKED action app={folder.name} action={name!r}: {why}"
+            )
+            return web.json_response(
+                {"error": f"This app is not permitted to call '{name}': {why}"},
+                status=403,
+            )
+        if (
+            not dry_run
+            and getattr(impl.metadata, "irreversible", False)
+            and not data.get("confirm_irreversible")
+        ):
+            logger.warning(
+                f"[INTEGRATION_BRIDGE] REFUSED irreversible action without confirmation app={folder.name} action={name!r}"
+            )
+            return web.json_response(
+                {
+                    "error": f"'{name}' is irreversible (it acts on the user's real account). Retry with \"confirm_irreversible\": true."
+                },
+                status=400,
+            )
         if dry_run:
-            problems = _dry_run_param_problems(getattr(impl.metadata, "input_schema", None) or {}, params)
+            problems = _dry_run_param_problems(
+                getattr(impl.metadata, "input_schema", None) or {}, params
+            )
             if problems:
-                return web.json_response({"error": "Dry-run found problems: " + "; ".join(problems)}, status=400)
-            return web.json_response({
-                "status": 200,
-                "dry_run": True,
-                "would_execute": name,
-                "integration": integration,
-                "note": "Checks passed (grant, params). Nothing was executed.",
-            })
+                return web.json_response(
+                    {"error": "Dry-run found problems: " + "; ".join(problems)},
+                    status=400,
+                )
+            return web.json_response(
+                {
+                    "status": 200,
+                    "dry_run": True,
+                    "would_execute": name,
+                    "integration": integration,
+                    "note": "Checks passed (grant, params). Nothing was executed.",
+                }
+            )
         try:
             if inspect.iscoroutinefunction(impl.handler):
                 result = await impl.handler(params)
@@ -495,18 +573,24 @@ class IntegrationBridge:
             return web.json_response({"error": "Invalid JSON body"}, status=400)
         prompt = data.get("prompt")
         if not isinstance(prompt, str) or not prompt:
-            return web.json_response({"error": "Missing required field: prompt"}, status=400)
+            return web.json_response(
+                {"error": "Missing required field: prompt"}, status=400
+            )
         system_message = data.get("system_message")
         try:
             from app.internal_action_interface import InternalActionInterface
 
             result = await InternalActionInterface.use_llm(
                 prompt,
-                system_message if isinstance(system_message, str) and system_message else None,
+                system_message
+                if isinstance(system_message, str) and system_message
+                else None,
                 json_mode=data.get("json_mode") is True,
             )
         except Exception as error:
-            logger.error(f"[INTEGRATION_BRIDGE] LLM error for app={folder.name}: {error}")
+            logger.error(
+                f"[INTEGRATION_BRIDGE] LLM error for app={folder.name}: {error}"
+            )
             return web.json_response({"error": f"LLM error: {error}"}, status=502)
         reply = result.get("llm_response", "")
         content = reply.get("content", "") if isinstance(reply, dict) else str(reply)

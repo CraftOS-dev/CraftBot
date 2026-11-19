@@ -61,7 +61,9 @@ class _HiddenEnvBuilder(venv.EnvBuilder):
     """Keep ensurepip's interpreter and installer children hidden too."""
 
     def _call_new_python(self, context, *args, **kwargs):
-        return super()._call_new_python(context, *args, **kwargs, **hidden_console_kwargs())
+        return super()._call_new_python(
+            context, *args, **kwargs, **hidden_console_kwargs()
+        )
 
 
 def _get_persistent_venv_dir() -> Path:

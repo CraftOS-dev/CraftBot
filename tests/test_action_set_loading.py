@@ -246,18 +246,25 @@ def test_build_tools_load_separately_from_app_operation(loader):
 
 
 def test_restored_isolated_app_task_has_only_operating_tools(sessions):
-    session = Session.from_dict({
-        "id": "app-task", "type": SessionType.AGENT_APP,
-        "isolated_app_task": True,
-        "compiled_actions": ["agent_app_framework_command", "agent_app_command"],
-    })
+    session = Session.from_dict(
+        {
+            "id": "app-task",
+            "type": SessionType.AGENT_APP,
+            "isolated_app_task": True,
+            "compiled_actions": ["agent_app_framework_command", "agent_app_command"],
+        }
+    )
     restored = sessions.restore_session(session)
     assert restored.compiled_actions == ["a2app_command", "send_message", "end_turn"]
 
 
-@pytest.mark.parametrize("name,surface", [
-    ("agent_app_command", "agent-app"), ("a2app_command", "a2app"),
-])
+@pytest.mark.parametrize(
+    "name,surface",
+    [
+        ("agent_app_command", "agent-app"),
+        ("a2app_command", "a2app"),
+    ],
+)
 def test_native_command_source_binds_the_cli_surface(monkeypatch, name, surface):
     import asyncio
     import inspect
@@ -271,9 +278,15 @@ def test_native_command_source_binds_the_cli_surface(monkeypatch, name, surface)
     # Run the extracted function just as CraftBot does, with no module globals.
     namespace = {}
     exec(_strip_decorator(inspect.getsource(getattr(actions, name))), namespace)
-    result = asyncio.run(namespace[name]({
-        "args": ["--help"], "cwd": "C:/apps", "surface": "wrong-surface",
-    }))
+    result = asyncio.run(
+        namespace[name](
+            {
+                "args": ["--help"],
+                "cwd": "C:/apps",
+                "surface": "wrong-surface",
+            }
+        )
+    )
     command.assert_awaited_once_with(surface, ["--help"], cwd="C:/apps")
     assert result == command.return_value
 
@@ -288,7 +301,9 @@ def test_unknown_sets_are_reported(loader):
     assert mixed["actions"] == ["read_pdf"]
 
 
-def test_upgrade_retires_legacy_actions_and_rebinds_framework_actions(tmp_path, monkeypatch):
+def test_upgrade_retires_legacy_actions_and_rebinds_framework_actions(
+    tmp_path, monkeypatch
+):
     from agent_core.core.action_framework.registry import registry_instance
     from app.database_interface import DatabaseInterface, RETIRED_APP_ACTIONS
 
@@ -298,7 +313,9 @@ def test_upgrade_retires_legacy_actions_and_rebinds_framework_actions(tmp_path, 
     # An older copy of the creation action, saved before builds moved to the
     # framework workflow, must not come back.
     assert "agent_app_scaffold" in RETIRED_APP_ACTIONS
-    names = sorted(RETIRED_APP_ACTIONS | {"agent_app_framework_workflow", "my_custom_action"})
+    names = sorted(
+        RETIRED_APP_ACTIONS | {"agent_app_framework_workflow", "my_custom_action"}
+    )
     source = "from agent_core import action\n" + "\n".join(
         f'@action(name="{name}", action_sets=["agent_app"])\n'
         f'async def {name}(input_data):\n    return {{"old": True}}\n'
@@ -309,6 +326,8 @@ def test_upgrade_retires_legacy_actions_and_rebinds_framework_actions(tmp_path, 
     DatabaseInterface(data_dir=str(tmp_path))
     assert not RETIRED_APP_ACTIONS.intersection(registry_instance._registry)
     assert registry_instance.get_action_implementation("my_custom_action")
-    workflow = registry_instance.get_action_implementation("agent_app_framework_workflow")
+    workflow = registry_instance.get_action_implementation(
+        "agent_app_framework_workflow"
+    )
     assert workflow.handler.__module__ == "app.data.action.agent_app_framework_actions"
     assert saved.read_text(encoding="utf-8") == source

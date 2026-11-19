@@ -87,7 +87,9 @@ def test_a_param_some_actions_lack_or_word_differently_is_kept_in_each():
 
 def test_a_single_action_shares_nothing():
     block = format_action_candidates([_action("a", account=False)])
-    assert json.loads(block)[0]["params"] == {"account": "string, optional - The account."}
+    assert json.loads(block)[0]["params"] == {
+        "account": "string, optional - The account."
+    }
 
 
 def test_the_same_list_renders_the_same_text():

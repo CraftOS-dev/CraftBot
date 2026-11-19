@@ -240,5 +240,7 @@ def test_attachment_only_messages_never_build_the_reference_service(
         )
     )
     assert agent._handle_chat_message.await_count == 1
-    assert "REFERENCE CONTEXT" not in agent._handle_chat_message.call_args.args[0]["text"]
+    assert (
+        "REFERENCE CONTEXT" not in agent._handle_chat_message.call_args.args[0]["text"]
+    )
     assert len(storage.get_recent_messages("dest")) == 1

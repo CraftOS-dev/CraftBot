@@ -49,8 +49,12 @@ def test_ordinary_turns_start_actions_early():
         ({}, {"payload": {"integration_type": "telegram_bot"}, "is_self": False}),
     ],
 )
-def test_turns_a_batch_check_could_refuse_wait_for_the_whole_reply(agent_kwargs, trigger_kwargs):
-    assert not _agent(**agent_kwargs)._early_start_allowed(_trigger(**trigger_kwargs), "main")
+def test_turns_a_batch_check_could_refuse_wait_for_the_whole_reply(
+    agent_kwargs, trigger_kwargs
+):
+    assert not _agent(**agent_kwargs)._early_start_allowed(
+        _trigger(**trigger_kwargs), "main"
+    )
 
 
 def test_an_agent_app_task_waits_for_the_whole_reply():
@@ -149,7 +153,9 @@ def test_a_message_sent_by_an_action_carries_its_run_id():
 
     logged = []
     manager = StateManager.__new__(StateManager)
-    manager.event_stream_manager = SimpleNamespace(log=lambda *a, **kw: logged.append(kw))
+    manager.event_stream_manager = SimpleNamespace(
+        log=lambda *a, **kw: logged.append(kw)
+    )
     manager.bump_event_stream = lambda: None
     token = current_action_run_id.set("run-9")
     try:

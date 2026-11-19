@@ -924,8 +924,18 @@ async def get_jira_worklogs(input_data: dict) -> dict:
             "description": "Total seconds.",
             "example": 10800,
         },
-        "comment": {"type": "string", "required": False, "description": "New comment.", "example": ""},
-        "started": {"type": "string", "required": False, "description": "ISO start time.", "example": ""},
+        "comment": {
+            "type": "string",
+            "required": False,
+            "description": "New comment.",
+            "example": "",
+        },
+        "started": {
+            "type": "string",
+            "required": False,
+            "description": "ISO start time.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -1266,7 +1276,12 @@ async def list_jira_versions(input_data: dict) -> dict:
             "description": "Project key.",
             "example": "PROJ",
         },
-        "name": {"type": "string", "required": True, "description": "Version name.", "example": "v1.0"},
+        "name": {
+            "type": "string",
+            "required": True,
+            "description": "Version name.",
+            "example": "v1.0",
+        },
         "description": {
             "type": "string",
             "required": False,
@@ -1323,7 +1338,12 @@ async def create_jira_version(input_data: dict) -> dict:
             "description": "Version ID.",
             "example": "10001",
         },
-        "name": {"type": "string", "required": False, "description": "New name.", "example": ""},
+        "name": {
+            "type": "string",
+            "required": False,
+            "description": "New name.",
+            "example": "",
+        },
         "description": {
             "type": "string",
             "required": False,
@@ -1573,7 +1593,12 @@ async def list_jira_boards(input_data: dict) -> dict:
     description="Get details of a specific Agile board.",
     action_sets=["jira_sprints"],
     input_schema={
-        "board_id": {"type": "integer", "required": True, "description": "Board ID.", "example": 1},
+        "board_id": {
+            "type": "integer",
+            "required": True,
+            "description": "Board ID.",
+            "example": 1,
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     display_param="board_id",
@@ -1590,9 +1615,24 @@ async def get_jira_board(input_data: dict) -> dict:
     description="List issues currently on a board. Returns lean issues (summary, description, status, assignee, priority, issuetype, labels, dates) by default; set include_metadata=true for all fields incl. custom fields.",
     action_sets=["jira_sprints"],
     input_schema={
-        "board_id": {"type": "integer", "required": True, "description": "Board ID.", "example": 1},
-        "jql": {"type": "string", "required": False, "description": "Optional JQL filter.", "example": ""},
-        "max_results": {"type": "integer", "required": False, "description": "Max issues.", "example": 50},
+        "board_id": {
+            "type": "integer",
+            "required": True,
+            "description": "Board ID.",
+            "example": 1,
+        },
+        "jql": {
+            "type": "string",
+            "required": False,
+            "description": "Optional JQL filter.",
+            "example": "",
+        },
+        "max_results": {
+            "type": "integer",
+            "required": False,
+            "description": "Max issues.",
+            "example": 50,
+        },
         "include_metadata": {
             "type": "boolean",
             "required": False,
@@ -1628,7 +1668,12 @@ async def get_jira_board_issues(input_data: dict) -> dict:
     description="List sprints on a board (optionally filter by state).",
     action_sets=["jira_sprints", "jira"],
     input_schema={
-        "board_id": {"type": "integer", "required": True, "description": "Board ID.", "example": 1},
+        "board_id": {
+            "type": "integer",
+            "required": True,
+            "description": "Board ID.",
+            "example": 1,
+        },
         "state": {
             "type": "string",
             "required": False,
@@ -1663,8 +1708,18 @@ async def get_jira_board_sprints(input_data: dict) -> dict:
     description="Get the backlog issues for a board (issues not yet in any sprint). Returns lean issues by default; set include_metadata=true for all fields incl. custom fields.",
     action_sets=["jira_sprints"],
     input_schema={
-        "board_id": {"type": "integer", "required": True, "description": "Board ID.", "example": 1},
-        "max_results": {"type": "integer", "required": False, "description": "Max issues.", "example": 50},
+        "board_id": {
+            "type": "integer",
+            "required": True,
+            "description": "Board ID.",
+            "example": 1,
+        },
+        "max_results": {
+            "type": "integer",
+            "required": False,
+            "description": "Max issues.",
+            "example": 50,
+        },
         "include_metadata": {
             "type": "boolean",
             "required": False,
@@ -1699,7 +1754,12 @@ async def get_jira_board_backlog(input_data: dict) -> dict:
     description="Get details of a specific sprint.",
     action_sets=["jira_sprints"],
     input_schema={
-        "sprint_id": {"type": "integer", "required": True, "description": "Sprint ID.", "example": 42},
+        "sprint_id": {
+            "type": "integer",
+            "required": True,
+            "description": "Sprint ID.",
+            "example": 42,
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     display_param="sprint_id",
@@ -1716,9 +1776,24 @@ async def get_jira_sprint(input_data: dict) -> dict:
     description="List issues in a sprint. Returns lean issues by default; set include_metadata=true for all fields incl. custom fields.",
     action_sets=["jira_sprints", "jira"],
     input_schema={
-        "sprint_id": {"type": "integer", "required": True, "description": "Sprint ID.", "example": 42},
-        "jql": {"type": "string", "required": False, "description": "Optional JQL filter.", "example": ""},
-        "max_results": {"type": "integer", "required": False, "description": "Max issues.", "example": 50},
+        "sprint_id": {
+            "type": "integer",
+            "required": True,
+            "description": "Sprint ID.",
+            "example": 42,
+        },
+        "jql": {
+            "type": "string",
+            "required": False,
+            "description": "Optional JQL filter.",
+            "example": "",
+        },
+        "max_results": {
+            "type": "integer",
+            "required": False,
+            "description": "Max issues.",
+            "example": 50,
+        },
         "include_metadata": {
             "type": "boolean",
             "required": False,
@@ -1809,22 +1884,42 @@ async def create_jira_sprint(input_data: dict) -> dict:
     description="Update a sprint's name, state (active/closed/future), goal, or dates. Returns id, name, state.",
     action_sets=["jira_sprints"],
     input_schema={
-        "sprint_id": {"type": "integer", "required": True, "description": "Sprint ID.", "example": 42},
-        "name": {"type": "string", "required": False, "description": "New name.", "example": ""},
+        "sprint_id": {
+            "type": "integer",
+            "required": True,
+            "description": "Sprint ID.",
+            "example": 42,
+        },
+        "name": {
+            "type": "string",
+            "required": False,
+            "description": "New name.",
+            "example": "",
+        },
         "state": {
             "type": "string",
             "required": False,
             "description": "'active' (start) or 'closed' (complete).",
             "example": "",
         },
-        "goal": {"type": "string", "required": False, "description": "New goal.", "example": ""},
+        "goal": {
+            "type": "string",
+            "required": False,
+            "description": "New goal.",
+            "example": "",
+        },
         "start_date": {
             "type": "string",
             "required": False,
             "description": "ISO start date.",
             "example": "",
         },
-        "end_date": {"type": "string", "required": False, "description": "ISO end date.", "example": ""},
+        "end_date": {
+            "type": "string",
+            "required": False,
+            "description": "ISO end date.",
+            "example": "",
+        },
     },
     output_schema={
         "status": {"type": "string", "example": "success"},
@@ -1858,7 +1953,12 @@ async def update_jira_sprint(input_data: dict) -> dict:
     description="Delete a sprint.",
     action_sets=["jira_sprints"],
     input_schema={
-        "sprint_id": {"type": "integer", "required": True, "description": "Sprint ID.", "example": 42},
+        "sprint_id": {
+            "type": "integer",
+            "required": True,
+            "description": "Sprint ID.",
+            "example": 42,
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -1969,7 +2069,12 @@ async def get_jira_epic(input_data: dict) -> dict:
             "description": "Epic key or ID.",
             "example": "PROJ-100",
         },
-        "max_results": {"type": "integer", "required": False, "description": "Max issues.", "example": 50},
+        "max_results": {
+            "type": "integer",
+            "required": False,
+            "description": "Max issues.",
+            "example": 50,
+        },
         "include_metadata": {
             "type": "boolean",
             "required": False,

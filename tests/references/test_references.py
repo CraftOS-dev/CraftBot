@@ -38,18 +38,30 @@ def system(tmp_path, monkeypatch):
     )
     project.path = str(tmp_path / "app")
     from pathlib import Path
+
     Path(project.path).mkdir()
-    (Path(project.path) / "manifest.json").write_text(json.dumps({
-        "token": "SECRET", "records": ["CUSTOMER DATA"],
-        "modules": [{"name": "notes", "summary": "Notes", "entities": ["notes"], "token": "SECRET"}],
-    }))
+    (Path(project.path) / "manifest.json").write_text(
+        json.dumps(
+            {
+                "token": "SECRET",
+                "records": ["CUSTOMER DATA"],
+                "modules": [
+                    {
+                        "name": "notes",
+                        "summary": "Notes",
+                        "entities": ["notes"],
+                        "token": "SECRET",
+                    }
+                ],
+            }
+        )
+    )
 
     async def reference_app(target_id):
         return vars(project) if target_id == project.id else None
 
     monkeypatch.setattr(framework_references, "reference_app", reference_app)
     return create_reference_service(sessions, storage), storage, sources, project
-
 
 
 def put(storage, id, session="source", content="hello", style="user", references=None):
@@ -192,7 +204,9 @@ def test_stopped_app_does_not_launch_or_expose_secrets(system):
         service.resolve([{"kind": "agent_app", "targetId": "app-1"}], "dest")
     )[0]
     assert "Weather" in result["excerpt"] and "stopped" in result["excerpt"]
-    assert "SECRET" not in result["excerpt"] and "CUSTOMER DATA" not in result["excerpt"]
+    assert (
+        "SECRET" not in result["excerpt"] and "CUSTOMER DATA" not in result["excerpt"]
+    )
 
 
 def test_running_app_uses_optional_bounded_schema(system, monkeypatch):
@@ -202,14 +216,6 @@ def test_running_app_uses_optional_bounded_schema(system, monkeypatch):
         service.resolve([{"kind": "agent_app", "targetId": "app-1"}], "dest")
     )[0]
     assert "notes" in result["excerpt"]
-
-
-
-
-
-
-
-
 
 
 def test_total_budget_and_no_cross_session_read(system):

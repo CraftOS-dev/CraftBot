@@ -89,13 +89,17 @@ class TestTheSignalSurvivesTheMerge:
 
 
 @pytest.mark.parametrize("awaiting_answer", [False, True])
-def test_ended_run_cleans_up_without_scheduling_a_continuation(monkeypatch, awaiting_answer):
+def test_ended_run_cleans_up_without_scheduling_a_continuation(
+    monkeypatch, awaiting_answer
+):
     from unittest.mock import AsyncMock, Mock
     from app.agent_base import AgentBase
     from app.agent_app import framework_host
 
     bridge = types.SimpleNamespace(ended=AsyncMock())
-    monkeypatch.setattr(framework_host, "get_host", lambda: types.SimpleNamespace(bridge=bridge))
+    monkeypatch.setattr(
+        framework_host, "get_host", lambda: types.SimpleNamespace(bridge=bridge)
+    )
     agent = types.SimpleNamespace(
         state_manager=types.SimpleNamespace(bump_event_stream=Mock()),
         session_manager=types.SimpleNamespace(touch_session=Mock()),
@@ -105,9 +109,17 @@ def test_ended_run_cleans_up_without_scheduling_a_continuation(monkeypatch, awai
     )
     session = types.SimpleNamespace(id="app-chat")
     trigger = types.SimpleNamespace(payload={"run_source": "framework_workflow"})
-    asyncio.run(AgentBase._finalize_turn(agent, session, trigger, {
-        "run_ends": True, "awaiting_answer": awaiting_answer,
-    }))
+    asyncio.run(
+        AgentBase._finalize_turn(
+            agent,
+            session,
+            trigger,
+            {
+                "run_ends": True,
+                "awaiting_answer": awaiting_answer,
+            },
+        )
+    )
     agent._on_run_end.assert_awaited_once_with(session, trigger.payload)
     bridge.ended.assert_awaited_once_with(session.id, awaiting_answer=awaiting_answer)
     agent.trigger_service.emit.assert_not_called()

@@ -160,7 +160,9 @@ class SubAgentManager:
     def _parent_workspace(self, parent_session_id: Optional[str]) -> Path:
         """The spawning session's workspace (the main session's when there
         is no spawning session)."""
-        session = self.session_manager.get(parent_session_id) or self.session_manager.main
+        session = (
+            self.session_manager.get(parent_session_id) or self.session_manager.main
+        )
         return Path(session.workspace_dir)
 
     # ------------------------------------------------------------------

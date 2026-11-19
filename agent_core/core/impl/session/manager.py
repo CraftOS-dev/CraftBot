@@ -319,7 +319,9 @@ class SessionManager:
         self._persist(session)
         return session
 
-    def bind_framework_app(self, session_id: str, key: str, *, previous_key: str | None = None) -> Session:
+    def bind_framework_app(
+        self, session_id: str, key: str, *, previous_key: str | None = None
+    ) -> Session:
         """Give an app's existing conversation its dedicated type, keeping history.
 
         Main, legacy app sessions and delegated task sessions cannot be adopted.
@@ -490,7 +492,11 @@ class SessionManager:
                 "send_message",
                 "end_turn",
             ]
-            session.compiled_actions.extend(name for name in session.app_task_actions if name not in session.compiled_actions)
+            session.compiled_actions.extend(
+                name
+                for name in session.app_task_actions
+                if name not in session.compiled_actions
+            )
 
     def add_skill(self, session_id: str, skill_name: str) -> bool:
         """Load a skill into a session (additive).

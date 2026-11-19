@@ -16,22 +16,31 @@ from app.agent_app.framework_commands import command
 from app.agent_app.framework_store import app_key
 
 INTERVALS = {"hourly": 3600, "6h": 21600, "daily": 86400, "weekly": 604800}
-APP_THEMES = frozenset("craftbot modern normal ocean forest pastel glass classic velvet ink acid blueprint brutalist drafting clay atelier custom".split())
+APP_THEMES = frozenset(
+    "craftbot modern normal ocean forest pastel glass classic velvet ink acid blueprint brutalist drafting clay atelier custom".split()
+)
 
 
 def validate_ui_theme(value):
     """CraftBot presentation preferences; never written into framework apps."""
-    if not isinstance(value, dict) or not isinstance(value.get("themeId"), str) or value["themeId"] not in APP_THEMES:
+    if (
+        not isinstance(value, dict)
+        or not isinstance(value.get("themeId"), str)
+        or value["themeId"] not in APP_THEMES
+    ):
         raise ValueError("Choose a supported app theme.")
     result = {"themeId": value["themeId"]}
     if value["themeId"] == "custom":
         colors = value.get("customColors")
         if not isinstance(colors, dict) or any(
-            not isinstance(colors.get(key), str) or not re.fullmatch(r"#[0-9a-fA-F]{6}", colors[key])
+            not isinstance(colors.get(key), str)
+            or not re.fullmatch(r"#[0-9a-fA-F]{6}", colors[key])
             for key in ("bg", "surface", "text", "accent")
         ):
             raise ValueError("Choose four valid hex colours for the custom theme.")
-        result["customColors"] = {key: colors[key] for key in ("bg", "surface", "text", "accent")}
+        result["customColors"] = {
+            key: colors[key] for key in ("bg", "surface", "text", "accent")
+        }
     return result
 
 

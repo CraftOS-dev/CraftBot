@@ -1449,7 +1449,10 @@ class AgentBase:
         if session is not None and getattr(session, "isolated_app_task", False):
             return False
         payload = trigger_data.payload or {}
-        if payload.get("integration_type") == "telegram_bot" and not trigger_data.is_self_message:
+        if (
+            payload.get("integration_type") == "telegram_bot"
+            and not trigger_data.is_self_message
+        ):
             return False
         return owner_permission_error(payload) is None
 
@@ -1546,35 +1549,53 @@ class AgentBase:
                 )
             return {"status": "error", "message": message, **outcome}
 
-        if authority is not None or (session and getattr(session, "isolated_app_task", False)):
+        if authority is not None or (
+            session and getattr(session, "isolated_app_task", False)
+        ):
             if authority is None or (not authority.active and not authority.outcome):
-                return await refused(refuse(
-                    prepared_actions[0][0].name,
-                    "This task lost its authority; request a new task from the app.",
-                    run_ends=True,
-                ))
+                return await refused(
+                    refuse(
+                        prepared_actions[0][0].name,
+                        "This task lost its authority; request a new task from the app.",
+                        run_ends=True,
+                    )
+                )
             if authority.confined:
-                allowed = authority.allowed_actions if authority.active else {"send_message", "end_turn"}
+                allowed = (
+                    authority.allowed_actions
+                    if authority.active
+                    else {"send_message", "end_turn"}
+                )
                 for action, params in prepared_actions:
                     if action.name not in allowed:
-                        return await refused(refuse(
-                            action.name,
-                            f"{action.name} is not available to this app request; it may use "
-                            f"only {', '.join(sorted(allowed))}.",
-                            has_errors=True,
-                        ))
-                    if action.name == "read_file" and not authority.may_read(params.get("file_path")):
-                        return await refused(refuse(
-                            action.name,
-                            "This app request may read only the app's own manual and declarations.",
-                            has_errors=True,
-                        ))
+                        return await refused(
+                            refuse(
+                                action.name,
+                                f"{action.name} is not available to this app request; it may use "
+                                f"only {', '.join(sorted(allowed))}.",
+                                has_errors=True,
+                            )
+                        )
+                    if action.name == "read_file" and not authority.may_read(
+                        params.get("file_path")
+                    ):
+                        return await refused(
+                            refuse(
+                                action.name,
+                                "This app request may read only the app's own manual and declarations.",
+                                has_errors=True,
+                            )
+                        )
             if authority.active and authority.check is not None:
                 try:
                     await authority.check()
                 except Exception:
                     return await refused(
-                        {"status": "error", "message": "The app task's authority changed.", "run_ends": True}
+                        {
+                            "status": "error",
+                            "message": "The app task's authority changed.",
+                            "run_ends": True,
+                        }
                     )
             from app.agent_app.framework_host import get_host
 
@@ -1652,7 +1673,6 @@ class AgentBase:
             current_message_origin.reset(origin_token)
 
         return self._merge_action_outputs(results)
-
 
     def _merge_action_outputs(self, outputs: list) -> dict:
         """
@@ -1840,7 +1860,9 @@ class AgentBase:
 
     # ----- User force-stop -----
 
-    async def request_run_stop(self, session_id: str, *, framework_task_key=None) -> bool:
+    async def request_run_stop(
+        self, session_id: str, *, framework_task_key=None
+    ) -> bool:
         """Force-stop a session's in-flight run (the chat UI's stop button).
 
         Broadcasts ``stopping`` immediately (the button's spinner state),
@@ -1868,7 +1890,12 @@ class AgentBase:
         self._notify_mini_browser("cancel_owner", session_id, include_children=True)
         try:
             stopped = await self.session_runtime.request_stop(
-                session_id, **({"framework_task_key": framework_task_key} if framework_task_key else {})
+                session_id,
+                **(
+                    {"framework_task_key": framework_task_key}
+                    if framework_task_key
+                    else {}
+                ),
             )
         except Exception:
             logger.error(f"[RUN] request_stop failed for {session_id}", exc_info=True)
@@ -2575,7 +2602,6 @@ class AgentBase:
             logger.debug(f"[MEMORY] Deferred injection failed: {e}")
 
         self.state_manager.bump_event_stream()
-
 
     async def _handle_chat_message(self, payload: Dict):
         """Deliver an incoming chat message to its session.
@@ -3407,7 +3433,9 @@ class AgentBase:
     async def _delete_all_agent_app_projects(self) -> int:
         result = await self.framework_host.reset_apps()
         if result["failures"]:
-            raise RuntimeError(f"Removed {result['deleted']} app(s); " + "; ".join(result["failures"]))
+            raise RuntimeError(
+                f"Removed {result['deleted']} app(s); " + "; ".join(result["failures"])
+            )
         return result["deleted"]
 
     async def _framework_app_paths(self) -> list[str]:
@@ -3525,7 +3553,9 @@ class AgentBase:
             if not target.is_relative_to(workspace_root) or target == workspace_root:
                 continue
             if any(
-                target == app or app.is_relative_to(target) or target.is_relative_to(app)
+                target == app
+                or app.is_relative_to(target)
+                or target.is_relative_to(app)
                 for app in app_paths
             ):
                 continue

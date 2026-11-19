@@ -255,7 +255,9 @@ class ReplyParser:
             self.reasoning_end = i
         elif self._str_role == "status":
             try:
-                self.status = status_line(json.loads(self.text[self._str_start : i + 1]))
+                self.status = status_line(
+                    json.loads(self.text[self._str_start : i + 1])
+                )
             except ValueError:
                 self.status = None
         self._str_role = None
@@ -274,7 +276,9 @@ class ReplyParser:
             return self._reasoning
         if self.reasoning_end is not None:
             try:
-                value = json.loads(self.text[self.reasoning_start : self.reasoning_end + 1])
+                value = json.loads(
+                    self.text[self.reasoning_start : self.reasoning_end + 1]
+                )
             except ValueError:
                 value = None
             self._reasoning = value if isinstance(value, str) else ""
@@ -538,9 +542,7 @@ class ReplyStream:
         none) is what the chat shows while they run, also when the reply did
         not stream."""
         keep = [
-            d["_run_id"]
-            for d in decisions
-            if d.get("_run_id") and not d.get("_error")
+            d["_run_id"] for d in decisions if d.get("_run_id") and not d.get("_error")
         ]
         self._end(keep, status=decisions[0].get("status") if decisions else None)
 

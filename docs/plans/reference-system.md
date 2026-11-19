@@ -114,11 +114,17 @@ Python can use frozen dataclasses and a structural `Protocol`:
 class ReferenceProvider(Protocol):
     kind: str
 
-    async def resolve(self, target_id: str, context: ReferenceContext,
-                      budget: ReferenceBudget) -> ReferenceSnapshot: ...
+    async def resolve(
+        self, target_id: str, context: ReferenceContext, budget: ReferenceBudget
+    ) -> ReferenceSnapshot: ...
 
-    async def read(self, target_id: str, context: ReferenceContext,
-                   cursor: str | None, budget: ReferenceBudget) -> ReferencePage: ...
+    async def read(
+        self,
+        target_id: str,
+        context: ReferenceContext,
+        cursor: str | None,
+        budget: ReferenceBudget,
+    ) -> ReferencePage: ...
 ```
 
 `ReferenceService` receives a plain `{kind: provider}` mapping at composition time. It validates requests, deduplicates, applies count/total budgets, dispatches resolution, and renders attributed model context. Providers own source access, validation, and extraction. Inject session manager/chat storage into SessionReferenceProvider and app manager into AgentAppReferenceProvider. They should not construct global managers or import browser_adapter.

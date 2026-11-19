@@ -18,7 +18,10 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-LUCIDE_TYPES = ROOT / "app/ui_layer/browser/frontend/node_modules/lucide-react/dist/lucide-react.d.ts"
+LUCIDE_TYPES = (
+    ROOT
+    / "app/ui_layer/browser/frontend/node_modules/lucide-react/dist/lucide-react.d.ts"
+)
 CREDENTIAL = re.compile(r"password|secret|access_token|api_key|private_key", re.I)
 DEFINERS = {"action", "client_op", "Operation", "_op", "_urn_op"}
 
@@ -97,7 +100,9 @@ def test_every_action_has_a_logo_or_a_real_icon(registry, provider_ids):
     icons = None
     if LUCIDE_TYPES.exists():
         icons = set(
-            re.findall(r"declare const (\w+): LucideIcon;", LUCIDE_TYPES.read_text("utf-8"))
+            re.findall(
+                r"declare const (\w+): LucideIcon;", LUCIDE_TYPES.read_text("utf-8")
+            )
         )
     wrong = []
     for name, impls in registry.list_all_actions().items():
@@ -115,7 +120,10 @@ def test_every_action_has_a_logo_or_a_real_icon(registry, provider_ids):
 def test_the_chat_gets_the_display_by_name(registry):
     from agent_core.core.action_framework import action_row_display
 
-    assert action_row_display("web_search") == {"displayParam": "query", "icon": "Search"}
+    assert action_row_display("web_search") == {
+        "displayParam": "query",
+        "icon": "Search",
+    }
     assert action_row_display("Web search") == action_row_display("web_search")
     assert action_row_display("List github issues")["integration"] == "github"
     # Declared as showing no input: the chat must not guess one.

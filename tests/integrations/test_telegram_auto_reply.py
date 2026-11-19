@@ -266,7 +266,9 @@ def test_third_party_cannot_inspect_or_change_permissions_in_action_execution(
 
     monkeypatch.setattr(agent_module, "STATE", SimpleNamespace(event_stream=""))
     agent = SimpleNamespace(
-        session_manager=SimpleNamespace(get=lambda _: SimpleNamespace(isolated_app_task=False)),
+        session_manager=SimpleNamespace(
+            get=lambda _: SimpleNamespace(isolated_app_task=False)
+        ),
         action_manager=SimpleNamespace(execute_actions_parallel=execute),
         _merge_action_outputs=lambda results: results,
     )
@@ -309,7 +311,9 @@ def test_owner_execution_can_change_permission(monkeypatch):
 
     monkeypatch.setattr(agent_module, "STATE", SimpleNamespace(event_stream=""))
     agent = SimpleNamespace(
-        session_manager=SimpleNamespace(get=lambda _: SimpleNamespace(isolated_app_task=False)),
+        session_manager=SimpleNamespace(
+            get=lambda _: SimpleNamespace(isolated_app_task=False)
+        ),
         action_manager=SimpleNamespace(execute_actions_parallel=execute),
         _merge_action_outputs=lambda results: results,
     )

@@ -161,9 +161,7 @@ async def agent_app_command(input_data: dict) -> dict:
     try:
         from app.agent_app.framework_commands import command
 
-        return await command(
-            "agent-app", input_data["args"], cwd=input_data.get("cwd")
-        )
+        return await command("agent-app", input_data["args"], cwd=input_data.get("cwd"))
     except Exception as exc:
         return {"status": "error", "message": str(exc)}
 

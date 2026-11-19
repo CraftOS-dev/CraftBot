@@ -938,7 +938,11 @@ class GeminiClient:
                             parts[-1] = {"text": parts[-1]["text"] + text}
                         else:
                             parts.append(dict(part))
-                        if index == 0 and isinstance(text, str) and not part.get("thought"):
+                        if (
+                            index == 0
+                            and isinstance(text, str)
+                            and not part.get("thought")
+                        ):
                             emit(sink, text)
         finally:
             response.close()

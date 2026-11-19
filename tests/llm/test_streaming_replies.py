@@ -66,7 +66,7 @@ class _Collect(StreamSink):
 def _reply(turn: int) -> str:
     return json.dumps(
         {
-            "reasoning": f"turn {turn} \u00e9 \"q\"",
+            "reasoning": f'turn {turn} \u00e9 "q"',
             "actions": [{"action_name": "end_turn", "parameters": {}}],
         }
     )
@@ -116,7 +116,9 @@ class _OpenAI:
             SimpleNamespace(
                 choices=[
                     SimpleNamespace(
-                        index=0, delta=SimpleNamespace(content=None), finish_reason="stop"
+                        index=0,
+                        delta=SimpleNamespace(content=None),
+                        finish_reason="stop",
                     )
                 ],
                 usage=None,
@@ -184,7 +186,11 @@ class _Bedrock:
         return {
             "output": {"message": {"content": [{"text": _reply(self.turn)}]}},
             "stopReason": "end_turn",
-            "usage": {"inputTokens": 40, "outputTokens": 10, "cacheReadInputTokens": 60},
+            "usage": {
+                "inputTokens": 40,
+                "outputTokens": 10,
+                "cacheReadInputTokens": 60,
+            },
         }
 
     def converse_stream(self, **kwargs):
@@ -217,7 +223,9 @@ class _GeminiHTTP:
         self.payloads: List[Dict[str, Any]] = []
         self.turn = 0
 
-    def post(self, url, headers=None, json=None, timeout=None, params=None, stream=False):  # noqa: A002
+    def post(
+        self, url, headers=None, json=None, timeout=None, params=None, stream=False
+    ):  # noqa: A002
         self.payloads.append({"url": url.split(":")[-1], "body": copy.deepcopy(json)})
         self.turn += 1
         text = _reply(self.turn)
@@ -234,7 +242,9 @@ class _GeminiHTTP:
                 ],
                 "usageMetadata": usage,
             }
-            return SimpleNamespace(ok=True, raise_for_status=lambda: None, json=lambda: body)
+            return SimpleNamespace(
+                ok=True, raise_for_status=lambda: None, json=lambda: body
+            )
         assert params == {"alt": "sse"}
         pieces = _chunks(text)
         lines = []
@@ -259,8 +269,12 @@ def _interface(monkeypatch, provider: str):
 
     ctx: Dict[str, Any] = {
         "provider": provider,
-        "model": {"openai": "gpt-5.2", "anthropic": "claude-sonnet-4-6",
-                  "bedrock": "us.anthropic.claude-sonnet-4-6", "gemini": "gemini-2.5-pro"}[provider],
+        "model": {
+            "openai": "gpt-5.2",
+            "anthropic": "claude-sonnet-4-6",
+            "bedrock": "us.anthropic.claude-sonnet-4-6",
+            "gemini": "gemini-2.5-pro",
+        }[provider],
         "client": None,
         "gemini_client": None,
         "anthropic_client": None,
@@ -322,9 +336,11 @@ def test_a_streamed_session_sends_and_keeps_exactly_what_an_unstreamed_one_does(
     assert streamed_replies == plain_replies
     assert streamed._session_histories == plain._session_histories
     # The same usage (the cache readout and the fold budget read it).
-    assert streamed.last_request(TASK, CALL).cached_tokens == plain.last_request(
-        TASK, CALL
-    ).cached_tokens > 0
+    assert (
+        streamed.last_request(TASK, CALL).cached_tokens
+        == plain.last_request(TASK, CALL).cached_tokens
+        > 0
+    )
     assert streamed.last_input_tokens(TASK, CALL) == plain.last_input_tokens(TASK, CALL)
     # The sink saw every reply as it streamed.
     assert "".join(sink.parts) == "".join(plain_replies)
@@ -334,8 +350,13 @@ def test_a_streamed_session_sends_and_keeps_exactly_what_an_unstreamed_one_does(
 def test_the_chatgpt_subscription_stream_hands_its_text_to_the_sink():
     from agent_core.core.models.chatgpt_subscription_client import _consume_stream
 
-    events = [SimpleNamespace(type="response.output_text.delta", delta=p) for p in ("{\"a\"", ": 1}")]
-    events.append(SimpleNamespace(type="response.completed", response=SimpleNamespace(usage=None)))
+    events = [
+        SimpleNamespace(type="response.output_text.delta", delta=p)
+        for p in ('{"a"', ": 1}")
+    ]
+    events.append(
+        SimpleNamespace(type="response.completed", response=SimpleNamespace(usage=None))
+    )
     sink = _Collect()
     with streaming_to(sink):
         bundle = _consume_stream(iter(events))
@@ -348,11 +369,17 @@ def test_the_claude_code_partial_lines_carry_the_reply_text():
 
     line = {
         "type": "stream_event",
-        "event": {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "hi"}},
+        "event": {
+            "type": "content_block_delta",
+            "delta": {"type": "text_delta", "text": "hi"},
+        },
     }
     thinking = {
         "type": "stream_event",
-        "event": {"type": "content_block_delta", "delta": {"type": "thinking_delta", "thinking": "x"}},
+        "event": {
+            "type": "content_block_delta",
+            "delta": {"type": "thinking_delta", "thinking": "x"},
+        },
     }
     assert _text_delta(line) == "hi"
     assert _text_delta(thinking) == "" and _text_delta({"type": "result"}) == ""
@@ -400,12 +427,15 @@ def _attempt():
 
 REPLY = json.dumps(
     {
-        "reasoning": "Check two things, then answer. Braces { } and \"quotes\" stay text.",
-        "status": "Checking the \"notes\" file",
+        "reasoning": 'Check two things, then answer. Braces { } and "quotes" stay text.',
+        "status": 'Checking the "notes" file',
         "actions": [
             {"action_name": "web_search", "parameters": {"query": "a {b}"}},
             {"action_name": "read_file", "parameters": {"file_path": "C:\\x\\y.md"}},
-            {"action_name": "send_message", "parameters": {"message": "Line 1\nLine 2 \u00e9 \ud83d\ude00"}},
+            {
+                "action_name": "send_message",
+                "parameters": {"message": "Line 1\nLine 2 \u00e9 \ud83d\ude00"},
+            },
         ],
     }
 )
@@ -448,13 +478,18 @@ def test_the_status_line_shows_only_once_complete():
         seen.add(parser.status)
     # Never a part of the line: nothing, then the whole of it.
     assert seen == {None, 'Checking the "notes" file'}
-    assert parser.status is not None and parser.actions[0].start > REPLY.index('"status"')
+    assert parser.status is not None and parser.actions[0].start > REPLY.index(
+        '"status"'
+    )
 
 
 def test_the_status_line_is_its_first_line_trimmed():
     from agent_core.core.impl.action.reply_stream import status_line
 
-    assert status_line("  Writing the login form \n(then tests)") == "Writing the login form"
+    assert (
+        status_line("  Writing the login form \n(then tests)")
+        == "Writing the login form"
+    )
     assert status_line("   ") is None
     assert status_line(None) is None
     assert status_line(["Searching"]) is None
@@ -517,7 +552,11 @@ def test_complete_actions_start_while_the_reply_is_still_being_written():
 
     stream, attempt, started, published, logged, mid = asyncio.run(go())
     assert mid == ["web_search", "read_file"]
-    assert [d["action_name"] for d in started] == ["web_search", "read_file", "send_message"]
+    assert [d["action_name"] for d in started] == [
+        "web_search",
+        "read_file",
+        "send_message",
+    ]
     assert all(d["_run_id"] == attempt.run_id_for(i) for i, d in enumerate(started))
     # The reasoning is recorded once, before the first action, with its row id.
     assert logged == [(json.loads(REPLY)["reasoning"], attempt.reasoning_id)]
@@ -534,7 +573,9 @@ def test_an_action_that_must_run_alone_stops_early_starts():
 
     async def go():
         started, published, logged = [], [], []
-        stream = _reply_stream(lambda a: kinds[a["action_name"]], started, published, logged)
+        stream = _reply_stream(
+            lambda a: kinds[a["action_name"]], started, published, logged
+        )
         attempt = stream.begin_attempt()
         await asyncio.to_thread(_feed_in_thread, attempt, REPLY)
         await asyncio.sleep(0.2)
@@ -548,7 +589,11 @@ def test_a_stopped_turn_ends_the_reply_and_cancels_what_it_started():
         started, published, logged = [], [], []
         stream = _reply_stream(lambda a: "run", started, published, logged)
         attempt = stream.begin_attempt()
-        await asyncio.to_thread(_feed_in_thread, attempt, REPLY[: REPLY.index('{"action_name": "read_file"')])
+        await asyncio.to_thread(
+            _feed_in_thread,
+            attempt,
+            REPLY[: REPLY.index('{"action_name": "read_file"')],
+        )
         await asyncio.sleep(0.1)
         await stream.abort(cancel_actions=True)
         return attempt, published
@@ -569,9 +614,16 @@ def test_the_end_of_a_reply_carries_its_status_line_also_unstreamed():
         return published
 
     # A provider that does not stream: the "end" alone tells the chat.
-    ended = asyncio.run(go([{"action_name": "web_search", "status": " Searching for weather sites\n"}]))
+    ended = asyncio.run(
+        go([{"action_name": "web_search", "status": " Searching for weather sites\n"}])
+    )
     assert ended == [
-        {**ended[0], "phase": "end", "keep": [], "status": "Searching for weather sites"}
+        {
+            **ended[0],
+            "phase": "end",
+            "keep": [],
+            "status": "Searching for weather sites",
+        }
     ]
     # A reply without one: null, so the chat goes back to "Working".
     assert asyncio.run(go([{"action_name": "web_search"}]))[0]["status"] is None
@@ -642,7 +694,15 @@ class _StreamingLLM:
     def session_turn_recorded(self, task_id, call_type):
         return True
 
-    async def generate_response_with_session_async(self, task_id, call_type, user_prompt, system_prompt_for_new_session, prompt_name=None, call_metadata=None):
+    async def generate_response_with_session_async(
+        self,
+        task_id,
+        call_type,
+        user_prompt,
+        system_prompt_for_new_session,
+        prompt_name=None,
+        call_metadata=None,
+    ):
         self.calls += 1
         text, error = self.replies.pop(0)
         sink = current_sink()
@@ -685,7 +745,9 @@ def _select(router, started):
             start_action=start,
             classify=router.early_start_kind,
         )
-        decisions = await router.select_action_in_session("q", session_id="s1", reply_stream=reply_stream)
+        decisions = await router.select_action_in_session(
+            "q", session_id="s1", reply_stream=reply_stream
+        )
         return decisions, reply_stream
 
     return asyncio.run(go())
@@ -706,7 +768,10 @@ def test_a_reply_cut_off_after_its_actions_started_is_not_asked_again(monkeypatc
     assert all(d["_started"] and d["_run_id"] for d in decisions)
     # What the reply held of the decision, its status line included.
     assert all(d["status"] == 'Checking the "notes" file' for d in decisions)
-    assert reply_stream.started_tasks(decisions) and len(reply_stream.started_tasks(decisions)) == 2
+    assert (
+        reply_stream.started_tasks(decisions)
+        and len(reply_stream.started_tasks(decisions)) == 2
+    )
 
 
 def test_a_provider_error_after_actions_started_keeps_them(monkeypatch):
@@ -718,7 +783,9 @@ def test_a_provider_error_after_actions_started_keeps_them(monkeypatch):
     assert [d["action_name"] for d in decisions] == ["web_search", "read_file"]
 
 
-def test_a_must_run_alone_action_after_started_ones_is_dropped_with_a_reason(monkeypatch):
+def test_a_must_run_alone_action_after_started_ones_is_dropped_with_a_reason(
+    monkeypatch,
+):
     reply = json.dumps(
         {
             "reasoning": "r",
@@ -775,7 +842,19 @@ def test_every_decided_action_carries_the_reply_status_line(monkeypatch):
     decisions, _ = _select(router, [])
     assert [d["status"] for d in decisions] == ["Finding evidence", "Finding evidence"]
     # A reply without one is no format error: no status, nothing retried.
-    llm = _StreamingLLM([(json.dumps({"reasoning": "r", "actions": [{"action_name": "web_search", "parameters": {}}]}), None)])
+    llm = _StreamingLLM(
+        [
+            (
+                json.dumps(
+                    {
+                        "reasoning": "r",
+                        "actions": [{"action_name": "web_search", "parameters": {}}],
+                    }
+                ),
+                None,
+            )
+        ]
+    )
     router, _ = _router(monkeypatch, llm, {})
     decisions, _ = _select(router, [])
     assert llm.calls == 1 and decisions[0]["status"] is None

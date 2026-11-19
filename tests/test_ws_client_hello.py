@@ -81,13 +81,19 @@ def test_the_terminal_client_never_gets_the_live_browser_view():
             _adapter=types.SimpleNamespace(client_channel=lambda ws: channels.get(ws)),
             _forget_viewer=lambda ws: None,
         )
-        MiniBrowserWS._send_to_viewers(stub, "main", "mini_browser_frame", {"sessionId": "main", "image": "x"})
-        MiniBrowserWS._send_to_viewers(stub, "main", "mini_browser_state", {"sessionId": "main", "tabs": []})
+        MiniBrowserWS._send_to_viewers(
+            stub, "main", "mini_browser_frame", {"sessionId": "main", "image": "x"}
+        )
+        MiniBrowserWS._send_to_viewers(
+            stub, "main", "mini_browser_state", {"sessionId": "main", "tabs": []}
+        )
         await _drain(browser)
         await _drain(terminal)
         await browser.close()
         await terminal.close()
-        return [m["type"] for m in browser_ws.sent], [m["type"] for m in terminal_ws.sent]
+        return [m["type"] for m in browser_ws.sent], [
+            m["type"] for m in terminal_ws.sent
+        ]
 
     browser_types, terminal_types = asyncio.run(scenario())
     assert browser_types == ["mini_browser_frame", "mini_browser_state"]

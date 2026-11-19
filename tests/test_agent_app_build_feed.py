@@ -6,7 +6,6 @@ write, and a framework file edited late adds feed rows, not a jump.
 """
 
 import json
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -22,17 +21,32 @@ def build(tmp_path):
     app = tmp_path / "apps" / "ledger"
     (app / "reference").mkdir(parents=True)
     (app / "src").mkdir()
-    (app / "manifest.json").write_text(json.dumps({"modules": [{"name": "core"}]}), encoding="utf-8")
-    (app / "operations.json").write_text(json.dumps({"operations": []}), encoding="utf-8")
+    (app / "manifest.json").write_text(
+        json.dumps({"modules": [{"name": "core"}]}), encoding="utf-8"
+    )
+    (app / "operations.json").write_text(
+        json.dumps({"operations": []}), encoding="utf-8"
+    )
     store = HostStore(tmp_path / "host.sqlite3")
-    store.put("creation", SID, {"path": str(app), "building": True, "activity": "creator"})
+    store.put(
+        "creation", SID, {"path": str(app), "building": True, "activity": "creator"}
+    )
     feed = BuildFeed(SimpleNamespace(store=store))
     runs = iter(range(10_000))
 
     def act(name, outputs=None, **inputs):
         run = f"r{next(runs)}"
-        feed.on_start(run, SimpleNamespace(name=name), {"_session_id": SID, **inputs}, None, "")
-        feed.on_end(run, SimpleNamespace(name=name), outputs or {"status": "success"}, "success", None, "")
+        feed.on_start(
+            run, SimpleNamespace(name=name), {"_session_id": SID, **inputs}, None, ""
+        )
+        feed.on_end(
+            run,
+            SimpleNamespace(name=name),
+            outputs or {"status": "success"},
+            "success",
+            None,
+            "",
+        )
         return feed.snapshot(SID)
 
     def write(rel, content):
@@ -45,7 +59,10 @@ def build(tmp_path):
 
 
 def ledger(done, total):
-    return "\n".join(f"- [{'x' if i < done else ' '}] T-{i + 1} (F-COR-{i + 1}): Task number {i + 1}" for i in range(total))
+    return "\n".join(
+        f"- [{'x' if i < done else ' '}] T-{i + 1} (F-COR-{i + 1}): Task number {i + 1}"
+        for i in range(total)
+    )
 
 
 def labels(feed):
@@ -54,12 +71,29 @@ def labels(feed):
 
 def test_a_build_moves_step_by_step_and_never_back(build):
     seen = []
-    track = lambda snapshot: seen.append(snapshot["progress"]) or snapshot
 
-    track(build.act("agent_app_command", args=[str(build.app), "scaffold", "--blueprint", "blueprint-react-node"]))
-    track(build.act("read_file", file_path=str(build.app / "reference" / "blueprint.md")))
-    asked = track(build.act("agent_app_command", args=[str(build.app), "checkpoint", "ask", "--file", "q.json"],
-                            outputs={"status": "success", "data": {"checkpoint": {"questions": [{}, {}, {}]}}}))
+    def track(snapshot):
+        return seen.append(snapshot["progress"]) or snapshot
+
+    track(
+        build.act(
+            "agent_app_command",
+            args=[str(build.app), "scaffold", "--blueprint", "blueprint-react-node"],
+        )
+    )
+    track(
+        build.act("read_file", file_path=str(build.app / "reference" / "blueprint.md"))
+    )
+    asked = track(
+        build.act(
+            "agent_app_command",
+            args=[str(build.app), "checkpoint", "ask", "--file", "q.json"],
+            outputs={
+                "status": "success",
+                "data": {"checkpoint": {"questions": [{}, {}, {}]}},
+            },
+        )
+    )
     assert asked["stage"] == "questions"
     build.feed.person_replied(SID, {"status": "answered"})
     track(build.write("reference/requirements.md", "## Introduction\nAn app."))
@@ -67,13 +101,23 @@ def test_a_build_moves_step_by_step_and_never_back(build):
     build.act("agent_app_command", args=[str(build.app), "checkpoint", "review"])
     build.feed.person_replied(SID, {"status": "approved"})
     planned = track(build.write("reference/tasks.md", ledger(0, 4)))
-    assert (planned["stage"], planned["tasksTotal"], planned["task"]) == ("building", 4, "T-1 Task number 1")
+    assert (planned["stage"], planned["tasksTotal"], planned["task"]) == (
+        "building",
+        4,
+        "T-1 Task number 1",
+    )
 
     # Building: every write moves the bar, components and files count up as they are written.
-    board = track(build.write("src/Board.tsx", "export function Board() { return <Card><Button/></Card> }"))
+    board = track(
+        build.write(
+            "src/Board.tsx", "export function Board() { return <Card><Button/></Card> }"
+        )
+    )
     assert (board["components"], board["files"]) == (3, 1)
     column = track(build.write("src/Column.tsx", "export const Column = () => <Card/>"))
-    assert (column["components"], column["files"]) == (4, 2), "a component used twice counts once"
+    assert (column["components"], column["files"]) == (4, 2), (
+        "a component used twice counts once"
+    )
     ticked = track(build.write("reference/tasks.md", ledger(1, 4)))
     assert (ticked["tasksDone"], ticked["task"]) == (1, "T-2 Task number 2")
     track(build.write("src/api.ts", "export async function load() {}"))
@@ -81,16 +125,47 @@ def test_a_build_moves_step_by_step_and_never_back(build):
 
     # A framework file edited late is one write: one row naming what it adds, no jump.
     before, rows_before = build.feed.snapshot(SID), len(labels(build.feed))
-    late = track(build.write("operations.json", json.dumps({"operations": [{"name": "archive_task"}, {"name": "clear_done"}]})))
-    assert labels(build.feed)[rows_before:] == ["Operations archive_task, clear_done added"]
-    assert (late["files"], late["components"], late["tasksDone"]) == (before["files"] + 1, before["components"], before["tasksDone"])
+    late = track(
+        build.write(
+            "operations.json",
+            json.dumps(
+                {"operations": [{"name": "archive_task"}, {"name": "clear_done"}]}
+            ),
+        )
+    )
+    assert labels(build.feed)[rows_before:] == [
+        "Operations archive_task, clear_done added"
+    ]
+    assert (late["files"], late["components"], late["tasksDone"]) == (
+        before["files"] + 1,
+        before["components"],
+        before["tasksDone"],
+    )
 
-    failed = track(build.act("agent_app_command", args=[str(build.app), "validate"], outputs={"status": "error", "exit_code": 1}))
+    failed = track(
+        build.act(
+            "agent_app_command",
+            args=[str(build.app), "validate"],
+            outputs={"status": "error", "exit_code": 1},
+        )
+    )
     assert (failed["stage"], failed["fixing"]) == ("checking", True)
     track(build.write("src/Board.tsx", "export function Board() { return <Card/> }"))
-    passed = track(build.act("agent_app_command", args=[str(build.app), "validate"], outputs={"status": "success", "exit_code": 0}))
+    passed = track(
+        build.act(
+            "agent_app_command",
+            args=[str(build.app), "validate"],
+            outputs={"status": "success", "exit_code": 0},
+        )
+    )
     assert passed["fixing"] is False
-    verified = track(build.act("agent_app_framework_workflow", activity="verify", outputs={"status": "success", "verification": {"verdict": "pass"}}))
+    verified = track(
+        build.act(
+            "agent_app_framework_workflow",
+            activity="verify",
+            outputs={"status": "success", "verification": {"verdict": "pass"}},
+        )
+    )
     assert verified["stage"] == "verifying"
     launched = track(build.act("agent_app_command", args=[str(build.app), "serve"]))
 
@@ -98,18 +173,39 @@ def test_a_build_moves_step_by_step_and_never_back(build):
     assert len(set(seen)) == len(seen), f"a step did not move the bar: {seen}"
     assert seen[-1] < 100 and launched["stage"] == "launching"
     rows = labels(build.feed)
-    for row in ["Project created on blueprint-react-node", "Asked you 3 questions", "You answered the questions",
-                "Requirements: Introduction", "Requirements: Features", "Requirements ready for your review",
-                "You approved the requirements", "Planned 4 tasks", "Components Board, Button, Card created",
-                "Component Column created", "✓ T-1 Task number 1", "✓ T-2 Task number 2", "✓ T-3 Task number 3",
-                "Validation gate found problems: fixing", "Validation gate passed", "Independent verification passed", "App launched"]:
+    for row in [
+        "Project created on blueprint-react-node",
+        "Asked you 3 questions",
+        "You answered the questions",
+        "Requirements: Introduction",
+        "Requirements: Features",
+        "Requirements ready for your review",
+        "You approved the requirements",
+        "Planned 4 tasks",
+        "Components Board, Button, Card created",
+        "Component Column created",
+        "✓ T-1 Task number 1",
+        "✓ T-2 Task number 2",
+        "✓ T-3 Task number 3",
+        "Validation gate found problems: fixing",
+        "Validation gate passed",
+        "Independent verification passed",
+        "App launched",
+    ]:
         assert row in rows, f"missing row {row!r} in {rows}"
 
 
 def test_an_unticked_ledger_still_moves_with_the_work(build):
     build.write("reference/tasks.md", ledger(0, 10))
-    marks = [build.write(f"src/File{i}.tsx", f"export function Part{i}() {{ return null }}")["progress"] for i in range(30)]
-    assert marks == sorted(marks) and len(set(marks)) == len(marks), "each write moves the bar"
+    marks = [
+        build.write(f"src/File{i}.tsx", f"export function Part{i}() {{ return null }}")[
+            "progress"
+        ]
+        for i in range(30)
+    ]
+    assert marks == sorted(marks) and len(set(marks)) == len(marks), (
+        "each write moves the bar"
+    )
     assert marks[-1] - marks[0] > 20, "thirty writes are real progress"
     assert marks[-1] < 85, "and never claim the build is done"
     ticked = build.write("reference/tasks.md", ledger(10, 10))["progress"]

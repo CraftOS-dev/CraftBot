@@ -808,12 +808,14 @@ class ActionRouter:
                         # No session registered (simple task) - use prefix cache / regular response
                         sent_prompt = full_request(point)
                         with streaming_to(reply_sink):
-                            raw_response = await self.llm_interface.generate_response_async(
-                                system_prompt,
-                                sent_prompt,
-                                prompt_name=prompt_name,
-                                usage_key=f"{current_task_id}:{call_type}",
-                                call_metadata={"request": "stateless"},
+                            raw_response = (
+                                await self.llm_interface.generate_response_async(
+                                    system_prompt,
+                                    sent_prompt,
+                                    prompt_name=prompt_name,
+                                    usage_key=f"{current_task_id}:{call_type}",
+                                    call_metadata={"request": "stateless"},
+                                )
                             )
                         # The prompt carried the stream's first ``point``
                         # events; a later fold may collapse any of them now.
@@ -1046,9 +1048,7 @@ class ActionRouter:
                 # the decision, so take it instead of spending a retry.
                 parsed = _first_json_object(normalized)
                 if parsed is None:
-                    logger.error(
-                        f"Unable to parse action decision: {repr(normalized)}"
-                    )
+                    logger.error(f"Unable to parse action decision: {repr(normalized)}")
                     return (
                         None,
                         f"json error: {json_error}; literal_eval error: {eval_error}",

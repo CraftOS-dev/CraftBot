@@ -32,23 +32,50 @@ _UMBRELLA = "posthog"
 
 
 def _s(description: str, example: str = "", *, required: bool) -> Dict[str, Any]:
-    return {"type": "string", "required": required, "description": description, "example": example}
+    return {
+        "type": "string",
+        "required": required,
+        "description": description,
+        "example": example,
+    }
 
 
 def _i(description: str, example: int, *, required: bool) -> Dict[str, Any]:
-    return {"type": "integer", "required": required, "description": description, "example": example}
+    return {
+        "type": "integer",
+        "required": required,
+        "description": description,
+        "example": example,
+    }
 
 
 def _b(description: str, example: bool = False, *, required: bool) -> Dict[str, Any]:
-    return {"type": "boolean", "required": required, "description": description, "example": example}
+    return {
+        "type": "boolean",
+        "required": required,
+        "description": description,
+        "example": example,
+    }
 
 
 def _arr(description: str, example: List[Any], *, required: bool) -> Dict[str, Any]:
-    return {"type": "array", "required": required, "description": description, "example": example}
+    return {
+        "type": "array",
+        "required": required,
+        "description": description,
+        "example": example,
+    }
 
 
-def _obj(description: str, example: Dict[str, Any], *, required: bool) -> Dict[str, Any]:
-    return {"type": "object", "required": required, "description": description, "example": example}
+def _obj(
+    description: str, example: Dict[str, Any], *, required: bool
+) -> Dict[str, Any]:
+    return {
+        "type": "object",
+        "required": required,
+        "description": description,
+        "example": example,
+    }
 
 
 def _limit(*, required: bool) -> Dict[str, Any]:
@@ -99,7 +126,9 @@ def build_operations() -> List[Operation]:
                     "SELECT event, count() FROM events GROUP BY event LIMIT 10",
                     required=True,
                 ),
-                "variables": _obj("Optional HogQL query variables.", {}, required=False),
+                "variables": _obj(
+                    "Optional HogQL query variables.", {}, required=False
+                ),
                 "refresh": _s(
                     "Cache behaviour: 'blocking', 'async', or 'force_blocking'.",
                     "",
@@ -125,7 +154,9 @@ def build_operations() -> List[Operation]:
                     "SELECT count() FROM events WHERE timestamp > now() - interval 90 day",
                     required=True,
                 ),
-                "variables": _obj("Optional HogQL query variables.", {}, required=False),
+                "variables": _obj(
+                    "Optional HogQL query variables.", {}, required=False
+                ),
                 "project_id": _project(required=False),
             },
             display_param="query",
@@ -196,8 +227,12 @@ def build_operations() -> List[Operation]:
             tags=("posthog_query",),
             input_schema={
                 "event": _s("Event name to filter by.", "$pageview", required=False),
-                "distinct_id": _s("Only events from this distinct id.", "", required=False),
-                "after": _s("ISO timestamp lower bound.", "2026-09-01T00:00:00Z", required=False),
+                "distinct_id": _s(
+                    "Only events from this distinct id.", "", required=False
+                ),
+                "after": _s(
+                    "ISO timestamp lower bound.", "2026-09-01T00:00:00Z", required=False
+                ),
                 "before": _s("ISO timestamp upper bound.", "", required=False),
                 "limit": _limit(required=False),
                 "project_id": _project(required=False),
@@ -210,7 +245,9 @@ def build_operations() -> List[Operation]:
             description="Get one PostHog event by its uuid, with full properties.",
             tags=("posthog_query",),
             input_schema={
-                "event_uuid": _s("Event uuid.", "01890a5d-0000-0000-0000-000000000000", required=True),
+                "event_uuid": _s(
+                    "Event uuid.", "01890a5d-0000-0000-0000-000000000000", required=True
+                ),
                 "project_id": _project(required=False),
             },
             display_param="event_uuid",
@@ -264,7 +301,9 @@ def build_operations() -> List[Operation]:
                     required=False,
                 ),
                 "description": _s("Longer description.", "", required=False),
-                "dashboards": _arr("Dashboard ids to add this insight to.", [1], required=False),
+                "dashboards": _arr(
+                    "Dashboard ids to add this insight to.", [1], required=False
+                ),
                 "favorited": _b("Mark as favorite.", False, required=False),
                 "tags": _arr("Tags.", ["growth"], required=False),
                 "project_id": _project(required=False),
@@ -286,7 +325,9 @@ def build_operations() -> List[Operation]:
                 "name": _s("New name.", "", required=False),
                 "query": _obj("Replacement query node.", {}, required=False),
                 "description": _s("New description.", "", required=False),
-                "dashboards": _arr("Replacement list of dashboard ids.", [1], required=False),
+                "dashboards": _arr(
+                    "Replacement list of dashboard ids.", [1], required=False
+                ),
                 "favorited": _b("Mark as favorite.", True, required=False),
                 "tags": _arr("Replacement tags.", [], required=False),
                 "project_id": _project(required=False),
@@ -462,7 +503,9 @@ def build_operations() -> List[Operation]:
             tags=("posthog_dashboards",),
             input_schema={
                 "dashboard_id": _s("Numeric dashboard id.", "1", required=True),
-                "tile_id": _s("Numeric tile id (from get_posthog_dashboard).", "42", required=True),
+                "tile_id": _s(
+                    "Numeric tile id (from get_posthog_dashboard).", "42", required=True
+                ),
                 "project_id": _project(required=False),
             },
             display_param="tile_id",
@@ -488,7 +531,11 @@ def build_operations() -> List[Operation]:
             tags=("posthog_feature_flags", _UMBRELLA),
             input_schema=_paged(
                 search=_s("Filter by key or name text.", "", required=False),
-                active=_b("Only active (true) or only inactive (false) flags.", True, required=False),
+                active=_b(
+                    "Only active (true) or only inactive (false) flags.",
+                    True,
+                    required=False,
+                ),
             ),
             display_param="search",
         ),
@@ -518,9 +565,15 @@ def build_operations() -> List[Operation]:
             tags=("posthog_feature_flags", _UMBRELLA),
             input_schema={
                 "key": _s("Flag key used in code.", "new-checkout", required=True),
-                "name": _s("Human-readable name; defaults to the key.", "", required=False),
-                "active": _b("Whether the flag is enabled on creation.", True, required=False),
-                "rollout_percentage": _i("Percentage of users (0-100).", 100, required=False),
+                "name": _s(
+                    "Human-readable name; defaults to the key.", "", required=False
+                ),
+                "active": _b(
+                    "Whether the flag is enabled on creation.", True, required=False
+                ),
+                "rollout_percentage": _i(
+                    "Percentage of users (0-100).", 100, required=False
+                ),
                 "filters": _obj(
                     "Full release-condition object; overrides "
                     "rollout_percentage when given.",
@@ -528,7 +581,9 @@ def build_operations() -> List[Operation]:
                     required=False,
                 ),
                 "ensure_experience_continuity": _b(
-                    "Keep a user's variant stable across sessions.", False, required=False
+                    "Keep a user's variant stable across sessions.",
+                    False,
+                    required=False,
                 ),
                 "project_id": _project(required=False),
             },
@@ -567,7 +622,9 @@ def build_operations() -> List[Operation]:
             tags=("posthog_feature_flags",),
             input_schema={
                 "flag_id": _s("Numeric feature flag id.", "678", required=True),
-                "rollout_percentage": _i("Percentage of users (0-100).", 25, required=True),
+                "rollout_percentage": _i(
+                    "Percentage of users (0-100).", 25, required=True
+                ),
                 "project_id": _project(required=False),
             },
             display_param="rollout_percentage",
@@ -668,7 +725,9 @@ def build_operations() -> List[Operation]:
                     {"properties": [], "rollout_percentage": 50},
                     required=True,
                 ),
-                "group_type_index": _i("Group type index for group-based flags.", 0, required=False),
+                "group_type_index": _i(
+                    "Group type index for group-based flags.", 0, required=False
+                ),
                 "project_id": _project(required=False),
             },
             display_param="condition",
@@ -705,10 +764,18 @@ def build_operations() -> List[Operation]:
             parallelizable=False,
             tags=("posthog_feature_flags",),
             input_schema={
-                "name": _s("Feature name shown to users.", "New checkout", required=True),
+                "name": _s(
+                    "Feature name shown to users.", "New checkout", required=True
+                ),
                 "description": _s("What the beta does.", "", required=False),
-                "stage": _s("One of: draft, concept, alpha, beta, general.", "beta", required=False),
-                "feature_flag_id": _i("Numeric id of the backing flag.", 678, required=False),
+                "stage": _s(
+                    "One of: draft, concept, alpha, beta, general.",
+                    "beta",
+                    required=False,
+                ),
+                "feature_flag_id": _i(
+                    "Numeric id of the backing flag.", 678, required=False
+                ),
                 "project_id": _project(required=False),
             },
             display_param="name",
@@ -726,7 +793,9 @@ def build_operations() -> List[Operation]:
             ),
             tags=("posthog_persons", _UMBRELLA),
             input_schema=_paged(
-                search=_s("Free-text search across person properties.", "", required=False),
+                search=_s(
+                    "Free-text search across person properties.", "", required=False
+                ),
                 distinct_id=_s("Exact distinct id to look up.", "", required=False),
                 email=_s("Exact email to look up.", "user@example.com", required=False),
             ),
@@ -741,7 +810,11 @@ def build_operations() -> List[Operation]:
             ),
             tags=("posthog_persons",),
             input_schema={
-                "person_id": _s("Person uuid.", "01890a5d-0000-0000-0000-000000000000", required=True),
+                "person_id": _s(
+                    "Person uuid.",
+                    "01890a5d-0000-0000-0000-000000000000",
+                    required=True,
+                ),
                 "project_id": _project(required=False),
             },
             display_param="person_id",
@@ -756,9 +829,15 @@ def build_operations() -> List[Operation]:
             parallelizable=False,
             tags=("posthog_persons",),
             input_schema={
-                "person_id": _s("Person uuid.", "01890a5d-0000-0000-0000-000000000000", required=True),
+                "person_id": _s(
+                    "Person uuid.",
+                    "01890a5d-0000-0000-0000-000000000000",
+                    required=True,
+                ),
                 "properties": _obj(
-                    "Person properties to set.", {"plan": "pro", "company": "Acme"}, required=True
+                    "Person properties to set.",
+                    {"plan": "pro", "company": "Acme"},
+                    required=True,
                 ),
                 "project_id": _project(required=False),
             },
@@ -771,7 +850,11 @@ def build_operations() -> List[Operation]:
             parallelizable=False,
             tags=("posthog_persons",),
             input_schema={
-                "person_id": _s("Person uuid.", "01890a5d-0000-0000-0000-000000000000", required=True),
+                "person_id": _s(
+                    "Person uuid.",
+                    "01890a5d-0000-0000-0000-000000000000",
+                    required=True,
+                ),
                 "key": _s("Property name.", "plan", required=True),
                 "value": _s("Property value.", "pro", required=True),
                 "project_id": _project(required=False),
@@ -786,7 +869,11 @@ def build_operations() -> List[Operation]:
             parallelizable=False,
             tags=("posthog_persons",),
             input_schema={
-                "person_id": _s("Person uuid.", "01890a5d-0000-0000-0000-000000000000", required=True),
+                "person_id": _s(
+                    "Person uuid.",
+                    "01890a5d-0000-0000-0000-000000000000",
+                    required=True,
+                ),
                 "key": _s("Property name to remove.", "plan", required=True),
                 "project_id": _project(required=False),
             },
@@ -810,10 +897,14 @@ def build_operations() -> List[Operation]:
                     required=False,
                 ),
                 "distinct_ids": _arr(
-                    "Distinct ids to delete instead of uuids.", ["user_123"], required=False
+                    "Distinct ids to delete instead of uuids.",
+                    ["user_123"],
+                    required=False,
                 ),
                 "delete_events": _b(
-                    "Also delete every event these persons produced.", False, required=False
+                    "Also delete every event these persons produced.",
+                    False,
+                    required=False,
                 ),
                 "project_id": _project(required=False),
             },
@@ -825,7 +916,11 @@ def build_operations() -> List[Operation]:
             description="List the cohorts one person currently belongs to.",
             tags=("posthog_persons",),
             input_schema={
-                "person_id": _s("Person uuid.", "01890a5d-0000-0000-0000-000000000000", required=True),
+                "person_id": _s(
+                    "Person uuid.",
+                    "01890a5d-0000-0000-0000-000000000000",
+                    required=True,
+                ),
                 "project_id": _project(required=False),
             },
             display_param="person_id",
@@ -838,7 +933,11 @@ def build_operations() -> List[Operation]:
             ),
             tags=("posthog_persons",),
             input_schema={
-                "person_id": _s("Person uuid.", "01890a5d-0000-0000-0000-000000000000", required=True),
+                "person_id": _s(
+                    "Person uuid.",
+                    "01890a5d-0000-0000-0000-000000000000",
+                    required=True,
+                ),
                 "project_id": _project(required=False),
             },
             display_param="person_id",
@@ -900,7 +999,11 @@ def build_operations() -> List[Operation]:
                     required=False,
                 ),
                 "description": _s("Description.", "", required=False),
-                "is_static": _b("Static (manually filled) rather than dynamic.", False, required=False),
+                "is_static": _b(
+                    "Static (manually filled) rather than dynamic.",
+                    False,
+                    required=False,
+                ),
                 "project_id": _project(required=False),
             },
             display_param="name",
@@ -943,7 +1046,9 @@ def build_operations() -> List[Operation]:
             "list_cohort_persons",
             description="List the persons currently in a cohort, by numeric cohort id.",
             tags=("posthog_cohorts",),
-            input_schema=_paged(cohort_id=_s("Numeric cohort id.", "42", required=True)),
+            input_schema=_paged(
+                cohort_id=_s("Numeric cohort id.", "42", required=True)
+            ),
             display_param="cohort_id",
         ),
         client_op(
@@ -1009,9 +1114,13 @@ def build_operations() -> List[Operation]:
                     required=False,
                 ),
                 "scope": _s(
-                    "One of: project, organization, dashboard_item.", "project", required=False
+                    "One of: project, organization, dashboard_item.",
+                    "project",
+                    required=False,
                 ),
-                "dashboard_item": _i("Insight id when scope is dashboard_item.", 12345, required=False),
+                "dashboard_item": _i(
+                    "Insight id when scope is dashboard_item.", 12345, required=False
+                ),
                 "project_id": _project(required=False),
             },
             display_param="content",
@@ -1058,7 +1167,9 @@ def build_operations() -> List[Operation]:
                 "event names exist before writing a HogQL query."
             ),
             tags=("posthog_definitions",),
-            input_schema=_paged(search=_s("Filter by event name text.", "", required=False)),
+            input_schema=_paged(
+                search=_s("Filter by event name text.", "", required=False)
+            ),
             display_param="search",
         ),
         client_op(
@@ -1068,7 +1179,9 @@ def build_operations() -> List[Operation]:
             tags=("posthog_definitions",),
             input_schema={
                 "definition_id": _s(
-                    "Event definition uuid.", "01890a5d-0000-0000-0000-000000000000", required=True
+                    "Event definition uuid.",
+                    "01890a5d-0000-0000-0000-000000000000",
+                    required=True,
                 ),
                 "project_id": _project(required=False),
             },
@@ -1085,7 +1198,9 @@ def build_operations() -> List[Operation]:
             tags=("posthog_definitions",),
             input_schema={
                 "definition_id": _s(
-                    "Event definition uuid.", "01890a5d-0000-0000-0000-000000000000", required=True
+                    "Event definition uuid.",
+                    "01890a5d-0000-0000-0000-000000000000",
+                    required=True,
                 ),
                 "description": _s("What this event means.", "", required=False),
                 "tags": _arr("Tags.", [], required=False),
@@ -1105,7 +1220,9 @@ def build_operations() -> List[Operation]:
             input_schema=_paged(
                 search=_s("Filter by property name text.", "", required=False),
                 event_names=_arr(
-                    "Only properties seen on these events.", ["$pageview"], required=False
+                    "Only properties seen on these events.",
+                    ["$pageview"],
+                    required=False,
                 ),
             ),
             display_param="search",
@@ -1192,7 +1309,9 @@ def build_operations() -> List[Operation]:
             description="Get a PostHog organization; defaults to the current one.",
             tags=("posthog_projects",),
             input_schema={
-                "organization_id": _s("Organization uuid, or '@current'.", "@current", required=False),
+                "organization_id": _s(
+                    "Organization uuid, or '@current'.", "@current", required=False
+                ),
             },
             display_param="organization_id",
         ),
@@ -1202,7 +1321,9 @@ def build_operations() -> List[Operation]:
             description="List members of a PostHog organization, with their roles.",
             tags=("posthog_projects",),
             input_schema={
-                "organization_id": _s("Organization uuid, or '@current'.", "@current", required=False),
+                "organization_id": _s(
+                    "Organization uuid, or '@current'.", "@current", required=False
+                ),
                 "limit": _limit(required=False),
                 "offset": _offset(required=False),
             },
@@ -1218,7 +1339,9 @@ def build_operations() -> List[Operation]:
             ),
             tags=("posthog_projects", _UMBRELLA),
             input_schema={
-                "organization_id": _s("Organization uuid, or '@current'.", "@current", required=False),
+                "organization_id": _s(
+                    "Organization uuid, or '@current'.", "@current", required=False
+                ),
             },
             display_param="organization_id",
         ),
@@ -1232,7 +1355,9 @@ def build_operations() -> List[Operation]:
             tags=("posthog_projects",),
             input_schema={
                 "project_id": _project(required=False),
-                "organization_id": _s("Organization uuid, or '@current'.", "@current", required=False),
+                "organization_id": _s(
+                    "Organization uuid, or '@current'.", "@current", required=False
+                ),
             },
             display_param="project_id",
         ),

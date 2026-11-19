@@ -18,18 +18,29 @@ def is_connection(target: str) -> bool:
 
 def connection_url(value: str) -> str:
     parsed = urlsplit(value.strip())
-    if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
-        raise ValueError("Enter the HTTP or HTTPS URL of a running Agent App, without credentials.")
+    if (
+        parsed.scheme not in {"http", "https"}
+        or not parsed.hostname
+        or parsed.username
+        or parsed.password
+    ):
+        raise ValueError(
+            "Enter the HTTP or HTTPS URL of a running Agent App, without credentials."
+        )
     # Agent-App credentials and identity pins are keyed by origin.
     port = parsed.port
     host = parsed.hostname.lower()
     if ":" in host:
         host = f"[{host}]"
-    suffix = f":{port}" if port and port != (443 if parsed.scheme == "https" else 80) else ""
+    suffix = (
+        f":{port}" if port and port != (443 if parsed.scheme == "https" else 80) else ""
+    )
     return f"{parsed.scheme}://{host}{suffix}"
 
 
-_SOURCE = re.compile(r"(?:([a-z][a-z0-9+.-]*)://)?(\*|(?:\*\.)?[a-z0-9.-]+)(?::(\*|\d+))?(/\S*)?")
+_SOURCE = re.compile(
+    r"(?:([a-z][a-z0-9+.-]*)://)?(\*|(?:\*\.)?[a-z0-9.-]+)(?::(\*|\d+))?(/\S*)?"
+)
 
 
 def _source_allows(source: str, page_origin: str, embedder: str) -> bool:
@@ -41,7 +52,9 @@ def _source_allows(source: str, page_origin: str, embedder: str) -> bool:
     if source == "*":
         return frame.scheme in {"http", "https"}
     if re.fullmatch(r"[a-z][a-z0-9+.-]*:", source):  # a scheme source, e.g. https:
-        return frame.scheme == source[:-1] or (source == "http:" and frame.scheme == "https")
+        return frame.scheme == source[:-1] or (
+            source == "http:" and frame.scheme == "https"
+        )
     match = _SOURCE.fullmatch(source)
     if not match:
         return False  # 'none', nonces and hashes name no origin
@@ -50,7 +63,9 @@ def _source_allows(source: str, page_origin: str, embedder: str) -> bool:
     if frame.scheme != scheme and not (scheme == "http" and frame.scheme == "https"):
         return False
     hostname = frame.hostname or ""
-    if host != "*" and not (hostname.endswith(host[1:]) if host.startswith("*.") else hostname == host):
+    if host != "*" and not (
+        hostname.endswith(host[1:]) if host.startswith("*.") else hostname == host
+    ):
         return False
     if port != "*":
         defaults = {"http": 80, "https": 443}
@@ -74,8 +89,13 @@ def frame_ancestors_allow(headers, page_origin: str, embedder: str) -> bool:
                     break
     if not ancestors:
         option = headers.get("X-Frame-Options", "").strip().lower()
-        return option not in {"deny", "sameorigin"} or (option == "sameorigin" and embedder == page_origin)
-    return all(any(_source_allows(source, page_origin, embedder) for source in sources) for sources in ancestors)
+        return option not in {"deny", "sameorigin"} or (
+            option == "sameorigin" and embedder == page_origin
+        )
+    return all(
+        any(_source_allows(source, page_origin, embedder) for source in sources)
+        for sources in ancestors
+    )
 
 
 async def frame_allowed(url: str, embedder: str) -> bool:
@@ -85,23 +105,33 @@ async def frame_allowed(url: str, embedder: str) -> bool:
         async with ClientSession(timeout=ClientTimeout(total=5)) as session:
             async with session.get(url.split("#")[0]) as response:
                 return response.ok and frame_ancestors_allow(
-                    response.headers, connection_url(str(response.url)), embedder)
+                    response.headers, connection_url(str(response.url)), embedder
+                )
     except Exception:
         return False
 
 
 def connection_rows(connected: list[dict]) -> list[dict]:
     return [
-        {"id": row["appId"], "name": row["name"], "path": row["origin"],
-         "url": row["origin"], "connection": row,
-         "status": "running" if row["status"] == "online" else "unreachable"}
-        for row in connected if row.get("appId")
+        {
+            "id": row["appId"],
+            "name": row["name"],
+            "path": row["origin"],
+            "url": row["origin"],
+            "connection": row,
+            "status": "running" if row["status"] == "online" else "unreachable",
+        }
+        for row in connected
+        if row.get("appId")
     ]
 
 
 async def connection_transport(cli, path, app_id, mode, *, endpoint="", token=""):
     from app.agent_app.framework_local_credential import _private_transport
-    return await _private_transport(cli, path, app_id, mode, endpoint=endpoint, token=token)
+
+    return await _private_transport(
+        cli, path, app_id, mode, endpoint=endpoint, token=token
+    )
 
 
 async def connection_info(cli, path, app_id):
@@ -111,10 +141,19 @@ async def connection_info(cli, path, app_id):
 async def connection_revision(cli, path, app_id):
     data = await connection_info(cli, path, app_id)
     identity, who = data["identity"], data["who"]
-    return hashlib.sha256(json.dumps([
-        app_id, identity.get("protocol"), identity.get("app", {}).get("version"), identity.get("schemaVersion"),
-        who.get("credentialId"), who.get("principal"), sorted(who.get("scopes", [])),
-    ]).encode()).hexdigest()
+    return hashlib.sha256(
+        json.dumps(
+            [
+                app_id,
+                identity.get("protocol"),
+                identity.get("app", {}).get("version"),
+                identity.get("schemaVersion"),
+                who.get("credentialId"),
+                who.get("principal"),
+                sorted(who.get("scopes", [])),
+            ]
+        ).encode()
+    ).hexdigest()
 
 
 class FrameworkConnections:
@@ -131,7 +170,11 @@ class FrameworkConnections:
         origin = connection_url(url)
         async with self.lock:
             if len(self.attempts) > 50:
-                self.attempts = {key: value for key, value in self.attempts.items() if value["status"] == "pending"}
+                self.attempts = {
+                    key: value
+                    for key, value in self.attempts.items()
+                    if value["status"] == "pending"
+                }
             for attempt in self.attempts.values():
                 if attempt["origin"] == origin and attempt["status"] == "pending":
                     return attempt
@@ -140,9 +183,18 @@ class FrameworkConnections:
             if snapshot["status"] != "success":
                 raise RuntimeError(snapshot["message"])
             for row in snapshot["data"]["apps"]:
-                local_origin = f"http://127.0.0.1:{row.get('port')}" if not row.get("connection") else ""
-                same_local = origin.replace("http://localhost:", "http://127.0.0.1:") == local_origin
-                if (row.get("url") == origin or same_local) and row["status"] == "running":
+                local_origin = (
+                    f"http://127.0.0.1:{row.get('port')}"
+                    if not row.get("connection")
+                    else ""
+                )
+                same_local = (
+                    origin.replace("http://localhost:", "http://127.0.0.1:")
+                    == local_origin
+                )
+                if (row.get("url") == origin or same_local) and row[
+                    "status"
+                ] == "running":
                     if row.get("connection"):
                         try:
                             await connection_info(cli, origin, row["id"])
@@ -153,16 +205,22 @@ class FrameworkConnections:
             attempt = {"id": uuid.uuid4().hex, "origin": origin, "status": "pending"}
             self.attempts[attempt["id"]] = attempt
             ready = asyncio.Event()
-            self.tasks[attempt["id"]] = asyncio.create_task(self._login(cli, attempt, ready))
+            self.tasks[attempt["id"]] = asyncio.create_task(
+                self._login(cli, attempt, ready)
+            )
         try:
             await asyncio.wait_for(ready.wait(), 35)
         except asyncio.TimeoutError:
             await self.cancel(attempt["id"])
-            raise ValueError("The app did not respond. Check its URL and try again.") from None
+            raise ValueError(
+                "The app did not respond. Check its URL and try again."
+            ) from None
         if attempt.get("approvalUrl"):
             # Approve inside CraftBot's page when the app lets it frame its
             # approval page; otherwise the person approves in a tab.
-            attempt["embeddable"] = await frame_allowed(attempt["approvalUrl"], embedder)
+            attempt["embeddable"] = await frame_allowed(
+                attempt["approvalUrl"], embedder
+            )
         return attempt
 
     async def _login(self, cli, attempt, ready):
@@ -181,25 +239,59 @@ class FrameworkConnections:
                     ready.set()
             elif value.get("event") == "result":
                 if value.get("ok"):
-                    attempt["finishing"] = True  # signed in; adding the app takes a moment
+                    attempt["finishing"] = (
+                        True  # signed in; adding the app takes a moment
+                    )
                 else:
                     outcome["error"] = value.get("error")
 
         try:
-            result = await cli.run("a2app", [attempt["origin"], "login", "--print-only", "--events", "--name", "CraftBot"],
-                                   cwd=cli.package_dir, timeout=650, on_stdout_line=event)
+            result = await cli.run(
+                "a2app",
+                [
+                    attempt["origin"],
+                    "login",
+                    "--print-only",
+                    "--events",
+                    "--name",
+                    "CraftBot",
+                ],
+                cwd=cli.package_dir,
+                timeout=650,
+                on_stdout_line=event,
+            )
             if not result.ok:
                 # The sign-in's own reason; before it starts there is none, only
                 # the CLI's error lines (its info lines repeat the link and code).
-                errors = [line.removeprefix("✗ ") for line in result.stderr.strip().splitlines() if not line.startswith("ℹ")]
-                raise RuntimeError(outcome.get("error") or "\n".join(errors).strip()
-                                   or "The app did not approve access. Try connecting again.")
+                errors = [
+                    line.removeprefix("✗ ")
+                    for line in result.stderr.strip().splitlines()
+                    if not line.startswith("ℹ")
+                ]
+                raise RuntimeError(
+                    outcome.get("error")
+                    or "\n".join(errors).strip()
+                    or "The app did not approve access. Try connecting again."
+                )
             from app.agent_app import framework
+
             snapshot = await framework._list_apps(cli)
-            row = next((r for r in snapshot.get("data", {}).get("apps", []) if r.get("url") == attempt["origin"]), None)
+            row = next(
+                (
+                    r
+                    for r in snapshot.get("data", {}).get("apps", [])
+                    if r.get("url") == attempt["origin"]
+                ),
+                None,
+            )
             if row is None:
-                raise RuntimeError("The app approved access but could not be found in the framework registry.")
-            attempt.update(status="connected", attachment=await self.host.attach(row["path"], row["id"]))
+                raise RuntimeError(
+                    "The app approved access but could not be found in the framework registry."
+                )
+            attempt.update(
+                status="connected",
+                attachment=await self.host.attach(row["path"], row["id"]),
+            )
         except asyncio.CancelledError:
             attempt["status"] = "cancelled"
             raise
@@ -233,6 +325,7 @@ class FrameworkConnections:
     async def _pump(self, path, app_id):
         from app.agent_app import framework
         from app.agent_app.framework_store import app_key
+
         cli = await asyncio.to_thread(framework.configured_cli)
         bridge = self.host.bridge
         key = app_key(cli.home, path, app_id)
@@ -241,12 +334,23 @@ class FrameworkConnections:
             if not grant or not grant.get("tasksAllowed"):
                 return
             try:
-                if grant.get("capabilityFingerprint") != await connection_revision(cli, path, app_id):
-                    raise PermissionError("The app or its access changed. Review app task permissions again.")
+                if grant.get("capabilityFingerprint") != await connection_revision(
+                    cli, path, app_id
+                ):
+                    raise PermissionError(
+                        "The app or its access changed. Review app task permissions again."
+                    )
                 if grant.pop("bridgeError", None):
                     self.host.store.put("attachment", key, grant)
                     await self.host.changed()
-                await connection_transport(cli, path, app_id, "pump", endpoint=bridge.endpoint, token=bridge.token)
+                await connection_transport(
+                    cli,
+                    path,
+                    app_id,
+                    "pump",
+                    endpoint=bridge.endpoint,
+                    token=bridge.token,
+                )
             except asyncio.CancelledError:
                 raise
             except Exception as error:

@@ -12,11 +12,27 @@ from app.agent_app.framework_store import HostStore
 @pytest.mark.parametrize(
     ("verified", "gate", "allowed"),
     [
-        ({"verdict": "pass", "stamp": {"fingerprint": "abc", "at": "t1"}}, {"fingerprint": "abc", "at": "t1"}, True),
+        (
+            {"verdict": "pass", "stamp": {"fingerprint": "abc", "at": "t1"}},
+            {"fingerprint": "abc", "at": "t1"},
+            True,
+        ),
         # Re-validating unchanged code only rewrites the pass's timestamp.
-        ({"verdict": "pass", "stamp": {"fingerprint": "abc", "at": "t1"}}, {"fingerprint": "abc", "at": "t2"}, True),
-        ({"verdict": "pass", "stamp": {"fingerprint": "abc", "at": "t1"}}, {"fingerprint": "new", "at": "t2"}, False),
-        ({"verdict": "defects", "stamp": {"fingerprint": "abc", "at": "t1"}}, {"fingerprint": "abc", "at": "t1"}, False),
+        (
+            {"verdict": "pass", "stamp": {"fingerprint": "abc", "at": "t1"}},
+            {"fingerprint": "abc", "at": "t2"},
+            True,
+        ),
+        (
+            {"verdict": "pass", "stamp": {"fingerprint": "abc", "at": "t1"}},
+            {"fingerprint": "new", "at": "t2"},
+            False,
+        ),
+        (
+            {"verdict": "defects", "stamp": {"fingerprint": "abc", "at": "t1"}},
+            {"fingerprint": "abc", "at": "t1"},
+            False,
+        ),
         ({"verdict": "pass", "stamp": {"fingerprint": "abc", "at": "t1"}}, None, False),
     ],
 )

@@ -165,7 +165,12 @@ async def create_lark_calendar(input_data: dict) -> dict:
             "description": "Calendar id.",
             "example": "feishu.cn_abc...",
         },
-        "summary": {"type": "string", "required": False, "description": "New name.", "example": ""},
+        "summary": {
+            "type": "string",
+            "required": False,
+            "description": "New name.",
+            "example": "",
+        },
         "description": {
             "type": "string",
             "required": False,
@@ -178,8 +183,18 @@ async def create_lark_calendar(input_data: dict) -> dict:
             "description": "private | show_only_free_busy | public.",
             "example": "",
         },
-        "color": {"type": "integer", "required": False, "description": "RGB int32.", "example": -1},
-        "summary_alias": {"type": "string", "required": False, "description": "Alias.", "example": ""},
+        "color": {
+            "type": "integer",
+            "required": False,
+            "description": "RGB int32.",
+            "example": -1,
+        },
+        "summary_alias": {
+            "type": "string",
+            "required": False,
+            "description": "Alias.",
+            "example": "",
+        },
     },
     output_schema={
         "status": {"type": "string", "example": "success"},
@@ -252,7 +267,12 @@ async def delete_lark_calendar(input_data: dict) -> dict:
             "description": "Search query.",
             "example": "Project X",
         },
-        "page_size": {"type": "integer", "required": False, "description": "Max results.", "example": 20},
+        "page_size": {
+            "type": "integer",
+            "required": False,
+            "description": "Max results.",
+            "example": 20,
+        },
         "page_token": {
             "type": "string",
             "required": False,

@@ -42,8 +42,13 @@ def _openai(finish_reason):
     usage = SimpleNamespace(
         prompt_tokens=1, completion_tokens=1, prompt_tokens_details=None
     )
-    create = lambda **kwargs: SimpleNamespace(choices=[choice], usage=usage)
-    client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+
+    def create(**kwargs):
+        return SimpleNamespace(choices=[choice], usage=usage)
+
+    client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=create))
+    )
     return chat_completions.generate_openai(
         _iface("openai", client=client), None, "u", reasoning=None
     )
@@ -105,11 +110,17 @@ def test_gemini_reports_max_tokens():
     "result, cut_off",
     [
         (
-            {"status": "incomplete", "incomplete_details": {"reason": "max_output_tokens"}},
+            {
+                "status": "incomplete",
+                "incomplete_details": {"reason": "max_output_tokens"},
+            },
             True,
         ),
         (
-            {"status": "incomplete", "incomplete_details": {"reason": "content_filter"}},
+            {
+                "status": "incomplete",
+                "incomplete_details": {"reason": "content_filter"},
+            },
             False,
         ),
         ({"status": "completed"}, False),

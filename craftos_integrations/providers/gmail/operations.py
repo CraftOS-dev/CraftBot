@@ -59,7 +59,12 @@ def _get_gmail_thread_op() -> Operation:
         unwrap_envelope=True,
         fail_message="Failed to get thread.",
         input_schema={
-            "thread_id": {"type": "string", "required": True, "description": "Thread ID.", "example": ""},
+            "thread_id": {
+                "type": "string",
+                "required": True,
+                "description": "Thread ID.",
+                "example": "",
+            },
             "fmt": {
                 "type": "string",
                 "required": False,
@@ -131,7 +136,12 @@ def _get_gmail_draft_op() -> Operation:
         unwrap_envelope=True,
         fail_message="Failed to get draft.",
         input_schema={
-            "draft_id": {"type": "string", "required": True, "description": "Draft ID.", "example": ""},
+            "draft_id": {
+                "type": "string",
+                "required": True,
+                "description": "Draft ID.",
+                "example": "",
+            },
             "fmt": {
                 "type": "string",
                 "required": False,
@@ -704,8 +714,18 @@ def build_operations() -> List[Operation]:
                     "description": "Draft ID.",
                     "example": "",
                 },
-                "to": {"type": "string", "required": True, "description": "Recipient.", "example": ""},
-                "subject": {"type": "string", "required": True, "description": "Subject.", "example": ""},
+                "to": {
+                    "type": "string",
+                    "required": True,
+                    "description": "Recipient.",
+                    "example": "",
+                },
+                "subject": {
+                    "type": "string",
+                    "required": True,
+                    "description": "Subject.",
+                    "example": "",
+                },
                 "body": {
                     "type": "string",
                     "required": True,
@@ -714,7 +734,12 @@ def build_operations() -> List[Operation]:
                 },
                 "html": _HTML_INPUT,
                 "inline_images": _INLINE_IMAGES_INPUT,
-                "cc": {"type": "string", "required": False, "description": "Optional CC.", "example": ""},
+                "cc": {
+                    "type": "string",
+                    "required": False,
+                    "description": "Optional CC.",
+                    "example": "",
+                },
                 "bcc": {
                     "type": "string",
                     "required": False,

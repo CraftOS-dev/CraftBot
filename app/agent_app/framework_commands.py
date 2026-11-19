@@ -25,9 +25,7 @@ class TaskAuthority:
     outcome: str | None = None
     check: object = field(default=None, repr=False)
     allowed_actions: frozenset[str] = field(
-        default_factory=lambda: frozenset(
-            {"a2app_command", "send_message", "end_turn"}
-        )
+        default_factory=lambda: frozenset({"a2app_command", "send_message", "end_turn"})
     )
     # A confined run (another person's request, or a remote app's) may use only
     # allowed_actions, and operate only its task's app. The owner's own request
@@ -66,8 +64,14 @@ async def command(
     verifying = verification_target.get()
     if verifying is not None:
         verifying.check()
-        if surface != "a2app" or not args or Path(args[0]).resolve() != Path(verifying.path).resolve():
-            raise PermissionError("The verifier may operate only its assigned dev app through A2App; lifecycle changes belong to the builder.")
+        if (
+            surface != "a2app"
+            or not args
+            or Path(args[0]).resolve() != Path(verifying.path).resolve()
+        ):
+            raise PermissionError(
+                "The verifier may operate only its assigned dev app through A2App; lifecycle changes belong to the builder."
+            )
         if len(args) > 1 and args[1] in {"login", "logout", "credential"}:
             raise PermissionError("Verification cannot change credentials.")
     cli = await asyncio.to_thread(framework.configured_cli)
@@ -79,12 +83,21 @@ async def command(
         if len(args) > 1 and args[1] == "open":
             args = [*args] if "--print-only" in args else [*args, "--print-only"]
             embedded_open = True
-        elif args and (args[0] == "install" or (len(args) > 1 and args[1] in {"serve", "import"})):
+        elif args and (
+            args[0] == "install" or (len(args) > 1 and args[1] in {"serve", "import"})
+        ):
             embedded_open = "--open" in args
             args = [arg for arg in args if arg != "--open"]
     authority = task_authority.get()
-    if authority is not None and not authority.confined and not (
-        authority.active and surface == "a2app" and args and args[0] == authority.target
+    if (
+        authority is not None
+        and not authority.confined
+        and not (
+            authority.active
+            and surface == "a2app"
+            and args
+            and args[0] == authority.target
+        )
     ):
         # The task's credential belongs to its own app. Anything else the
         # owner's own request does runs as it would from the chat.
@@ -151,13 +164,24 @@ async def command(
 
             with TemporaryDirectory(prefix="craftbot-task-") as task_home:
                 home = Path(task_home)
-                (home / "known-apps.json").write_text(json.dumps({
-                    "version": 1,
-                    "apps": [{"origin": authority.target, "appId": authority.app_id}],
-                }), encoding="utf-8")
+                (home / "known-apps.json").write_text(
+                    json.dumps(
+                        {
+                            "version": 1,
+                            "apps": [
+                                {"origin": authority.target, "appId": authority.app_id}
+                            ],
+                        }
+                    ),
+                    encoding="utf-8",
+                )
                 scoped_cli = AgentAppCLI(cli.package_dir, home=home)
                 result = await scoped_cli.run(
-                    surface, args, cwd=cli.package_dir, timeout=1200, env_extra=env,
+                    surface,
+                    args,
+                    cwd=cli.package_dir,
+                    timeout=1200,
+                    env_extra=env,
                 )
         else:
             result = await cli.run(
@@ -200,7 +224,11 @@ async def command(
                 authority.outcome = doc["status"]
                 authority.active = False
         host_warning = None
-        installed = result.json() if surface == "agent-app" and args and args[0] == "install" else None
+        installed = (
+            result.json()
+            if surface == "agent-app" and args and args[0] == "install"
+            else None
+        )
         app_path = installed.get("dir") if isinstance(installed, dict) else None
         if not app_path and args and Path(args[0]).is_absolute():
             app_path = args[0]
@@ -248,12 +276,22 @@ async def command(
             "data": result.json(),
             "timed_out": result.timed_out,
             **({"host_warning": host_warning} if host_warning else {}),
-            **({"host_note": "CraftBot displays this app in its embedded view. No external browser is needed; do not open the returned URL in another tab."} if embedded_open else {}),
-            **({
-                "end_turn": True,
-                "awaiting_answer": True,
-                "host_note": "CraftBot shows this to the person in its build view, so your turn ends here. Their reply arrives as their next message.",
-            } if awaiting_person else {}),
+            **(
+                {
+                    "host_note": "CraftBot displays this app in its embedded view. No external browser is needed; do not open the returned URL in another tab."
+                }
+                if embedded_open
+                else {}
+            ),
+            **(
+                {
+                    "end_turn": True,
+                    "awaiting_answer": True,
+                    "host_note": "CraftBot shows this to the person in its build view, so your turn ends here. Their reply arrives as their next message.",
+                }
+                if awaiting_person
+                else {}
+            ),
         }
 
     # All host-issued app management commands share the lifecycle lock, not
@@ -285,6 +323,7 @@ def _presentation(remote: bool) -> str:
     """Where the user sees the app, by edition (fixed per process, so the note
     stays cache-stable)."""
     from app import edition
+
     if edition.current() == edition.TERMINAL:
         return (
             "The user sees this app in the terminal's Agent App screen, which "
@@ -306,6 +345,7 @@ def _presentation(remote: bool) -> str:
 
 def context_note(path: str, app_id: str) -> str:
     from app.agent_app.framework_connections import is_connection
+
     if is_connection(path):
         return (
             f"Connected Agent App {app_id} at {path}. This is its dedicated conversation. "

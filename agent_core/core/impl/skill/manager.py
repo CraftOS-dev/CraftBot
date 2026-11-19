@@ -84,8 +84,10 @@ class SkillManager:
             # Once the framework is available, its skills replace these removed
             # CraftBot workflows; keep the old files intact but out of discovery.
             if self._bundled_sources and skill.name in {
-                "agent-app-creator", "agent-app-importer",
-                "agent-app-manager", "agent-app-modify",
+                "agent-app-creator",
+                "agent-app-importer",
+                "agent-app-manager",
+                "agent-app-modify",
             }:
                 continue
             self._skills[skill.name] = skill
@@ -98,7 +100,8 @@ class SkillManager:
             # CraftBot bindings only: the upstream skill files stay immutable.
             skill.metadata.action_sets = (
                 ["a2app"]
-                if name in {"framework-operator", "framework-connect", "framework-walk-verify"}
+                if name
+                in {"framework-operator", "framework-connect", "framework-walk-verify"}
                 else ["agent_app", "a2app"]
             )
             skill.instructions = f"Source: {source}\nResolve relative references from {source.parent}.\n\n{skill.instructions}"

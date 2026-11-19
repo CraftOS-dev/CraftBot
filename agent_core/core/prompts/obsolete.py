@@ -439,88 +439,88 @@ V0_BASE_INSTRUCTION = "Please assist the user using the context given in the con
 
 
 def v0_capability_catalog() -> str:
-        """Create the Capability Catalog system block.
+    """Create the Capability Catalog system block.
 
-        Lists every available action set and every enabled skill with a
-        one-line description, so any session can discover and load
-        capabilities on demand (add_action_sets / use_skill). The catalog
-        is stable per boot, so it lives in the cached system prefix.
-        """
-        lines = ["<capability_catalog>"]
+    Lists every available action set and every enabled skill with a
+    one-line description, so any session can discover and load
+    capabilities on demand (add_action_sets / use_skill). The catalog
+    is stable per boot, so it lives in the cached system prefix.
+    """
+    lines = ["<capability_catalog>"]
 
-        try:
-            from app.action.action_set import action_set_manager
+    try:
+        from app.action.action_set import action_set_manager
 
-            sets_text = _v0_format_sets(action_set_manager, exclude_core=True)
-            lines.append(
-                "Action sets you can load with 'add_action_sets' "
-                "(your session always has 'core'):"
-            )
-            lines.append(sets_text if sets_text else "(no additional action sets)")
-        except Exception as e:
-            _logger.debug(f"[CONTEXT] Capability catalog: action sets failed: {e}")
+        sets_text = _v0_format_sets(action_set_manager, exclude_core=True)
+        lines.append(
+            "Action sets you can load with 'add_action_sets' "
+            "(your session always has 'core'):"
+        )
+        lines.append(sets_text if sets_text else "(no additional action sets)")
+    except Exception as e:
+        _logger.debug(f"[CONTEXT] Capability catalog: action sets failed: {e}")
 
-        try:
-            from app.skill import skill_manager
+    try:
+        from app.skill import skill_manager
 
-            skills = skill_manager.list_skills_for_selection()
-            lines.append("")
-            lines.append("Skills you can load with 'use_skill':")
-            if skills:
-                lines.extend(f"- {name}: {desc}" for name, desc in skills.items())
-            else:
-                lines.append("(no skills available)")
-        except Exception as e:
-            _logger.debug(f"[CONTEXT] Capability catalog: skills failed: {e}")
+        skills = skill_manager.list_skills_for_selection()
+        lines.append("")
+        lines.append("Skills you can load with 'use_skill':")
+        if skills:
+            lines.extend(f"- {name}: {desc}" for name, desc in skills.items())
+        else:
+            lines.append("(no skills available)")
+    except Exception as e:
+        _logger.debug(f"[CONTEXT] Capability catalog: skills failed: {e}")
 
-        lines.append("</capability_catalog>")
-        return "\n".join(lines)
+    lines.append("</capability_catalog>")
+    return "\n".join(lines)
 
 
 def _v0_format_sets(manager, exclude_core: bool = False) -> str:
-        """
-        Format action set information for inclusion in prompts.
+    """
+    Format action set information for inclusion in prompts.
 
-        Args:
-            exclude_core: If True, don't include core set (it's always auto-included)
+    Args:
+        exclude_core: If True, don't include core set (it's always auto-included)
 
-        Returns:
-            Formatted string describing available action sets: one line per
-            set, then one line per integration naming all of its sets
-            (described once, by the integration's provider). Sorted, so the
-            catalog (part of the cached system prompt) renders the same on
-            every boot.
-        """
-        all_sets = manager.list_all_sets()
-        integrations = {
-            integration: [s for s in sets if s in all_sets]
-            for integration, sets in manager.integration_sets().items()
-        }
-        owned = {s for sets in integrations.values() for s in sets}
+    Returns:
+        Formatted string describing available action sets: one line per
+        set, then one line per integration naming all of its sets
+        (described once, by the integration's provider). Sorted, so the
+        catalog (part of the cached system prompt) renders the same on
+        every boot.
+    """
+    all_sets = manager.list_all_sets()
+    integrations = {
+        integration: [s for s in sets if s in all_sets]
+        for integration, sets in manager.integration_sets().items()
+    }
+    owned = {s for sets in integrations.values() for s in sets}
 
-        lines = []
-        for set_name, description in sorted(all_sets.items()):
-            if set_name in owned or (exclude_core and set_name == "core"):
-                continue
-            if set_name == "core":
-                lines.append(f"- {set_name}: {description} (always included)")
-            else:
-                lines.append(f"- {set_name}: {description}")
+    lines = []
+    for set_name, description in sorted(all_sets.items()):
+        if set_name in owned or (exclude_core and set_name == "core"):
+            continue
+        if set_name == "core":
+            lines.append(f"- {set_name}: {description} (always included)")
+        else:
+            lines.append(f"- {set_name}: {description}")
 
-        rows = []
-        for integration, sets in integrations.items():
-            if not sets:
-                continue
-            name, what = manager.integration_description(integration)
-            # The set named after the integration first: its high-value actions.
-            ordered = sorted(sets, key=lambda s: (s != integration, s))
-            label = f"{name} ({what})" if what else name
-            rows.append((name.lower(), f"- {label}: {', '.join(ordered)}"))
-        if rows:
-            lines.append(
-                "Integration action sets. Load the set named after an "
-                "integration for its high-value actions; load a narrower set "
-                "when the task needs a specific area:"
-            )
-            lines.extend(row for _, row in sorted(rows))
-        return "\n".join(lines)
+    rows = []
+    for integration, sets in integrations.items():
+        if not sets:
+            continue
+        name, what = manager.integration_description(integration)
+        # The set named after the integration first: its high-value actions.
+        ordered = sorted(sets, key=lambda s: (s != integration, s))
+        label = f"{name} ({what})" if what else name
+        rows.append((name.lower(), f"- {label}: {', '.join(ordered)}"))
+    if rows:
+        lines.append(
+            "Integration action sets. Load the set named after an "
+            "integration for its high-value actions; load a narrower set "
+            "when the task needs a specific area:"
+        )
+        lines.extend(row for _, row in sorted(rows))
+    return "\n".join(lines)

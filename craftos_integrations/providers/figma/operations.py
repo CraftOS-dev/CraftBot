@@ -6,11 +6,21 @@ from .._shared import client_op
 
 
 def _s(description, example="", *, required):
-    return {"type": "string", "required": required, "description": description, "example": example}
+    return {
+        "type": "string",
+        "required": required,
+        "description": description,
+        "example": example,
+    }
 
 
 def _i(description, example=30, *, required):
-    return {"type": "integer", "required": required, "description": description, "example": example}
+    return {
+        "type": "integer",
+        "required": required,
+        "description": description,
+        "example": example,
+    }
 
 
 FILE = _s(
@@ -29,14 +39,20 @@ NODES = {
     "description": "Node ids such as 12:34. Omit when the file URL includes node-id. Maximum 100.",
     "example": ["12:34"],
 }
-DEPTH = _i("Tree depth, 1–10; default 2. Results also obey the configured node cap.", 2, required=False)
+DEPTH = _i(
+    "Tree depth, 1–10; default 2. Results also obey the configured node cap.",
+    2,
+    required=False,
+)
 LIMIT = _i("Maximum items, 1–100, default 30.", required=False)
 OFFSET = _i(
     "Local list offset. Follow pagination.next_offset; this does not reduce the API's response size.",
     0,
     required=False,
 )
-VERSION = _s("Optional historical version id; omit for the current version.", required=False)
+VERSION = _s(
+    "Optional historical version id; omit for the current version.", required=False
+)
 COMMENT = _s(
     "Comment id returned by list_figma_comments. Reply operations require a root comment id.",
     "123",
@@ -121,7 +137,9 @@ def build_operations():
             {
                 "file_key": FILE,
                 "name": _s("Case-insensitive node-name substring.", required=False),
-                "node_type": _s("Optional node type, e.g. FRAME or COMPONENT.", required=False),
+                "node_type": _s(
+                    "Optional node type, e.g. FRAME or COMPONENT.", required=False
+                ),
                 "depth": _i(
                     "Tree depth, 1–10; default 4. Results also obey the configured node cap.",
                     4,
@@ -145,7 +163,10 @@ def build_operations():
                     "Previous-page cursor or returned pagination.prev_page URL.",
                     required=False,
                 ),
-                "after": _s("Next-page cursor or returned pagination.next_page URL.", required=False),
+                "after": _s(
+                    "Next-page cursor or returned pagination.next_page URL.",
+                    required=False,
+                ),
             },
             display_param="file_key",
         ),
@@ -180,7 +201,9 @@ def build_operations():
             "assets",
             {
                 "file_key": {**FILE, "required": True},
-                "output_dir": _s("Required absolute local output directory.", required=True),
+                "output_dir": _s(
+                    "Required absolute local output directory.", required=True
+                ),
                 "node_ids": NODES,
                 "format": FORMAT,
                 "scale": SCALE,
@@ -307,7 +330,11 @@ def build_operations():
             "list_subfolders",
             "List direct subfolders. Requires folders:read and PAT/private OAuth; uses local pagination.",
             "discovery",
-            {"folder_id": _s("Required folder id.", required=True), "limit": LIMIT, "offset": OFFSET},
+            {
+                "folder_id": _s("Required folder id.", required=True),
+                "limit": LIMIT,
+                "offset": OFFSET,
+            },
             display_param="folder_id",
         ),
         _op(
@@ -315,7 +342,11 @@ def build_operations():
             "list_folder_files",
             "List files in a folder. Requires folders:read and PAT/private OAuth; uses local pagination.",
             "discovery",
-            {"folder_id": _s("Required folder id.", required=True), "limit": LIMIT, "offset": OFFSET},
+            {
+                "folder_id": _s("Required folder id.", required=True),
+                "limit": LIMIT,
+                "offset": OFFSET,
+            },
             core=True,
             display_param="folder_id",
         ),
@@ -487,7 +518,11 @@ def build_operations():
                 "delete_canvas_node",
                 "Delete an explicitly identified canvas node and its children in the paired document. Read first; pages/documents cannot be deleted. Uses the host mutation replay guard.",
                 "canvas",
-                {"node_id": _s("Required canvas node id selected for deletion.", required=True)},
+                {
+                    "node_id": _s(
+                        "Required canvas node id selected for deletion.", required=True
+                    )
+                },
                 write=True,
                 destructive=True,
                 display_param="node_id",
@@ -568,8 +603,12 @@ def build_operations():
                 "canvas",
                 {
                     "node_id": _s("Required canvas node id.", required=True),
-                    "image_path": _s("Required absolute local image path.", required=True),
-                    "scale_mode": _s("FILL (default), FIT, CROP or TILE.", "FILL", required=False),
+                    "image_path": _s(
+                        "Required absolute local image path.", required=True
+                    ),
+                    "scale_mode": _s(
+                        "FILL (default), FIT, CROP or TILE.", "FILL", required=False
+                    ),
                 },
                 write=True,
                 destructive=True,
@@ -582,7 +621,9 @@ def build_operations():
                 "canvas",
                 {
                     "node_id": _s("Required canvas node id.", required=True),
-                    "output_dir": _s("Required absolute local output directory.", required=True),
+                    "output_dir": _s(
+                        "Required absolute local output directory.", required=True
+                    ),
                     "scale": SCALE,
                 },
                 write=True,

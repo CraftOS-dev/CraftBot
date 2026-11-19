@@ -24,11 +24,15 @@ def test_vcredist_reads_microsoft_runtime_registration(monkeypatch, installed):
             raise FileNotFoundError(path)
         return nullcontext(key)
 
-    monkeypatch.setitem(sys.modules, "winreg", SimpleNamespace(
-        HKEY_LOCAL_MACHINE="HKLM",
-        OpenKey=open_key,
-        QueryValueEx=lambda handle, name: (installed, 4),
-    ))
+    monkeypatch.setitem(
+        sys.modules,
+        "winreg",
+        SimpleNamespace(
+            HKEY_LOCAL_MACHINE="HKLM",
+            OpenKey=open_key,
+            QueryValueEx=lambda handle, name: (installed, 4),
+        ),
+    )
     monkeypatch.setattr(verify.sys, "platform", "win32")
     monkeypatch.setattr(verify.os.path, "isfile", lambda path: False)
     assert verify.vcredist_installed() is bool(installed)

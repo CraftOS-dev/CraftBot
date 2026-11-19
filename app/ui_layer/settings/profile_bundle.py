@@ -203,8 +203,6 @@ def _load_json(path: Path, default: Any) -> Any:
         return default
 
 
-
-
 def _slugify(name: str) -> str:
     safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in name)
     return safe.strip("_") or "agent"
@@ -231,7 +229,6 @@ def _gather_export_contents() -> Dict[str, Any]:
     ]
 
     md_present = [f for f in PROFILE_MD_FILES if (AGENT_FILE_SYSTEM_PATH / f).is_file()]
-
 
     return {
         "agent_name": _agent_name(),
@@ -319,8 +316,6 @@ def _write_mcp_dir(staging: Path) -> None:
         json.dumps({"mcp_servers": cleaned_servers}, indent=2, ensure_ascii=False),
         encoding="utf-8",
     )
-
-
 
 
 def _zip_staging(staging: Path, agent_name: str) -> Path:
@@ -797,16 +792,6 @@ def _apply_mcp(
     return added, skipped, needs_env, invalid
 
 
-
-
-
-
-
-
-
-
-
-
 VALID_IMPORT_MODES = ("replace", "overwrite")
 
 
@@ -869,8 +854,10 @@ def import_profile(
             if isinstance(old_apps, dict):
                 old_apps = old_apps.get("projects", [])
             if old_apps:
-                raise ValueError("This profile contains legacy CraftBot apps. Import their source "
-                                 "through Add Agent App to convert them with the framework first.")
+                raise ValueError(
+                    "This profile contains legacy CraftBot apps. Import their source "
+                    "through Add Agent App to convert them with the framework first."
+                )
         framework_packages = stage_packages(work_dir)
 
         md_applied = _apply_md_files(work_dir / "profile", mode)
@@ -884,7 +871,6 @@ def import_profile(
         mcp_added, mcp_skipped, mcp_needs_env, mcp_invalid = _apply_mcp(
             work_dir / "mcp", mode
         )
-
 
         # NOTE: agent_name is intentionally NOT applied — per product decision,
         # users keep their own agent name and just inherit the personality/skills.

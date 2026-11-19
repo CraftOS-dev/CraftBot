@@ -101,7 +101,13 @@ class ReferenceService:
             kind, target = item.get("kind"), item.get("targetId")
             if not isinstance(kind, str) or kind not in self.providers:
                 raise ReferenceError("Unsupported reference type.")
-            maximum = 4096 if kind == "agent_app" and isinstance(target, str) and target.startswith("framework:") else 256
+            maximum = (
+                4096
+                if kind == "agent_app"
+                and isinstance(target, str)
+                and target.startswith("framework:")
+                else 256
+            )
             if not isinstance(target, str) or not target or len(target) > maximum:
                 raise ReferenceError("Invalid reference identity.")
             if kind == "session" and target == destination:
@@ -207,9 +213,7 @@ class ReferenceService:
         )
 
 
-def create_reference_service(
-    sessions=None, storage=None, llm=None
-) -> ReferenceService:
+def create_reference_service(sessions=None, storage=None, llm=None) -> ReferenceService:
     """Composition root; adapters and actions reuse the existing application managers.
 
     The token budget follows the window of the model the agent actually runs

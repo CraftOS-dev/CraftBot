@@ -385,6 +385,7 @@ def test_owner_can_inspect_agent_apps_through_action_execution(monkeypatch, tmp_
     from agent_core.core.impl.action.context import current_message_origin
 
     grant_owner()
+
     async def empty_registry():
         return {"status": "success", "data": {"apps": []}}
 

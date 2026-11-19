@@ -41,16 +41,24 @@ def _status(monkeypatch, grant):
 
     store = _Store()
     store.put("attachment", "key", grant)
-    bridge = FrameworkBridge(SimpleNamespace(store=store, selected=selected, attach=attach))
+    bridge = FrameworkBridge(
+        SimpleNamespace(store=store, selected=selected, attach=attach)
+    )
     bridge.revision = revision
-    monkeypatch.setattr(framework_bridge.framework, "configured_cli", lambda: SimpleNamespace(home="home"))
+    monkeypatch.setattr(
+        framework_bridge.framework,
+        "configured_cli",
+        lambda: SimpleNamespace(home="home"),
+    )
     monkeypatch.setattr(framework_bridge, "app_key", lambda home, path, app_id: "key")
     monkeypatch.setattr(framework_bridge, "pending_tasks", pending)
     return asyncio.run(bridge.request_status("app", "app-id"))
 
 
 def test_an_allowed_app_that_changed_asks_again_as_changed(monkeypatch):
-    status = _status(monkeypatch, {"tasksAllowed": True, "capabilityFingerprint": "source-before"})
+    status = _status(
+        monkeypatch, {"tasksAllowed": True, "capabilityFingerprint": "source-before"}
+    )
     assert status["permissionRequired"] and status["needsReview"]
     assert status["changed"] is True
     assert status["requests"] == ["triage"]
@@ -63,6 +71,8 @@ def test_an_app_never_allowed_is_not_a_change(monkeypatch):
 
 
 def test_an_allowed_unchanged_app_needs_nothing(monkeypatch):
-    status = _status(monkeypatch, {"tasksAllowed": True, "capabilityFingerprint": "source-now"})
+    status = _status(
+        monkeypatch, {"tasksAllowed": True, "capabilityFingerprint": "source-now"}
+    )
     assert not status["permissionRequired"]
     assert status["changed"] is False

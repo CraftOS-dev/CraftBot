@@ -1164,7 +1164,9 @@ class BrowserAdapter(InterfaceAdapter):
 
     async def _on_start(self) -> None:
         """Start the browser interface."""
-        self._controller.agent.session_manager.add_post_update_todos_hook(make_todo_broadcast_hook(self._broadcast))
+        self._controller.agent.session_manager.add_post_update_todos_hook(
+            make_todo_broadcast_hook(self._broadcast)
+        )
         # The construction dock follows each build from the builder's own actions.
         feed = self._framework_host.feed
         feed.broadcast = self._broadcast
@@ -1176,7 +1178,10 @@ class BrowserAdapter(InterfaceAdapter):
             hook is None or isinstance(getattr(hook, "__self__", None), BuildFeed)
             for hook in (manager._on_action_start, manager._on_action_end)
         ):
-            manager._on_action_start, manager._on_action_end = feed.on_start, feed.on_end
+            manager._on_action_start, manager._on_action_end = (
+                feed.on_start,
+                feed.on_end,
+            )
         from aiohttp import web
         from app.onboarding import onboarding_manager
         import uuid
@@ -1284,7 +1289,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         self._runner = web.AppRunner(self._app)
         await self._runner.setup()
         site = web.TCPSite(self._runner, self._host, self._port)
-        if getattr(self, "_framework_host", None) and not self._framework_host.restoring:
+        if (
+            getattr(self, "_framework_host", None)
+            and not self._framework_host.restoring
+        ):
             self._framework_host.restoring = asyncio.create_task(
                 self._framework_host.startup()
             )
@@ -1331,7 +1339,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
     async def _on_stop(self) -> None:
         """Stop the browser interface."""
         if getattr(self, "_framework_host", None):
-            if self._framework_host is getattr(self._controller.agent, "framework_host", None):
+            if self._framework_host is getattr(
+                self._controller.agent, "framework_host", None
+            ):
                 from app.agent_app.framework_host import no_ui_change
 
                 self._framework_host.changed = no_ui_change
@@ -1545,7 +1555,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
         return ws
 
-    def _handle_client_hello(self, channel: ClientChannel, data: Dict[str, Any]) -> None:
+    def _handle_client_hello(
+        self, channel: ClientChannel, data: Dict[str, Any]
+    ) -> None:
         """A client introduces itself and declares the extra frames it reads.
 
         Only the terminal client says hello; the browser never does, so it
@@ -2222,7 +2234,6 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         elif msg_type == "figma_canvas_control":
             await self._handle_figma_canvas_control(data)
 
-
         # Playbook catalogue handlers
         elif msg_type == "playbook_list":
             await self._handle_playbook_list()
@@ -2298,7 +2309,6 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
         elif msg_type == "agent_app_framework_lifecycle":
             await self._handle_framework_app_lifecycle(data, ws)
-
 
         # Update operations
         elif msg_type == "check_update":
@@ -3194,13 +3204,22 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             ]
             aliases = {}
             for receipt in host.store.all("migration"):
-                if receipt.get("phase") == "complete" and any(row["path"] == receipt["target"] and row["id"] == receipt["appId"] for row in result["data"]["apps"]):
-                    aliases[receipt["legacyId"]] = "framework:" + json.dumps([receipt["target"], receipt["appId"]], ensure_ascii=False, separators=(",", ":"))
+                if receipt.get("phase") == "complete" and any(
+                    row["path"] == receipt["target"] and row["id"] == receipt["appId"]
+                    for row in result["data"]["apps"]
+                ):
+                    aliases[receipt["legacyId"]] = "framework:" + json.dumps(
+                        [receipt["target"], receipt["appId"]],
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                    )
                 else:
                     aliases.pop(receipt["legacyId"], None)
-            result = {**result, "data": {**result["data"], "apps": apps, "aliases": aliases}}
+            result = {
+                **result,
+                "data": {**result["data"], "apps": apps, "aliases": aliases},
+            }
         await self._broadcast({"type": "agent_app_framework_list", "data": result})
-
 
     async def _agent_app_stage_handler(self, request: "web.Request") -> "web.Response":
         """Stage a reference file (sketch/screenshot/doc) for a NEW Agent App.
@@ -3217,9 +3236,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 if part.name == "file":
                     filename = Path(part.filename or "reference.bin").name
                     staging = (
-                        Path(AGENT_WORKSPACE_ROOT) / "agent_app"
-                        / "_staging"
-                        / "refs"
+                        Path(AGENT_WORKSPACE_ROOT) / "agent_app" / "_staging" / "refs"
                     )
                     staging.mkdir(parents=True, exist_ok=True)
                     target = staging / filename
@@ -3243,7 +3260,6 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         except Exception as e:
             return web.json_response({"error": str(e)}, status=500)
 
-
     async def _agent_app_import_handler(self, request: "web.Request") -> "web.Response":
         """HTTP handler: stage a ZIP file upload and return the temp path.
 
@@ -3263,9 +3279,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     name = (await part.read()).decode("utf-8")
                 elif part.name == "file":
                     # Save uploaded file to a staging location
-                    staging_dir = (
-                        Path(AGENT_WORKSPACE_ROOT) / "agent_app" / "_staging"
-                    )
+                    staging_dir = Path(AGENT_WORKSPACE_ROOT) / "agent_app" / "_staging"
                     staging_dir.mkdir(parents=True, exist_ok=True)
                     with tempfile.NamedTemporaryFile(
                         suffix=".zip",
@@ -3281,7 +3295,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                                 break
                             size += len(chunk)
                             if size > 512 * 1024 * 1024:
-                                raise ValueError('Agent-App packages must be 512 MiB or smaller. Export without dependencies, build output or local data.')
+                                raise ValueError(
+                                    "Agent-App packages must be 512 MiB or smaller. Export without dependencies, build output or local data."
+                                )
                             tmp.write(chunk)
 
             if not zip_path:
@@ -3580,7 +3596,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 result["framework_install_jobs"] = jobs
                 result["framework_install_errors"] = package_errors
                 if jobs or package_errors:
-                    result["framework_install_message"] = "Profile imported. App installations run in the background. Successfully installed apps appear under Agent App."
+                    result["framework_install_message"] = (
+                        "Profile imported. App installations run in the background. Successfully installed apps appear under Agent App."
+                    )
         except Exception as exc:
             logger.error(f"[PROFILE_BUNDLE] Import failed: {exc}", exc_info=True)
             return web.json_response({"error": str(exc)}, status=500)
@@ -3593,7 +3611,6 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     pass
 
         return web.json_response(result)
-
 
     async def _handle_option_click(
         self, value: str, session_id: str, message_id: str
@@ -3764,8 +3781,12 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             "lastActiveAt": session.last_active_at,
             "agentAppProjectId": session.agent_app_project_id,
             "agentAppFrameworkKey": getattr(session, "agent_app_framework_key", None),
-            "agentAppFrameworkPending": getattr(session, "agent_app_framework_pending", False),
-            "agentAppBuild": self._framework_host.build_info(session) if getattr(self, "_framework_host", None) else None,
+            "agentAppFrameworkPending": getattr(
+                session, "agent_app_framework_pending", False
+            ),
+            "agentAppBuild": self._framework_host.build_info(session)
+            if getattr(self, "_framework_host", None)
+            else None,
             "reasoningEffort": session.reasoning_effort,
             # The last decision request, for the context menu's context and
             # cache readout; null until the session's first request.

@@ -34,6 +34,7 @@ HOP_HEADERS = {
     "host",
 }
 
+
 class ShareError(RuntimeError):
     """A channel could not be opened; the message is for the owner."""
 
@@ -216,7 +217,10 @@ class LanRelay:
                 else:
                     break
 
-        pumps = [asyncio.create_task(pump(server_ws, client_ws)), asyncio.create_task(pump(client_ws, server_ws))]
+        pumps = [
+            asyncio.create_task(pump(server_ws, client_ws)),
+            asyncio.create_task(pump(client_ws, server_ws)),
+        ]
         try:
             await asyncio.wait(pumps, return_when=asyncio.FIRST_COMPLETED)
         finally:
@@ -327,7 +331,6 @@ class TunnelChannel:
         if proc is not None:
             self._terminate(proc)
         self._close_log(log_handle)
-
 
     async def _kill_orphans(self) -> None:
         """Reap cloudflared processes a previous CraftBot run left behind.

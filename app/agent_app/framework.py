@@ -69,6 +69,7 @@ async def _list_apps(cli: AgentAppCLI) -> dict:
     else:
         await asyncio.to_thread(_add_marketplace_sources, data["apps"])
         from app.agent_app.framework_connections import connection_rows
+
         data["apps"].extend(connection_rows(data["connected"]))
         return {"status": "success", "data": data, **response}
     return {
@@ -85,18 +86,30 @@ def _add_marketplace_sources(apps: list[dict]) -> None:
         if app.get("status") == "missing":
             continue
         try:
-            manifest = json.loads((Path(app["path"]) / "manifest.json").read_text(encoding="utf-8"))
+            manifest = json.loads(
+                (Path(app["path"]) / "manifest.json").read_text(encoding="utf-8")
+            )
             if manifest.get("id") != app.get("id"):
                 continue
             support = _legacy_theme_support(Path(app["path"]))
             if support:
                 app["themeSupport"] = support
             source = manifest.get("source")
-            if manifest.get("id") != app.get("id") or not isinstance(source, dict) or source.get("kind") != "marketplace":
+            if (
+                manifest.get("id") != app.get("id")
+                or not isinstance(source, dict)
+                or source.get("kind") != "marketplace"
+            ):
                 continue
-            if not all(isinstance(source.get(key), str) and source[key] for key in ("catalogueId", "location")):
+            if not all(
+                isinstance(source.get(key), str) and source[key]
+                for key in ("catalogueId", "location")
+            ):
                 continue
-            app["marketplace"] = {"id": source["catalogueId"], "location": source["location"]}
+            app["marketplace"] = {
+                "id": source["catalogueId"],
+                "location": source["location"],
+            }
             if isinstance(source.get("ref"), str):
                 app["marketplace"]["ref"] = source["ref"]
             for key in ("repository", "commit", "path"):
@@ -137,11 +150,24 @@ def _legacy_theme_support(root: Path) -> dict | None:
                 for selectors, body in blocks:
                     for selector in selectors.split(","):
                         selector = selector.strip()
-                        if not re.fullmatch(r":root(?:\[data-(?:theme|style)=['\"][a-z-]+['\"]\])*", selector):
+                        if not re.fullmatch(
+                            r":root(?:\[data-(?:theme|style)=['\"][a-z-]+['\"]\])*",
+                            selector,
+                        ):
                             continue
-                        attrs = re.findall(r"data-(theme|style)=['\"]([a-z-]+)['\"]", selector)
-                        if all(value == (mode if name == "theme" else style) for name, value in attrs):
-                            colors.update(re.findall(r"--(?:agent-app|lui)-(bg|surface|text|accent)\s*:\s*(#[0-9a-fA-F]{6})\s*;", body))
+                        attrs = re.findall(
+                            r"data-(theme|style)=['\"]([a-z-]+)['\"]", selector
+                        )
+                        if all(
+                            value == (mode if name == "theme" else style)
+                            for name, value in attrs
+                        ):
+                            colors.update(
+                                re.findall(
+                                    r"--(?:agent-app|lui)-(bg|surface|text|accent)\s*:\s*(#[0-9a-fA-F]{6})\s*;",
+                                    body,
+                                )
+                            )
                 if len(colors) == 4:
                     modes[mode] = colors
             if len(modes) == 2:
@@ -193,11 +219,15 @@ async def open_app_view(path: str, app_id: str) -> dict:
         )
     if app.get("connection"):
         from app.agent_app.framework_connections import connection_info
+
         try:
             await connection_info(cli, path, app_id)
         except PermissionError as error:
             return failure("unreachable", str(error))
-        return {"status": "success", "data": {"id": app_id, "path": path, "name": app["name"], "url": path}}
+        return {
+            "status": "success",
+            "data": {"id": app_id, "path": path, "name": app["name"], "url": path},
+        }
     # The pinned sidecar blueprint serves protocol/account pages at this URL,
     # not the adopted UI. Its CLI has no separate view-address result yet.
     if await asyncio.to_thread((Path(path) / "sidecar.json").is_file):
@@ -290,10 +320,13 @@ async def change_app_state_locked(
     app = next((row for row in before["data"]["apps"] if row.get("path") == path), None)
     if app is None or app.get("id") != app_id:
         return failure(
-            "identity_changed", "This registry entry no longer matches the selected app."
+            "identity_changed",
+            "This registry entry no longer matches the selected app.",
         )
     if app.get("connection"):
-        return failure("remote_app", "This app runs elsewhere. Manage its process on its host.")
+        return failure(
+            "remote_app", "This app runs elsewhere. Manage its process on its host."
+        )
     if app.get("status") not in ("running", "stopped"):
         return failure("unavailable", "This app is missing or its port is unavailable.")
 

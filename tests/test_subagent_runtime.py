@@ -190,7 +190,9 @@ def runtime(registry, tmp_path, monkeypatch):
     )
 
 
-def _spawn(runtime, agent_type="general_agent", query="Read the file.", parent="parent"):
+def _spawn(
+    runtime, agent_type="general_agent", query="Read the file.", parent="parent"
+):
     return runtime.manager.spawn(agent_type, query, parent_session_id=parent)
 
 
@@ -242,9 +244,7 @@ def test_every_type_decides_on_its_own_prompt_and_actions(runtime, agent_type):
         runtime.manager.release(sub.id)
 
 
-def test_the_first_request_holds_the_query_once_then_only_new_events(
-    runtime, tmp_path
-):
+def test_the_first_request_holds_the_query_once_then_only_new_events(runtime, tmp_path):
     source = tmp_path / "input.txt"
     source.write_text("FILE-CONTENT-MARKER", encoding="utf-8")
     query = "Read input.txt and report its content."
@@ -364,9 +364,7 @@ def test_a_request_that_would_not_fit_folds_on_the_history(
         runtime.llm.fits = False
         return read
 
-    runtime.llm.script(
-        sub.id, work_then_read, overflow_next_then_read, lambda: _end()
-    )
+    runtime.llm.script(sub.id, work_then_read, overflow_next_then_read, lambda: _end())
     _run(runtime, sub)
 
     folded = runtime.llm.sent[sub.id][2]
@@ -436,7 +434,9 @@ def test_the_early_end_guard_refuses_until_the_final_turn(runtime, monkeypatch):
     assert (sub.status, sub.result, sub.iterations) == ("completed", "third", 3)
 
 
-def test_the_turn_cap_ends_the_run_and_warns_once_before(runtime, tmp_path, monkeypatch):
+def test_the_turn_cap_ends_the_run_and_warns_once_before(
+    runtime, tmp_path, monkeypatch
+):
     source = tmp_path / "input.txt"
     source.write_text("content", encoding="utf-8")
     sub = _spawn(runtime, _tiny(monkeypatch, max_iterations=10))

@@ -32,7 +32,9 @@ class SessionReferenceProvider:
 
 
 class AgentAppReferenceProvider:
-    async def capture(self, target_id: str, limit: int, cursor: str | None = None) -> dict:
+    async def capture(
+        self, target_id: str, limit: int, cursor: str | None = None
+    ) -> dict:
         from app.agent_app.framework_references import reference_app, describe_reference
 
         if cursor:
@@ -43,7 +45,11 @@ class AgentAppReferenceProvider:
                 raise ReferenceError("The referenced app is no longer available.")
             data = await describe_reference(row)
             excerpt, clipped = bounded(json.dumps(data, ensure_ascii=False), limit)
-            return {"label": str(row["name"])[:256], "excerpt": excerpt,
-                    "truncated": clipped, "nextCursor": None}
+            return {
+                "label": str(row["name"])[:256],
+                "excerpt": excerpt,
+                "truncated": clipped,
+                "nextCursor": None,
+            }
         except (ValueError, OSError) as error:
             raise ReferenceError(str(error)) from error

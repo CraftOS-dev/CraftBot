@@ -45,6 +45,7 @@ class FrameworkHost:
 
         self.bridge = FrameworkBridge(self)
         from app.agent_app.framework_connections import FrameworkConnections
+
         self.connections = FrameworkConnections(self)
         from app.agent_app.framework_maintenance import FrameworkMaintenance
         from app.agent_app.framework_sharing import FrameworkSharing
@@ -110,7 +111,9 @@ class FrameworkHost:
                     key = app_key(cli.home, row["path"], row["id"])
                     sessions = [
                         session.id
-                        for session in list(self.agent.session_manager.sessions.values())
+                        for session in list(
+                            self.agent.session_manager.sessions.values()
+                        )
                         if getattr(session, "agent_app_framework_key", None) == key
                     ]
                     for sid in sessions:
@@ -124,18 +127,23 @@ class FrameworkHost:
                     result = await self.request(
                         {
                             "operation": "manage",
-                            "verb": "forget" if row["status"] == "missing" else "remove",
+                            "verb": "forget"
+                            if row["status"] == "missing"
+                            else "remove",
                             "path": row["path"],
                             "appId": row["id"],
                             "confirm": row["id"],
                             "stopFirst": True,
                         }
                     )
-                    if result["status"] != "success" or (
-                        result.get("data") or {}
-                    ).get("ok") is not True:
+                    if (
+                        result["status"] != "success"
+                        or (result.get("data") or {}).get("ok") is not True
+                    ):
                         raise RuntimeError(
-                            result.get("stderr") or result.get("message") or "Removal failed."
+                            result.get("stderr")
+                            or result.get("message")
+                            or "Removal failed."
                         )
                     deleted += 1
                     for sid in sessions:
@@ -181,7 +189,12 @@ class FrameworkHost:
             if row.get("status") == "missing" or row.get("connection"):
                 continue
             builder = self._building_conversation(row["path"], cli.home)
-            if builder and builder.agent_app_framework_key and builder.agent_app_framework_key != app_key(cli.home, row["path"], row["id"]):
+            if (
+                builder
+                and builder.agent_app_framework_key
+                and builder.agent_app_framework_key
+                != app_key(cli.home, row["path"], row["id"])
+            ):
                 await self.attach(row["path"], row["id"])
         # Older receipts predate the construction screen. A promoted, verified
         # build is no longer under construction even if its live app was stopped.
@@ -194,27 +207,47 @@ class FrameworkHost:
             note = next((n for n in conversations if n.get("path") == path), None)
             if not note or note.get("home") != str(cli.home):
                 continue
-            running = any(row["path"] == path and row.get("status") == "running" for row in rows)
+            running = any(
+                row["path"] == path and row.get("status") == "running" for row in rows
+            )
             if "building" in creation and not running:
                 continue
-            promoted = (self.verification(path) or {}).get("verdict") == PASS and not self.gate_stamp(path)
+            promoted = (self.verification(path) or {}).get(
+                "verdict"
+            ) == PASS and not self.gate_stamp(path)
             creation["building"] = not (running or promoted)
             self.store.put("creation", note["sessionId"], creation)
-        registered = {
-            (row["path"], row["id"])
-            for row in (inventory.get("data") or {}).get("apps", [])
-            if row.get("status") != "missing"
-        } if inventory.get("status") == "success" else set()
+        registered = (
+            {
+                (row["path"], row["id"])
+                for row in (inventory.get("data") or {}).get("apps", [])
+                if row.get("status") != "missing"
+            }
+            if inventory.get("status") == "success"
+            else set()
+        )
         for attachment in self.store.all("attachment"):
             if attachment.get("home") != str(cli.home):
                 continue
             session = self.agent.session_manager.get(attachment.get("sessionId"))
-            if (attachment["path"], attachment["appId"]) in registered and self._can_bind_conversation(
-                session, attachment["key"], attachment["path"],
-                attachment["appId"], cli.home,
-            ) and getattr(session, "agent_app_framework_key", None) != attachment["key"]:
-                self.agent.session_manager.bind_framework_app(session.id, attachment["key"])
-            if attachment.get("connection") or not (attachment.get("autoStart", True) or attachment.get("maintenanceResume")):
+            if (
+                (attachment["path"], attachment["appId"]) in registered
+                and self._can_bind_conversation(
+                    session,
+                    attachment["key"],
+                    attachment["path"],
+                    attachment["appId"],
+                    cli.home,
+                )
+                and getattr(session, "agent_app_framework_key", None)
+                != attachment["key"]
+            ):
+                self.agent.session_manager.bind_framework_app(
+                    session.id, attachment["key"]
+                )
+            if attachment.get("connection") or not (
+                attachment.get("autoStart", True) or attachment.get("maintenanceResume")
+            ):
                 continue
             if (attachment["path"], attachment["appId"]) not in registered:
                 continue
@@ -235,7 +268,9 @@ class FrameworkHost:
                 attachment.pop("startError", None)
                 attachment.pop("maintenanceResume", None)
             except Exception as error:
-                attachment = self.store.get("attachment", attachment["key"]) or attachment
+                attachment = (
+                    self.store.get("attachment", attachment["key"]) or attachment
+                )
                 attachment["startError"] = str(error)
             self.store.put("attachment", attachment["key"], attachment)
         await self.bridge.restore()
@@ -249,7 +284,10 @@ class FrameworkHost:
         previous = self.store.get("attachment", key) or {}
         connection = row.get("connection")
         previous_connection = previous.get("connection") or {}
-        if connection and any(previous_connection.get(k) != connection.get(k) for k in ("credentialId", "principal")):
+        if connection and any(
+            previous_connection.get(k) != connection.get(k)
+            for k in ("credentialId", "principal")
+        ):
             await self.connections.stop_pump(path)
             for run in list(self.bridge.runs.values()):
                 if run["path"] == path:
@@ -262,18 +300,26 @@ class FrameworkHost:
                     old_session.archived = True
                     self.agent.session_manager.persist(old_session.id)
                     self.store.delete("conversation", old_session.id)
-                previous = {"uiTheme": previous["uiTheme"]} if "uiTheme" in previous else {}
+                previous = (
+                    {"uiTheme": previous["uiTheme"]} if "uiTheme" in previous else {}
+                )
                 session_id = None
         # The app owns its side chat. Running an app command from Main or another
         # chat must never replace that conversation or move its messages there.
         # A creation owns its conversation before and throughout scaffolding.
         # Re-scaffolding can change the upstream ID without creating a new build.
-        builder = None if row.get("connection") else self._building_conversation(path, cli.home)
+        builder = (
+            None
+            if row.get("connection")
+            else self._building_conversation(path, cli.home)
+        )
         session = builder
         old_key = getattr(builder, "agent_app_framework_key", None)
         if builder and old_key != key:
-            self.agent.session_manager.bind_framework_app(builder.id, key, previous_key=old_key)
-        for sid in (() if builder else (previous.get("sessionId"), session_id)):
+            self.agent.session_manager.bind_framework_app(
+                builder.id, key, previous_key=old_key
+            )
+        for sid in () if builder else (previous.get("sessionId"), session_id):
             candidate = self.agent.session_manager.get(sid) if sid else None
             if self._can_bind_conversation(candidate, key, path, app_id, cli.home):
                 session = candidate
@@ -300,13 +346,19 @@ class FrameworkHost:
         }
         if row.get("connection"):
             previous_connection = previous.get("connection") or {}
-            value.update(connection=row["connection"], autoStart=False, ownerToolsAllowed=False)
-            if previous_connection.get("credentialId") != row["connection"].get("credentialId"):
+            value.update(
+                connection=row["connection"], autoStart=False, ownerToolsAllowed=False
+            )
+            if previous_connection.get("credentialId") != row["connection"].get(
+                "credentialId"
+            ):
                 value["tasksAllowed"] = False
         creation = self.store.get("creation", session.id) or {}
         if "uiTheme" not in value and creation.get("uiTheme"):
             value["uiTheme"] = creation["uiTheme"]
-        attachment_changed = value != previous or self.store.get("conversation", session.id) != value
+        attachment_changed = (
+            value != previous or self.store.get("conversation", session.id) != value
+        )
         if attachment_changed:
             self.store.put("attachment", key, value)
             self.store.put("conversation", session.id, value)
@@ -315,7 +367,9 @@ class FrameworkHost:
             # the replacement identity. Conversation history stays in place.
             self.store.delete("attachment", old_key)
         creation = self.store.get("creation", session.id)
-        build_finished = bool(creation and creation.get("building") and row.get("status") == "running")
+        build_finished = bool(
+            creation and creation.get("building") and row.get("status") == "running"
+        )
         if build_finished:
             # Scaffolding and a dev server are not delivery. The registry's
             # verified live status ends the original construction view.
@@ -333,7 +387,9 @@ class FrameworkHost:
             if not creation or not creation.get("building"):
                 continue
             if (
-                not note.get("home") or not note.get("path") or not creation.get("path")
+                not note.get("home")
+                or not note.get("path")
+                or not creation.get("path")
                 or Path(note["home"]).resolve() != Path(home).resolve()
                 or Path(note["path"]).resolve() != Path(path).resolve()
                 or Path(creation["path"]).resolve() != Path(path).resolve()
@@ -341,9 +397,11 @@ class FrameworkHost:
                 continue
             session = self.agent.session_manager.get(sid)
             if (
-                session is None or session.id == MAIN_SESSION_ID
+                session is None
+                or session.id == MAIN_SESSION_ID
                 or session.type != SessionType.AGENT_APP
-                or session.agent_app_project_id or session.isolated_app_task
+                or session.agent_app_project_id
+                or session.isolated_app_task
                 or self.store.get("verification_session", sid)
             ):
                 continue
@@ -352,7 +410,9 @@ class FrameworkHost:
                 continue
             candidates.append(session)
         if len(candidates) > 1:
-            raise ValueError("More than one unfinished creation owns this app directory.")
+            raise ValueError(
+                "More than one unfinished creation owns this app directory."
+            )
         return candidates[0] if candidates else None
 
     def build_info(self, session):
@@ -409,10 +469,14 @@ class FrameworkHost:
 
     def _remember_checkpoint(self, session_id, checkpoint):
         if isinstance(checkpoint, dict) and checkpoint.get("id"):
-            self.store.put("checkpoint", session_id, {
-                key: checkpoint.get(key)
-                for key in ("id", "kind", "round", "status", "shown", "createdAt")
-            })
+            self.store.put(
+                "checkpoint",
+                session_id,
+                {
+                    key: checkpoint.get(key)
+                    for key in ("id", "kind", "round", "status", "shown", "createdAt")
+                },
+            )
 
     def _build_path(self, session_id):
         creation = self.store.get("creation", session_id) or {}
@@ -431,7 +495,11 @@ class FrameworkHost:
         path = self._build_path(session_id)
         result, doc = await self._checkpoint_cli([path, "checkpoint", "show"])
         if not result.ok:
-            raise RuntimeError(doc.get("error") or result.stderr.strip() or "This step could not be read.")
+            raise RuntimeError(
+                doc.get("error")
+                or result.stderr.strip()
+                or "This step could not be read."
+            )
         before = self.store.get("checkpoint", session_id)
         self._remember_checkpoint(session_id, doc.get("checkpoint"))
         # The build moved on since the view last heard (the person answered
@@ -451,9 +519,17 @@ class FrameworkHost:
             or current.get("id") != data.get("id")
             or current.get("status") != "pending"
         ):
-            return {"ok": False, "reason": "moved", "error": "The build has moved past this step."}
+            return {
+                "ok": False,
+                "reason": "moved",
+                "error": "The build has moved past this step.",
+            }
         part_a = data.get("partA")
-        changes = (data.get("changes") or "").strip() if isinstance(data.get("changes"), str) else ""
+        changes = (
+            (data.get("changes") or "").strip()
+            if isinstance(data.get("changes"), str)
+            else ""
+        )
         with TemporaryDirectory(prefix="craftbot-part-a-") as tmp:
             edit = []
             if isinstance(part_a, str) and part_a.strip():
@@ -465,7 +541,13 @@ class FrameworkHost:
             elif changes:
                 args = [path, "checkpoint", "answer", "--changes", changes, *edit]
             elif isinstance(data.get("answers"), list):
-                args = [path, "checkpoint", "answer", "--json", json.dumps({"answers": data["answers"]})]
+                args = [
+                    path,
+                    "checkpoint",
+                    "answer",
+                    "--json",
+                    json.dumps({"answers": data["answers"]}),
+                ]
             else:
                 raise ValueError("Answer the questions, or say what to change.")
             result, doc = await self._checkpoint_cli(args)
@@ -473,7 +555,9 @@ class FrameworkHost:
             return {
                 "ok": False,
                 "reason": doc.get("reason"),
-                "error": doc.get("error") or result.stderr.strip() or "That did not go through.",
+                "error": doc.get("error")
+                or result.stderr.strip()
+                or "That did not go through.",
                 "problems": doc.get("problems") or [],
             }
         self._remember_checkpoint(session_id, doc.get("checkpoint"))
@@ -481,13 +565,17 @@ class FrameworkHost:
         if isinstance(doc.get("message"), str):
             ui = getattr(self.agent, "ui_controller", None)
             if ui is not None:
-                await ui.submit_message(doc["message"], "framework", session_id=session_id)
+                await ui.submit_message(
+                    doc["message"], "framework", session_id=session_id
+                )
             else:
-                await self.agent._handle_chat_message({
-                    "text": doc["message"],
-                    "sender": {"id": "framework", "type": "user"},
-                    "session_id": session_id,
-                })
+                await self.agent._handle_chat_message(
+                    {
+                        "text": doc["message"],
+                        "sender": {"id": "framework", "type": "user"},
+                        "session_id": session_id,
+                    }
+                )
         await self.changed()
         return {"ok": True, "checkpoint": self.store.get("checkpoint", session_id)}
 
@@ -529,6 +617,7 @@ class FrameworkHost:
 
     async def disconnect(self, path, app_id):
         from app.agent_app.framework_connections import is_connection
+
         if not is_connection(path):
             raise ValueError("Select a URL-connected app.")
         await self.selected(path, app_id)
@@ -540,18 +629,33 @@ class FrameworkHost:
         await self.connections.stop_pump(path)
         result = await command("a2app", [path, "logout"])
         if result["status"] != "success":
-            raise RuntimeError(result.get("stderr") or "The app could not be disconnected.")
+            raise RuntimeError(
+                result.get("stderr") or "The app could not be disconnected."
+            )
         await self.changed()
-        return {"status": "success", "data": {"ok": True, "removed": {"id": app_id, "path": path}}}
+        return {
+            "status": "success",
+            "data": {"ok": True, "removed": {"id": app_id, "path": path}},
+        }
 
     async def workflow(
-        self, activity, request, path=None, app_id=None, *, creation=None, parent_session_id=None
+        self,
+        activity,
+        request,
+        path=None,
+        app_id=None,
+        *,
+        creation=None,
+        parent_session_id=None,
     ):
         if self.resetting:
             raise RuntimeError("Wait for the Agent Apps reset to finish.")
         from app.agent_app.framework_connections import is_connection
+
         if is_connection(path) and activity != "operate":
-            raise ValueError("Connected apps can be operated here; modify their code on their host.")
+            raise ValueError(
+                "Connected apps can be operated here; modify their code on their host."
+            )
         activities = {
             "create": "creator",
             "modify": "modify",
@@ -583,7 +687,9 @@ class FrameworkHost:
             creation = {
                 "name": creation["name"].strip(),
                 "authMode": creation["authMode"],
-                "uiTheme": validate_ui_theme({"themeId": creation.get("uiTheme") or "craftbot"}),
+                "uiTheme": validate_ui_theme(
+                    {"themeId": creation.get("uiTheme") or "craftbot"}
+                ),
             }
         cli = await asyncio.to_thread(framework.configured_cli)
         new_app = activity in {"create", "import", "convert"} and not path
@@ -602,14 +708,20 @@ class FrameworkHost:
             # Selection yields to registry IO. Reset/shutdown may have begun
             # after the initial workflow guard and canceled its job snapshot.
             if self.resetting or self.closing:
-                raise RuntimeError("Verification cannot start during reset or shutdown.")
+                raise RuntimeError(
+                    "Verification cannot start during reset or shutdown."
+                )
             if parent_session_id:
                 from app.agent_app.framework_verification import run_verification
 
                 key = app_key(cli.home, path, app_id)
                 if key in self.verification_runs:
-                    raise RuntimeError("Independent verification is already running for this app.")
-                task = asyncio.create_task(run_verification(self, row, stamp, request, parent_session_id))
+                    raise RuntimeError(
+                        "Independent verification is already running for this app."
+                    )
+                task = asyncio.create_task(
+                    run_verification(self, row, stamp, request, parent_session_id)
+                )
                 self.verification_runs[key] = task
                 try:
                     return await task
@@ -624,13 +736,21 @@ class FrameworkHost:
             from app.triggers.service import TriggerSpec
             from app.triggers.sources import TriggerSource
 
-            await self.agent.trigger_service.emit(TriggerSpec(
-                source=TriggerSource.FRAMEWORK_WORKFLOW,
-                session_id=attached["sessionId"],
-                description=(f"Run agent_app_framework_workflow with activity='verify', path={path!r}, app_id={app_id!r}. "
-                             f"It runs an independent subagent and returns the verdict in the same action. Requested checks: {request}"),
-                payload={"workflow_skills": [], "workflow_action_sets": ["agent_app"], "run_source": "framework_workflow"},
-            ))
+            await self.agent.trigger_service.emit(
+                TriggerSpec(
+                    source=TriggerSource.FRAMEWORK_WORKFLOW,
+                    session_id=attached["sessionId"],
+                    description=(
+                        f"Run agent_app_framework_workflow with activity='verify', path={path!r}, app_id={app_id!r}. "
+                        f"It runs an independent subagent and returns the verdict in the same action. Requested checks: {request}"
+                    ),
+                    payload={
+                        "workflow_skills": [],
+                        "workflow_action_sets": ["agent_app"],
+                        "run_source": "framework_workflow",
+                    },
+                )
+            )
             await self.changed()
             return {"sessionId": attached["sessionId"], "path": path, "queued": True}
         if path and app_id:
@@ -639,7 +759,11 @@ class FrameworkHost:
         else:
             session = self.agent.session_manager.create_session(
                 session_type=SessionType.AGENT_APP if new_app else SessionType.CHAT,
-                title=(creation or {}).get("name", "New app" if activity == "create" else "Imported app") if new_app else f"Agent App: {activity}",
+                title=(creation or {}).get(
+                    "name", "New app" if activity == "create" else "Imported app"
+                )
+                if new_app
+                else f"Agent App: {activity}",
                 agent_app_framework_pending=new_app,
             )
         if path:
@@ -654,15 +778,19 @@ class FrameworkHost:
                 },
             )
         if new_app:
-            self.store.put("creation", session.id, {
-                "path": path,
-                **(creation or {}),
-                "building": True,
-                "activity": activities[activity],
-                # CraftBot's build view shows this build's questions and
-                # requirements review (the Build dialog, then the app's view).
-                "checkpoints": "ui",
-            })
+            self.store.put(
+                "creation",
+                session.id,
+                {
+                    "path": path,
+                    **(creation or {}),
+                    "building": True,
+                    "activity": activities[activity],
+                    # CraftBot's build view shows this build's questions and
+                    # requirements review (the Build dialog, then the app's view).
+                    "checkpoints": "ui",
+                },
+            )
         from app.triggers.service import TriggerSpec
         from app.triggers.sources import TriggerSource
 
@@ -686,7 +814,8 @@ class FrameworkHost:
                 payload={
                     "workflow_skills": [f"framework-{activities[activity]}"],
                     "workflow_action_sets": [
-                        s for s in BUILD_ACTION_SETS
+                        s
+                        for s in BUILD_ACTION_SETS
                         if activity != "operate" or s != "agent_app"
                     ],
                     "run_source": "framework_workflow",
@@ -704,7 +833,10 @@ class FrameworkHost:
         result = list(args)
         bound = []
         if "name" in creation and "authMode" in creation:
-            bound += [("--name", creation["name"]), ("--auth-mode", creation["authMode"])]
+            bound += [
+                ("--name", creation["name"]),
+                ("--auth-mode", creation["authMode"]),
+            ]
         # CraftBot's build view is where this build stops for the person.
         if creation.get("checkpoints") == "ui":
             bound.append(("--checkpoints", "ui"))
@@ -735,7 +867,10 @@ class FrameworkHost:
             raise PermissionError(
                 "Only the assigned independent verifier can record this verdict."
             )
-        if assignment.get("mode") == "subagent" and assignment.get("status") != "running":
+        if (
+            assignment.get("mode") == "subagent"
+            and assignment.get("status") != "running"
+        ):
             raise PermissionError("This verification subagent has already ended.")
         if (
             verdict not in VERDICTS
@@ -927,9 +1062,17 @@ class FrameworkHost:
         if operation == "connect":
             if self.resetting:
                 raise RuntimeError("Wait for the Agent Apps reset to finish.")
-            return await self.connections.start(data.get("url", ""), data.get("embedder", ""))
+            return await self.connections.start(
+                data.get("url", ""), data.get("embedder", "")
+            )
         if operation == "connect_status":
-            return self.connections.attempts.get(data.get("id"), {"status": "error", "error": "This connection attempt has ended. Try again."})
+            return self.connections.attempts.get(
+                data.get("id"),
+                {
+                    "status": "error",
+                    "error": "This connection attempt has ended. Try again.",
+                },
+            )
         if operation == "connect_cancel":
             return await self.connections.cancel(data.get("id"))
         if operation == "disconnect":
@@ -941,9 +1084,18 @@ class FrameworkHost:
         if operation == "checkpoint_reply":
             return await self.checkpoint_reply(data)
         from app.agent_app.framework_connections import is_connection
+
         remote = is_connection(data.get("path", ""))
-        if remote and operation in {"manage", "maintenance", "sharing", "backup_delete", "workflow"}:
-            raise ValueError("This app runs elsewhere. Manage its files and process on its host.")
+        if remote and operation in {
+            "manage",
+            "maintenance",
+            "sharing",
+            "backup_delete",
+            "workflow",
+        }:
+            raise ValueError(
+                "This app runs elsewhere. Manage its files and process on its host."
+            )
 
         if operation == "snapshot":
             return await self.snapshot()
@@ -1004,7 +1156,16 @@ class FrameworkHost:
         if operation == "attach":
             return await self.attach(data["path"], data["appId"])
         if operation == "preference":
-            if remote and any(name in data for name in ("autoStart", "logCleanup", "backupsEnabled", "backupInterval", "backupKeep")):
+            if remote and any(
+                name in data
+                for name in (
+                    "autoStart",
+                    "logCleanup",
+                    "backupsEnabled",
+                    "backupInterval",
+                    "backupKeep",
+                )
+            ):
                 raise ValueError("Connected apps manage their own startup and backups.")
             attachment = await self.attach(data["path"], data["appId"])
             attachment = self.maintenance.patch(attachment, data)

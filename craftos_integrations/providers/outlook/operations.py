@@ -551,7 +551,12 @@ def build_operations() -> List[Operation]:
                     "description": "Subject.",
                     "example": "Quick question",
                 },
-                "body": {"type": "string", "required": True, "description": "Body.", "example": ""},
+                "body": {
+                    "type": "string",
+                    "required": True,
+                    "description": "Body.",
+                    "example": "",
+                },
                 "to": {
                     "type": "string",
                     "required": False,

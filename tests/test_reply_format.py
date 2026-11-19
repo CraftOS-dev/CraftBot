@@ -52,9 +52,14 @@ def _message_description() -> str:
         node
         for node in ast.walk(tree)
         if isinstance(node, ast.Call)
-        and any(k.arg == "name" and getattr(k.value, "value", None) == "send_message" for k in node.keywords)
+        and any(
+            k.arg == "name" and getattr(k.value, "value", None) == "send_message"
+            for k in node.keywords
+        )
     )
-    schema = ast.literal_eval(next(k.value for k in decorator.keywords if k.arg == "input_schema"))
+    schema = ast.literal_eval(
+        next(k.value for k in decorator.keywords if k.arg == "input_schema")
+    )
     return schema["message"]["description"]
 
 

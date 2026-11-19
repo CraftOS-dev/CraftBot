@@ -39,7 +39,10 @@ def _manager(tmp_path):
 
 def test_spawn_and_end_notify_observers(monkeypatch, tmp_path):
     seen = []
-    observer = lambda event, sub: seen.append((event, sub.id, sub.parent_session_id, sub.status))
+
+    def observer(event, sub):
+        return seen.append((event, sub.id, sub.parent_session_id, sub.status))
+
     monkeypatch.setattr(subagent_manager, "_LIFECYCLE_OBSERVERS", [])
     monkeypatch.setattr(
         subagent_manager,
@@ -50,7 +53,9 @@ def test_spawn_and_end_notify_observers(monkeypatch, tmp_path):
     subagent_manager.add_lifecycle_observer(observer)  # added once only
 
     mgr = _manager(tmp_path)
-    sub = mgr.spawn(agent_type="general_agent", query="check it", parent_session_id="chat-1")
+    sub = mgr.spawn(
+        agent_type="general_agent", query="check it", parent_session_id="chat-1"
+    )
     mgr.end(sub.id, "completed", "done")
     mgr.end(sub.id, "completed", "again")  # idempotent: no second end
 
@@ -71,7 +76,9 @@ def test_a_failing_observer_never_breaks_a_spawn(monkeypatch, tmp_path):
         lambda name: types.SimpleNamespace(compiled_actions=[]),
     )
     mgr = _manager(tmp_path)
-    assert mgr.spawn(agent_type="x", query="q", parent_session_id="main").id.startswith("sub_")
+    assert mgr.spawn(agent_type="x", query="q", parent_session_id="main").id.startswith(
+        "sub_"
+    )
 
 
 def test_adapter_sends_subagent_link_only_to_capable_clients(monkeypatch):
@@ -88,13 +95,24 @@ def test_adapter_sends_subagent_link_only_to_capable_clients(monkeypatch):
     async def scenario():
         from app.state.agent_state import STATE
 
-        monkeypatch.setattr(STATE, "main_loop", asyncio.get_running_loop(), raising=False)
+        monkeypatch.setattr(
+            STATE, "main_loop", asyncio.get_running_loop(), raising=False
+        )
         browser_ws, terminal_ws = _Ws(), _Ws()
         browser, terminal = ClientChannel(browser_ws), ClientChannel(terminal_ws)
         terminal.declare("terminal", ["subagent_link"])
-        adapter = types.SimpleNamespace(_channels={browser_ws: browser, terminal_ws: terminal})
-        adapter._broadcast_capable = lambda cap, msg: BrowserAdapter._broadcast_capable(adapter, cap, msg)
-        sub = types.SimpleNamespace(id="sub_1", parent_session_id="chat-1", agent_type="general_agent", status="running")
+        adapter = types.SimpleNamespace(
+            _channels={browser_ws: browser, terminal_ws: terminal}
+        )
+        adapter._broadcast_capable = lambda cap, msg: BrowserAdapter._broadcast_capable(
+            adapter, cap, msg
+        )
+        sub = types.SimpleNamespace(
+            id="sub_1",
+            parent_session_id="chat-1",
+            agent_type="general_agent",
+            status="running",
+        )
         BrowserAdapter._on_subagent_lifecycle(adapter, "spawn", sub)
         await asyncio.sleep(0.05)
         await browser.close()
@@ -106,6 +124,11 @@ def test_adapter_sends_subagent_link_only_to_capable_clients(monkeypatch):
     assert terminal_sent == [
         {
             "type": "subagent_link",
-            "data": {"subId": "sub_1", "parentId": "chat-1", "agentType": "general_agent", "state": "running"},
+            "data": {
+                "subId": "sub_1",
+                "parentId": "chat-1",
+                "agentType": "general_agent",
+                "state": "running",
+            },
         }
     ]

@@ -4,21 +4,36 @@
 import importlib
 import sys
 
-from agent_core.core.database_interface import DatabaseInterface as BaseDatabaseInterface
+from agent_core.core.database_interface import (
+    DatabaseInterface as BaseDatabaseInterface,
+)
 from agent_core.utils.logger import logger
 
 
 # Reserved built-ins from the removed CraftBot app runtime. Saved state may
 # still contain their files after an upgrade; they must not enter the catalog.
-RETIRED_APP_ACTIONS = frozenset({
-    "agent_app_framework_command", "agent_app_list_projects",
-    "agent_app_notify_ready", "agent_app_walk_verify", "agent_app_ops_verify",
-    "agent_app_restart", "agent_app_report_progress", "agent_app_report_finding",
-    "agent_app_http", "agent_app_usage", "agent_app_marketplace_list",
-    "agent_app_approve_triggers", "agent_app_marketplace_install",
-    "agent_app_import_zip", "agent_app_import", "agent_app_convert",
-    "walk_mark_feature", "agent_app_scaffold",
-})
+RETIRED_APP_ACTIONS = frozenset(
+    {
+        "agent_app_framework_command",
+        "agent_app_list_projects",
+        "agent_app_notify_ready",
+        "agent_app_walk_verify",
+        "agent_app_ops_verify",
+        "agent_app_restart",
+        "agent_app_report_progress",
+        "agent_app_report_finding",
+        "agent_app_http",
+        "agent_app_usage",
+        "agent_app_marketplace_list",
+        "agent_app_approve_triggers",
+        "agent_app_marketplace_install",
+        "agent_app_import_zip",
+        "agent_app_import",
+        "agent_app_convert",
+        "walk_mark_feature",
+        "agent_app_scaffold",
+    }
+)
 
 
 class DatabaseInterface(BaseDatabaseInterface):

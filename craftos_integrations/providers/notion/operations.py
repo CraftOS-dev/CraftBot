@@ -323,7 +323,12 @@ def _page_ops() -> List[Operation]:
             tags=("notion_pages", "notion"),
             parallelizable=False,
             input_schema={
-                "page_id": {"type": "string", "required": True, "description": "Page ID.", "example": ""},
+                "page_id": {
+                    "type": "string",
+                    "required": True,
+                    "description": "Page ID.",
+                    "example": "",
+                },
             },
             display_param="page_id",
         ),
@@ -334,7 +339,12 @@ def _page_ops() -> List[Operation]:
             tags=("notion_pages",),
             parallelizable=False,
             input_schema={
-                "page_id": {"type": "string", "required": True, "description": "Page ID.", "example": ""},
+                "page_id": {
+                    "type": "string",
+                    "required": True,
+                    "description": "Page ID.",
+                    "example": "",
+                },
             },
             display_param="page_id",
         ),
@@ -347,7 +357,12 @@ def _page_ops() -> List[Operation]:
             ),
             tags=("notion_pages",),
             input_schema={
-                "page_id": {"type": "string", "required": True, "description": "Page ID.", "example": ""},
+                "page_id": {
+                    "type": "string",
+                    "required": True,
+                    "description": "Page ID.",
+                    "example": "",
+                },
                 "property_id": {
                     "type": "string",
                     "required": True,
@@ -1015,7 +1030,12 @@ def _comment_and_user_ops() -> List[Operation]:
             description="Get a single Notion user by ID.",
             tags=("notion_users", "notion"),
             input_schema={
-                "user_id": {"type": "string", "required": False, "description": "User ID.", "example": ""},
+                "user_id": {
+                    "type": "string",
+                    "required": False,
+                    "description": "User ID.",
+                    "example": "",
+                },
             },
             display_param="user_id",
         ),
