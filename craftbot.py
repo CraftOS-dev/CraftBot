@@ -552,6 +552,43 @@ def _current_url(args: Optional[List[str]] = None) -> str:
     return _frontend_url(args)
 
 
+#: How long cmd_start probes the browser UI after run.py reports readiness.
+#: The UI should already answer; this absorbs a slow first response.
+FRONTEND_READY_TIMEOUT_S = 30
+
+#: Present in the UI's index.html (dev and built). A 200 without it is not
+#: the UI — e.g. the directory listing of a dist/ that has no index.html.
+_FRONTEND_ROOT_MARKER = b'id="root"'
+
+
+def _frontend_serving(url: str) -> bool:
+    """True only when `url` answers with the CraftBot UI itself.
+
+    The agent readiness marker says nothing about the frontend, and a server
+    that answers is not necessarily one that can serve the page: a 404 is
+    exactly what the user saw when the URL was shown too early. The opener
+    raises on every 4xx/5xx, so any HTTP error counts as not ready.
+    """
+    try:
+        with _instance.loopback_opener().open(url, timeout=2) as resp:
+            return 200 <= resp.status < 300 and _FRONTEND_ROOT_MARKER in resp.read(
+                65536
+            )
+    except Exception:
+        return False
+
+
+def _wait_for_frontend(url: str, timeout: float) -> bool:
+    """Poll `url` until it serves the UI. Returns False on timeout."""
+    deadline = time.time() + timeout
+    while True:
+        if _frontend_serving(url):
+            return True
+        if time.time() >= deadline:
+            return False
+        time.sleep(0.5)
+
+
 def _is_running(pid: int) -> bool:
     """Return True if a process with the given PID is currently alive."""
     return _helpers.process_start_time(pid) is not None
@@ -814,6 +851,14 @@ def cmd_start(extra_args: List[str]) -> bool:
     if terminal_edition:
         # No web UI and no desktop icon: the client is `craftbot.py tui`.
         print(f"  {DIM}░░{RESET} {WHITE}Open it with: python craftbot.py tui{RESET}")
+        return True
+    print(f"  {DIM}░░ Waiting for the browser interface...{RESET}", flush=True)
+    if not _wait_for_frontend(browser_url, FRONTEND_READY_TIMEOUT_S):
+        print(
+            f"  {RED}✗{RESET} {WHITE}The browser interface is not responding"
+            f" at {browser_url}{RESET}"
+        )
+        print(f"  {DIM}Check progress: {sys.executable} craftbot.py logs{RESET}")
         return True
     print(f"  {DIM}░░{RESET} {ORANGE}{browser_url}{RESET}")
 
