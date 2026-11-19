@@ -6,13 +6,15 @@
 #   "pandas",
 #   "plotille",
 #   "matplotlib",
-#   "mplfinance"
+#   "mplfinance",
+#   "fin-primitives[pandas]>=4.0.0"
 # ]
 # ///
 
 import sys
 import yfinance as yf
 import pandas as pd
+from fin_primitives import ta as fp_ta
 import plotille
 import matplotlib.pyplot as plt
 import mplfinance as mpf
@@ -37,15 +39,18 @@ def _has_data(s: pd.Series) -> bool:
 # --- Technical Indicators ---
 
 
+def _clean(x: pd.Series) -> pd.Series:
+    return pd.to_numeric(x, errors="coerce").dropna().astype(float)
+
+
 def calc_rsi(close: pd.Series, window: int = 14) -> pd.Series:
-    delta = close.diff()
-    gain = delta.clip(lower=0)
-    loss = -delta.clip(upper=0)
-    avg_gain = gain.ewm(alpha=1 / window, adjust=False, min_periods=window).mean()
-    avg_loss = loss.ewm(alpha=1 / window, adjust=False, min_periods=window).mean()
-    rs = avg_gain / avg_loss.replace(0, pd.NA)
-    rsi = 100 - (100 / (1 + rs))
-    return rsi
+    """Wilder's RSI as talib.RSI computes it. The averages are seeded with the mean of
+    the first `window` changes, which keeps a 1-6 month chart close to the RSI on long
+    history; seeding with the first change alone takes ~100 bars to wash out."""
+    c = _clean(close)
+    if len(c) <= window:
+        return pd.Series(float("nan"), index=close.index)
+    return fp_ta.rsi(c, length=window).reindex(close.index)
 
 
 def calc_macd(close: pd.Series, fast: int = 12, slow: int = 26, signal: int = 9):
@@ -75,20 +80,13 @@ def calc_vwap(df: pd.DataFrame) -> pd.Series:
 
 
 def calc_atr(df: pd.DataFrame, window: int = 14) -> pd.Series:
-    high = df["High"]
-    low = df["Low"]
-    close = df["Close"]
-    prev_close = close.shift(1)
-    tr = pd.concat(
-        [
-            (high - low),
-            (high - prev_close).abs(),
-            (low - prev_close).abs(),
-        ],
-        axis=1,
-    ).max(axis=1)
-    atr = tr.ewm(alpha=1 / window, adjust=False, min_periods=window).mean()
-    return atr
+    """Wilder's ATR as talib.ATR computes it (seeded with the mean of the first
+    `window` true ranges)."""
+    bars = df[["High", "Low", "Close"]].apply(pd.to_numeric, errors="coerce").dropna()
+    if len(bars) <= window:
+        return pd.Series(float("nan"), index=df.index)
+    atr = fp_ta.atr(bars["High"], bars["Low"], bars["Close"], length=window)
+    return atr.reindex(df.index)
 
 
 def get_ticker_info(symbol):
