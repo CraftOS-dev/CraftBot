@@ -73,6 +73,7 @@ from app.internal_action_interface import InternalActionInterface
 from app.llm import LLMInterface
 from agent_core.core.errors import (
     ClassifiedError,
+    ErrorAction,
     ErrorCategory,
     ErrorInfo,
     ErrorInfoLike,
@@ -80,6 +81,12 @@ from agent_core.core.errors import (
     redact,
 )
 from agent_core.core.impl.llm.errors import LLMConsecutiveFailureError
+from agent_core.core.impl.llm.interface import LLMContextOverflowError
+from agent_core.core.impl.event_stream.event_stream import (
+    MAX_EVENT_INLINE_CHARS,
+    UserMessageReadBackError,
+    user_message_for_query,
+)
 from app.vlm_interface import VLMInterface
 from app.image_gen_interface import ImageGenInterface
 from app.video_gen_interface import VideoGenInterface
@@ -248,6 +255,11 @@ TRIGGER_ANNOUNCEMENTS: Dict[str, tuple[str, str]] = {
     TriggerSource.SKILL_WORKFLOW.value: ("⚙️", "Skill workflow"),
     TriggerSource.FRAMEWORK_TASK.value: ("📩", "App request"),
 }
+
+
+# How long reading a saved user message back may take before the turn gives up
+# on it (a local file: anything near this is a stuck disk or share).
+USER_MESSAGE_READ_BACK_TIMEOUT = 30.0
 
 
 class AgentBase:
@@ -2192,6 +2204,152 @@ class AgentBase:
             severity=Severity.CRITICAL,
         )
 
+    @staticmethod
+    def _error_in_chain(error: BaseException, kind: type) -> Optional[BaseException]:
+        """The first exception of type ``kind`` in ``error``'s cause chain."""
+        seen: set[int] = set()
+        exc: BaseException | None = error
+        while exc is not None and id(exc) not in seen:
+            seen.add(id(exc))
+            if isinstance(exc, kind):
+                return exc
+            exc = exc.__cause__ or exc.__context__
+        return None
+
+    def _set_aside_unsent(
+        self, session_id: str, why: str
+    ) -> list[tuple[int, int, Optional[str]]]:
+        """Set aside the session's user messages the model never received
+        (EventStream.set_aside_unsent_user_messages); [] if that fails."""
+        if not (session_id and self.event_stream_manager):
+            return []
+        try:
+            stream = self.event_stream_manager.get_stream_by_id(session_id)
+            return stream.set_aside_unsent_user_messages(why) if stream else []
+        except Exception:
+            logger.error(
+                "[REACT ERROR] Could not set aside the unprocessed messages",
+                exc_info=True,
+            )
+            return []
+
+    @staticmethod
+    def _whose(set_aside: Iterable[tuple[int, int, Optional[str]]]) -> str:
+        """Who sent what was set aside: 'Your message (N characters)' when
+        typed in CraftBot, else 'A message received from X (N characters)'."""
+        set_aside = list(set_aside)
+        typed = [m for m in set_aside if m[2] in (None, "CraftBot Interface")]
+        if typed or not set_aside:
+            return f"Your message ({sum(m[0] for m in typed):,} characters)"
+        platforms = ", ".join(sorted({m[2] for m in set_aside if m[2]}))
+        return (
+            f"A message received from {platforms} "
+            f"({sum(m[0] for m in set_aside):,} characters)"
+        )
+
+    @staticmethod
+    def _context_overflow_info(
+        exc: LLMContextOverflowError,
+        set_aside: Iterable[tuple[int, int, Optional[str]]] = (),
+        budget: Optional[int] = None,
+    ) -> ErrorInfo:
+        """A request that cannot fit the model's context window, even after the
+        router folded the stream and collapsed what it could. User-actionable,
+        so the calm "system" tier; the detail carries the token counts when the
+        budget check raised it.
+
+        The advice follows the cause. The unsent messages (set aside, as
+        ``(characters, tokens, platform)``) are the cause when they take at
+        least half the input budget, since a fold keeps at most half of what
+        the budget leaves for history; then the user is asked to shorten a
+        message they typed, or told which integration sent the one that did
+        not fit. Otherwise the conversation itself has outgrown the window (a
+        continuation turn, or history a fold could not bring down).
+        """
+        detail = redact(str(exc)).strip().rstrip(".") or (
+            "The request exceeded the model's context window"
+        )
+        set_aside = list(set_aside)
+        typed = [m for m in set_aside if m[2] in (None, "CraftBot Interface")]
+        if budget:
+            messages_are_the_cause = 2 * sum(m[1] for m in set_aside) >= budget
+        else:
+            messages_are_the_cause = (
+                sum(m[0] for m in set_aside) > MAX_EVENT_INLINE_CHARS
+            )
+        if messages_are_the_cause:
+            title = "Message too large for the model"
+            if typed:
+                advice = (
+                    "Shorten it, attach long text as a file instead, or switch to "
+                    "a model with a larger context window."
+                )
+            else:
+                advice = (
+                    "Switch to a model with a larger context window to handle "
+                    "messages this size."
+                )
+            message = (
+                f"{AgentBase._whose(set_aside)} is too large for this model: "
+                f"{detail}. It was not processed. {advice}"
+            )
+        else:
+            title = "Conversation too large for the model"
+            unsent = ""
+            if typed:
+                unsent = " Your latest message was not processed; send it again."
+            elif set_aside:
+                unsent = (
+                    f" {AgentBase._whose(set_aside).split(' (')[0]} was not processed."
+                )
+            message = (
+                f"This conversation no longer fits the model's context window: "
+                f"{detail}. Retrying would send the same request, so the run was "
+                f"stopped.{unsent} Start a new chat, or switch to a model with a "
+                "larger context window."
+            )
+        return ErrorInfo(
+            category=ErrorCategory.CONTEXT_OVERFLOW,
+            code="CONTEXT_OVERFLOW",
+            title=title,
+            message=message,
+            actions=[ErrorAction(label="Open settings", action="open_settings_model")],
+            raw_message=str(exc),
+        )
+
+    @staticmethod
+    def _read_back_failure_info(
+        exc: UserMessageReadBackError,
+        set_aside: Iterable[tuple[int, int, Optional[str]]] = (),
+    ) -> ErrorInfo:
+        """A user message saved to a file (it was too long to keep in the
+        event stream) that could not be read back in full, so the model never
+        saw it. Not a context-window problem: the model is not the cause, and
+        a larger one would not help."""
+        set_aside = list(set_aside) or [(exc.chars, 0, None)]
+        saved = (
+            f" Its saved copy is at {exc.path}."
+            if exc.code not in ("missing", "outside_storage") and exc.path
+            else ""
+        )
+        category = {
+            "missing": ErrorCategory.NOT_FOUND,
+            "unreadable": ErrorCategory.PERMISSION,
+            "outside_storage": ErrorCategory.PERMISSION,
+        }.get(exc.code, ErrorCategory.INTERNAL)
+        return ErrorInfo(
+            category=category,
+            code="USER_MESSAGE_READ_BACK_FAILED",
+            title="Message could not be read",
+            message=(
+                f"{AgentBase._whose(set_aside)} was too long to keep in the "
+                f"conversation, so CraftBot saved it to a file, but could not read "
+                f"it back: {exc.reason}. It was not processed.{saved} Send it "
+                "again, or attach the text as a file."
+            ),
+            raw_message=str(exc),
+        )
+
     async def _handle_react_error(
         self,
         error: Exception,
@@ -2214,6 +2372,29 @@ class AgentBase:
         continue to the next turn while still telling the user what happened.
         """
         is_fatal, fatal_exc, classified_info = self._classify_react_error(error)
+        # Two failures that the next turn would only repeat, with nothing
+        # counting the attempts: the request cannot fit the context window
+        # even after the router folded the stream, or a user message saved to
+        # a file could not be read back (#441). Both end the run, and set
+        # aside what the model never received, or every later request of the
+        # session would carry it too.
+        stop = self._error_in_chain(error, UserMessageReadBackError)
+        if stop is not None:
+            set_aside = self._set_aside_unsent(
+                session_id, "could not be read back from its saved file"
+            )
+            classified_info = self._read_back_failure_info(stop, set_aside)
+        else:
+            stop = self._error_in_chain(error, LLMContextOverflowError)
+            if stop is not None:
+                set_aside = self._set_aside_unsent(
+                    session_id, "did not fit the model's context window"
+                )
+                try:
+                    budget: Optional[int] = self.llm.input_budget()
+                except Exception:
+                    budget = None
+                classified_info = self._context_overflow_info(stop, set_aside, budget)
         is_critical = classified_info is None
         if is_critical:
             # Nothing further down the stack classified/logged this in
@@ -2256,14 +2437,14 @@ class AgentBase:
                 task_id=session_id,
             )
             self.state_manager.bump_event_stream()
-            if is_fatal:
+            if is_fatal or stop is not None:
                 # Stop the run instead of re-queueing to prevent infinite
                 # retries. The user resumes by sending a normal chat message
                 # — _handle_chat_message already resets the failure counter
                 # on intake, so no separate Retry action is needed.
                 logger.warning(
-                    f"[REACT ERROR] LLMConsecutiveFailureError — halting run for "
-                    f"session {session_id}."
+                    f"[REACT ERROR] {type(stop or fatal_exc).__name__} — halting "
+                    f"run for session {session_id}."
                 )
                 self._emit_run_state(session_id, "idle")
                 await self._display_react_error(session_id, info, critical=is_critical)
@@ -2570,6 +2751,7 @@ class AgentBase:
                 return
             entries = [{"label": "user message", "content": msg, "display": msg}]
 
+        failures: list[UserMessageReadBackError] = []
         for entry in entries:
             content = (entry.get("content") or "").strip()
             if not content:
@@ -2582,6 +2764,21 @@ class AgentBase:
                 platform=payload.get("platform") or None,
                 task_id=session_id,
             )
+        # A long message was saved to a file, leaving a pointer: its text goes
+        # back into the stream right after the pointer, before the turn decides
+        # (#441). Every pointer not read back yet, in order: these, and any a
+        # restart interrupted.
+        stream = self.event_stream_manager.get_stream_by_id(session_id)
+        for pointer in stream.unread_user_messages():
+            failure = await self._read_back_user_message(stream, pointer)
+            if failure is not None:
+                failures.append(failure)
+        if failures:
+            # None of the batch is processed: the turn would answer part of
+            # what the user sent. _handle_react_error ends the run and tells
+            # the user; the saved files stay.
+            self.state_manager.bump_event_stream()
+            raise failures[0]
 
         try:
             from agent_core.core.impl.memory.injector import (
@@ -2602,6 +2799,43 @@ class AgentBase:
             logger.debug(f"[MEMORY] Deferred injection failed: {e}")
 
         self.state_manager.bump_event_stream()
+
+    @staticmethod
+    async def _read_back_user_message(
+        stream, pointer
+    ) -> Optional[UserMessageReadBackError]:
+        """Read the user message saved behind ``pointer`` into ``stream``
+        right after it (EventStream.insert_user_message_parts).
+
+        Returns the failure when it cannot be read back in full (never
+        raises). The router refuses any request that would carry a pointer
+        whose text was not read back, so a pointer missed here cannot reach
+        the model on its own.
+        """
+        meta = pointer.event.externalized
+        try:
+            text = await asyncio.wait_for(
+                asyncio.to_thread(stream.read_saved_user_message, meta),
+                timeout=USER_MESSAGE_READ_BACK_TIMEOUT,
+            )
+        except UserMessageReadBackError as e:
+            logger.error(f"[CHAT] Saved user message not read back: {e}")
+            return e
+        except asyncio.TimeoutError:
+            logger.error(f"[CHAT] Reading back {meta.get('path')} timed out")
+            return UserMessageReadBackError(
+                "timeout",
+                f"reading the saved file took longer than "
+                f"{USER_MESSAGE_READ_BACK_TIMEOUT:g} seconds",
+                path=str(meta.get("path") or ""),
+                chars=int(meta.get("chars") or 0),
+            )
+        parts = stream.insert_user_message_parts(pointer, text)
+        logger.info(
+            f"[CHAT] Read back a saved user message ({len(text)} chars, "
+            f"{parts} part(s))"
+        )
+        return None
 
     async def _handle_chat_message(self, payload: Dict):
         """Deliver an incoming chat message to its session.
@@ -2748,7 +2982,8 @@ class AgentBase:
                     source=TriggerSource.USER_MESSAGE,
                     description=(
                         "Please perform action that best suit this user chat "
-                        f"you just received{platform_hint}: {chat_content}"
+                        f"you just received{platform_hint}: "
+                        f"{user_message_for_query(chat_content)}"
                     ),
                     priority=3,
                     session_id=session_id,
