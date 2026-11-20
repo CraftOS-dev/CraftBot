@@ -33,21 +33,17 @@ COPY app/ui_layer/browser/frontend ./
 RUN VITE_BACKEND_PORT=7926 npx vite build
 
 # ---------------------------------------------------------------------------
-# npm trees the backend runs: the Agent App tooling and the WhatsApp bridge.
-# Built for the TARGET platform on the same Debian release as the runtime
-# image, so any native module matches the system it will run on.
+# npm tree for the WhatsApp bridge. The Agent App CLI and its production
+# dependencies are bundled under app/vendor/agent-app and unpacked by CraftBot
+# into its runtime state directory.
 # ---------------------------------------------------------------------------
 FROM node:${NODE_VERSION}-bookworm-slim AS node-runtime
 FROM node-runtime AS node-deps
 ARG npm_config_registry
-# npm trees built for the target platform: the Agent App CLI and the WhatsApp bridge.
-WORKDIR /src/agent-app
-COPY agent-app ./
-RUN npm ci --ignore-scripts --include=dev --no-audit --no-fund
 WORKDIR /src/craftos_integrations/providers/whatsapp_web
 COPY craftos_integrations/providers/whatsapp_web/package.json craftos_integrations/providers/whatsapp_web/package-lock.json ./
 RUN npm install --no-audit --no-fund
-# Collect every node_modules tree at its relative path, ready to lay over /app.
+# Collect the WhatsApp bridge's node_modules tree, ready to lay over /app.
 WORKDIR /src
 RUN mkdir /out && find . -name node_modules -prune -exec cp -a --parents {} /out/ \;
 
