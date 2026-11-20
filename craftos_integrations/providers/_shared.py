@@ -157,6 +157,7 @@ def client_op(
     success_message: Optional[str] = None,
     fail_message: str = "Operation failed",
     arg_map: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None,
+    display_param: Optional[str] = None,
 ) -> Operation:
     """Operation that calls ``client.<method>(**kwargs)``.
 
@@ -202,4 +203,5 @@ def client_op(
         destructive=destructive,
         parallelizable=parallelizable,
         tags=tags,
+        display_param=display_param,
     )

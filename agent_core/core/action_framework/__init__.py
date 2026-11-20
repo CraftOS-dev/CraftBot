@@ -6,6 +6,7 @@ from agent_core.core.action_framework.registry import (
     ActionMetadata,
     RegisteredAction,
     action,
+    action_row_display,
     registry_instance,
     install_all_action_requirements,
     PLATFORM_ALL,
@@ -20,7 +21,6 @@ from agent_core.core.action_framework.loader import (
 from agent_core.core.action_framework.formatting import (
     candidate_dict_from_action,
     format_action_candidates,
-    format_actions_by_name,
 )
 
 __all__ = [
@@ -30,6 +30,7 @@ __all__ = [
     "RegisteredAction",
     # Decorator
     "action",
+    "action_row_display",
     # Singleton instance
     "registry_instance",
     # Utilities
@@ -44,5 +45,4 @@ __all__ = [
     # Formatting
     "candidate_dict_from_action",
     "format_action_candidates",
-    "format_actions_by_name",
 ]

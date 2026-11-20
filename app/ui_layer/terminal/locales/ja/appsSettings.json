@@ -1,0 +1,192 @@
+{
+  "panel": {
+    "name": "名前",
+    "status": "状態",
+    "port": "ポート",
+    "path": "パス",
+    "pathDesc": "このコンピューター上のアプリのフォルダー",
+    "address": "アドレス",
+    "addressDesc": "このコンピューターでアプリが配信されている場所",
+    "origin": "オリジン",
+    "signedInAs": "サインイン中",
+    "connection": "接続",
+    "loading": "読み込み中...",
+    "gone": "このアプリはアプリ一覧にありません。",
+    "disconnected": "接続が切れました。このアプリを変更するには再接続してください。",
+    "working": "処理中...",
+    "on": "オン",
+    "off": "オフ"
+  },
+  "status": {
+    "running": "実行中",
+    "stopped": "停止",
+    "starting": "起動中...",
+    "stopping": "停止中...",
+    "missing": "アプリのフォルダーがありません",
+    "unreachable": "利用できません"
+  },
+  "connectionStatus": {
+    "online": "オンライン",
+    "offline": "オフライン",
+    "unreachable": "利用できません",
+    "expired": "サインインの有効期限切れ"
+  },
+  "lifecycle": {
+    "start": "起動",
+    "stop": "停止",
+    "startDesc": "ビルドと起動の手順に従ってアプリを起動します",
+    "stopDesc": "アプリとそのリクエストブリッジを停止します。開発インスタンスは実行を続けます。",
+    "failed": "アプリはコマンドを完了できませんでした。",
+    "unknown": "接続が中断されました。コマンドはまだ実行中の可能性があります。もう一度試す前に、再接続してアプリの状態を確認してください。",
+    "remaining": "開発インスタンスまたはタスクブリッジがまだ実行中です。",
+    "notSent": "送信されていません。再接続してからもう一度お試しください。",
+    "busy": "アプリの起動または停止が終わるまでお待ちください。"
+  },
+  "sections": {
+    "preferences": "環境設定",
+    "requests": "リクエスト",
+    "backups": "バックアップ",
+    "share": "共有",
+    "appearance": "外観",
+    "package": "パッケージ",
+    "remove": "削除"
+  },
+  "prefs": {
+    "autoStart": "自動的に起動",
+    "autoStartDesc": "AI エージェントの起動時にこのアプリを起動します",
+    "logCleanup": "起動時にログを消去",
+    "logCleanupDesc": "アプリを起動するたびに古いログファイルを削除します"
+  },
+  "requests": {
+    "allow": "CraftBot へのリクエストを許可",
+    "allowDesc": "このアプリが宣言したリクエストを AI エージェントに送信できるようにします",
+    "view": "リクエストを表示 ({{count}})",
+    "hide": "リクエストを隠す",
+    "listDesc": "許可すると、このアプリが送信できるリクエスト",
+    "ownerTools": "ローカルツールへのオーナーアクセス",
+    "ownerToolsDesc": "アプリのオーナーが AI エージェントの権限でローカルファイルの読み書きとコマンドの実行を行えるようにします",
+    "needsAllow": "先にリクエストを許可してください。"
+  },
+  "backups": {
+    "scheduled": "スケジュールされたバックアップ",
+    "scheduledDesc": "このアプリのデータとファイルを自動的にバックアップします",
+    "frequency": "頻度",
+    "frequencyDesc": "スケジュールされたバックアップを実行する間隔",
+    "interval": {
+      "hourly": "毎時",
+      "6h": "6 時間ごと",
+      "daily": "毎日",
+      "weekly": "毎週"
+    },
+    "keep": "保持するバックアップ数",
+    "keepDesc": "この数を超える古いスケジュールバックアップは削除されます",
+    "lastFailed": "前回のバックアップに失敗しました: {{error}}",
+    "last": "前回のバックアップ {{when}}",
+    "kept": "{{count}} 件を保持",
+    "none": "バックアップはまだありません",
+    "now": "今すぐバックアップ",
+    "nowDesc": "データとファイルを今すぐバックアップします。実行中のアプリは一時的に停止します。",
+    "restoring": "復元中です。1 分ほどかかることがあります。",
+    "trigger": {
+      "scheduled": "スケジュール",
+      "manual": "手動",
+      "preRemove": "削除前",
+      "preUpdate": "更新前",
+      "preRestore": "復元前"
+    },
+    "confirmRestore": "{{name}} を {{date}} の状態に復元しますか？それ以降のデータは削除されます。現在の状態は先にバックアップされます。",
+    "confirmDelete": "{{date}} のバックアップを完全に削除しますか？",
+    "loadFailed": "バックアップ一覧を読み込めませんでした: {{error}}",
+    "retry": "再読み込み",
+    "retryDesc": "バックアップ一覧をもう一度取得します",
+    "created": "バックアップを作成しました",
+    "restored": "バックアップを復元しました",
+    "deleted": "バックアップを削除しました"
+  },
+  "share": {
+    "lan": "LAN",
+    "public": "公開",
+    "lanHint": "同じネットワーク上の端末 (リンクが必要)",
+    "publicHint": "インターネット上の誰でも (リンクが必要)",
+    "lanDesc": "同じネットワーク上の端末向けのリンクです。閉じると、すべての訪問者のアクセスが取り消されます。",
+    "publicDesc": "公開トンネルのリンクです。閉じると、すべての訪問者のアクセスが取り消されます。",
+    "starting": "起動中...",
+    "confirmCloseLan": "LAN リンクを閉じますか？使用中の全員がアクセスできなくなります。",
+    "confirmClosePublic": "公開リンクを閉じますか？使用中の全員がアクセスできなくなります。"
+  },
+  "theme": {
+    "label": "テーマ",
+    "desc": "アプリのページの見た目"
+  },
+  "export": {
+    "label": "パッケージをエクスポート",
+    "desc": "再インストールできるパッケージファイルとしてアプリを保存します",
+    "value": "アプリ全体を 1 つのファイルに",
+    "done": "パッケージをエクスポートしました",
+    "file": "パッケージファイル",
+    "fileDesc": "エクスポートしたパッケージの保存先"
+  },
+  "remove": {
+    "delete": "アプリを削除",
+    "forget": "一覧から削除",
+    "disconnect": "切断",
+    "deleteDesc": "アプリを停止してファイルを削除します。データとバックアップは削除済みアプリのアーカイブに保管されます。",
+    "forgetDesc": "保存された項目を消去します。ファイルは削除されません。",
+    "disconnectDesc": "接続を解除します。アプリとそのデータはホストに残ります。",
+    "confirmDelete": "{{name}} を削除しますか？アプリは停止され、ファイルは削除されます。データとバックアップは削除済みアプリのアーカイブに保管されます。",
+    "confirmForget": "{{name}} をアプリ一覧から削除しますか？アプリのフォルダーが見つかりません。ファイルは削除されません。",
+    "confirmKeepFiles": "{{name}} のフォルダーがアプリのものであることを確認できなかったため、ファイルは削除されていません。アプリを一覧から削除し、ファイルは残しますか？",
+    "confirmDisconnect": "{{name}} を切断しますか？アプリとそのデータはホストに残ります。",
+    "deleted": "{{name}} を削除しました",
+    "forgotten": "{{name}} をアプリ一覧から削除しました。ファイルは残っています。",
+    "disconnected": "{{name}} を切断しました",
+    "removedFromList": "{{name}} をアプリ一覧から削除しました。"
+  },
+  "common": {
+    "copied": "クリップボードにコピーしました",
+    "copyFailed": "クリップボードにコピーできませんでした",
+    "opened": "既定のアプリで開きました",
+    "openFailed": "開けませんでした",
+    "failed": "アプリはこの操作を完了できませんでした。",
+    "busy": "別の操作がまだ実行中です。",
+    "notReady": "まだ準備ができていません。少し待ってからもう一度お試しください。",
+    "listStale": "アプリ一覧が最新ではありません。更新されるまでお待ちください。"
+  },
+  "hint": {
+    "move": "j/k 移動",
+    "switch": "Enter 切り替え",
+    "run": "Enter 実行",
+    "showHide": "Enter 表示/非表示",
+    "change": "Enter 変更",
+    "adjust": "Left/Right 変更",
+    "save": "Enter 保存",
+    "cancel": "Esc キャンセル",
+    "choose": "Enter 選択",
+    "apply": "Enter 適用",
+    "copy": "c コピー",
+    "open": "o 開く",
+    "restore": "r 復元",
+    "delete": "x 削除",
+    "closeLink": "x 閉じる",
+    "createLink": "Enter リンクを作成",
+    "retry": "Enter 再読み込み",
+    "confirm": "y 確定、その他のキーでキャンセル",
+    "back": "戻る",
+    "openApp": "開く",
+    "startStop": "起動/停止",
+    "reload": "再読み込み"
+  },
+  "tab": {
+    "apps_other": "{{count}} 個のアプリ",
+    "running": "{{count}} 個が実行中",
+    "loading": "アプリを読み込み中...",
+    "empty": "Agent App はまだありません。AI エージェントに作成を依頼するか、Agent App 画面から追加してください。",
+    "failed": "アプリ一覧を読み込めませんでした: {{error}}",
+    "warning": "レジストリからのお知らせ: {{warning}}",
+    "disconnected": "接続が切れました。アプリの状態が古い可能性があります。",
+    "lastKnown": "最終確認: {{status}}",
+    "connected": "接続済み",
+    "refreshing": "アプリ一覧を更新しています",
+    "notSupported": "起動と停止は、このコンピューター上で実行中または停止中のアプリでのみ使えます。"
+  }
+}

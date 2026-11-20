@@ -1,0 +1,201 @@
+name: Install E2E
+
+# A real install, start to finish, on every OS and architecture CraftBot
+# ships for: the full locked dependency set, the Node sidecar and npm trees,
+# then the agent started headless until it reports ready and the browser UI
+# answers. Each job uses whatever Python the runner image ships with (never
+# actions/setup-python): the point is to prove that the Python a user
+# launches the install with does not matter. One job deliberately launches
+# it with an old Python 3.8.
+#
+# State goes to a throwaway CRAFTBOT_HOME, so runtimes, data and the ready
+# marker land in the job's temp directory.
+
+on:
+  pull_request:
+    paths:
+      - "install.py"
+      - "craftbot.py"
+      - "run.py"
+      - "main.py"
+      - "installer/**"
+      - "app/paths.py"
+      - "app/provision/**"
+      - "app/python_runtime.py"
+      - "app/node_runtime.py"
+      - "app/downloads.py"
+      - "requirements.txt"
+      - "requirements/**"
+      - "agent-app/spec/**"
+      - ".github/workflows/install-e2e.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: install-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  install:
+    name: Install E2E (${{ matrix.label }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            label: windows-x86_64
+            python: python
+          - os: macos-15
+            label: macos-arm64
+            python: python3
+          - os: macos-15-intel
+            label: macos-x86_64
+            python: python3
+          - os: ubuntu-22.04
+            label: linux-x86_64
+            python: python3
+          - os: ubuntu-24.04-arm
+            label: linux-aarch64
+            python: python3
+          - os: ubuntu-22.04
+            label: linux-x86_64, launched with Python 3.8
+            python: python3.8
+            old_python: true
+
+    env:
+      PY: ${{ matrix.python }}
+      # Output reaches the log as it happens, and box-drawing characters
+      # survive a pipe on Windows. The launcher sets the same for its runs.
+      PYTHONUNBUFFERED: "1"
+      PYTHONIOENCODING: utf-8
+      READY_TIMEOUT: "900"
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install an old Python 3.8 to launch with
+        if: matrix.old_python
+        run: |
+          set -euo pipefail
+          # A standalone CPython 3.8 from GitHub (python-build-standalone,
+          # through uv), not the deadsnakes PPA: no Launchpad mirror to go
+          # down, and only python3.8 joins PATH.
+          python3 -m pip install --user --quiet uv
+          python3 -m uv python install 3.8
+          sudo ln -sf "$(python3 -m uv python find 3.8)" /usr/local/bin/python3.8
+
+      - name: Prepare
+        run: |
+          set -euo pipefail
+          # Forward slashes on Windows too: both bash and Python accept them.
+          tmp="$RUNNER_TEMP"
+          if command -v cygpath >/dev/null 2>&1; then tmp="$(cygpath -m "$tmp")"; fi
+          mkdir -p "$tmp/craftbot-home" "$tmp/e2e-logs"
+          echo "E2E_TMP=$tmp" >> "$GITHUB_ENV"
+          echo "CRAFTBOT_HOME=$tmp/craftbot-home" >> "$GITHUB_ENV"
+          echo "launching interpreter: $(command -v "$PY")"
+          "$PY" -c 'import sys, platform; print(sys.version); print(platform.platform(), platform.machine())'
+          echo "STARTED_AT=$(date +%s)" >> "$GITHUB_ENV"
+
+      # stdin is closed: an install that stops to ask a question fails here
+      # instead of hanging, exactly as it would behind the setup window.
+      - name: Install (install.py --no-launch)
+        timeout-minutes: 60
+        run: |
+          set -uo pipefail
+          t0=$(date +%s)
+          "$PY" install.py --no-launch < /dev/null 2>&1 | tee "$E2E_TMP/e2e-logs/install.log"
+          code=${PIPESTATUS[0]}
+          echo "T_INSTALL=$(( $(date +%s) - t0 ))" >> "$GITHUB_ENV"
+          exit "$code"
+
+      - name: Start headless (craftbot.py start --no-open-browser)
+        timeout-minutes: 20
+        run: |
+          set -uo pipefail
+          t0=$(date +%s)
+          "$PY" craftbot.py start --no-open-browser < /dev/null 2>&1 | tee "$E2E_TMP/e2e-logs/start.log"
+          code=${PIPESTATUS[0]}
+          echo "T_START=$(( $(date +%s) - t0 ))" >> "$GITHUB_ENV"
+          echo "READY_FROM=$t0" >> "$GITHUB_ENV"
+          exit "$code"
+
+      - name: Wait for the agent to report ready
+        run: |
+          set -euo pipefail
+          marker="$CRAFTBOT_HOME/.agent-ready"
+          deadline=$(( READY_FROM + READY_TIMEOUT ))
+          until [ -f "$marker" ]; do
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+              echo "::error::$marker did not appear within ${READY_TIMEOUT}s of starting"
+              exit 1
+            fi
+            sleep 5
+          done
+          echo "T_READY=$(( $(date +%s) - READY_FROM ))" >> "$GITHUB_ENV"
+          echo "ready marker: $marker"
+          for f in craftbot.pid ui.json; do
+            if [ -f "$CRAFTBOT_HOME/$f" ]; then echo "$f: $(cat "$CRAFTBOT_HOME/$f")"; fi
+          done
+
+      - name: The browser UI answers on port 7925
+        run: |
+          set -uo pipefail
+          t0=$(date +%s)
+          code=000
+          for _ in $(seq 1 60); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 http://localhost:7925/ || true)
+            [ "$code" = "200" ] && break
+            sleep 2
+          done
+          echo "T_HTTP=$(( $(date +%s) - t0 ))" >> "$GITHUB_ENV"
+          echo "http://localhost:7925/ answered HTTP $code"
+          [ "$code" = "200" ] || { echo "::error::http://localhost:7925/ answered HTTP $code, expected 200"; exit 1; }
+
+      - name: Stop
+        if: always()
+        run: |
+          "$PY" craftbot.py stop < /dev/null || true
+
+      - name: Timings
+        if: always()
+        run: |
+          total=$(( $(date +%s) - ${STARTED_AT:-$(date +%s)} ))
+          {
+            echo "### Install E2E timings: ${{ matrix.label }}"
+            echo
+            echo "Launched with \`$("$PY" --version 2>&1)\` ($PY)"
+            echo
+            echo "| Stage | Seconds |"
+            echo "|---|---|"
+            echo "| install.py --no-launch | ${T_INSTALL:-failed} |"
+            echo "| craftbot.py start | ${T_START:-not reached} |"
+            echo "| start to .agent-ready | ${T_READY:-not reached} |"
+            echo "| ready to HTTP 200 on :7925 | ${T_HTTP:-not reached} |"
+            echo "| total | $total |"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Collect logs
+        if: failure()
+        run: |
+          logs="$E2E_TMP/e2e-logs"
+          cp craftbot.log "$logs/" 2>/dev/null || true
+          if [ -d "$CRAFTBOT_HOME/logs" ]; then cp -R "$CRAFTBOT_HOME/logs" "$logs/state-logs"; fi
+          for f in craftbot.pid ui.json; do
+            cp "$CRAFTBOT_HOME/$f" "$logs/" 2>/dev/null || true
+          done
+          tail -n 80 craftbot.log 2>/dev/null || true
+
+      - name: Upload logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: install-e2e-logs-${{ strategy.job-index }}
+          path: ${{ runner.temp }}/e2e-logs
+          if-no-files-found: ignore

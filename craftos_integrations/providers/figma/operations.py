@@ -5,41 +5,63 @@ from __future__ import annotations
 from .._shared import client_op
 
 
-def _s(description, example=""):
-    return {"type": "string", "description": description, "example": example}
+def _s(description, example="", *, required):
+    return {
+        "type": "string",
+        "required": required,
+        "description": description,
+        "example": example,
+    }
 
 
-def _i(description, example=30):
-    return {"type": "integer", "description": description, "example": example}
+def _i(description, example=30, *, required):
+    return {
+        "type": "integer",
+        "required": required,
+        "description": description,
+        "example": example,
+    }
 
 
 FILE = _s(
     "Figma file key or https://www.figma.com/design/<key>/… URL. Omit only if a default file is configured.",
     "AbCdEf123",
+    required=False,
 )
 TEAM = _s(
     "Numeric team id or Figma team URL; omit only if a default team is configured. Team ids cannot be discovered by API.",
     "123456",
+    required=False,
 )
 NODES = {
     "type": "array",
+    "required": False,
     "description": "Node ids such as 12:34. Omit when the file URL includes node-id. Maximum 100.",
     "example": ["12:34"],
 }
-DEPTH = _i("Tree depth, 1–10; default 2. Results also obey the configured node cap.", 2)
-LIMIT = _i("Maximum items, 1–100, default 30.")
+DEPTH = _i(
+    "Tree depth, 1–10; default 2. Results also obey the configured node cap.",
+    2,
+    required=False,
+)
+LIMIT = _i("Maximum items, 1–100, default 30.", required=False)
 OFFSET = _i(
     "Local list offset. Follow pagination.next_offset; this does not reduce the API's response size.",
     0,
+    required=False,
 )
-VERSION = _s("Optional historical version id; omit for the current version.")
+VERSION = _s(
+    "Optional historical version id; omit for the current version.", required=False
+)
 COMMENT = _s(
     "Comment id returned by list_figma_comments. Reply operations require a root comment id.",
     "123",
+    required=True,
 )
-FORMAT = _s("Export format: png, jpg, svg or pdf. Default png.", "png")
+FORMAT = _s("Export format: png, jpg, svg or pdf. Default png.", "png", required=False)
 SCALE = {
     "type": "number",
+    "required": False,
     "description": "Render scale, 0.01–4, default 1.",
     "example": 1,
 }
@@ -55,6 +77,7 @@ def _op(
     core=False,
     write=False,
     destructive=False,
+    display_param=None,
 ):
     return client_op(
         name,
@@ -64,6 +87,7 @@ def _op(
         tags=(f"figma_{group}", "figma") if core else (f"figma_{group}",),
         parallelizable=not write,
         destructive=destructive,
+        display_param=display_param,
     )
 
 
@@ -74,8 +98,9 @@ def build_operations():
             "parse_url",
             "Extract a file key and optional normalized node id from a Figma link. Does not fetch the file.",
             "files",
-            {"file_key": FILE},
+            {"file_key": {**FILE, "required": True}},
             core=True,
+            display_param="file_key",
         ),
         _op(
             "get_figma_file",
@@ -84,6 +109,7 @@ def build_operations():
             "files",
             {"file_key": FILE, "depth": DEPTH, "version": VERSION},
             core=True,
+            display_param="file_key",
         ),
         _op(
             "get_figma_file_metadata",
@@ -92,6 +118,7 @@ def build_operations():
             "files",
             {"file_key": FILE},
             core=True,
+            display_param="file_key",
         ),
         _op(
             "get_figma_nodes",
@@ -100,6 +127,7 @@ def build_operations():
             "files",
             {"file_key": FILE, "node_ids": NODES, "depth": DEPTH, "version": VERSION},
             core=True,
+            display_param="file_key",
         ),
         _op(
             "find_figma_nodes",
@@ -108,16 +136,20 @@ def build_operations():
             "files",
             {
                 "file_key": FILE,
-                "name": _s("Case-insensitive node-name substring."),
-                "node_type": _s("Optional node type, e.g. FRAME or COMPONENT."),
+                "name": _s("Case-insensitive node-name substring.", required=False),
+                "node_type": _s(
+                    "Optional node type, e.g. FRAME or COMPONENT.", required=False
+                ),
                 "depth": _i(
                     "Tree depth, 1–10; default 4. Results also obey the configured node cap.",
                     4,
+                    required=False,
                 ),
                 "limit": LIMIT,
                 "offset": OFFSET,
             },
             core=True,
+            display_param="name",
         ),
         _op(
             "list_figma_versions",
@@ -128,10 +160,15 @@ def build_operations():
                 "file_key": FILE,
                 "limit": LIMIT,
                 "before": _s(
-                    "Previous-page cursor or returned pagination.prev_page URL."
+                    "Previous-page cursor or returned pagination.prev_page URL.",
+                    required=False,
                 ),
-                "after": _s("Next-page cursor or returned pagination.next_page URL."),
+                "after": _s(
+                    "Next-page cursor or returned pagination.next_page URL.",
+                    required=False,
+                ),
             },
+            display_param="file_key",
         ),
         _op(
             "export_figma_images",
@@ -146,6 +183,7 @@ def build_operations():
                 "version": VERSION,
             },
             core=True,
+            display_param="file_key",
         ),
         _op(
             "get_figma_image_fills",
@@ -154,6 +192,7 @@ def build_operations():
             "assets",
             {"file_key": FILE},
             core=True,
+            display_param="file_key",
         ),
         _op(
             "download_figma_images",
@@ -161,8 +200,10 @@ def build_operations():
             "Render and save exported nodes to unique local files. Does not overwrite existing files. Reports partial failures; maximum 50 MiB per asset.",
             "assets",
             {
-                "file_key": FILE,
-                "output_dir": _s("Required absolute local output directory."),
+                "file_key": {**FILE, "required": True},
+                "output_dir": _s(
+                    "Required absolute local output directory.", required=True
+                ),
                 "node_ids": NODES,
                 "format": FORMAT,
                 "scale": SCALE,
@@ -170,6 +211,7 @@ def build_operations():
             },
             core=True,
             write=True,
+            display_param="file_key",
         ),
         _op(
             "list_figma_comments",
@@ -178,6 +220,7 @@ def build_operations():
             "comments",
             {"file_key": FILE, "limit": LIMIT, "offset": OFFSET},
             core=True,
+            display_param="file_key",
         ),
         _op(
             "post_figma_comment",
@@ -185,10 +228,11 @@ def build_operations():
             "Post a new root comment, optionally anchored with client_meta. Posting requires file_comments:write.",
             "comments",
             {
-                "file_key": FILE,
-                "message": _s("Required non-empty comment text."),
+                "file_key": {**FILE, "required": True},
+                "message": _s("Required non-empty comment text.", required=True),
                 "client_meta": {
                     "type": "object",
+                    "required": False,
                     "description": "Optional Figma comment position, e.g. node_id and node_offset.",
                     "example": {"node_id": "12:34", "node_offset": {"x": 0, "y": 0}},
                 },
@@ -196,6 +240,7 @@ def build_operations():
             core=True,
             write=True,
             destructive=True,  # Outward-facing post: enable the host replay guard.
+            display_param="message",
         ),
         _op(
             "reply_figma_comment",
@@ -203,23 +248,25 @@ def build_operations():
             "Reply to a root comment; replies cannot be parents of other replies.",
             "comments",
             {
-                "file_key": FILE,
+                "file_key": {**FILE, "required": True},
                 "comment_id": COMMENT,
-                "message": _s("Required non-empty reply text."),
+                "message": _s("Required non-empty reply text.", required=True),
             },
             core=True,
             write=True,
             destructive=True,
+            display_param="message",
         ),
         _op(
             "delete_figma_comment",
             "delete_comment",
             "Delete a comment authored by the connected user. Figma does not allow deleting another user's comment.",
             "comments",
-            {"file_key": FILE, "comment_id": COMMENT},
+            {"file_key": {**FILE, "required": True}, "comment_id": COMMENT},
             core=True,
             write=True,
             destructive=True,
+            display_param="comment_id",
         ),
         _op(
             "list_figma_comment_reactions",
@@ -227,10 +274,11 @@ def build_operations():
             "List reactions to a comment. Follow pagination.next_page with cursor.",
             "comments",
             {
-                "file_key": FILE,
+                "file_key": {**FILE, "required": True},
                 "comment_id": COMMENT,
-                "cursor": _s("Pagination cursor."),
+                "cursor": _s("Pagination cursor.", required=False),
             },
+            display_param="comment_id",
         ),
         _op(
             "add_figma_comment_reaction",
@@ -238,11 +286,12 @@ def build_operations():
             "React to a comment using a Figma emoji shortcode, e.g. :heart:.",
             "comments",
             {
-                "file_key": FILE,
+                "file_key": {**FILE, "required": True},
                 "comment_id": COMMENT,
-                "emoji": _s("Required emoji shortcode.", ":heart:"),
+                "emoji": _s("Required emoji shortcode.", ":heart:", required=True),
             },
             write=True,
+            display_param="emoji",
         ),
         _op(
             "delete_figma_comment_reaction",
@@ -250,12 +299,13 @@ def build_operations():
             "Remove the connected user's reaction from a comment.",
             "comments",
             {
-                "file_key": FILE,
+                "file_key": {**FILE, "required": True},
                 "comment_id": COMMENT,
-                "emoji": _s("Emoji shortcode to remove.", ":heart:"),
+                "emoji": _s("Emoji shortcode to remove.", ":heart:", required=True),
             },
             write=True,
             destructive=True,
+            display_param="emoji",
         ),
         _op(
             "get_figma_current_user",
@@ -264,6 +314,7 @@ def build_operations():
             "discovery",
             {},
             core=True,
+            display_param=None,
         ),
         _op(
             "list_figma_team_folders",
@@ -272,28 +323,40 @@ def build_operations():
             "discovery",
             {"team_id": TEAM, "limit": LIMIT, "offset": OFFSET},
             core=True,
+            display_param="team_id",
         ),
         _op(
             "list_figma_subfolders",
             "list_subfolders",
             "List direct subfolders. Requires folders:read and PAT/private OAuth; uses local pagination.",
             "discovery",
-            {"folder_id": _s("Required folder id."), "limit": LIMIT, "offset": OFFSET},
+            {
+                "folder_id": _s("Required folder id.", required=True),
+                "limit": LIMIT,
+                "offset": OFFSET,
+            },
+            display_param="folder_id",
         ),
         _op(
             "list_figma_folder_files",
             "list_folder_files",
             "List files in a folder. Requires folders:read and PAT/private OAuth; uses local pagination.",
             "discovery",
-            {"folder_id": _s("Required folder id."), "limit": LIMIT, "offset": OFFSET},
+            {
+                "folder_id": _s("Required folder id.", required=True),
+                "limit": LIMIT,
+                "offset": OFFSET,
+            },
             core=True,
+            display_param="folder_id",
         ),
         _op(
             "get_figma_folder_metadata",
             "get_folder_metadata",
             "Get folder metadata using folder_metadata:read (OAuth), or explicitly partial id/name metadata using folders:read with a personal token.",
             "discovery",
-            {"folder_id": _s("Required folder id.")},
+            {"folder_id": _s("Required folder id.", required=True)},
+            display_param="folder_id",
         ),
     ]
     # Published library endpoints share identical paging and identifier rules.
@@ -312,9 +375,10 @@ def build_operations():
                     {
                         "team_id": TEAM,
                         "limit": LIMIT,
-                        "before": _s("Previous-page cursor."),
-                        "after": _s("Next-page cursor."),
+                        "before": _s("Previous-page cursor.", required=False),
+                        "after": _s("Next-page cursor.", required=False),
                     },
+                    display_param="team_id",
                 ),
                 _op(
                     f"list_figma_file_{resource}",
@@ -323,6 +387,7 @@ def build_operations():
                     "library",
                     {"file_key": FILE, "limit": LIMIT, "offset": OFFSET},
                     core=True,
+                    display_param="file_key",
                 ),
                 _op(
                     f"get_figma_{singular}",
@@ -331,9 +396,11 @@ def build_operations():
                     "library",
                     {
                         f"{singular}_key": _s(
-                            "Required published library key; not a node id."
+                            "Required published library key; not a node id.",
+                            required=True,
                         )
                     },
+                    display_param=f"{singular}_key",
                 ),
             ]
         )
@@ -347,6 +414,7 @@ def build_operations():
                 {},
                 core=True,
                 write=True,
+                display_param=None,
             ),
             _op(
                 "connect_figma_canvas",
@@ -355,11 +423,13 @@ def build_operations():
                 "canvas",
                 {
                     "channel": _s(
-                        "Required channel string visibly shown by the connected Figma plugin."
+                        "Required channel string visibly shown by the connected Figma plugin.",
+                        required=True,
                     )
                 },
                 core=True,
                 write=True,
+                display_param="channel",
             ),
             _op(
                 "get_figma_canvas_status",
@@ -368,10 +438,12 @@ def build_operations():
                 "canvas",
                 {
                     "request_id": _s(
-                        "Optional request id returned in a canvas error; history lasts for this session, up to 128 commands."
+                        "Optional request id returned in a canvas error; history lasts for this session, up to 128 commands.",
+                        required=False,
                     )
                 },
                 core=True,
+                display_param="request_id",
             ),
             _op(
                 "read_figma_canvas",
@@ -381,12 +453,14 @@ def build_operations():
                 {
                     "node_ids": {
                         "type": "array",
+                        "required": False,
                         "description": "Optional 1–20 canvas node ids; omit for current page overview/selection.",
                         "example": ["12:34"],
                     }
                 },
                 core=True,
                 write=True,
+                display_param="node_ids",
             ),
             _op(
                 "create_figma_design",
@@ -396,6 +470,7 @@ def build_operations():
                 {
                     "design": {
                         "type": "object",
+                        "required": True,
                         "description": "Required tree: type, name, x/y, width/height, fill (#RRGGBB), corner_radius, children. TEXT: text, font_size (Inter, 1–512), font_weight (100–900 steps of 100). FRAME: layout NONE/HORIZONTAL/VERTICAL, padding, gap. Max 100 nodes, 8 levels, 128 KiB. Coordinates are parent-local. Root must be FRAME.",
                         "example": {
                             "type": "FRAME",
@@ -418,6 +493,7 @@ def build_operations():
                 core=True,
                 write=True,
                 destructive=True,
+                display_param="design",
             ),
             _op(
                 "update_figma_canvas_node",
@@ -425,24 +501,31 @@ def build_operations():
                 "Update an existing native canvas node. Read the node first. Properties: name, x/y (both required together), width/height (both required together), fill (#RRGGBB), corner_radius, text (TEXT only). Partial updates are reported and never replayed automatically.",
                 "canvas",
                 {
-                    "node_id": _s("Required canvas node id."),
+                    "node_id": _s("Required canvas node id.", required=True),
                     "properties": {
                         "type": "object",
+                        "required": True,
                         "description": "Required non-empty object of supported properties.",
                         "example": {"text": "Updated heading", "fill": "#2563EB"},
                     },
                 },
                 write=True,
                 destructive=True,
+                display_param="properties",
             ),
             _op(
                 "delete_figma_canvas_node",
                 "delete_canvas_node",
                 "Delete an explicitly identified canvas node and its children in the paired document. Read first; pages/documents cannot be deleted. Uses the host mutation replay guard.",
                 "canvas",
-                {"node_id": _s("Required canvas node id selected for deletion.")},
+                {
+                    "node_id": _s(
+                        "Required canvas node id selected for deletion.", required=True
+                    )
+                },
                 write=True,
                 destructive=True,
+                display_param="node_id",
             ),
             _op(
                 "stop_figma_canvas",
@@ -451,6 +534,7 @@ def build_operations():
                 "canvas",
                 {},
                 write=True,
+                display_param=None,
             ),
             _op(
                 "get_figma_canvas_capabilities",
@@ -459,6 +543,7 @@ def build_operations():
                 "canvas",
                 {},
                 core=True,
+                display_param=None,
             ),
             _op(
                 "read_figma_canvas_details",
@@ -467,14 +552,17 @@ def build_operations():
                 "canvas",
                 {
                     "command": _s(
-                        "Required read command from get_figma_canvas_capabilities."
+                        "Required read command from get_figma_canvas_capabilities.",
+                        required=True,
                     ),
                     "params": {
                         "type": "object",
+                        "required": False,
                         "description": "Optional upstream camelCase parameters; defaults to an empty object.",
                     },
                 },
                 write=True,
+                display_param="command",
             ),
             _op(
                 "edit_figma_canvas",
@@ -484,6 +572,7 @@ def build_operations():
                 {
                     "actions": {
                         "type": "array",
+                        "required": True,
                         "description": "Required ordered actions with command, params, optional as alias on creation/clone. Later node-id fields can use $alias. Max 30 actions/128 KiB. No scripts or delete commands.",
                         "example": [
                             {
@@ -505,6 +594,7 @@ def build_operations():
                 core=True,
                 write=True,
                 destructive=True,
+                display_param="actions",
             ),
             _op(
                 "set_figma_canvas_image",
@@ -512,12 +602,17 @@ def build_operations():
                 "Apply an existing local PNG/JPG/GIF/WebP file as an image fill on a canvas node. Transfers image bytes to the paired plugin only; max 5 MiB. Does not fetch remote URLs.",
                 "canvas",
                 {
-                    "node_id": _s("Required canvas node id."),
-                    "image_path": _s("Required absolute local image path."),
-                    "scale_mode": _s("FILL (default), FIT, CROP or TILE.", "FILL"),
+                    "node_id": _s("Required canvas node id.", required=True),
+                    "image_path": _s(
+                        "Required absolute local image path.", required=True
+                    ),
+                    "scale_mode": _s(
+                        "FILL (default), FIT, CROP or TILE.", "FILL", required=False
+                    ),
                 },
                 write=True,
                 destructive=True,
+                display_param="image_path",
             ),
             _op(
                 "export_figma_canvas_image",
@@ -525,11 +620,14 @@ def build_operations():
                 "Export an unsaved live canvas node as PNG to a unique local file. Requires an absolute output directory; max 5 MiB. Use REST export for JPG/SVG/PDF after file synchronization.",
                 "canvas",
                 {
-                    "node_id": _s("Required canvas node id."),
-                    "output_dir": _s("Required absolute local output directory."),
+                    "node_id": _s("Required canvas node id.", required=True),
+                    "output_dir": _s(
+                        "Required absolute local output directory.", required=True
+                    ),
                     "scale": SCALE,
                 },
                 write=True,
+                display_param="node_id",
             ),
         ]
     )

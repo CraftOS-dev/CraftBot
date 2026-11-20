@@ -31,7 +31,7 @@ def test_action_end_maps_to_resource():
         bus.emit(
             UIEvent(
                 type=UIEventType.ACTION_END,
-                data={"action_canonical_name": "recurring_add"},
+                data={"action_canonical_name": "cron_job_add"},
             )
         )
         bus.emit(

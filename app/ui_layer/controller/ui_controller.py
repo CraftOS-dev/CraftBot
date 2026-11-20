@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from agent_core.core.event_stream.event import EventType
 from agent_core.core.models.reasoning import ReasoningChoice
@@ -66,11 +66,11 @@ class UIController:
         await controller.start()
 
         # Register an adapter
-        adapter = CLIAdapter(controller, "cli")
+        adapter = BrowserAdapter(controller)
         await adapter.start()
 
         # Submit a message
-        await controller.submit_message("Hello!", "cli")
+        await controller.submit_message("Hello!", "browser")
 
         # Stop
         await adapter.stop()
@@ -318,6 +318,18 @@ class UIController:
         ("stopping" then "idle") come from the agent, not from here.
         """
         return await self._agent.request_run_stop(session_id or "main")
+
+    def publish_agent_stream(self, payload: Dict[str, Any]) -> None:
+        """Send the active adapter an update of a decision reply as the model
+        writes it (ReplyStream). Called on the event loop; never waits."""
+        adapter = self._adapter
+        broadcast = getattr(adapter, "broadcast_agent_stream", None)
+        if broadcast is None:
+            return
+        try:
+            asyncio.get_running_loop().create_task(broadcast(payload))
+        except Exception:
+            logger.debug("[UI] Failed to publish an agent stream update", exc_info=True)
 
     async def notify_session_updated(self, session_id: str) -> None:
         """Tell the active adapter a session's metadata changed (e.g. title)."""
@@ -765,6 +777,7 @@ class UIController:
         from app.ui_layer.commands.builtin import (
             HelpCommand,
             ClearCommand,
+            FoldCommand,
             ResetCommand,
             ExitCommand,
             MenuCommand,
@@ -778,6 +791,7 @@ class UIController:
 
         self._command_registry.register(HelpCommand(self))
         self._command_registry.register(ClearCommand(self))
+        self._command_registry.register(FoldCommand(self))
         self._command_registry.register(ResetCommand(self))
         self._command_registry.register(ExitCommand(self))
         self._command_registry.register(MenuCommand(self))

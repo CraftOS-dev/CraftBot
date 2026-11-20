@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import os
 import re
+import sys
 from pathlib import Path
 from typing import List, Optional
 
@@ -86,20 +87,34 @@ def find_pip_bootstrap(code_root: str) -> Optional[Path]:
     return candidate if candidate.is_file() else None
 
 
-def _pinned_pip_version(bootstrap: Path) -> Optional[str]:
-    """The version pip-bootstrap.txt pins, read from the file itself.
+def _pinned_pip_version(bootstrap: Path, package: str = "pip") -> Optional[str]:
+    """The version pip-bootstrap.txt pins for `package`, read from the file.
 
     Read rather than duplicated as a constant here: two places to edit is how
     the pin and the stage that enforces it drift apart.
     """
     try:
         for line in bootstrap.read_text(encoding="utf-8").splitlines():
-            match = re.match(r"^pip==(\S+?)(?:\s|\\|$)", line.strip() + "\n")
+            match = re.match(
+                rf"^{re.escape(package)}==(\S+?)(?:\s|\\|$)", line.strip() + "\n"
+            )
             if match:
                 return match.group(1)
     except OSError:
         pass
     return None
+
+
+def _uv_version(python: List[str]) -> Optional[str]:
+    """`python -m uv --version` in the target interpreter, or None."""
+    try:
+        res = proc.run(python + ["-m", "uv", "--version"], lambda _m: None, timeout=60)
+    except OSError:
+        return None
+    if res.returncode != 0:
+        return None
+    match = re.search(r"\buv\s+(\S+)", res.stdout or "")
+    return match.group(1) if match else None
 
 
 def npm_tree_stale(tree_dir: str) -> Optional[str]:
@@ -168,8 +183,9 @@ class PipStage:
     it. Nothing in the repo chose between them.
 
     Two independent sources of that drift:
-      * the sidecar's pip is whatever the pinned python-build-standalone
-        release bundled, which need not match our dependency lock tooling;
+      * the sidecar's pip is whatever python-build-standalone bundled on the
+        day it was downloaded, and the release tag is resolved from
+        /releases/latest rather than pinned;
       * PythonStage may hand the install to an interpreter already on the
         machine (steps 2 and 3 of its resolution order), bringing that
         machine's pip with it.
@@ -183,7 +199,7 @@ class PipStage:
     """
 
     name = "pip"
-    description = "pip (pinned)"
+    description = "pip and uv (pinned)"
     optional = False
 
     def _installed_version(self, ctx: Context) -> Optional[str]:
@@ -218,12 +234,22 @@ class PipStage:
         have = self._installed_version(ctx)
         if have is None:
             return StageResult(Status.MISSING, "pip is not available", {"want": want})
-        if have == want:
+        if have != want:
             return StageResult(
-                Status.SATISFIED, f"pip {have}", {"pip": have, "want": want}
+                Status.DEGRADED, f"pip {have}, want {want}", {"pip": have, "want": want}
+            )
+        want_uv = _pinned_pip_version(bootstrap, "uv")
+        have_uv = _uv_version(ctx.python()) if want_uv else None
+        if want_uv and have_uv != want_uv:
+            return StageResult(
+                Status.MISSING if have_uv is None else Status.DEGRADED,
+                f"uv {have_uv or 'missing'}, want {want_uv}",
+                {"pip": have, "uv": have_uv, "want_uv": want_uv},
             )
         return StageResult(
-            Status.DEGRADED, f"pip {have}, want {want}", {"pip": have, "want": want}
+            Status.SATISFIED,
+            f"pip {have}, uv {have_uv}" if want_uv else f"pip {have}",
+            {"pip": have, "uv": have_uv, "want": want},
         )
 
     def apply(self, ctx: Context, log: LogFn) -> StageResult:
@@ -285,31 +311,25 @@ class PythonDepsStage:
     """Install the locked dependency set into the service interpreter.
 
     Installs from requirements/lock-*.txt with --require-hashes, never from
-    requirements.txt. That is what makes pip, conda and the installer land on
-    the same 239 packages instead of three separate resolutions.
+    requirements.txt. That is what makes uv, conda and the installer land on
+    the same ~200 packages instead of separate resolutions.
 
-    Two flags here are about TIME, and both follow from what the lock already
-    is. Measured on a Windows dev box, warm pip cache (nothing downloaded,
-    nothing built): 6m59s before, 1m00s after.
+    With uv rather than pip: uv downloads and unpacks in parallel and links
+    from its cache. Measured on a cold Windows machine: ~11 minutes with pip,
+    68 seconds with uv, same lock, same hash checking.
 
-    `--no-deps`: the lock is the full transitive closure — generate_lock.py
-    writes pip's own resolved install list, not the 56 lines of
-    requirements.txt. Without this flag pip re-derives that closure from the
-    239 pinned entries' metadata on every install, which is work whose answer
-    is already written in the file it is reading. Worse, it re-resolves any
-    dependency carrying an extra: `jusText` asks for `lxml[html_clean]`, which
-    pip 23.1 treats as a different node from the pinned bare `lxml`, sends to
-    PyPI, and then rejects as unpinned under --require-hashes. That failure
-    cannot happen when the lock is installed as a flat list.
+    `--no-deps`: the lock is the full transitive closure (generate_lock.py
+    writes the resolved install list, not the lines of requirements.txt), so
+    re-deriving it from the pinned entries' metadata on every install is work
+    whose answer is already in the file being read.
 
-    `--no-compile`: the 6 minutes. pip byte-compiles every installed .py — 36k
-    files, serially, one package at a time, no way to parallelise it from the
-    outside. So it is turned off and done once afterwards across every core
-    (_byte_compile), which is 39s on 24 cores instead of ~6 minutes.
+    Byte-compilation is not part of the install: _byte_compile starts it in
+    the background across every core, overlapping the npm stages (~90 s on
+    8 cores that used to sit in front of everything else).
 
-    The safety net --no-deps gives up is pip's "X requires Y, which is not
-    installed" complaint, so _audit_closure runs `pip check` (4s) to get
-    exactly that back.
+    The safety net --no-deps gives up is the "X requires Y, which is not
+    installed" complaint, so _audit_closure runs `pip check` to get exactly
+    that back.
     """
 
     name = "python-deps"
@@ -364,34 +384,54 @@ class PythonDepsStage:
                 "offline and no wheelhouse — see scripts/build_wheelhouse.py",
             )
 
+        # uv, not pip: it fetches and unpacks in parallel and installs from
+        # its cache by link, with the same --require-hashes guarantee. The
+        # pip run took ~11 minutes on a cold Windows machine; uv takes ~1.
+        # --python names the target explicitly: the interpreter is ours (or
+        # the caller's conda env), never an activated virtualenv's.
+        target = self._interpreter_path(py) or py[0]
         res = proc.run(
             py
             + [
-                "-u",  # unbuffered, so each line reaches the log as it happens
                 "-m",
+                "uv",
                 "pip",
                 "install",
-                "--no-color",
-                "--progress-bar",
-                "off",
+                "--python",
+                target,
                 "--require-hashes",
                 # See the class docstring: the lock is already the closure, and
                 # byte-compilation is done in parallel below instead.
                 "--no-deps",
-                "--no-compile",
+                # Trust the OS certificate store (corporate TLS inspection),
+                # not only uv's bundled roots.
+                "--native-tls",
                 "-r",
                 str(lock),
             ]
+            + _uv_index_args()
             + wheel_args,
             log,
             stream=True,
+            env=_uv_env(),
         )
         if res.returncode != 0:
-            return StageResult(Status.FAILED, proc.failure_detail(res, "pip failed"))
+            return StageResult(
+                Status.FAILED, proc.failure_detail(res, "uv pip install failed")
+            )
 
         self._byte_compile(py, log)
         self._audit_closure(py, log)
         return self.check(ctx)
+
+    def _interpreter_path(self, python: List[str]) -> Optional[str]:
+        """The real executable behind `python` (conda run ... python)."""
+        try:
+            res = proc.python(python, "import sys; print(sys.executable)", timeout=60)
+        except Exception:
+            return None
+        lines = (res.stdout or "").strip().splitlines()
+        return lines[-1].strip() if res.returncode == 0 and lines else None
 
     def _site_packages(self, python: List[str]) -> List[str]:
         """The directories the lock's packages were installed into.
@@ -437,23 +477,34 @@ class PythonDepsStage:
         if not targets:
             log("    (could not locate site-packages — skipping byte-compile)")
             return
-        log("    byte-compiling in parallel")
+        log("    byte-compiling in the background")
+        # In the BACKGROUND: it took ~90 s on an 8-core Windows machine and
+        # nothing later in the install needs it (Python compiles whatever it
+        # imports first, and concurrent .pyc writes are atomic), so it now
+        # overlaps the npm stages instead of adding to the wait. Detached so
+        # it survives the installer's console closing.
+        import subprocess
+
+        from app import python_runtime
+
+        kwargs = {}
+        if sys.platform == "win32":
+            kwargs["creationflags"] = (
+                subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
+            )
+        else:
+            kwargs["start_new_session"] = True
         try:
-            res = proc.run(
+            subprocess.Popen(
                 python + ["-m", "compileall", "-j", "0", "-q"] + targets,
-                lambda _m: None,
-                timeout=1800,
-                echo=False,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                env=python_runtime.isolated_env(),
+                **kwargs,
             )
-        except Exception as exc:  # OSError, TimeoutExpired — never fatal
+        except Exception as exc:  # OSError — never fatal
             log(f"    WARNING byte-compile skipped: {exc}")
-            return
-        noise = [ln for ln in (res.stdout or "").splitlines() if ln.startswith("***")]
-        if res.returncode != 0 and len(noise) > 8:
-            log(
-                f"    WARNING byte-compile reported {len(noise)} failures — "
-                "imports will be slower than they should be"
-            )
 
     def _audit_closure(self, python: List[str], log: LogFn) -> None:
         """`pip check` — the one thing --no-deps stops pip doing for us.
@@ -476,6 +527,33 @@ class PythonDepsStage:
         if res.returncode != 0:
             for line in (res.stdout or "").strip().splitlines()[:5]:
                 log(f"    WARNING pip check: {line[:140]}")
+
+
+def _uv_env() -> dict:
+    """The isolated environment, plus pip's custom CA bundle for uv."""
+    from app import python_runtime
+
+    from app.downloads import system_proxy_env
+
+    env = python_runtime.isolated_env()
+    env.update(system_proxy_env())
+    if env.get("PIP_CERT") and not env.get("SSL_CERT_FILE"):
+        env["SSL_CERT_FILE"] = env["PIP_CERT"]
+    return env
+
+
+def _uv_index_args() -> List[str]:
+    """pip's index settings, which users set for mirrors, translated for uv
+    (uv reads its own UV_* variables, not PIP_*)."""
+    args: List[str] = []
+    index = os.environ.get("PIP_INDEX_URL", "").strip()
+    if index:
+        args += ["--index-url", index]
+    for extra in os.environ.get("PIP_EXTRA_INDEX_URL", "").split():
+        args += ["--extra-index-url", extra]
+    for host in os.environ.get("PIP_TRUSTED_HOST", "").split():
+        args += ["--allow-insecure-host", host]
+    return args
 
 
 class PlaywrightStage:
@@ -527,13 +605,12 @@ class PlaywrightStage:
 
 
 class _NpmTreeStage:
-    """Shared logic for the npm trees CraftBot ships."""
+    """Shared logic for the two npm trees CraftBot ships."""
 
     name = "npm"
     description = "npm dependencies"
     optional = True
     rel_dir = ""
-    install_args = ("install",)
     #: A file that only exists once `npm install` has succeeded.
     sentinel = "node_modules"
 
@@ -560,7 +637,7 @@ class _NpmTreeStage:
         d = self._dir(ctx)
         if not d.is_dir():
             return StageResult(Status.SKIPPED, f"{self.rel_dir} not present")
-        cmd = npm + list(self.install_args) + ["--no-audit", "--no-fund"]
+        cmd = npm + ["install", "--no-audit", "--no-fund"]
 
         # A pre-warmed npm cache turns ~50 MB from the registry into local
         # reads. --prefer-offline rather than --offline: it uses the cache
@@ -578,94 +655,8 @@ class _NpmTreeStage:
         # child_env() exists for exactly this and was going unused.
         res = proc.run(cmd, log, cwd=str(d), stream=True, env=node_runtime.child_env())
         if res.returncode != 0:
-            log("\n".join(filter(None, [res.stdout, res.stderr])))
             return StageResult(Status.FAILED, proc.failure_detail(res, "npm failed"))
         return self.check(ctx)
-
-
-class AgentAppToolsStage(_NpmTreeStage):
-    """Install the CLI's own dependencies before it can fetch PocketBase."""
-
-    name = "agent-app-tools"
-    description = "Agent App tooling"
-    optional = False
-    rel_dir = "agent-app"
-    install_args = ("ci", "--ignore-scripts", "--include=dev")
-
-    def check(self, ctx: Context) -> StageResult:
-        from app import node_runtime
-
-        directory = self._dir(ctx)
-        if not (directory / "tools/src/cli.ts").is_file():
-            return StageResult(
-                Status.FAILED, "Agent App tooling is missing from this installation"
-            )
-        result = super().check(ctx)
-        if not result.ok:
-            return result
-        installed_at = (directory / "node_modules/.package-lock.json").stat().st_mtime
-        for workspace in ("kit", "tools"):
-            manifest = directory / workspace / "package.json"
-            if not manifest.is_file() or manifest.stat().st_mtime > installed_at:
-                return StageResult(
-                    Status.MISSING, f"{workspace}/package.json changed or is missing"
-                )
-        node = node_runtime.node_cmd()
-        if not node:
-            return StageResult(Status.MISSING, "Node is unavailable")
-        probe = proc.run(
-            [node, "--input-type=module", "-e", "await import('fflate')"],
-            cwd=str(directory / "tools"),
-            timeout=30,
-            echo=False,
-            env=node_runtime.child_env(),
-        )
-        if probe.returncode != 0:
-            return StageResult(
-                Status.MISSING, proc.failure_detail(probe, "ZIP dependency is missing")
-            )
-        return StageResult(Status.SATISFIED, "Agent App tooling ready")
-
-
-class PocketBaseStage:
-    name = "pocketbase"
-    description = "PocketBase runtime"
-    optional = False
-
-    def _run(self, ctx: Context, subcommand: str, log=None):
-        from app import node_runtime
-
-        node = node_runtime.node_cmd()
-        if not node:
-            return StageResult(Status.MISSING, "Node is unavailable")
-        cli = Path(ctx.code_root) / "agent-app/tools/src/cli.ts"
-        result = proc.run(
-            [node, str(cli), "pb", subcommand],
-            log,
-            timeout=900,
-            env=node_runtime.child_env(),
-        )
-        if result.returncode:
-            if log:
-                log("\n".join(filter(None, [result.stdout, result.stderr])))
-            return StageResult(
-                Status.FAILED if subcommand == "fetch" else Status.MISSING,
-                proc.failure_detail(result, "PocketBase setup failed"),
-            )
-        return StageResult(
-            Status.SATISFIED, (result.stdout or "").strip().splitlines()[-1]
-        )
-
-    def check(self, ctx: Context) -> StageResult:
-        return self._run(ctx, "check")
-
-    def apply(self, ctx: Context, log: LogFn) -> StageResult:
-        if ctx.offline:
-            return StageResult(
-                Status.FAILED,
-                "Offline: PocketBase is not cached; retry setup with a connection",
-            )
-        return self._run(ctx, "fetch", log)
 
 
 class FrontendStage(_NpmTreeStage):

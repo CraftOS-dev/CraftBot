@@ -355,7 +355,10 @@ class DiscordClient(BasePlatformClient):
         #      ``is_self_message=True``. Else try third-party. If neither
         #      list matches AND any list is configured, drop. If all four
         #      lists are empty, the filter is fully open (current default).
-        cfg = load_config(_discord_config_file(), DiscordConfig) or DiscordConfig()
+        cfg = (
+            await asyncio.to_thread(load_config, _discord_config_file(), DiscordConfig)
+            or DiscordConfig()
+        )
 
         if cfg.mention_only:
             mentions = d.get("mentions") or []

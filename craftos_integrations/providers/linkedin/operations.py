@@ -61,6 +61,7 @@ def _urn_op(
     parallelizable: bool = True,
     output_schema: Optional[Dict[str, Any]] = None,
     tags: Tuple[str, ...] = ("linkedin",),
+    display_param: Optional[str] = None,
 ) -> Operation:
     """Like ``client_op`` but for methods needing the bound account's
     person URN: ``args(person_urn, input_data)`` builds the kwargs."""
@@ -82,6 +83,7 @@ def _urn_op(
         destructive=destructive,
         parallelizable=parallelizable,
         tags=tags,
+        display_param=display_param,
     )
 
 
@@ -158,6 +160,7 @@ def build_operations() -> List[Operation]:
             description="Get the authenticated user's LinkedIn profile.",
             tags=("linkedin",),
             input_schema={},
+            display_param=None,
         ),
         # ── Posts (create / delete / get / list / org posts / reshare) ───
         _urn_op(
@@ -169,11 +172,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "text": {
                     "type": "string",
+                    "required": True,
                     "description": "Post text (max 3000 chars).",
                     "example": "Excited to share...",
                 },
                 "visibility": {
                     "type": "string",
+                    "required": False,
                     "description": "Visibility: PUBLIC, CONNECTIONS, or LOGGED_IN.",
                     "example": "PUBLIC",
                 },
@@ -183,6 +188,7 @@ def build_operations() -> List[Operation]:
                 "text": d["text"],
                 "visibility": d.get("visibility", "PUBLIC"),
             },
+            display_param="text",
         ),
         client_op(
             "delete_linkedin_post",
@@ -194,10 +200,12 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "post_urn": {
                     "type": "string",
+                    "required": True,
                     "description": "Post URN.",
                     "example": "urn:li:share:123",
                 }
             },
+            display_param="post_urn",
         ),
         client_op(
             "get_linkedin_post",
@@ -207,10 +215,12 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "post_urn": {
                     "type": "string",
+                    "required": True,
                     "description": "Post URN.",
                     "example": "urn:li:share:123",
                 }
             },
+            display_param="post_urn",
         ),
         _with_post(
             _urn_op(
@@ -224,11 +234,13 @@ def build_operations() -> List[Operation]:
                 input_schema={
                     "count": {
                         "type": "integer",
+                        "required": False,
                         "description": "Count.",
                         "example": 50,
                     },
                     "include_metadata": {
                         "type": "boolean",
+                        "required": False,
                         "description": "False (default): lean posts. True: full raw ugcPosts.",
                         "example": False,
                     },
@@ -237,6 +249,7 @@ def build_operations() -> List[Operation]:
                     "author_urn": urn,
                     "count": d.get("count", 50),
                 },
+                display_param=None,
             ),
             _lean_ugc_posts,
         ),
@@ -253,16 +266,19 @@ def build_operations() -> List[Operation]:
                 input_schema={
                     "organization_urn": {
                         "type": "string",
+                        "required": True,
                         "description": "Org URN.",
                         "example": "urn:li:organization:123",
                     },
                     "include_metadata": {
                         "type": "boolean",
+                        "required": False,
                         "description": "False (default): lean posts. True: full raw ugcPosts.",
                         "example": False,
                     },
                 },
                 arg_map=lambda d: {"author_urn": d["organization_urn"]},
+                display_param="organization_urn",
             ),
             _lean_ugc_posts,
         ),
@@ -275,11 +291,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "original_post_urn": {
                     "type": "string",
+                    "required": True,
                     "description": "Original Post URN.",
                     "example": "urn:li:share:123",
                 },
                 "commentary": {
                     "type": "string",
+                    "required": False,
                     "description": "Commentary.",
                     "example": "Interesting!",
                 },
@@ -289,6 +307,7 @@ def build_operations() -> List[Operation]:
                 "original_post_urn": d["original_post_urn"],
                 "commentary": d.get("commentary", ""),
             },
+            display_param="commentary",
         ),
         # ── Reactions / Comments ─────────────────────────────────────────
         _urn_op(
@@ -300,11 +319,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "post_urn": {
                     "type": "string",
+                    "required": True,
                     "description": "Post URN.",
                     "example": "urn:li:share:123",
                 }
             },
             args=lambda urn, d: {"actor_urn": urn, "post_urn": d["post_urn"]},
+            display_param="post_urn",
         ),
         _urn_op(
             "unlike_linkedin_post",
@@ -314,11 +335,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "post_urn": {
                     "type": "string",
+                    "required": True,
                     "description": "Post URN.",
                     "example": "urn:li:share:123",
                 }
             },
             args=lambda urn, d: {"actor_urn": urn, "post_urn": d["post_urn"]},
+            display_param="post_urn",
         ),
         client_op(
             "get_linkedin_post_likes",
@@ -328,10 +351,12 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "post_urn": {
                     "type": "string",
+                    "required": True,
                     "description": "Post URN.",
                     "example": "urn:li:share:123",
                 }
             },
+            display_param="post_urn",
         ),
         _urn_op(
             "comment_on_linkedin_post",
@@ -342,11 +367,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "post_urn": {
                     "type": "string",
+                    "required": True,
                     "description": "Post URN.",
                     "example": "urn:li:share:123",
                 },
                 "text": {
                     "type": "string",
+                    "required": True,
                     "description": "Comment text.",
                     "example": "Great post!",
                 },
@@ -356,6 +383,7 @@ def build_operations() -> List[Operation]:
                 "post_urn": d["post_urn"],
                 "text": d["text"],
             },
+            display_param="text",
         ),
         client_op(
             "get_linkedin_post_comments",
@@ -365,10 +393,12 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "post_urn": {
                     "type": "string",
+                    "required": True,
                     "description": "Post URN.",
                     "example": "urn:li:share:123",
                 }
             },
+            display_param="post_urn",
         ),
         _urn_op(
             "delete_linkedin_comment",
@@ -379,11 +409,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "post_urn": {
                     "type": "string",
+                    "required": True,
                     "description": "Post URN.",
                     "example": "urn:li:share:123",
                 },
                 "comment_urn": {
                     "type": "string",
+                    "required": True,
                     "description": "Comment URN.",
                     "example": "urn:li:comment:123",
                 },
@@ -393,6 +425,7 @@ def build_operations() -> List[Operation]:
                 "post_urn": d["post_urn"],
                 "comment_urn": d["comment_urn"],
             },
+            display_param="comment_urn",
         ),
         # ── Connections / Invitations / Messages ─────────────────────────
         client_op(
@@ -403,11 +436,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "count": {
                     "type": "integer",
+                    "required": False,
                     "description": "Number of connections to return.",
                     "example": 50,
                 },
             },
             arg_map=lambda d: {"count": d.get("count", 50)},
+            display_param=None,
         ),
         _urn_op(
             "send_linkedin_message",
@@ -418,16 +453,19 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "recipient_urns": {
                     "type": "array",
+                    "required": True,
                     "description": "List of recipient URNs (urn:li:person:xxx).",
                     "example": [],
                 },
                 "subject": {
                     "type": "string",
+                    "required": True,
                     "description": "Message subject.",
                     "example": "Hello",
                 },
                 "body": {
                     "type": "string",
+                    "required": True,
                     "description": "Message body.",
                     "example": "Hi, I wanted to connect...",
                 },
@@ -438,6 +476,7 @@ def build_operations() -> List[Operation]:
                 "subject": d["subject"],
                 "body": d["body"],
             },
+            display_param="subject",
         ),
         client_op(
             "send_linkedin_connection_request",
@@ -449,11 +488,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "invitee_profile_urn": {
                     "type": "string",
+                    "required": True,
                     "description": "Profile URN.",
                     "example": "urn:li:person:123",
                 },
                 "message": {
                     "type": "string",
+                    "required": False,
                     "description": "Message.",
                     "example": "Hi",
                 },
@@ -462,6 +503,7 @@ def build_operations() -> List[Operation]:
                 "invitee_profile_urn": d["invitee_profile_urn"],
                 "message": d.get("message"),
             },
+            display_param="message",
         ),
         client_op(
             "get_linkedin_sent_invitations",
@@ -469,9 +511,15 @@ def build_operations() -> List[Operation]:
             description="Get sent invitations.",
             tags=("linkedin",),
             input_schema={
-                "count": {"type": "integer", "description": "Count.", "example": 50}
+                "count": {
+                    "type": "integer",
+                    "required": False,
+                    "description": "Count.",
+                    "example": 50,
+                }
             },
             arg_map=lambda d: {"count": d.get("count", 50)},
+            display_param=None,
         ),
         client_op(
             "get_linkedin_received_invitations",
@@ -479,9 +527,15 @@ def build_operations() -> List[Operation]:
             description="Get received invitations.",
             tags=("linkedin",),
             input_schema={
-                "count": {"type": "integer", "description": "Count.", "example": 50}
+                "count": {
+                    "type": "integer",
+                    "required": False,
+                    "description": "Count.",
+                    "example": 50,
+                }
             },
             arg_map=lambda d: {"count": d.get("count", 50)},
+            display_param=None,
         ),
         client_op(
             "respond_to_linkedin_invitation",
@@ -493,11 +547,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "invitation_urn": {
                     "type": "string",
+                    "required": True,
                     "description": "Invitation URN.",
                     "example": "urn:li:invitation:123",
                 },
                 "action": {
                     "type": "string",
+                    "required": True,
                     "description": "accept/ignore.",
                     "example": "accept",
                 },
@@ -506,6 +562,7 @@ def build_operations() -> List[Operation]:
                 "invitation_urn": d["invitation_urn"],
                 "action": d["action"],
             },
+            display_param="action",
         ),
         client_op(
             "get_linkedin_conversations",
@@ -513,9 +570,15 @@ def build_operations() -> List[Operation]:
             description="Get conversations.",
             tags=("linkedin",),
             input_schema={
-                "count": {"type": "integer", "description": "Count.", "example": 20}
+                "count": {
+                    "type": "integer",
+                    "required": False,
+                    "description": "Count.",
+                    "example": 20,
+                }
             },
             arg_map=lambda d: {"count": d.get("count", 20)},
+            display_param=None,
         ),
         # ── Search / Lookups ─────────────────────────────────────────────
         client_op(
@@ -526,16 +589,19 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "keywords": {
                     "type": "string",
+                    "required": True,
                     "description": "Job search keywords.",
                     "example": "software engineer",
                 },
                 "location": {
                     "type": "string",
+                    "required": False,
                     "description": "Optional location filter.",
                     "example": "",
                 },
                 "count": {
                     "type": "integer",
+                    "required": False,
                     "description": "Number of results.",
                     "example": 25,
                 },
@@ -545,6 +611,7 @@ def build_operations() -> List[Operation]:
                 "location": d.get("location"),
                 "count": d.get("count", 25),
             },
+            display_param="keywords",
         ),
         client_op(
             "get_linkedin_job_details",
@@ -552,8 +619,14 @@ def build_operations() -> List[Operation]:
             description="Get job details.",
             tags=("linkedin",),
             input_schema={
-                "job_id": {"type": "string", "description": "Job ID.", "example": "123"}
+                "job_id": {
+                    "type": "string",
+                    "required": True,
+                    "description": "Job ID.",
+                    "example": "123",
+                }
             },
+            display_param="job_id",
         ),
         client_op(
             "search_linkedin_companies",
@@ -563,10 +636,12 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "keywords": {
                     "type": "string",
+                    "required": True,
                     "description": "Keywords.",
                     "example": "tech",
                 }
             },
+            display_param="keywords",
         ),
         client_op(
             "lookup_linkedin_company",
@@ -576,10 +651,12 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "vanity_name": {
                     "type": "string",
+                    "required": True,
                     "description": "Vanity name.",
                     "example": "microsoft",
                 }
             },
+            display_param="vanity_name",
         ),
         client_op(
             "get_linkedin_person",
@@ -589,10 +666,12 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "person_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Person ID.",
                     "example": "123",
                 }
             },
+            display_param="person_id",
         ),
         # ── Organizations / Analytics / Follow ───────────────────────────
         client_op(
@@ -601,6 +680,7 @@ def build_operations() -> List[Operation]:
             description="Get user's organizations.",
             tags=("linkedin",),
             input_schema={},
+            display_param=None,
         ),
         client_op(
             "get_linkedin_organization_info",
@@ -610,10 +690,12 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "organization_id": {
                     "type": "string",
+                    "required": True,
                     "description": "Org ID.",
                     "example": "123",
                 }
             },
+            display_param="organization_id",
         ),
         client_op(
             "get_linkedin_organization_analytics",
@@ -623,10 +705,12 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "organization_urn": {
                     "type": "string",
+                    "required": True,
                     "description": "Org URN.",
                     "example": "urn:li:organization:123",
                 }
             },
+            display_param="organization_urn",
         ),
         client_op(
             "get_linkedin_post_analytics",
@@ -636,11 +720,13 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "post_urn": {
                     "type": "string",
+                    "required": True,
                     "description": "Post URN.",
                     "example": "urn:li:share:123",
                 }
             },
             arg_map=lambda d: {"share_urns": [d["post_urn"]]},
+            display_param="post_urn",
         ),
         _urn_op(
             "follow_linkedin_organization",
@@ -651,6 +737,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "organization_urn": {
                     "type": "string",
+                    "required": True,
                     "description": "Org URN.",
                     "example": "urn:li:organization:123",
                 }
@@ -659,6 +746,7 @@ def build_operations() -> List[Operation]:
                 "follower_urn": urn,
                 "organization_urn": d["organization_urn"],
             },
+            display_param="organization_urn",
         ),
         _urn_op(
             "unfollow_linkedin_organization",
@@ -668,6 +756,7 @@ def build_operations() -> List[Operation]:
             input_schema={
                 "organization_urn": {
                     "type": "string",
+                    "required": True,
                     "description": "Org URN.",
                     "example": "urn:li:organization:123",
                 }
@@ -676,5 +765,6 @@ def build_operations() -> List[Operation]:
                 "follower_urn": urn,
                 "organization_urn": d["organization_urn"],
             },
+            display_param="organization_urn",
         ),
     ]

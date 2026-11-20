@@ -4,11 +4,13 @@ from agent_core import action
 _INPUT_SCHEMA = {
     "query": {
         "type": "string",
+        "required": True,
         "example": "user preferences for communication",
         "description": "The semantic search query to find relevant memory.",
     },
     "top_k": {
         "type": "integer",
+        "required": False,
         "example": 5,
         "description": "Maximum number of results to return. Defaults to 5.",
         "default": 5,
@@ -53,6 +55,8 @@ _OUTPUT_SCHEMA = {
     input_schema=_INPUT_SCHEMA,
     output_schema=_OUTPUT_SCHEMA,
     test_payload={"query": "user preferences", "top_k": 5, "simulated_mode": True},
+    display_param="query",
+    icon="Brain",
 )
 def memory_search(input_data: dict) -> dict:
     """

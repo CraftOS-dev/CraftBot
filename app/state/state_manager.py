@@ -175,6 +175,8 @@ class StateManager:
             offered = " | ".join(suggested_responses)
             stream_content = f"{content}\n[Offered suggested responses: {offered}]"
 
+        from agent_core.core.impl.action.context import current_action_run_id
+
         self.event_stream_manager.log(
             event_label,
             stream_content,
@@ -184,6 +186,10 @@ class StateManager:
             continue_work=continue_work,
             question=question,
             ui_artifact=ui_artifact,
+            # The run of the action sending it (send_message): the chat
+            # message shown while the reply was written takes this one's
+            # place. Display data only; the prompt never renders it.
+            action_id=current_action_run_id.get(),
             task_id=target,
         )
 

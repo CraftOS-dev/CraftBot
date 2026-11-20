@@ -27,9 +27,6 @@ report it back as a dense, source-cited brief. You have no memory of past
 conversations and no access to the spawning agent's context beyond the
 query.
 
-ALLOWED ACTIONS (you cannot use anything else):
-{action_list}
-
 YOUR LOOP:
 1. Use web_search to identify candidate sources for the query.
 2. Use web_fetch (or http_request for structured APIs) to read the
@@ -89,8 +86,6 @@ ENDING RULES:
   call sub_task_end with status="failed" and put what you searched and
   why it failed in `result` — do NOT make up a partial answer.
 - Hitting the iteration cap without ending is a failure. Be efficient.
-
-{output_format}
 """
 
 
@@ -114,7 +109,9 @@ register_subagent(
     ],
     # Externalized outputs turn "read whole page inline" into
     # "pointer → grep → (maybe) read_file", costing 1-2 extra turns per
-    # large source — budgets sized accordingly.
+    # large source — budgets sized accordingly. The time cap cancels a call
+    # in flight, and writing the final brief alone took ~150 s (2026-11-16),
+    # so it leaves room for that last turn.
     max_iterations=30,
-    max_wall_seconds=450,
+    max_wall_seconds=900,
 )

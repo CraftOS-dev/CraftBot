@@ -137,6 +137,12 @@ class OutlookClient(BasePlatformClient):
     def _auth_header(self) -> Dict[str, str]:
         return {"Authorization": f"Bearer {self._ensure_token()}"}
 
+    async def _async_auth_header(self) -> Dict[str, str]:
+        """``_auth_header`` for coroutines. An expired token is refreshed over
+        a blocking HTTP call and written back to disk, so the check runs in a
+        worker thread instead of on the event loop."""
+        return await asyncio.to_thread(self._auth_header)
+
     async def connect(self) -> None:
         cred = self._load()
         if not cred.access_token:
@@ -185,7 +191,10 @@ class OutlookClient(BasePlatformClient):
 
     async def _async_get_profile(self) -> Dict[str, Any]:
         result = await arequest(
-            "GET", f"{GRAPH_API_BASE}/me", headers=self._auth_header(), expected=(200,)
+            "GET",
+            f"{GRAPH_API_BASE}/me",
+            headers=await self._async_auth_header(),
+            expected=(200,),
         )
         if "error" in result:
             raise RuntimeError(f"Graph /me {result['error']}")
@@ -200,7 +209,7 @@ class OutlookClient(BasePlatformClient):
             except Exception as e:
                 logger.error(f"[OUTLOOK] Poll error: {e}")
                 if "401" in str(e):
-                    self.refresh_access_token()
+                    await asyncio.to_thread(self.refresh_access_token)
                 await asyncio.sleep(RETRY_DELAY)
                 continue
             await asyncio.sleep(POLL_INTERVAL)
@@ -214,7 +223,7 @@ class OutlookClient(BasePlatformClient):
             "GET",
             f"{GRAPH_API_BASE}/me/messages",
             headers={
-                **self._auth_header(),
+                **await self._async_auth_header(),
                 "Prefer": 'outlook.body-content-type="text"',
             },
             params={
@@ -227,7 +236,7 @@ class OutlookClient(BasePlatformClient):
         )
         if "error" in result:
             if "401" in result["error"]:
-                self.refresh_access_token()
+                await asyncio.to_thread(self.refresh_access_token)
             else:
                 logger.warning(f"[OUTLOOK] messages API {result['error']}")
             return

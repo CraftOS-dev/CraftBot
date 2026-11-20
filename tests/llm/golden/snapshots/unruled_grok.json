@@ -7,6 +7,9 @@
         "extra_body": {
           "prompt_cache_key": "907eed6c3582215b"
         },
+        "extra_headers": {
+          "x-grok-conv-id": "907eed6c3582215b"
+        },
         "max_tokens": 50000,
         "messages": [
           {
@@ -32,6 +35,9 @@
         "extra_body": {
           "prompt_cache_key": "reasoning_907eed6c3582215b"
         },
+        "extra_headers": {
+          "x-grok-conv-id": "reasoning_907eed6c3582215b"
+        },
         "max_tokens": 50000,
         "messages": [
           {
@@ -56,6 +62,9 @@
       "payload": {
         "extra_body": {
           "prompt_cache_key": "reasoning_907eed6c3582215b"
+        },
+        "extra_headers": {
+          "x-grok-conv-id": "reasoning_907eed6c3582215b"
         },
         "max_tokens": 50000,
         "messages": [
@@ -89,6 +98,9 @@
       "payload": {
         "extra_body": {
           "prompt_cache_key": "reasoning_907eed6c3582215b"
+        },
+        "extra_headers": {
+          "x-grok-conv-id": "reasoning_907eed6c3582215b"
         },
         "max_tokens": 50000,
         "messages": [

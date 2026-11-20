@@ -1,3 +1,4 @@
+import type { PendingChatSubmission } from "../../types"
 import { createSlice, PayloadAction } from '@reduxjs/toolkit'
 import { register } from '../socket/messageRegistry'
 
@@ -15,11 +16,13 @@ import { register } from '../socket/messageRegistry'
 // Chat.tsx unmounts/remounts in both cases, but the store doesn't.
 interface ChatInputState {
   pendingPrefill: string | null
+  pendingSubmissions: Record<string, PendingChatSubmission>
   drafts: Record<string, string>
 }
 
 const initialState: ChatInputState = {
   pendingPrefill: null,
+  pendingSubmissions: {},
   drafts: {},
 }
 
@@ -27,6 +30,12 @@ const chatInputSlice = createSlice({
   name: 'chatInput',
   initialState,
   reducers: {
+    restoreSubmission(state, action: PayloadAction<PendingChatSubmission>) {
+      state.pendingSubmissions[action.payload.sessionId] = action.payload
+    },
+    consumeSubmission(state, action: PayloadAction<string>) {
+      delete state.pendingSubmissions[action.payload]
+    },
     setPendingPrefill(state, action: PayloadAction<string>) {
       state.pendingPrefill = action.payload
     },
@@ -53,6 +62,7 @@ const chatInputSlice = createSlice({
     },
     clearDraftText(state, action: PayloadAction<{ sessionId: string }>) {
       delete state.drafts[action.payload.sessionId]
+      delete state.pendingSubmissions[action.payload.sessionId]
     },
     // Draft-view handoff: /session/new -> /session/{id}. Carries over any
     // text typed after the send that created the session but before the
@@ -69,6 +79,8 @@ const chatInputSlice = createSlice({
 })
 
 export const {
+  restoreSubmission,
+  consumeSubmission,
   setPendingPrefill,
   clearPendingPrefill,
   setDraftText,

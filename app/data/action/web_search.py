@@ -20,6 +20,7 @@ from agent_core import action
         },
         "num_results": {
             "type": "integer",
+            "required": False,
             "example": 5,
             "description": "Number of results to return (1-20). Defaults to 5.",
         },
@@ -53,6 +54,8 @@ from agent_core import action
         "num_results": 5,
         "simulated_mode": True,
     },
+    display_param="query",
+    icon="Search",
 )
 def web_search(input_data: dict) -> dict:
     """
@@ -153,14 +156,25 @@ def web_search(input_data: dict) -> dict:
         """Search using Google Custom Search API."""
         try:
             from googleapiclient.discovery import build
-            from app.config import get_api_key, get_web_search_cse_id
+            from app.config import (
+                get_api_key,
+                get_web_search_cse_base_url,
+                get_web_search_cse_id,
+            )
 
             api_key = get_api_key("google")
             cse_id = get_web_search_cse_id()
             if not api_key or not cse_id:
                 raise Exception("No Google API credentials")
 
-            service = build("customsearch", "v1", developerKey=api_key)
+            base_url = get_web_search_cse_base_url()
+            client_options = {"api_endpoint": base_url} if base_url else None
+            service = build(
+                "customsearch",
+                "v1",
+                developerKey=api_key,
+                client_options=client_options,
+            )
             res = service.cse().list(q=q, cx=cse_id, num=min(n + 5, 10)).execute()
             items = res.get("items", [])
 

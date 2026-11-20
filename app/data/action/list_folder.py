@@ -9,6 +9,7 @@ from agent_core import action
     input_schema={
         "path": {
             "type": "string",
+            "required": True,
             "example": "C:/Users/user/Documents",
             "description": "Absolute path to the folder to list. Use full absolute paths (e.g., C:/Users/user/Documents on Windows or /home/user/documents on Linux/Mac).",
         }
@@ -30,6 +31,8 @@ from agent_core import action
         },
     },
     test_payload={"path": "C:/Users/user/Documents", "simulated_mode": True},
+    display_param="path",
+    icon="FolderOpen",
 )
 def list_folder(input_data: dict) -> dict:
     import os

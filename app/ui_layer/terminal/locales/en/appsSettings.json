@@ -1,0 +1,193 @@
+{
+  "panel": {
+    "name": "Name",
+    "status": "Status",
+    "port": "Port",
+    "path": "Path",
+    "pathDesc": "The app's folder on this computer",
+    "address": "Address",
+    "addressDesc": "Where the app is served on this computer",
+    "origin": "Origin",
+    "signedInAs": "Signed in as",
+    "connection": "Connection",
+    "loading": "Loading...",
+    "gone": "This app is no longer in the app list.",
+    "disconnected": "Connection lost. Reconnect to change this app.",
+    "working": "working...",
+    "on": "On",
+    "off": "Off"
+  },
+  "status": {
+    "running": "Running",
+    "stopped": "Stopped",
+    "starting": "Starting...",
+    "stopping": "Stopping...",
+    "missing": "App folder missing",
+    "unreachable": "Unavailable"
+  },
+  "connectionStatus": {
+    "online": "Online",
+    "offline": "Offline",
+    "unreachable": "Unavailable",
+    "expired": "Sign-in expired"
+  },
+  "lifecycle": {
+    "start": "Start",
+    "stop": "Stop",
+    "startDesc": "Start the app with its build and launch steps",
+    "stopDesc": "Stop the app and its request bridge. Development instances keep running.",
+    "failed": "The app could not complete the command.",
+    "unknown": "Connection interrupted. The command may still be running. Check the app status after reconnecting before trying again.",
+    "remaining": "A development instance or task bridge is still running.",
+    "notSent": "Not sent. Reconnect and try again.",
+    "busy": "Wait for the app to finish starting or stopping."
+  },
+  "sections": {
+    "preferences": "Preferences",
+    "requests": "Requests",
+    "backups": "Backups",
+    "share": "Share",
+    "appearance": "Appearance",
+    "package": "Package",
+    "remove": "Remove"
+  },
+  "prefs": {
+    "autoStart": "Start automatically",
+    "autoStartDesc": "Start this app when your AI agent starts",
+    "logCleanup": "Clean logs on start",
+    "logCleanupDesc": "Delete old log files each time the app starts"
+  },
+  "requests": {
+    "allow": "Allow requests to CraftBot",
+    "allowDesc": "Let this app send the requests it declares to your AI agent",
+    "view": "View requests ({{count}})",
+    "hide": "Hide requests",
+    "listDesc": "The requests this app can send once allowed",
+    "ownerTools": "Owner access to local tools",
+    "ownerToolsDesc": "Allow the app owner to read and write local files and run commands with your AI agent's permissions",
+    "needsAllow": "Allow requests first."
+  },
+  "backups": {
+    "scheduled": "Scheduled backups",
+    "scheduledDesc": "Back up this app's data and files automatically",
+    "frequency": "Frequency",
+    "frequencyDesc": "How often a scheduled backup runs",
+    "interval": {
+      "hourly": "Every hour",
+      "6h": "Every 6 hours",
+      "daily": "Daily",
+      "weekly": "Weekly"
+    },
+    "keep": "Backups to keep",
+    "keepDesc": "Older scheduled backups beyond this count are removed",
+    "lastFailed": "Last backup failed: {{error}}",
+    "last": "Last backup {{when}}",
+    "kept": "{{count}} kept",
+    "none": "No backups yet",
+    "now": "Back up now",
+    "nowDesc": "Save a backup of the data and files right away. A running app stops briefly.",
+    "restoring": "Restoring. This can take a minute.",
+    "trigger": {
+      "scheduled": "scheduled",
+      "manual": "manual",
+      "preRemove": "before delete",
+      "preUpdate": "before an update",
+      "preRestore": "before restore"
+    },
+    "confirmRestore": "Restore {{name}} to its state from {{date}}? Newer data is removed. The current state is backed up first.",
+    "confirmDelete": "Delete the backup from {{date}} for good?",
+    "loadFailed": "The backup list could not be loaded: {{error}}",
+    "retry": "Load again",
+    "retryDesc": "Ask for the backup list again",
+    "created": "Backup created",
+    "restored": "Backup restored",
+    "deleted": "Backup deleted"
+  },
+  "share": {
+    "lan": "LAN",
+    "public": "Public",
+    "lanHint": "Devices on your network, with the link",
+    "publicHint": "Anyone on the internet, with the link",
+    "lanDesc": "A link for devices on your network. Closing it revokes every visitor.",
+    "publicDesc": "A public tunnel link. Closing it revokes every visitor.",
+    "starting": "Starting...",
+    "confirmCloseLan": "Close the LAN link? Everyone using it loses access.",
+    "confirmClosePublic": "Close the public link? Everyone using it loses access."
+  },
+  "theme": {
+    "label": "Theme",
+    "desc": "The look of the app's pages"
+  },
+  "export": {
+    "label": "Export package",
+    "desc": "Save the app as a package file that can be installed again",
+    "value": "one file with the whole app",
+    "done": "Package exported",
+    "file": "Package file",
+    "fileDesc": "Where the exported package was saved"
+  },
+  "remove": {
+    "delete": "Delete app",
+    "forget": "Remove from list",
+    "disconnect": "Disconnect",
+    "deleteDesc": "Stop the app and remove its files. Its data and backups are kept in the removed-app archive.",
+    "forgetDesc": "Clear the saved entry. No files are deleted.",
+    "disconnectDesc": "Remove the connection. The app and its data stay on its host.",
+    "confirmDelete": "Delete {{name}}? The app is stopped and its files removed. Its data and backups are kept in the removed-app archive.",
+    "confirmForget": "Remove {{name}} from the app list? Its app folder is missing. No files are deleted.",
+    "confirmKeepFiles": "The folder of {{name}} could not be verified as the app's own, so no files were deleted. Remove the app from the list and keep its files?",
+    "confirmDisconnect": "Disconnect {{name}}? The app and its data stay on its host.",
+    "deleted": "Deleted {{name}}",
+    "forgotten": "Removed {{name}} from the app list. Its files were kept.",
+    "disconnected": "Disconnected {{name}}",
+    "removedFromList": "Removed {{name}} from the app list."
+  },
+  "common": {
+    "copied": "Copied to the clipboard",
+    "copyFailed": "Could not copy to the clipboard",
+    "opened": "Opened with your default app",
+    "openFailed": "Could not open it",
+    "failed": "The app could not complete this action.",
+    "busy": "Another action is still running.",
+    "notReady": "Not ready yet. Try again in a moment.",
+    "listStale": "The app list is out of date. Wait for it to refresh."
+  },
+  "hint": {
+    "move": "j/k move",
+    "switch": "Enter switch",
+    "run": "Enter run",
+    "showHide": "Enter show or hide",
+    "change": "Enter change",
+    "adjust": "Left/Right change",
+    "save": "Enter save",
+    "cancel": "Esc cancel",
+    "choose": "Enter choose",
+    "apply": "Enter apply",
+    "copy": "c copy",
+    "open": "o open",
+    "restore": "r restore",
+    "delete": "x delete",
+    "closeLink": "x close",
+    "createLink": "Enter create a link",
+    "retry": "Enter load again",
+    "confirm": "y confirm, any other key cancels",
+    "back": "back",
+    "openApp": "open",
+    "startStop": "start or stop",
+    "reload": "reload"
+  },
+  "tab": {
+    "apps_one": "{{count}} app",
+    "apps_other": "{{count}} apps",
+    "running": "{{count}} running",
+    "loading": "Loading apps...",
+    "empty": "No Agent Apps yet. Ask your AI agent to build one, or add one from the Agent Apps screen.",
+    "failed": "Could not load the app list: {{error}}",
+    "warning": "Registry notice: {{warning}}",
+    "disconnected": "Connection lost. App status may be out of date.",
+    "lastKnown": "last known: {{status}}",
+    "connected": "connected",
+    "refreshing": "Refreshing the app list",
+    "notSupported": "Start and stop are for apps on this computer that are running or stopped."
+  }
+}

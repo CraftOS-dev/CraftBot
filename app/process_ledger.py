@@ -568,11 +568,14 @@ def get_ledger(scope: str = "agent") -> ProcessLedger:
     with _ledgers_lock:
         ledger = _ledgers.get(scope)
         if ledger is None:
-            from app.config import AGENT_WORKSPACE_ROOT
+            # app.paths, not app.config: the same folder (config's
+            # AGENT_WORKSPACE_ROOT is STATE_ROOT/agent_file_system/workspace),
+            # but app.config imports agent_core and the whole LLM stack,
+            # which cost run.py 20-45 s at every launch just to find this file.
+            from app import paths
 
-            ledger = ProcessLedger(
-                Path(AGENT_WORKSPACE_ROOT) / f"owned_processes.{scope}.json"
-            )
+            workspace = paths.STATE_ROOT / "agent_file_system" / "workspace"
+            ledger = ProcessLedger(workspace / f"owned_processes.{scope}.json")
             _ledgers[scope] = ledger
         return ledger
 

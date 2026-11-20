@@ -34,7 +34,7 @@ def run(
 
     for stage in stages:
         if not stage.optional:
-            report.required.add(stage.name)
+            report.required_stages.add(stage.name)
         try:
             before = stage.check(ctx)
         except Exception as e:  # a broken check must not abort the install

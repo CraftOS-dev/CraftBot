@@ -18,17 +18,20 @@ from agent_core import action
     input_schema={
         "method": {
             "type": "string",
+            "required": False,
             "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"],
             "example": "GET",
             "description": "HTTP method to use.",
         },
         "url": {
             "type": "string",
+            "required": True,
             "example": "https://api.example.com/v1/items",
             "description": "Absolute URL to request. Must start with http or https.",
         },
         "headers": {
             "type": "object",
+            "required": False,
             "example": {
                 "Authorization": "Bearer <token>",
                 "Accept": "application/json",
@@ -37,36 +40,43 @@ from agent_core import action
         },
         "params": {
             "type": "object",
+            "required": False,
             "example": {"q": "search", "limit": "10"},
             "description": "Optional query parameters.",
         },
         "json": {
             "type": "object",
+            "required": False,
             "example": {"name": "Widget", "price": 19.99},
             "description": "JSON body to send. Mutually exclusive with 'data'.",
         },
         "data": {
             "type": "string",
+            "required": False,
             "example": "field1=value1&field2=value2",
             "description": "Raw request body (e.g., form-encoded or plain text). Mutually exclusive with 'json'.",
         },
         "timeout": {
             "type": "number",
+            "required": False,
             "example": 30,
             "description": "Timeout in seconds. Defaults to 30.",
         },
         "allow_redirects": {
             "type": "boolean",
+            "required": False,
             "example": True,
             "description": "Whether to follow redirects. Defaults to true.",
         },
         "verify_tls": {
             "type": "boolean",
+            "required": False,
             "example": True,
             "description": "Verify TLS certificates. Defaults to true.",
         },
         "save_to": {
             "type": "string",
+            "required": False,
             "example": "D:/Work/CraftOS/CraftBot/agent_file_system/workspace/tcc.zip",
             "description": (
                 "Optional destination path to save the response body to as raw "
@@ -79,6 +89,7 @@ from agent_core import action
         },
         "include_headers": {
             "type": "boolean",
+            "required": False,
             "example": False,
             "description": (
                 "False (default): 'response_headers' contains only the useful few "
@@ -152,6 +163,8 @@ from agent_core import action
         "verify_tls": True,
         "simulated_mode": True,
     },
+    display_param="url",
+    icon="Globe",
 )
 def send_http_requests(input_data: dict) -> dict:
     import sys
@@ -242,31 +255,12 @@ def send_http_requests(input_data: dict) -> dict:
                 "message": "Blocked: requests to cloud metadata endpoints are not allowed.",
             }
 
-        def _agent_app_ports() -> set:
-            try:
-                from app.agent_app import get_agent_app_manager
-
-                _mgr = get_agent_app_manager()
-                if not _mgr:
-                    return set()
-                _ports = set()
-                for _p in _mgr.projects.values():
-                    if _p.port:
-                        _ports.add(int(_p.port))
-                    if _p.backend_port:
-                        _ports.add(int(_p.backend_port))
-                return _ports
-            except Exception:
-                return set()
-
         # Resolve hostname and check for private IPs
         try:
             _resolved = _socket.getaddrinfo(_hostname, None)
             for _family, _type, _proto, _canonname, _sockaddr in _resolved:
                 _ip = _ipaddress.ip_address(_sockaddr[0])
                 if _ip.is_loopback:
-                    if _port and _port in _agent_app_ports():
-                        continue  # Allowed: targeting a known Agent App port
                     return {
                         "status": "error",
                         "status_code": 0,
@@ -274,7 +268,7 @@ def send_http_requests(input_data: dict) -> dict:
                         "body": "",
                         "final_url": "",
                         "elapsed_ms": 0,
-                        "message": f"Blocked: requests to loopback addresses ({_hostname}) are only allowed for registered Agent App ports. Use the agent_app_http action with project_id to talk to your Agent App.",
+                        "message": f"Blocked: requests to loopback addresses ({_hostname}) must use a2app_command to talk to your Agent App.",
                     }
                 if _ip.is_private or _ip.is_link_local:
                     return {

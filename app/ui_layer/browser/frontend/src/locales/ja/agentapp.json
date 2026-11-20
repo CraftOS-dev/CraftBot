@@ -36,10 +36,22 @@
     "preparingWorkspace": "ワークスペースを準備中…",
     "componentCount_one": "{{count}} 個のコンポーネント",
     "componentCount_other": "{{count}} 個のコンポーネント",
-    "collectionCount_one": "{{count}} 個のコレクション",
-    "collectionCount_other": "{{count}} 個のコレクション",
-    "routeCount_one": "{{count}} 個のルート",
-    "routeCount_other": "{{count}} 個のルート"
+    "taskCount": "{{total}} 件中 {{done}} 件のタスク",
+    "fileCount_one": "{{count}} ファイル",
+    "fileCount_other": "{{count}} ファイル",
+    "fixing": "チェックで見つかった問題を修正中",
+    "stage": {
+      "setup": "プロジェクトを準備中",
+      "questions": "回答を待っています",
+      "requirements": "要件を作成中",
+      "review": "確認を待っています",
+      "planning": "ビルドを計画中",
+      "building": "アプリを構築中",
+      "buildingTask": "構築中: {{task}}",
+      "checking": "チェックを実行中",
+      "verifying": "ブラウザでアプリを検証中",
+      "launching": "起動中"
+    }
   },
   "themeModal": {
     "title": "テーマを選択",

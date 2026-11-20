@@ -63,6 +63,13 @@
     "submitCode": "Enviar código",
     "reopen": "Volver a abrir la página de inicio de sesión",
     "openingBrowser": "Abriendo el navegador…",
+    "claudeCodeMissing": "El inicio de sesión con suscripción requiere Claude Code.",
+    "claudeCodeOutdated": "Claude Code {{version}} no admite el inicio de sesión con suscripción.",
+    "claudeCodeOutdatedUnknown": "La versión instalada de Claude Code no admite el inicio de sesión con suscripción.",
+    "installClaudeCode": "Instalar Claude Code",
+    "updateClaudeCode": "Actualizar Claude Code",
+    "installingClaudeCode": "Instalando Claude Code…",
+    "updatingClaudeCode": "Actualizando Claude Code…",
     "signInWith": "Iniciar sesión con {{provider}}",
     "useKeyInstead": "Usar una clave de API en su lugar"
   },

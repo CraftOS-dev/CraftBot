@@ -1,9 +1,8 @@
 """The Mini Browser's own thread and event loop.
 
 Playwright objects belong to the event loop that created them, but Mini
-Browser callers live on several loops: the main agent/UI loop, and each
-sub-agent's private loop (``spawn_subagent`` runs ``asyncio.run`` in a worker
-thread). So the browsers get one home: a daemon thread named ``mini-browser``
+Browser callers are not all on one loop or thread (the agent's loop, hooks
+called from other threads). So the browsers get one home: a daemon thread named ``mini-browser``
 running its own loop. Every Playwright object, lock and background task of
 every session's browser lives there, and callers marshal into it with
 :meth:`call` (one session's browser) or :meth:`call_fleet` (all of them),

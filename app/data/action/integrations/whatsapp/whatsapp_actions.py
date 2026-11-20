@@ -14,17 +14,21 @@ from agent_core import action
     input_schema={
         "to": {
             "type": "string",
+            "required": True,
             "description": "Recipient phone number (e.g. '1234567890') OR the exact `number` / `id` value returned by search_whatsapp_contact (e.g. '185628603977847@lid'). Pass the value verbatim — do NOT strip the '@lid' or '@c.us' suffix. Pass `user` (or `me` / `owner` / `self`) to send to your own (the owner's) number — use this to reply to the user on a WhatsApp-originated task.",
             "example": "1234567890",
         },
         "message": {
             "type": "string",
+            "required": True,
             "description": "Message text.",
             "example": "Hello!",
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="message",
+    integration="whatsapp_web",
 )
 async def send_whatsapp_web_text_message(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import (
@@ -51,42 +55,51 @@ async def send_whatsapp_web_text_message(input_data: dict) -> dict:
     input_schema={
         "to": {
             "type": "string",
+            "required": True,
             "description": "Recipient phone number OR the `number` / `id` from search_whatsapp_contact.",
             "example": "1234567890",
         },
         "media_path": {
             "type": "string",
+            "required": True,
             "description": "Absolute local path to the media file.",
             "example": "C:/Users/me/photo.jpg",
         },
         "caption": {
             "type": "string",
+            "required": False,
             "description": "Optional caption.",
             "example": "",
         },
         "send_as_sticker": {
             "type": "boolean",
+            "required": False,
             "description": "Send image as sticker.",
             "example": False,
         },
         "send_as_voice": {
             "type": "boolean",
+            "required": False,
             "description": "Send audio as voice note.",
             "example": False,
         },
         "send_as_document": {
             "type": "boolean",
+            "required": False,
             "description": "Send as document (preserves filename).",
             "example": False,
         },
         "quoted_message_id": {
             "type": "string",
+            "required": False,
             "description": "Quote-reply to this message ID (optional).",
             "example": "",
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="media_path",
+    integration="whatsapp_web",
 )
 async def send_whatsapp_web_media_message(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -110,21 +123,35 @@ async def send_whatsapp_web_media_message(input_data: dict) -> dict:
     description="Send a location pin via WhatsApp Web.",
     action_sets=["whatsapp_messages", "whatsapp"],
     input_schema={
-        "to": {"type": "string", "description": "Recipient.", "example": ""},
-        "latitude": {"type": "number", "description": "Latitude.", "example": 37.7749},
+        "to": {
+            "type": "string",
+            "required": True,
+            "description": "Recipient.",
+            "example": "",
+        },
+        "latitude": {
+            "type": "number",
+            "required": True,
+            "description": "Latitude.",
+            "example": 37.7749,
+        },
         "longitude": {
             "type": "number",
+            "required": True,
             "description": "Longitude.",
             "example": -122.4194,
         },
         "description": {
             "type": "string",
+            "required": False,
             "description": "Optional label.",
             "example": "Meeting spot",
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="to",
+    integration="whatsapp_web",
 )
 async def send_whatsapp_location(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -147,18 +174,27 @@ async def send_whatsapp_location(input_data: dict) -> dict:
     input_schema={
         "to": {
             "type": "string",
+            "required": True,
             "description": "Recipient (usually the chat ID where the original message is).",
             "example": "",
         },
-        "text": {"type": "string", "description": "Reply text.", "example": ""},
+        "text": {
+            "type": "string",
+            "required": True,
+            "description": "Reply text.",
+            "example": "",
+        },
         "quoted_message_id": {
             "type": "string",
+            "required": True,
             "description": "Message ID being quoted.",
             "example": "",
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="text",
+    integration="whatsapp_web",
 )
 async def reply_whatsapp_message(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -177,15 +213,23 @@ async def reply_whatsapp_message(input_data: dict) -> dict:
     description="Edit a previously-sent WhatsApp message (within WhatsApp's edit window, ~15 min).",
     action_sets=["whatsapp_messages", "whatsapp"],
     input_schema={
-        "message_id": {"type": "string", "description": "Message ID.", "example": ""},
+        "message_id": {
+            "type": "string",
+            "required": True,
+            "description": "Message ID.",
+            "example": "",
+        },
         "new_body": {
             "type": "string",
+            "required": True,
             "description": "New message text.",
             "example": "",
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="new_body",
+    integration="whatsapp_web",
 )
 async def edit_whatsapp_message(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -203,15 +247,23 @@ async def edit_whatsapp_message(input_data: dict) -> dict:
     description="Delete a WhatsApp message. everyone=true uses 'Delete for everyone' (within WhatsApp's recall window).",
     action_sets=["whatsapp_messages", "whatsapp"],
     input_schema={
-        "message_id": {"type": "string", "description": "Message ID.", "example": ""},
+        "message_id": {
+            "type": "string",
+            "required": True,
+            "description": "Message ID.",
+            "example": "",
+        },
         "everyone": {
             "type": "boolean",
+            "required": False,
             "description": "Delete for everyone (vs only me).",
             "example": False,
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="message_id",
+    integration="whatsapp_web",
 )
 async def delete_whatsapp_message(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -230,15 +282,23 @@ async def delete_whatsapp_message(input_data: dict) -> dict:
     description="Forward a message to another chat.",
     action_sets=["whatsapp_messages", "whatsapp"],
     input_schema={
-        "message_id": {"type": "string", "description": "Message ID.", "example": ""},
+        "message_id": {
+            "type": "string",
+            "required": True,
+            "description": "Message ID.",
+            "example": "",
+        },
         "to": {
             "type": "string",
+            "required": True,
             "description": "Destination chat ID or phone number.",
             "example": "",
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="to",
+    integration="whatsapp_web",
 )
 async def forward_whatsapp_message(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -256,15 +316,23 @@ async def forward_whatsapp_message(input_data: dict) -> dict:
     description="Add (or remove with empty emoji) an emoji reaction to a WhatsApp message.",
     action_sets=["whatsapp_messages", "whatsapp"],
     input_schema={
-        "message_id": {"type": "string", "description": "Message ID.", "example": ""},
+        "message_id": {
+            "type": "string",
+            "required": True,
+            "description": "Message ID.",
+            "example": "",
+        },
         "emoji": {
             "type": "string",
+            "required": False,
             "description": "Unicode emoji ('' to remove).",
             "example": "👍",
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="emoji",
+    integration="whatsapp_web",
 )
 async def react_to_whatsapp_message(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -282,15 +350,23 @@ async def react_to_whatsapp_message(input_data: dict) -> dict:
     description="Star or unstar a WhatsApp message.",
     action_sets=["whatsapp_messages"],
     input_schema={
-        "message_id": {"type": "string", "description": "Message ID.", "example": ""},
+        "message_id": {
+            "type": "string",
+            "required": True,
+            "description": "Message ID.",
+            "example": "",
+        },
         "starred": {
             "type": "boolean",
+            "required": False,
             "description": "True=star, False=unstar.",
             "example": True,
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="message_id",
+    integration="whatsapp_web",
 )
 async def star_whatsapp_message(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -308,15 +384,23 @@ async def star_whatsapp_message(input_data: dict) -> dict:
     description="Download an attached image/video/audio/document from a WhatsApp message to a local path.",
     action_sets=["whatsapp_messages", "whatsapp"],
     input_schema={
-        "message_id": {"type": "string", "description": "Message ID.", "example": ""},
+        "message_id": {
+            "type": "string",
+            "required": True,
+            "description": "Message ID.",
+            "example": "",
+        },
         "dest_path": {
             "type": "string",
+            "required": True,
             "description": "Local destination path.",
             "example": "",
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="dest_path",
+    integration="whatsapp_web",
 )
 async def download_whatsapp_message_media(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -334,9 +418,16 @@ async def download_whatsapp_message_media(input_data: dict) -> dict:
     description="If a message is a reply, get the message it's quoting.",
     action_sets=["whatsapp_messages"],
     input_schema={
-        "message_id": {"type": "string", "description": "Message ID.", "example": ""},
+        "message_id": {
+            "type": "string",
+            "required": True,
+            "description": "Message ID.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="message_id",
+    integration="whatsapp_web",
 )
 async def get_whatsapp_quoted_message(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -353,15 +444,23 @@ async def get_whatsapp_quoted_message(input_data: dict) -> dict:
     description="Show typing/recording state in a chat (sends presence). state: typing | recording | clear.",
     action_sets=["whatsapp_messages"],
     input_schema={
-        "chat_id": {"type": "string", "description": "Chat ID.", "example": ""},
+        "chat_id": {
+            "type": "string",
+            "required": True,
+            "description": "Chat ID.",
+            "example": "",
+        },
         "state": {
             "type": "string",
+            "required": False,
             "description": "typing | recording | clear.",
             "example": "typing",
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="chat_id",
+    integration="whatsapp_web",
 )
 async def send_whatsapp_typing_state(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -386,12 +485,19 @@ async def send_whatsapp_typing_state(input_data: dict) -> dict:
     input_schema={
         "phone_number": {
             "type": "string",
+            "required": True,
             "description": "Phone number or chat ID.",
             "example": "1234567890",
         },
-        "limit": {"type": "integer", "description": "Max messages.", "example": 50},
+        "limit": {
+            "type": "integer",
+            "required": False,
+            "description": "Max messages.",
+            "example": 50,
+        },
         "include_metadata": {
             "type": "boolean",
+            "required": False,
             "description": "Return raw message objects (default false = lean).",
             "example": False,
         },
@@ -403,6 +509,8 @@ async def send_whatsapp_typing_state(input_data: dict) -> dict:
             "description": "Lean: {messages: [{id, from, to?, body, timestamp, from_me, has_media, type?}]}.",
         },
     },
+    display_param="phone_number",
+    integration="whatsapp_web",
 )
 async def get_whatsapp_chat_history(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -444,6 +552,8 @@ async def get_whatsapp_chat_history(input_data: dict) -> dict:
     action_sets=["whatsapp_chats", "whatsapp"],
     input_schema={},
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param=None,
+    integration="whatsapp_web",
 )
 async def get_whatsapp_unread_chats(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -456,10 +566,17 @@ async def get_whatsapp_unread_chats(input_data: dict) -> dict:
     description="Mark a WhatsApp chat as read (clears unread badge + sends read receipts).",
     action_sets=["whatsapp_chats", "whatsapp"],
     input_schema={
-        "chat_id": {"type": "string", "description": "Chat ID.", "example": ""},
+        "chat_id": {
+            "type": "string",
+            "required": True,
+            "description": "Chat ID.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="chat_id",
+    integration="whatsapp_web",
 )
 async def mark_whatsapp_chat_read(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -474,10 +591,17 @@ async def mark_whatsapp_chat_read(input_data: dict) -> dict:
     description="Mark a chat as unread (flag for follow-up without replying).",
     action_sets=["whatsapp_chats"],
     input_schema={
-        "chat_id": {"type": "string", "description": "Chat ID.", "example": ""},
+        "chat_id": {
+            "type": "string",
+            "required": True,
+            "description": "Chat ID.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="chat_id",
+    integration="whatsapp_web",
 )
 async def mark_whatsapp_chat_unread(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -492,15 +616,23 @@ async def mark_whatsapp_chat_unread(input_data: dict) -> dict:
     description="Archive (archive=true) or unarchive (archive=false) a chat.",
     action_sets=["whatsapp_chats", "whatsapp"],
     input_schema={
-        "chat_id": {"type": "string", "description": "Chat ID.", "example": ""},
+        "chat_id": {
+            "type": "string",
+            "required": True,
+            "description": "Chat ID.",
+            "example": "",
+        },
         "archive": {
             "type": "boolean",
+            "required": False,
             "description": "True=archive, False=unarchive.",
             "example": True,
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="chat_id",
+    integration="whatsapp_web",
 )
 async def archive_whatsapp_chat(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -518,15 +650,23 @@ async def archive_whatsapp_chat(input_data: dict) -> dict:
     description="Pin (pin=true) or unpin (pin=false) a chat.",
     action_sets=["whatsapp_chats", "whatsapp"],
     input_schema={
-        "chat_id": {"type": "string", "description": "Chat ID.", "example": ""},
+        "chat_id": {
+            "type": "string",
+            "required": True,
+            "description": "Chat ID.",
+            "example": "",
+        },
         "pin": {
             "type": "boolean",
+            "required": False,
             "description": "True=pin, False=unpin.",
             "example": True,
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="chat_id",
+    integration="whatsapp_web",
 )
 async def pin_whatsapp_chat(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -544,20 +684,29 @@ async def pin_whatsapp_chat(input_data: dict) -> dict:
     description="Mute (mute=true, optionally until unmute_date unix-seconds) or unmute a chat.",
     action_sets=["whatsapp_chats", "whatsapp"],
     input_schema={
-        "chat_id": {"type": "string", "description": "Chat ID.", "example": ""},
+        "chat_id": {
+            "type": "string",
+            "required": True,
+            "description": "Chat ID.",
+            "example": "",
+        },
         "mute": {
             "type": "boolean",
+            "required": False,
             "description": "True=mute, False=unmute.",
             "example": True,
         },
         "unmute_date": {
             "type": "integer",
+            "required": False,
             "description": "Unix seconds when mute expires (optional, omit for forever).",
             "example": 0,
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="chat_id",
+    integration="whatsapp_web",
 )
 async def mute_whatsapp_chat(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -577,10 +726,17 @@ async def mute_whatsapp_chat(input_data: dict) -> dict:
     description="Clear all messages in a chat (the chat itself stays). Local only — doesn't delete for other party.",
     action_sets=["whatsapp_chats"],
     input_schema={
-        "chat_id": {"type": "string", "description": "Chat ID.", "example": ""},
+        "chat_id": {
+            "type": "string",
+            "required": True,
+            "description": "Chat ID.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="chat_id",
+    integration="whatsapp_web",
 )
 async def clear_whatsapp_chat_messages(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -595,10 +751,17 @@ async def clear_whatsapp_chat_messages(input_data: dict) -> dict:
     description="Delete a chat entirely (local). For groups, you must leave_whatsapp_group first.",
     action_sets=["whatsapp_chats"],
     input_schema={
-        "chat_id": {"type": "string", "description": "Chat ID.", "example": ""},
+        "chat_id": {
+            "type": "string",
+            "required": True,
+            "description": "Chat ID.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="chat_id",
+    integration="whatsapp_web",
 )
 async def delete_whatsapp_chat(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -620,17 +783,21 @@ async def delete_whatsapp_chat(input_data: dict) -> dict:
     input_schema={
         "name": {
             "type": "string",
+            "required": True,
             "description": "Group name.",
             "example": "Project X",
         },
         "participants": {
             "type": "array",
+            "required": True,
             "description": "Phone numbers or JIDs.",
             "example": ["1234567890"],
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="name",
+    integration="whatsapp_web",
 )
 async def create_whatsapp_group(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -648,15 +815,23 @@ async def create_whatsapp_group(input_data: dict) -> dict:
     description="Add participants to a group (requires admin).",
     action_sets=["whatsapp_groups", "whatsapp"],
     input_schema={
-        "group_id": {"type": "string", "description": "Group ID.", "example": ""},
+        "group_id": {
+            "type": "string",
+            "required": True,
+            "description": "Group ID.",
+            "example": "",
+        },
         "participants": {
             "type": "array",
+            "required": True,
             "description": "Participant JIDs.",
             "example": [],
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="participants",
+    integration="whatsapp_web",
 )
 async def add_whatsapp_group_participants(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -674,15 +849,23 @@ async def add_whatsapp_group_participants(input_data: dict) -> dict:
     description="Remove participants from a group (requires admin).",
     action_sets=["whatsapp_groups", "whatsapp"],
     input_schema={
-        "group_id": {"type": "string", "description": "Group ID.", "example": ""},
+        "group_id": {
+            "type": "string",
+            "required": True,
+            "description": "Group ID.",
+            "example": "",
+        },
         "participants": {
             "type": "array",
+            "required": True,
             "description": "Participant JIDs to remove.",
             "example": [],
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="participants",
+    integration="whatsapp_web",
 )
 async def remove_whatsapp_group_participants(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -700,15 +883,23 @@ async def remove_whatsapp_group_participants(input_data: dict) -> dict:
     description="Promote participants to admin (requires admin).",
     action_sets=["whatsapp_groups"],
     input_schema={
-        "group_id": {"type": "string", "description": "Group ID.", "example": ""},
+        "group_id": {
+            "type": "string",
+            "required": True,
+            "description": "Group ID.",
+            "example": "",
+        },
         "participants": {
             "type": "array",
+            "required": True,
             "description": "Participant JIDs.",
             "example": [],
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="participants",
+    integration="whatsapp_web",
 )
 async def promote_whatsapp_group_participants(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -726,15 +917,23 @@ async def promote_whatsapp_group_participants(input_data: dict) -> dict:
     description="Remove admin status from participants (requires admin).",
     action_sets=["whatsapp_groups"],
     input_schema={
-        "group_id": {"type": "string", "description": "Group ID.", "example": ""},
+        "group_id": {
+            "type": "string",
+            "required": True,
+            "description": "Group ID.",
+            "example": "",
+        },
         "participants": {
             "type": "array",
+            "required": True,
             "description": "Participant JIDs.",
             "example": [],
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="participants",
+    integration="whatsapp_web",
 )
 async def demote_whatsapp_group_participants(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -752,11 +951,23 @@ async def demote_whatsapp_group_participants(input_data: dict) -> dict:
     description="Change a group's name/subject (requires admin or 'all members can edit info').",
     action_sets=["whatsapp_groups", "whatsapp"],
     input_schema={
-        "group_id": {"type": "string", "description": "Group ID.", "example": ""},
-        "subject": {"type": "string", "description": "New name.", "example": ""},
+        "group_id": {
+            "type": "string",
+            "required": True,
+            "description": "Group ID.",
+            "example": "",
+        },
+        "subject": {
+            "type": "string",
+            "required": True,
+            "description": "New name.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="subject",
+    integration="whatsapp_web",
 )
 async def set_whatsapp_group_subject(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -774,15 +985,23 @@ async def set_whatsapp_group_subject(input_data: dict) -> dict:
     description="Change a group's description.",
     action_sets=["whatsapp_groups"],
     input_schema={
-        "group_id": {"type": "string", "description": "Group ID.", "example": ""},
+        "group_id": {
+            "type": "string",
+            "required": True,
+            "description": "Group ID.",
+            "example": "",
+        },
         "description": {
             "type": "string",
+            "required": True,
             "description": "New description.",
             "example": "",
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="description",
+    integration="whatsapp_web",
 )
 async def set_whatsapp_group_description(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -800,9 +1019,16 @@ async def set_whatsapp_group_description(input_data: dict) -> dict:
     description="Get group info: name, description, owner, participants (with admin flags).",
     action_sets=["whatsapp_groups", "whatsapp"],
     input_schema={
-        "group_id": {"type": "string", "description": "Group ID.", "example": ""},
+        "group_id": {
+            "type": "string",
+            "required": True,
+            "description": "Group ID.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="group_id",
+    integration="whatsapp_web",
 )
 async def get_whatsapp_group_info(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -817,10 +1043,17 @@ async def get_whatsapp_group_info(input_data: dict) -> dict:
     description="Leave a WhatsApp group.",
     action_sets=["whatsapp_groups", "whatsapp"],
     input_schema={
-        "group_id": {"type": "string", "description": "Group ID.", "example": ""},
+        "group_id": {
+            "type": "string",
+            "required": True,
+            "description": "Group ID.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="group_id",
+    integration="whatsapp_web",
 )
 async def leave_whatsapp_group(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -835,9 +1068,16 @@ async def leave_whatsapp_group(input_data: dict) -> dict:
     description="Get a group's invite code + chat.whatsapp.com URL (requires admin).",
     action_sets=["whatsapp_groups", "whatsapp"],
     input_schema={
-        "group_id": {"type": "string", "description": "Group ID.", "example": ""},
+        "group_id": {
+            "type": "string",
+            "required": True,
+            "description": "Group ID.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="group_id",
+    integration="whatsapp_web",
 )
 async def get_whatsapp_group_invite_code(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -852,10 +1092,17 @@ async def get_whatsapp_group_invite_code(input_data: dict) -> dict:
     description="Invalidate the current invite link and generate a new one (requires admin).",
     action_sets=["whatsapp_groups"],
     input_schema={
-        "group_id": {"type": "string", "description": "Group ID.", "example": ""},
+        "group_id": {
+            "type": "string",
+            "required": True,
+            "description": "Group ID.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="group_id",
+    integration="whatsapp_web",
 )
 async def revoke_whatsapp_group_invite(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -872,12 +1119,15 @@ async def revoke_whatsapp_group_invite(input_data: dict) -> dict:
     input_schema={
         "invite_code": {
             "type": "string",
+            "required": True,
             "description": "Invite code or full URL.",
             "example": "",
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="invite_code",
+    integration="whatsapp_web",
 )
 async def accept_whatsapp_group_invite(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -899,11 +1149,14 @@ async def accept_whatsapp_group_invite(input_data: dict) -> dict:
     input_schema={
         "name": {
             "type": "string",
+            "required": True,
             "description": "Contact name.",
             "example": "John Doe",
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="name",
+    integration="whatsapp_web",
 )
 async def search_whatsapp_contact(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -916,9 +1169,16 @@ async def search_whatsapp_contact(input_data: dict) -> dict:
     description="Get full contact details (name, pushname, business flag, about/status, etc.).",
     action_sets=["whatsapp_contacts", "whatsapp"],
     input_schema={
-        "contact_id": {"type": "string", "description": "Contact JID.", "example": ""},
+        "contact_id": {
+            "type": "string",
+            "required": True,
+            "description": "Contact JID.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="contact_id",
+    integration="whatsapp_web",
 )
 async def get_whatsapp_contact(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -935,12 +1195,19 @@ async def get_whatsapp_contact(input_data: dict) -> dict:
     input_schema={
         "my_contacts_only": {
             "type": "boolean",
+            "required": False,
             "description": "Filter to saved contacts.",
             "example": True,
         },
-        "limit": {"type": "integer", "description": "Max results.", "example": 500},
+        "limit": {
+            "type": "integer",
+            "required": False,
+            "description": "Max results.",
+            "example": 500,
+        },
         "include_metadata": {
             "type": "boolean",
+            "required": False,
             "description": "Return raw contact objects (default false = lean).",
             "example": False,
         },
@@ -952,6 +1219,8 @@ async def get_whatsapp_contact(input_data: dict) -> dict:
             "description": "Lean: {contacts: [{id, number, name?, pushname?, is_business?, is_my_contact?}], count}.",
         },
     },
+    display_param=None,
+    integration="whatsapp_web",
 )
 async def get_whatsapp_all_contacts(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -989,9 +1258,16 @@ async def get_whatsapp_all_contacts(input_data: dict) -> dict:
     description="Get a contact's profile picture URL (empty string if none / privacy restricted).",
     action_sets=["whatsapp_contacts", "whatsapp"],
     input_schema={
-        "contact_id": {"type": "string", "description": "Contact JID.", "example": ""},
+        "contact_id": {
+            "type": "string",
+            "required": True,
+            "description": "Contact JID.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="contact_id",
+    integration="whatsapp_web",
 )
 async def get_whatsapp_profile_pic_url(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1006,15 +1282,23 @@ async def get_whatsapp_profile_pic_url(input_data: dict) -> dict:
     description="Block (block=true) or unblock (block=false) a contact.",
     action_sets=["whatsapp_contacts", "whatsapp"],
     input_schema={
-        "contact_id": {"type": "string", "description": "Contact JID.", "example": ""},
+        "contact_id": {
+            "type": "string",
+            "required": True,
+            "description": "Contact JID.",
+            "example": "",
+        },
         "block": {
             "type": "boolean",
+            "required": False,
             "description": "True=block, False=unblock.",
             "example": True,
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
+    display_param="contact_id",
+    integration="whatsapp_web",
 )
 async def block_whatsapp_contact(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1034,11 +1318,14 @@ async def block_whatsapp_contact(input_data: dict) -> dict:
     input_schema={
         "number": {
             "type": "string",
+            "required": True,
             "description": "Phone number.",
             "example": "1234567890",
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param="number",
+    integration="whatsapp_web",
 )
 async def check_number_on_whatsapp(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1059,6 +1346,8 @@ async def check_number_on_whatsapp(input_data: dict) -> dict:
     action_sets=["whatsapp"],
     input_schema={},
     output_schema={"status": {"type": "string", "example": "success"}},
+    display_param=None,
+    integration="whatsapp_web",
 )
 async def get_whatsapp_web_session_status(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client

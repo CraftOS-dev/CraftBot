@@ -8,11 +8,13 @@ from agent_core import action
     input_schema={
         "schedule_id": {
             "type": "string",
+            "required": True,
             "description": "The ID of the schedule to toggle",
             "example": "memory-processing",
         },
         "enabled": {
             "type": "boolean",
+            "required": True,
             "description": "True to enable, False to disable",
             "example": True,
         },
@@ -27,6 +29,8 @@ from agent_core import action
             "description": "The new enabled state of the schedule",
         },
     },
+    display_param="schedule_id",
+    icon="CalendarCheck",
 )
 def schedule_task_toggle(input_data: dict) -> dict:
     """Enable or disable a scheduled task."""

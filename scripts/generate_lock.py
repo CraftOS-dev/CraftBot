@@ -5,15 +5,28 @@ Every install path — pip, conda, and the installer — must install the same
 set, and that is only possible if the set is written down. requirements.txt
 declares 56 packages; the real closure is 239.
 
-Uses pip's own resolver via `--dry-run --report`, so it needs no lock tool
-(uv / pip-tools) in the build environment.
+Locks are PER PLATFORM AND PYTHON VERSION (the closure differs: pyobjc only
+on macOS, pywin32-style extras only on Windows), but they no longer have to be
+generated ON each platform: uv resolves for any target from any machine
+(`uv pip compile --python-platform`), so one run writes every shipped lock.
+That is what made an Intel-Mac and a Linux-ARM lock possible at all.
 
-Locks are PER PLATFORM AND PYTHON VERSION and are not interchangeable:
-`torch==X` means CPU wheels on Windows and CUDA libraries on Linux, so each
-one has to be generated on the platform it describes.
+Every pinned version carries the hash of EVERY file published for it, not
+just the one wheel the generating machine would pick. A lock that hashed only
+the macosx_14_0 wheel failed on macOS 12/13 with "THESE PACKAGES DO NOT MATCH
+THE HASHES" even where a compatible macosx_12 wheel existed; the same for
+manylinux_2_34-only hashes on older glibc. pip picks the best compatible file
+and finds its hash.
+
+Existing pins are PREFERRED, not re-resolved: each lock is seeded into uv's
+output file, so regenerating after a requirements.txt edit changes only what
+the edit forces instead of bumping every package to today's release.
+
+Needs uv (a build-time tool only, never installed for users):
+    pip install uv
 
 Usage:
-    python scripts/generate_lock.py                  # write this platform's lock
+    python scripts/generate_lock.py                  # write every shipped lock
     python scripts/generate_lock.py --check          # verify committed locks
     python scripts/generate_lock.py --retag          # re-stamp unchanged locks
 
@@ -50,7 +63,6 @@ import argparse
 import glob
 import hashlib
 import io
-import json
 import os
 import re
 import subprocess
@@ -63,16 +75,37 @@ REQUIREMENTS = os.path.join(REPO_ROOT, "requirements.txt")
 LOCK_DIR = os.path.join(REPO_ROOT, "requirements")
 
 #: Platforms a release ships an installer for, as lock-filename prefixes.
-#:
-#: "macosx" is a PREFIX, and deliberately still a loose one: it is satisfied
-#: by lock-macosx_arm64 alone, so --require-all passes for a release whose
-#: Intel Mac users have no lock at all and stop at the python-deps stage.
-#: Tightening it to ("macosx_arm64", "macosx_x86_64") is the honest check and
-#: would block releases until someone generates the x86_64 lock on an Intel
-#: Mac (or under Rosetta) — a deliberate call, not an oversight.
+#: Exact, not loose: a platform without a lock downloads hundreds of MB and
+#: then stops at the python-deps stage, so --require-all must see every one.
 #:
 #: Keep in step with the launcher matrix in .github/workflows/release.yml.
-SHIPPED_PLATFORMS = ("win_amd64", "linux_x86_64", "macosx")
+SHIPPED_PLATFORMS = (
+    "win_amd64",
+    "linux_x86_64",
+    "linux_aarch64",
+    "macosx_arm64",
+    "macosx_x86_64",
+)
+
+#: Lock tag -> (uv --python-platform target, environment for the resolve).
+#:
+#: Linux targets are manylinux_2_28 (glibc 2.28: RHEL 8, Debian 10, Ubuntu
+#: 20.04 and newer), so no package can be pinned to a version whose only
+#: wheels need a newer glibc. macOS targets 12.0 for the same reason; keep it
+#: in step with MIN_MACOS in the launcher and LSMinimumSystemVersion.
+TARGETS = {
+    "win_amd64": ("x86_64-pc-windows-msvc", {}),
+    "linux_x86_64": ("x86_64-manylinux_2_28", {}),
+    "linux_aarch64": ("aarch64-manylinux_2_28", {}),
+    "macosx_arm64": ("aarch64-apple-darwin", {"MACOSX_DEPLOYMENT_TARGET": "12.0"}),
+    "macosx_x86_64": ("x86_64-apple-darwin", {"MACOSX_DEPLOYMENT_TARGET": "12.0"}),
+}
+
+#: Which existing lock seeds a new platform's preferences, so a first-time
+#: lock starts from the versions its sibling already proved.
+SEED_FROM = {"linux_aarch64": "linux_x86_64", "macosx_x86_64": "macosx_arm64"}
+
+PYTHON_LINE = "3.10"  # keep in step with TARGET_PYTHON in app/provision/runtimes.py
 
 
 def _load_locktag():
@@ -92,70 +125,113 @@ def _load_locktag():
     return module
 
 
-def lock_tag() -> str:
-    """Identify the (platform, python) this lock is valid for.
+def lock_tag(platform_key: str) -> str:
+    """The lock tag for one shipped platform on the locked Python line.
 
-    Defined by app/provision/locktag.py, which app.provision.deps reads locks
-    with. Writer and reader deriving the name separately is how a committed
-    macOS lock became invisible to half the Pythons that needed it.
+    Built with app/provision/locktag.py's own build(), which is what
+    app.provision.deps reads locks with: writer and reader deriving the name
+    separately is how a committed macOS lock became invisible to half the
+    Pythons that needed it.
     """
-    return _load_locktag().current()
+    major, minor = (int(v) for v in PYTHON_LINE.split("."))
+    raw, machine = {
+        "win_amd64": ("win-amd64", "AMD64"),
+        "linux_x86_64": ("linux-x86_64", "x86_64"),
+        "linux_aarch64": ("linux-aarch64", "aarch64"),
+        "macosx_arm64": ("macosx-11.0-arm64", "arm64"),
+        "macosx_x86_64": ("macosx-10.9-x86_64", "x86_64"),
+    }[platform_key]
+    return _load_locktag().build(raw, machine, major, minor)
 
 
-def lock_path() -> str:
-    return os.path.join(LOCK_DIR, f"lock-{lock_tag()}.txt")
+def lock_path(platform_key: str) -> str:
+    return os.path.join(LOCK_DIR, f"lock-{lock_tag(platform_key)}.txt")
 
 
-def resolve() -> List[dict]:
-    """Ask pip to resolve requirements.txt without installing anything."""
-    fd, report = tempfile.mkstemp(suffix=".json", prefix="craftbot-lock-")
-    os.close(fd)
-    try:
-        proc = subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "pip",
-                "install",
-                "--dry-run",
-                "--ignore-installed",
-                "--quiet",
-                "--report",
-                report,
-                "-r",
-                REQUIREMENTS,
-            ],
-            capture_output=True,
-            text=True,
-        )
-        if proc.returncode != 0:
-            sys.stderr.write(proc.stdout + proc.stderr)
-            raise SystemExit(f"pip resolution failed ({proc.returncode})")
-        with io.open(report, encoding="utf-8") as fh:
-            return json.load(fh).get("install", [])
-    finally:
-        try:
-            os.unlink(report)
-        except OSError:
-            pass
+def _uv() -> List[str]:
+    """The uv command: on PATH, else the module form (pip install uv)."""
+    import shutil
+
+    exe = shutil.which("uv")
+    if exe:
+        return [exe]
+    probe = subprocess.run(
+        [sys.executable, "-m", "uv", "--version"], capture_output=True, text=True
+    )
+    if probe.returncode == 0:
+        return [sys.executable, "-m", "uv"]
+    raise SystemExit("uv is required to generate locks: pip install uv")
 
 
-def render(entries: List[dict]) -> str:
-    """Render a pip --require-hashes compatible lock."""
+def resolve(platform_key: str) -> Dict[str, List[str]]:
+    """Resolve requirements.txt for one platform: {name==version: [hashes]}.
+
+    The current lock (or its sibling's, for a new platform) is copied into
+    uv's output file first, which uv treats as version preferences.
+    """
+    target, extra_env = TARGETS[platform_key]
+    seed = lock_path(platform_key)
+    if not os.path.isfile(seed) and platform_key in SEED_FROM:
+        seed = lock_path(SEED_FROM[platform_key])
+
+    workdir = tempfile.mkdtemp(prefix="craftbot-lock-")
+    out_file = os.path.join(workdir, "lock.txt")
+    if os.path.isfile(seed):
+        # Versions only, never hashes: uv reuses a seed's hashes for any pin
+        # it keeps, so a hand-edited version line shipped with the previous
+        # version's hashes and failed every install that resolved it.
+        with (
+            io.open(seed, encoding="utf-8") as src_fh,
+            io.open(out_file, "w", encoding="utf-8") as dst_fh,
+        ):
+            for line in src_fh:
+                pin = _PIN_RE.match(line.strip())
+                if pin:
+                    dst_fh.write(f"{pin.group(1)}=={pin.group(2)}\n")
+
+    env = dict(os.environ, **extra_env)
+    proc = subprocess.run(
+        _uv()
+        + [
+            "pip",
+            "compile",
+            REQUIREMENTS,
+            "--python-version",
+            PYTHON_LINE,
+            "--python-platform",
+            target,
+            "--generate-hashes",
+            "--no-header",
+            "--no-annotate",
+            "--quiet",
+            "--output-file",
+            out_file,
+        ],
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    if proc.returncode != 0:
+        sys.stderr.write(proc.stdout + proc.stderr)
+        raise SystemExit(f"uv resolution failed for {platform_key} ({proc.returncode})")
+
     rows: Dict[str, List[str]] = {}
-    for item in entries:
-        meta = item.get("metadata", {})
-        name = (meta.get("name") or "").strip()
-        version = (meta.get("version") or "").strip()
-        if not name or not version:
-            continue
-        hashes = item.get("download_info", {}).get("archive_info", {}).get("hashes", {})
-        sha = hashes.get("sha256")
-        key = f"{name}=={version}"
-        rows.setdefault(key, [])
-        if sha:
-            rows[key].append(f"sha256:{sha}")
+    key = None
+    with io.open(out_file, encoding="utf-8") as fh:
+        for line in fh:
+            text = line.strip()
+            pin = _PIN_RE.match(text)
+            if pin:
+                key = f"{pin.group(1)}=={pin.group(2).rstrip(chr(92)).strip()}"
+                rows.setdefault(key, [])
+            for digest in re.findall(r"--hash=(sha256:[0-9a-f]{64})", text):
+                if key:
+                    rows[key].append(digest)
+    return rows
 
+
+def render(rows: Dict[str, List[str]], platform_key: str) -> str:
+    """Render a pip --require-hashes compatible lock."""
     unhashed = [k for k, v in rows.items() if not v]
     if unhashed:
         raise SystemExit(
@@ -168,9 +244,10 @@ def render(entries: List[dict]) -> str:
         "# GENERATED by scripts/generate_lock.py — do not edit by hand.",
         "# Regenerate with: python scripts/generate_lock.py",
         "#",
-        f"# Valid ONLY for: {lock_tag()}",
-        "# Locks are per platform+python: torch means CPU wheels on Windows and",
-        "# CUDA libraries on Linux, so one lock cannot serve every runner.",
+        f"# Valid ONLY for: {lock_tag(platform_key)}",
+        "# Locks are per platform+python; each pinned version lists the hash of",
+        "# every file published for it, so pip can pick the wheel that fits the",
+        "# machine (older macOS, older glibc) and still verify it.",
         "#",
         f"# Source: requirements.txt ({_source_digest()})",
         f"# Packages: {len(rows)}",
@@ -179,7 +256,7 @@ def render(entries: List[dict]) -> str:
         "",
     ]
     for key in sorted(rows, key=str.lower):
-        joined = " \\\n    ".join(f"--hash={h}" for h in sorted(rows[key]))
+        joined = " \\\n    ".join(f"--hash={h}" for h in sorted(set(rows[key])))
         out.append(f"{key} \\\n    {joined}")
     return "\n".join(out) + "\n"
 
@@ -400,6 +477,12 @@ def main() -> int:
         help="re-stamp the committed locks when requirements.txt changed but "
         "the resolved set did not (refuses if it did)",
     )
+    ap.add_argument(
+        "--platform",
+        action="append",
+        choices=sorted(TARGETS),
+        help="only regenerate this platform's lock (repeatable; default: all)",
+    )
     args = ap.parse_args()
 
     if args.retag:
@@ -408,13 +491,13 @@ def main() -> int:
     if args.check:
         return _check_committed_locks(require_all=args.require_all)
 
-    target = lock_path()
-    rendered = render(resolve())
-
     os.makedirs(LOCK_DIR, exist_ok=True)
-    with io.open(target, "w", encoding="utf-8", newline="\n") as fh:
-        fh.write(rendered)
-    print(f"wrote {os.path.relpath(target, REPO_ROOT)}")
+    for platform_key in args.platform or list(TARGETS):
+        rendered = render(resolve(platform_key), platform_key)
+        target = lock_path(platform_key)
+        with io.open(target, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(rendered)
+        print(f"wrote {os.path.relpath(target, REPO_ROOT)}")
     return 0
 
 

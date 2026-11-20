@@ -1,93 +1,111 @@
 # -*- coding: utf-8 -*-
 """
-SubAgentContextEngine — minimal prompt builder for sub-agents.
+SubAgentContextEngine — the context of one sub-agent's decisions.
 
-This is a small, focused replacement for ``ContextEngine.make_prompt()``
-that intentionally OMITS:
-- agent role / persona prompts
-- soul.md
-- user profile
-- memory retrieval
-- selected skills
-- environmental context
-- conversation history
-- main task state / todos
-- LANGUAGE_INSTRUCTION
+A sub-agent decides with the main agent's ActionRouter (see
+:mod:`app.subagent.runner`); this engine and the two templates below are
+what make that router a sub-agent's. The router gets from it:
 
-A sub-agent sees only:
-- its type-specific system prompt (with the action list and the shared
-  output-format contract interpolated)
-- its query
-- its own per-sub-agent event log snapshot
+- the system prompt: the type's own prompt (its definition), the
+  externalized-output note when the type has the retrieval actions, and the
+  environment with the current DATE. Built once per run, so the cached
+  prefix never moves. The router appends SUBAGENT_DECISION_INSTRUCTIONS
+  (batching rules, reply format, <actions>).
+- the session state: the type and its budget, shown in the first user
+  message after the query (SUBAGENT_DECISION_PROMPT).
+- the actions: the definition's list (sub_task_end included).
+- the event stream: the sub-agent's own (EventStreamContext).
 
-Prompts are split across three methods so the runner can drive session
-caching:
-
-- :meth:`make_system_prompt` — stable across all turns; serves as the
-  session-cache "prefix".
-- :meth:`make_first_turn_user_prompt` — query + initial event log + nudge.
-- :meth:`make_delta_user_prompt` — only the events added since the previous
-  turn + nudge. Used on every turn after the first when session caching is
-  active.
+Deliberately absent: persona, soul, user profile, memory, skills, the
+capability catalog and anything else of the spawning session. The only
+thing a sub-agent knows of its parent is the query.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, List, Optional, Tuple
 
-from agent_core.core.action_framework import format_actions_by_name
+from agent_core.core.impl.context.engine import EventStreamContext
 from agent_core.core.prompts import ENVIRONMENTAL_CONTEXT_PROMPT
 from app.subagent.registry import get_subagent_definition
 from app.subagent.types import SubAgent
 
 if TYPE_CHECKING:
-    from agent_core.core.impl.action.library import ActionLibrary
     from app.event_stream import EventStreamManager
 
 
-# Shared output-format contract injected into every sub-agent's system
-# prompt via the ``{output_format}`` placeholder. This is the wire format
-# the runner expects back on every turn — keep it stable.
-SUBAGENT_OUTPUT_FORMAT = """\
-On every turn you MUST reply with ONLY a JSON object in this exact shape:
+# The decision instructions ending every sub-agent's system prompt
+# (ActionRouter ``instructions``): how to batch, the reply format and the
+# type's <actions>. The reply format is the main agent's.
+SUBAGENT_DECISION_INSTRUCTIONS = """<parallel_actions>
+Batch up to 20 actions in one turn ONLY when none depends on another's output
+(e.g. several read_file / grep_files / web_search / web_fetch calls).
+A non-parallelizable action MUST be the ONLY action in its turn; sub_task_end
+is one.
+NEVER batch two write_file/stream_edit actions on the SAME file — they are
+planned against one snapshot, so the second's anchor is stale once the first
+applies (corrupts the file). Edit the same file in SEPARATE turns.
+</parallel_actions>
 
-{
-  "reasoning": "<one short sentence on why you chose this action>",
-  "action_name": "<one of the allowed action names below>",
-  "parameters": { <input schema for that action> }
-}
+<output_format>
+Return ONLY a valid JSON object with this structure and no extra commentary:
+{{
+  "reasoning": "<short reasoning about the current state and decision>",
+  "actions": [
+    {{
+      "action_name": "<name of the chosen action>",
+      "parameters": {{
+        "<parameter name>": <value>
+      }}
+    }}
+  ]
+}}
 
-No prose, no markdown fences, no extra keys. One action per turn.
+For parallel actions, include multiple entries in the "actions" array.
+For a single action, use an array with one entry.
+</output_format>
+
+<actions>
+Your actions, each with its description and input schema. You cannot use any other:
+{action_candidates}
+</actions>"""
+
+# The first user message of a sub-agent's session history (ActionRouter
+# ``user_prompt``). KV CACHING: the query and the budget are static, the
+# event stream is append-only; later turns send only new events.
+SUBAGENT_DECISION_PROMPT = """QUERY FROM SPAWNING AGENT:
+{query}
+
+{session_state}
+
+{event_stream}
+
+<current_turn>
+Reason about where the query stands, then select the next action(s) with
+their input parameters, or end with sub_task_end once it is done.
+</current_turn>
 """
-
-_DECIDE_NUDGE = "Decide your next action now. Reply with the JSON object only."
 
 # Appended to the system prompt of any sub-agent type whose action list
 # includes the retrieval pair (grep_files / read_file). Oversized action
 # outputs are externalized by the event stream (EventStream._externalize_message)
-# into files under the sub-agent's temp dir; this note teaches the model the
-# retrieval protocol. Kept out of SUBAGENT_OUTPUT_FORMAT because it only
-# applies when the retrieval actions are actually available.
-_EXTERNALIZED_OUTPUT_NOTE = """
-EXTERNALIZED OUTPUTS:
+# into files under the sub-agent's workspace; this note teaches the model the
+# retrieval protocol.
+_EXTERNALIZED_OUTPUT_NOTE = """EXTERNALIZED OUTPUTS:
 When an action's output is very large, your event log will show a pointer
 line ("... saved in <file path> ... | keywords: ...") instead of the content.
 The full output is in that file — it is NOT lost and you must NOT re-run the
 action to get it back. Use grep_files on the file with the listed keywords
 (or your own search terms) to pull just the relevant lines; use read_file
-with offset/limit only when you need a specific region in full.
-"""
+with offset/limit only when you need a specific region in full."""
 
 _RETRIEVAL_ACTIONS = ("grep_files", "read_file")
 
 
 def _render_environment_block() -> str:
-    """Render a static environment + current-DATE block for the sub-agent
-    system prompt. Date only — no time. A date does not change during a
-    short-lived sub-agent's run, so it stays byte-stable across all turns and
-    keeps the system-prompt prefix cacheable (a wall-clock time would move the
-    prefix every turn and break automatic prefix caching).
-    """
+    """The environment and current DATE block of a sub-agent's system
+    prompt. Date only, no time: a wall-clock time would move the cached
+    prefix every turn."""
     import platform
     from datetime import datetime
 
@@ -110,81 +128,55 @@ def _render_environment_block() -> str:
     return f"{environment}\n{current_date}"
 
 
-class SubAgentContextEngine:
-    """Builds prompt pieces for sub-agent LLM calls."""
+class SubAgentContextEngine(EventStreamContext):
+    """The context engine of one sub-agent's ActionRouter."""
 
     def __init__(
-        self,
-        action_library: "ActionLibrary",
-        event_stream_manager: "EventStreamManager",
-    ):
-        self.action_library = action_library
+        self, sub: SubAgent, event_stream_manager: "EventStreamManager"
+    ) -> None:
+        self.sub = sub
         self.event_stream_manager = event_stream_manager
-
-    # ------------------------------------------------------------------
-    # System prompt (stable across all turns — session-cache "prefix")
-    # ------------------------------------------------------------------
-
-    def make_system_prompt(self, sub: SubAgent) -> str:
-        """Build the type-specific system prompt for ``sub``.
-
-        Pulls the template from the registered :class:`SubAgentDefinition`
-        and fills in:
-        - ``{action_list}`` — compact JSON description of the allowed actions
-        - ``{output_format}`` — shared :data:`SUBAGENT_OUTPUT_FORMAT` block
-
-        Stable across all turns of a given sub-agent; suitable as
-        ``system_prompt_for_new_session`` when calling
-        ``LLMInterface.generate_response_with_session_async``.
-        """
-        defn = get_subagent_definition(sub.agent_type)
-        action_list_str = format_actions_by_name(
-            sub.compiled_actions,
-            self.action_library,
-            on_missing="[SubAgentContextEngine]",
-        )
-        prompt = defn.system_prompt.format(
-            action_list=action_list_str,
-            output_format=SUBAGENT_OUTPUT_FORMAT,
-        )
+        self.definition = get_subagent_definition(sub.agent_type)
+        parts = [self.definition.system_prompt.strip()]
         if any(a in sub.compiled_actions for a in _RETRIEVAL_ACTIONS):
-            prompt += _EXTERNALIZED_OUTPUT_NOTE
-        prompt += f"\n{_render_environment_block()}"
-        return prompt
+            parts.append(_EXTERNALIZED_OUTPUT_NOTE)
+        parts.append(_render_environment_block())
+        self._system_prompt = "\n\n".join(parts)
 
-    # ------------------------------------------------------------------
-    # User prompts
-    # ------------------------------------------------------------------
+    def make_prompt(
+        self,
+        query: Optional[str] = None,
+        expected_format: Optional[str] = None,
+        system_flags: Optional[dict] = None,
+        user_flags: Optional[dict] = None,
+    ) -> Tuple[str, str]:
+        """The system prompt, before the decision instructions. A sub-agent's
+        has no optional sections, so the flags change nothing; the user
+        message is the router's (SUBAGENT_DECISION_PROMPT)."""
+        return self._system_prompt, ""
 
-    def make_first_turn_user_prompt(self, sub: SubAgent) -> str:
-        """First-turn user prompt: query + initial event log + decision nudge."""
-        event_log = self._snapshot_event_log(sub.id)
+    def get_session_state(self, session_id: Optional[str] = None) -> str:
+        """The type and its budget. Models without a stated budget invent
+        scarcity: a verifier with 50 turns concluded at turn 8 citing
+        'limited turns' (observed 2026-08-05)."""
+        definition = self.definition
         return (
-            f"QUERY FROM SPAWNING AGENT:\n{sub.query}\n\n"
-            f"YOUR EVENT LOG SO FAR (most recent last):\n{event_log}\n\n"
-            f"{_DECIDE_NUDGE}"
+            "<subagent>\n"
+            f"Type: {definition.name}\n"
+            f"Budget: up to {definition.max_iterations} turns and "
+            f"{definition.max_wall_seconds // 60} minutes. A turn can batch "
+            "several independent actions. Pace yourself by these numbers, not "
+            "by guesswork.\n"
+            "</subagent>"
         )
 
-    def make_delta_user_prompt(self, delta_events: str) -> str:
-        """Subsequent-turn user prompt: only the new events + decision nudge.
-
-        Used when session caching is active and the LLM interface has the
-        prior conversation cached server-side. The original query and earlier
-        event log are already in the cached history; we only need to append
-        what's new.
-        """
-        body = delta_events.strip() or "(no new events since last turn)"
-        return f"NEW EVENTS SINCE LAST TURN:\n{body}\n\n{_DECIDE_NUDGE}"
-
-    # ------------------------------------------------------------------
-    # Helpers
-    # ------------------------------------------------------------------
-
-    def _snapshot_event_log(self, sub_id: str) -> str:
-        return (
-            self.event_stream_manager.snapshot_by_id(sub_id, include_summary=True)
-            or "(no events yet)"
-        )
+    def get_compiled_actions(self, session_id: Optional[str] = None) -> List[str]:
+        """The definition's actions, sub_task_end included."""
+        return list(self.sub.compiled_actions)
 
 
-__all__ = ["SubAgentContextEngine", "SUBAGENT_OUTPUT_FORMAT"]
+__all__ = [
+    "SUBAGENT_DECISION_INSTRUCTIONS",
+    "SUBAGENT_DECISION_PROMPT",
+    "SubAgentContextEngine",
+]
