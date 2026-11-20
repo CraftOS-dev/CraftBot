@@ -1994,6 +1994,8 @@ endpoints:
   <provider>_base_url: string    (any other provider, e.g. lmstudio_base_url, vllm_base_url)
 
 web_search:
+  provider: string               ("keenable" for Keenable, no key needed; api_keys.keenable
+                                  lifts the limits; empty uses Google CSE, then DuckDuckGo)
   google_cse_id: string          (Google Custom Search Engine ID for web_search action)
   google_cse_base_url: string    (override for the Custom Search API root URL; empty uses Google's)
 ```

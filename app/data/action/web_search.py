@@ -5,6 +5,7 @@ from agent_core import action
     name="web_search",
     description="""Performs web search and returns search result snippets with markdown hyperlinks.
 - Uses Google Custom Search API (if credentials exist) or DuckDuckGo fallback
+- Uses Keenable instead of Google when web_search.provider is "keenable"
 - Returns search result blocks with title, URL, and content snippets
 - Results are formatted with markdown links for easy reference
 - Use web_fetch action to read full page content from specific URLs""",
@@ -190,9 +191,56 @@ def web_search(input_data: dict) -> dict:
             # Fallback to DuckDuckGo
             return duckduckgo_search(q, n)
 
+    def keenable_search(q, n=5):
+        """Search using Keenable; works without a key, a key lifts the limits."""
+        import json
+        import os
+        import urllib.request
+
+        from app.config import get_api_key
+
+        try:
+            api_key = (
+                get_api_key("keenable") or os.environ.get("KEENABLE_API_KEY", "")
+            ).strip()
+            headers = {
+                "Content-Type": "application/json",
+                "X-Keenable-Title": "CraftBot",
+            }
+            if api_key:
+                url = "https://api.keenable.ai/v1/search"
+                headers["X-API-Key"] = api_key
+            else:
+                url = "https://api.keenable.ai/v1/search/public"
+            request = urllib.request.Request(
+                url,
+                data=json.dumps({"query": q, "max_results": n}).encode(),
+                headers=headers,
+                method="POST",
+            )
+            with urllib.request.urlopen(request, timeout=30) as response:
+                data = json.loads(response.read().decode())
+            return [
+                {
+                    "title": item.get("title") or "Untitled",
+                    "url": item.get("url", ""),
+                    "snippet": item.get("snippet", ""),
+                }
+                for item in data.get("results", [])
+                if item.get("url")
+            ]
+        except Exception:
+            # Fallback to DuckDuckGo
+            return duckduckgo_search(q, n)
+
     try:
-        # Try Google first, fallback to DuckDuckGo
-        raw_results = google_cse_search(query, num_results)
+        from app.config import get_web_search_provider
+
+        if get_web_search_provider() == "keenable":
+            raw_results = keenable_search(query, num_results)
+        else:
+            # Try Google first, fallback to DuckDuckGo
+            raw_results = google_cse_search(query, num_results)
 
         # Limit to requested number
         raw_results = raw_results[:num_results]

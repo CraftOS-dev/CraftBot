@@ -74,6 +74,7 @@
     }
   },
   "web_search": {
+    "provider": "",
     "google_cse_id": "",
     "google_cse_base_url": ""
   },

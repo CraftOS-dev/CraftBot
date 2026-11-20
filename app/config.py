@@ -126,6 +126,7 @@ def _get_default_settings() -> Dict[str, Any]:
             "session_token": "",
         },
         "web_search": {
+            "provider": "",
             "google_cse_id": "",
             "google_cse_base_url": "",
         },
@@ -517,6 +518,12 @@ def get_web_search_cse_id() -> str:
     """Get Google Custom Search Engine ID."""
     settings = get_settings()
     return settings.get("web_search", {}).get("google_cse_id", "")
+
+
+def get_web_search_provider() -> str:
+    """Get the web_search provider ("keenable", or empty for Google/DuckDuckGo)."""
+    settings = get_settings()
+    return (settings.get("web_search", {}).get("provider") or "").strip().lower()
 
 
 def get_web_search_cse_base_url() -> str:
