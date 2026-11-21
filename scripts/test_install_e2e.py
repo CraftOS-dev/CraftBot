@@ -133,6 +133,7 @@ def main() -> int:
             "installer/startup.py",
             "app/provision/__init__.py",
             "app/provision/python_downloads.json",
+            "app/provision/node_downloads.json",
             "app/provision/agent_app_framework.py",
             "app/vendor/agent-app/source.json",
             "app/vendor/agent-app/agent-app-framework.zip",

@@ -36,13 +36,19 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
 MIN_NODE_MAJOR = 24  # keep the nodejs>=24 pin in environment.yml in sync
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+
+# The Node release a private copy is downloaded from, with the SHA-256 of each
+# platform's archive as its signed SHASUMS256.txt lists it.
+NODE_CONFIG_PATH = Path(__file__).resolve().parent / "provision" / "node_downloads.json"
+
+_SHA256_RE = re.compile(r"[0-9a-f]{64}")
 
 # app.paths is the single answer to "where does state live" — in a dev
 # checkout that is the repo (so this is unchanged), and in an install it is
@@ -371,55 +377,45 @@ def _platform_suffix():
     return f"linux-{arch}", "tar.xz"
 
 
-def latest_download_url(log=None) -> Optional[str]:
-    """URL of the newest Node on the MIN_NODE_MAJOR line for this machine.
+def pinned_download(log=None) -> Optional[Tuple[str, str, str]]:
+    """(version, url, sha256) of the pinned Node build for this machine, or None.
 
+    Only the release node_downloads.json names, checked against the SHA-256
+    it pins for this platform's archive, as published in that release's
+    signed SHASUMS256.txt. Nothing is asked of nodejs.org's index, so the
+    version every install runs is the one the repository was reviewed with.
     Split out of download_sidecar so the archive can be pre-fetched into a
     cache without installing it (scripts/prefetch_runtimes.py).
     """
     import json
-    import ssl
-    import urllib.request
 
     say = log or (lambda _m: None)
-
-    try:
-        import certifi
-
-        ctx = ssl.create_default_context(cafile=certifi.where())
-    except ImportError:
-        ctx = ssl.create_default_context()
-
     suffix, ext = _platform_suffix()
-
     try:
-        req = urllib.request.Request(
-            "https://nodejs.org/dist/index.json", headers={"User-Agent": "CraftBot"}
-        )
-        index = json.loads(urllib.request.urlopen(req, timeout=60, context=ctx).read())
-    except Exception as e:
-        say(f"   Could not reach the Node index: {str(e)[:160]}")
+        config = json.loads(NODE_CONFIG_PATH.read_text(encoding="utf-8"))
+        ver = str(config["version"])
+        digest = config["sha256"].get(f"{suffix}.{ext}", "")
+        base = str(config["download_base"]).rstrip("/")
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
+        say(f"   Invalid Node download configuration: {error}")
         return None
 
-    ver = next(
-        (
-            e["version"]
-            for e in index
-            if e.get("version", "").startswith(f"v{MIN_NODE_MAJOR}.")
-        ),
-        None,
-    )
-    if not ver:
-        say(f"   No v{MIN_NODE_MAJOR}.x release found in the Node index")
+    # nodejs.org names every release directory v<major>.<minor>.<patch>.
+    if not re.fullmatch(r"v\d+\.\d+\.\d+", ver) or major_of(ver) != MIN_NODE_MAJOR:
+        say(f"   The pinned Node {ver} is not a v{MIN_NODE_MAJOR}.x release")
         return None
-    return f"https://nodejs.org/dist/{ver}/node-{ver}-{suffix}.{ext}"
+    if not _SHA256_RE.fullmatch(str(digest)):
+        say(f"   No pinned Node {ver} build for {suffix}")
+        return None
+    return ver, f"{base}/{ver}/node-{ver}-{suffix}.{ext}", digest
 
 
-def _extract_node(archive_src, ver, suffix, ext, say, url=None):
-    """Put a Node archive into SIDECAR_DIR and return its binary path.
+def _extract_node(ver, suffix, ext, say, url, sha256):
+    """Download a Node archive into SIDECAR_DIR and return its binary path.
 
-    Shared by the cached and downloaded paths so extraction, layout and the
-    binary probe cannot drift between them.
+    downloads.download uses a cached copy (CRAFTBOT_DOWNLOAD_CACHE) only when
+    it matches the pin, and refuses a download that doesn't, so nothing
+    unverified is ever extracted.
     """
     import tarfile
     import zipfile
@@ -430,13 +426,11 @@ def _extract_node(archive_src, ver, suffix, ext, say, url=None):
     os.makedirs(dest_root, exist_ok=True)
     archive = os.path.join(dest_root, f"_download.{ext}")
     try:
-        if archive_src:
-            say(f"   Using cached {os.path.basename(archive_src)}")
-            shutil.copyfile(archive_src, archive)
-        else:
-            # Streamed with progress: the archive is 30-55MB, and a single
-            # silent blocking copy is indistinguishable from a hung install.
-            downloads.download(url, archive, log=say, label=f"Node {ver}")
+        # Streamed with progress: the archive is 30-55MB, and a single
+        # silent blocking copy is indistinguishable from a hung install.
+        downloads.download(
+            url, archive, log=say, label=f"Node {ver}", expected_sha256=sha256
+        )
         say("   Extracting...")
         if ext == "zip":
             zipfile.ZipFile(archive).extractall(dest_root)
@@ -470,67 +464,17 @@ def download_sidecar(log=None) -> Optional[str]:
     the installer needs it too: installer users never run install.py, so that
     was the only route by which they could obtain Node, and they had none.
 
-    Stdlib-only (certifi when importable, else the system trust store).
+    Stdlib-only.
     """
-    import json
-    import ssl
-    import urllib.request
-
     say = log or (lambda _m: None)
 
-    try:
-        import certifi
-
-        ctx = ssl.create_default_context(cafile=certifi.where())
-    except ImportError:
-        ctx = ssl.create_default_context()
-
+    pinned = pinned_download(log=say)
+    if not pinned:
+        return None
+    ver, url, sha256 = pinned
     suffix, ext = _platform_suffix()
-
-    # Consult the cache BEFORE the network. Resolving the version means
-    # fetching nodejs.org's release index, which on a slow or flaky link is
-    # its own failure point — and failing there while the archive is already
-    # on disk would be a pointless way to lose an install.
-    cached_archive = None
-    ver_from_cache = None
     try:
-        from app import downloads
-
-        cached_archive = downloads.find_cached(
-            f"node-v{MIN_NODE_MAJOR}.*-{suffix}.{ext}"
-        )
-        if cached_archive:
-            m = _NODE_VER_RE.search(os.path.basename(cached_archive))
-            if m:
-                ver_from_cache = "v" + ".".join(m.groups())
-    except Exception:
-        cached_archive = None
-
-    if cached_archive and ver_from_cache:
-        ver = ver_from_cache
-        url = f"https://nodejs.org/dist/{ver}/node-{ver}-{suffix}.{ext}"
-        return _extract_node(cached_archive, ver, suffix, ext, say, url)
-
-    try:
-        # Newest release on the MIN_NODE_MAJOR line (the index is newest-first).
-        req = urllib.request.Request(
-            "https://nodejs.org/dist/index.json", headers={"User-Agent": "CraftBot"}
-        )
-        index = json.loads(urllib.request.urlopen(req, timeout=60, context=ctx).read())
-        ver = next(
-            (
-                e["version"]
-                for e in index
-                if e.get("version", "").startswith(f"v{MIN_NODE_MAJOR}.")
-            ),
-            None,
-        )
-        if not ver:
-            say(f"   ⚠ No v{MIN_NODE_MAJOR}.x release found in the Node index")
-            return None
-
-        url = f"https://nodejs.org/dist/{ver}/node-{ver}-{suffix}.{ext}"
-        return _extract_node(None, ver, suffix, ext, say, url)
+        return _extract_node(ver, suffix, ext, say, url, sha256)
     except Exception as e:
         say(f"   ⚠ Sidecar Node download failed: {str(e)[:200]}")
         return None
