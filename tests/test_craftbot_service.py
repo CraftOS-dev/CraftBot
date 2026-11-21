@@ -734,7 +734,9 @@ def test_install_without_start_registers_startup_and_starts_nothing(
 def command_home(tmp_path, monkeypatch):
     """A home of its own, and an interpreter that prints what it was given."""
     home = tmp_path / "home"
+    # Windows' expanduser reads USERPROFILE, not HOME.
     monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
     monkeypatch.setattr(craftbot, "IS_FROZEN", False)
     monkeypatch.setattr(craftbot, "_PLATFORM", "linux")
     python = tmp_path / "py thon"
