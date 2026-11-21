@@ -1,7 +1,7 @@
 /**
  * CraftBot terminal edition: entry point.
  *
- *   node dist/craftbot-tui.mjs --port 7926 [--owner] [--state-dir DIR] [--log FILE] [--plain]
+ *   node dist/craftbot-tui.mjs --port 7926 [--owner] [--state-dir DIR] [--log FILE] [--plain] [--message TEXT]
  *
  * `./boot` must stay the first import: it parses the command line, sends
  * console output to a log file and installs the browser globals that the

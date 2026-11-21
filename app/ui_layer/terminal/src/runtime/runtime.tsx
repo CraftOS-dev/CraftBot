@@ -23,8 +23,10 @@ import { closeAllScreens, linkSubagent, openScreen, pushToast, setHello } from '
 import { persistentStorage } from '../platform/globals'
 import { notify, setBusyProgress, setTitle, terminalCaps } from '../caps/terminal'
 import { sessionTitle } from '../chat/transcriptWriter'
-import { isQuitting } from './actions'
+import { isQuitting, startNewChat } from './actions'
 import { Splash } from './Splash'
+import { startupMessageReady } from './startupMessage'
+import { sendChat } from '../chat/intents'
 
 /** Extra frames this client reads beyond the browser's (backend client_hello). */
 const CAPABILITIES = ['subagent_link']
@@ -92,6 +94,20 @@ function sync(): void {
 export async function startClient(): Promise<void> {
   const client = getSocketClient()
 
+  // A prompt from the command line opens a new chat, once, as soon as the
+  // agent can take it (see startupMessage.ts).
+  let initSeen = false
+  let startupMessage = config().message
+  const sendStartupMessage = () => {
+    if (!startupMessage || !startupMessageReady(store.getState(), initSeen)) return
+    const message = startupMessage
+    startupMessage = null
+    startNewChat()
+    sendChat(message, 'new').catch(err => {
+      store.dispatch(pushToast(i18n.t('tui:composer.sendFailed', { error: String((err as Error)?.message ?? err) }), 'error'))
+    })
+  }
+
   // Say hello on every (re)connect: what this client is and what it reads.
   client.onOpen(() => {
     client.send('client_hello', { client: 'terminal', protocol: CLIENT_PROTOCOL, capabilities: CAPABILITIES })
@@ -121,6 +137,8 @@ export async function startClient(): Promise<void> {
           store.dispatch(openScreen({ id: 'onboarding' }))
         }
         client.send('settings_get', {})
+        initSeen = true
+        sendStartupMessage()
         break
       }
       case 'settings_get':
@@ -142,6 +160,7 @@ export async function startClient(): Promise<void> {
   let seen: { messages: unknown; runs: unknown; active: string } | null = null
   store.subscribe(() => {
     sync()
+    sendStartupMessage()
     const state = store.getState()
     const active = state.tui.activeSessionId
     if (seen && seen.messages === state.messages && seen.runs === state.agent.runStateBySession && seen.active === active) return
