@@ -18,6 +18,15 @@ THE HASHES" even where a compatible macosx_12 wheel existed; the same for
 manylinux_2_34-only hashes on older glibc. pip picks the best compatible file
 and finds its hash.
 
+Every pinned version must also have a WHEEL that fits its target. Left alone,
+uv pins a version that has no wheel for that platform and locks its sdist, and
+the install then compiles it on the user's machine. cryptography 49 dropped
+Intel-Mac wheels; the macosx_x86_64 lock pinned 50.0.1 anyway, and the
+Intel-Mac install died building it (rustup, then maturin). So the resolve runs
+with --only-binary :all:. uv then picks the newest version that has a fitting
+wheel (48.0.1 on that Mac) and other platforms keep theirs. The only packages
+allowed to build from source are listed in SDIST_ALLOWED.
+
 Existing pins are PREFERRED, not re-resolved: each lock is seeded into uv's
 output file, so regenerating after a requirements.txt edit changes only what
 the edit forces instead of bumping every package to today's release.
@@ -105,6 +114,23 @@ TARGETS = {
 #: lock starts from the versions its sibling already proved.
 SEED_FROM = {"linux_aarch64": "linux_x86_64", "macosx_x86_64": "macosx_arm64"}
 
+#: The only packages a lock may pin as an sdist (see "Every pinned version must
+#: also have a WHEEL" above). Each publishes no wheels at all and is pure
+#: Python, so building it needs no compiler. A new sdist-only dependency stops
+#: the resolve with "Wheels are required for `name`". Add it here only after
+#: checking that its sdist has no native code.
+SDIST_ALLOWED = (
+    "antlr4-python3-runtime",
+    "mouseinfo",
+    "pyaes",
+    "pyautogui",
+    "pygetwindow",
+    "pyrect",
+    "pyscreeze",
+    "python3-xlib",
+    "pytweening",
+)
+
 PYTHON_LINE = "3.10"  # keep in step with TARGET_PYTHON in app/provision/runtimes.py
 
 
@@ -163,6 +189,32 @@ def _uv() -> List[str]:
     raise SystemExit("uv is required to generate locks: pip install uv")
 
 
+def compile_args(target: str, out_file: str) -> List[str]:
+    """`uv pip compile` arguments for one target, wheels required."""
+    args = [
+        "pip",
+        "compile",
+        REQUIREMENTS,
+        "--python-version",
+        PYTHON_LINE,
+        "--python-platform",
+        target,
+        "--only-binary",
+        ":all:",
+    ]
+    for name in SDIST_ALLOWED:
+        # A per-package --no-binary overrides --only-binary :all:.
+        args += ["--no-binary", name]
+    return args + [
+        "--generate-hashes",
+        "--no-header",
+        "--no-annotate",
+        "--quiet",
+        "--output-file",
+        out_file,
+    ]
+
+
 def resolve(platform_key: str) -> Dict[str, List[str]]:
     """Resolve requirements.txt for one platform: {name==version: [hashes]}.
 
@@ -191,28 +243,20 @@ def resolve(platform_key: str) -> Dict[str, List[str]]:
 
     env = dict(os.environ, **extra_env)
     proc = subprocess.run(
-        _uv()
-        + [
-            "pip",
-            "compile",
-            REQUIREMENTS,
-            "--python-version",
-            PYTHON_LINE,
-            "--python-platform",
-            target,
-            "--generate-hashes",
-            "--no-header",
-            "--no-annotate",
-            "--quiet",
-            "--output-file",
-            out_file,
-        ],
+        _uv() + compile_args(target, out_file),
         capture_output=True,
         text=True,
         env=env,
     )
     if proc.returncode != 0:
         sys.stderr.write(proc.stdout + proc.stderr)
+        if "Wheels are required for" in proc.stderr:
+            sys.stderr.write(
+                f"\nA package above has no wheel for {platform_key}. If it is pure "
+                "Python and ships only an sdist, add it to SDIST_ALLOWED. "
+                "Otherwise, constrain it in requirements.txt to a version that "
+                "has a wheel for this platform.\n"
+            )
         raise SystemExit(f"uv resolution failed for {platform_key} ({proc.returncode})")
 
     rows: Dict[str, List[str]] = {}

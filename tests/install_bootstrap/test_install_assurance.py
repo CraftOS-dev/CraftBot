@@ -362,6 +362,16 @@ class LockCoverageTests(unittest.TestCase):
             hits = banned.findall(path.read_text(encoding="utf-8"))
             self.assertEqual(hits, [], f"{path.name} pins {hits}")
 
+    def test_locks_are_resolved_wheels_only(self):
+        # Otherwise a lock can pin a version with no wheel for its platform,
+        # which the user's machine must then compile (cryptography 50 on an
+        # Intel Mac: rustup, then a failed maturin build).
+        genlock = self._generate_lock()
+        args = genlock.compile_args("x86_64-apple-darwin", "lock.txt")
+        self.assertEqual(args[args.index("--only-binary") + 1], ":all:")
+        exempt = {args[i + 1] for i, arg in enumerate(args) if arg == "--no-binary"}
+        self.assertEqual(exempt, set(genlock.SDIST_ALLOWED))
+
     def test_every_pin_is_hashed(self):
         for path in (REPO / "requirements").glob("lock-*.txt"):
             text = path.read_text(encoding="utf-8")
