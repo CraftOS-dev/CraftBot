@@ -85,6 +85,7 @@ from app.image_gen_interface import ImageGenInterface
 from app.video_gen_interface import VideoGenInterface
 from app.database_interface import DatabaseInterface
 from app.logger import logger
+from app.startup_diagnostics import format_exception_details
 from agent_core import (
     MemoryManager,
     MemoryFileWatcher,
@@ -4319,8 +4320,33 @@ class AgentBase:
                 (the same format ``app/main.py`` shows on app launch).
                 Tests pass False to keep output clean.
         """
+        # Each component logs its own result; this brackets the whole
+        # sequence so a log shows whether boot finished, and names the phase
+        # an escaping exception came from. The exception still propagates.
+        phase = {"name": "Initializing agent"}
+        started = time.monotonic()
+        logger.info("[BOOT] Boot sequence started")
+        try:
+            await self._boot_sequence(verbose=verbose, phase=phase)
+        except Exception as e:
+            logger.error(
+                f"[BOOT] Boot failed during '{phase['name']}' after "
+                f"{time.monotonic() - started:.2f}s: {type(e).__name__}: {e}\n"
+                f"{format_exception_details(e)}"
+            )
+            raise
+        logger.info(
+            f"[BOOT] Boot sequence finished in {time.monotonic() - started:.2f}s"
+        )
+
+    async def _boot_sequence(self, *, verbose: bool, phase: dict) -> None:
+        """The steps of ``boot()``; ``phase['name']`` tracks the current one."""
+
+        def mark(name: str) -> None:
+            phase["name"] = name
 
         def step(step_num: int, total: int, message: str) -> None:
+            mark(message)
             if not verbose:
                 return
             # Aligned with run.py's own steps 1-2, ending in a checkmark.
@@ -4347,6 +4373,7 @@ class AgentBase:
         self.session_manager.restore_skill_instructions()
 
         # Start usage reporter background flush
+        mark("Starting background services")
         from app.usage import get_usage_reporter
 
         self._usage_reporter = get_usage_reporter()
@@ -4365,6 +4392,7 @@ class AgentBase:
 
         # Process unprocessed events into memory at startup (if enabled)
         if PROCESS_MEMORY_AT_STARTUP:
+            mark("Processing memory")
             await self._process_memory_at_startup()
 
         # Initialize and start the scheduler (handles memory processing and other periodic tasks)
@@ -4403,6 +4431,7 @@ class AgentBase:
 
         # Rehydrate unfinished durable triggers from the previous run into
         # the per-session queues, then start the session loops.
+        mark("Starting session runtime")
         requeued = 0
         try:
             requeued = await self.trigger_service.rehydrate()

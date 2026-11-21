@@ -16,6 +16,7 @@ when its loop picks the trigger up and acks/nacks when the turn settles.
 from __future__ import annotations
 
 import asyncio
+import functools
 import logging
 from contextlib import nullcontext
 from typing import Awaitable, Callable, Dict, Optional, TYPE_CHECKING
@@ -473,10 +474,33 @@ class SessionRuntimeManager:
         if existing is not None and not existing.done():
             return
         queue = self._ensure_queue(session_id)
-        self._loops[session_id] = asyncio.create_task(
+        task = asyncio.create_task(
             self._consume(session_id, queue),
             name=f"session-loop-{session_id}",
         )
+        task.add_done_callback(functools.partial(self._log_loop_exit, session_id))
+        self._loops[session_id] = task
+
+    @staticmethod
+    def _log_loop_exit(session_id: str, task: asyncio.Task) -> None:
+        """Record why a session loop stopped.
+
+        A normal exit already logs "Loop ended" from ``_consume``. The other
+        two exits used to leave no trace: a cancelled loop, and a loop killed
+        by an exception (which ``stop()``/``remove_session()`` swallow when
+        they await the task). The task outcome is only read here, so this
+        changes no behaviour.
+        """
+        if task.cancelled():
+            logger.info(f"[SessionRuntime] Loop cancelled for session {session_id}")
+            return
+        exc = task.exception()
+        if exc is not None:
+            logger.error(
+                f"[SessionRuntime] Loop for session {session_id} exited "
+                f"unexpectedly: {type(exc).__name__}: {exc}\n"
+                f"{format_exception_details(exc)}"
+            )
 
     async def _run_turn(self, session_id: str, trig: Trigger) -> None:
         signal = self._stops.get(session_id)
