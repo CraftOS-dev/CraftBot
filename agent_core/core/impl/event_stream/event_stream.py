@@ -18,8 +18,10 @@ import copy
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
+import os
 import re
 import time
+import uuid
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 from agent_core.core.event_stream.event import (
@@ -44,6 +46,75 @@ SEVERITIES = ("DEBUG", "INFO", "WARN", "ERROR")
 # an http_request body) can't bloat the prompt. ~8000 chars ≈ ~2000 tokens; the
 # agent retrieves the full content with grep_files / read_file when it needs it.
 MAX_EVENT_INLINE_CHARS = 16000
+
+# A user message is externalized like any other long event, but its text is
+# the request itself, so it is not left for the agent to look up: CraftBot
+# reads the saved file back into the stream right after the pointer, before
+# the turn decides (AgentBase._log_deferred_user_messages). The text comes back
+# in parts of at most this many characters; with its header and footer each
+# part stays under MAX_EVENT_INLINE_CHARS, so nothing collapses a part back
+# into a pointer before the model has read it.
+USER_MESSAGE_PART_CHARS = 15000
+
+# Event.externalized["content"] values.
+EXTERNALIZED_USER_MESSAGE = "user_message"
+EXTERNALIZED_OUTPUT = "output"
+
+# The event kind of a part of a user message read back from its file.
+USER_MESSAGE_PART_KIND = "user message (full text)"
+
+
+class UserMessageReadBackError(Exception):
+    """A user message saved to a file could not be read back in full.
+
+    ``code`` says why: "missing", "unreadable", "outside_storage", "empty",
+    "incomplete", "corrupted", "timeout" or "not_read_back" (a request was
+    about to carry the pointer without the text). The message was not
+    processed; its file is left in place.
+    """
+
+    def __init__(self, code: str, reason: str, *, path: str, chars: int):
+        super().__init__(f"{reason} ({path})")
+        self.code = code
+        self.reason = reason
+        self.path = path
+        self.chars = chars
+
+
+def split_user_message(text: str) -> List[str]:
+    """``text`` in parts of at most USER_MESSAGE_PART_CHARS characters that
+    join back to exactly ``text``; a part ends after a line break or space
+    when one falls in its second half."""
+    parts: List[str] = []
+    start = 0
+    while len(text) - start > USER_MESSAGE_PART_CHARS:
+        end = start + USER_MESSAGE_PART_CHARS
+        floor = start + USER_MESSAGE_PART_CHARS // 2
+        cut = text.rfind("\n", floor, end)
+        if cut < 0:
+            cut = text.rfind(" ", floor, end)
+        cut = end if cut < 0 else cut + 1
+        parts.append(text[start:cut])
+        start = cut
+    parts.append(text[start:])
+    return parts
+
+
+def user_message_for_query(text: str) -> str:
+    """How a turn's instruction ({query}) quotes a user message.
+
+    A long one is externalized and read back into the event stream in full,
+    which the decision prompt renders above {query}; quoting it again would
+    send it twice. A short one is quoted as it always was.
+    """
+    if len(text) <= MAX_EVENT_INLINE_CHARS:
+        return text
+    return (
+        f"[the user's {len(text):,}-character message: its full text is in "
+        "the event stream above; act on that text]"
+    )
+
+
 # Always preserve at least this many most-recent events in tail_events when summarizing.
 # Guards against a single oversized event (e.g. a large read_pdf result) being purged in the
 # same tick it arrives — the UI consumer polls tail_events and would otherwise miss it,
@@ -371,9 +442,14 @@ class EventStream:
             # Schemas and skill instructions are only useful verbatim: a
             # pointer would make the agent read them back through read_file
             # before every call.
-            msg = message.strip()
+            msg, externalized = message.strip(), None
         else:
-            msg = self._externalize_message(message.strip(), action_name=action_name)
+            msg, externalized = self._externalize(
+                message.strip(),
+                action_name=action_name,
+                event_type=event_type,
+                kind=kind.strip(),
+            )
         display = display_message.strip() if display_message is not None else None
         ev = Event(
             message=msg,
@@ -392,6 +468,7 @@ class EventStream:
             ui_artifact=ui_artifact,
             schema_actions=schema_actions,
             skill_name=skill_name,
+            externalized=externalized,
         )
         rec = EventRecord(event=ev)
 
@@ -425,15 +502,33 @@ class EventStream:
         action_name: str | None = None,
         force: bool = False,
     ) -> str:
-        """Persist overly long messages to a temp file and return a pointer event.
+        """The pointer _externalize writes for ``message`` (or ``message``)."""
+        return self._externalize(message, action_name=action_name, force=force)[0]
+
+    def _externalize(
+        self,
+        message: str,
+        *,
+        action_name: str | None = None,
+        event_type: Optional[EventType] = None,
+        kind: str = "",
+        force: bool = False,
+    ) -> Tuple[str, Optional[Dict[str, Any]]]:
+        """Persist an overly long message to a temp file; return the pointer
+        that replaces it and its Event.externalized metadata (``(message,
+        None)`` when it stays inline).
 
         `force` overrides the retrieval-action exemption below. It is used by
         `_shrink_pinned_oversize`, where the agent has already consumed the
         content in its own turn and the only thing left to do with an oversized
         event is stop paying for it every prompt.
+
+        The pointer says what was saved: a user message's, that CraftBot reads
+        the text back right after it (see USER_MESSAGE_PART_CHARS); an action
+        output's, which action produced it and how to look it up.
         """
         if len(message) <= MAX_EVENT_INLINE_CHARS or self.temp_dir is None:
-            return message
+            return message, None
 
         # Never externalize the retrieval actions' own outputs: they are how
         # the agent reads externalized content back, so pointering them would
@@ -446,28 +541,274 @@ class EventStream:
             "grep",
             "stream read",
         ):
-            return message
+            return message, None
 
+        is_user_message = event_type is EventType.USER_MESSAGE
         try:
             self.temp_dir.mkdir(parents=True, exist_ok=True)
             ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S%f")
-            suffix = "action"
+            suffix = "user_message" if is_user_message else "action"
 
-            if action_name:
+            if action_name and not is_user_message:
                 suffix = (
                     re.sub(r"[^A-Za-z0-9._-]", "_", action_name).strip("._-")
                     or "action"
                 )
-            file_path = self.temp_dir / f"event_{suffix}_{ts}.txt"
+            # The random part keeps two events saved in the same clock tick
+            # (a batch of messages, parallel actions) from sharing a file.
+            file_path = (
+                self.temp_dir / f"event_{suffix}_{ts}_{uuid.uuid4().hex[:8]}.txt"
+            )
+            meta: Dict[str, Any] = {
+                "content": (
+                    EXTERNALIZED_USER_MESSAGE
+                    if is_user_message
+                    else EXTERNALIZED_OUTPUT
+                ),
+                "path": str(file_path),
+                "chars": len(message),
+                "sha256": hashlib.sha256(message.encode("utf-8")).hexdigest(),
+            }
+            if is_user_message:
+                # newline="": the file holds exactly the text, so reading it
+                # back can check it character for character.
+                with open(file_path, "w", encoding="utf-8", newline="") as f:
+                    f.write(message)
+                parts = len(split_user_message(message))
+                return (
+                    f"[User message saved to a file] This message from the user "
+                    f"is {len(message):,} characters, too long to keep in the "
+                    f"event stream, so its full text is saved in {file_path}. "
+                    f"CraftBot reads it back into the event stream right after "
+                    f"this notice, in {parts} part(s) labelled "
+                    f'"{USER_MESSAGE_PART_KIND}". That text is the user\'s '
+                    f"request: act on it, not on this notice."
+                ), meta
             file_path.write_text(message, encoding="utf-8")
             keywords = ", ".join(self._extract_keywords(message)) or "n/a"
-            return f"Action {action_name} completed. The output is too long therefore is saved in {file_path} to save token. | keywords: {keywords} | To retrieve the content, agent MUST use the 'grep_files' action to extract the context with keywords or use 'read_file' with offset/limit to read the content line by line in file."
+            what = (
+                f"Action {action_name} completed. The output"
+                if action_name
+                else f"The content of this {kind or 'event'} event"
+            )
+            return (
+                f"{what} is too long therefore is saved in {file_path} to save "
+                f"token. | keywords: {keywords} | To retrieve the content, agent "
+                f"MUST use the 'grep_files' action to extract the context with "
+                f"keywords or use 'read_file' with offset/limit to read the "
+                f"content line by line in file."
+            ), meta
         except Exception:
             logger.exception(
                 "[EventStream] Failed to externalize long event message "
                 f"(action={action_name or 'n/a'}, temp_dir={self.temp_dir})",
             )
-            return message
+            return message, None
+
+    # ───────────────── user messages saved to a file ─────────────────
+
+    def read_saved_user_message(self, meta: Dict[str, Any]) -> str:
+        """The exact text of a user message saved by _externalize.
+
+        Reads only a file inside this stream's temp_dir, at most one character
+        more than was saved, and checks length and digest. Raises
+        UserMessageReadBackError when it cannot return the whole text. Does
+        not touch the stream (safe off the event loop, without the lock).
+        """
+        path_text = str(meta.get("path") or "")
+        chars = int(meta.get("chars") or 0)
+
+        def fail(code: str, reason: str) -> UserMessageReadBackError:
+            return UserMessageReadBackError(code, reason, path=path_text, chars=chars)
+
+        # Symlinks and junctions are resolved before the containment check,
+        # and the RESOLVED path is the one opened, so the check covers the
+        # file read; the open handle must still be that file. The digest check
+        # below is the final guarantee: nothing but the user's own saved text
+        # is ever returned, so a file swapped in can only cause a refusal.
+        try:
+            real = Path(path_text).resolve()
+            inside = (
+                bool(path_text)
+                and self.temp_dir is not None
+                and real.is_relative_to(Path(self.temp_dir).resolve())
+            )
+        except (OSError, ValueError, RuntimeError):
+            inside = False
+        if not inside:
+            raise fail(
+                "outside_storage", "the saved file is outside CraftBot's storage"
+            )
+        if not real.is_file():
+            raise fail("missing", "the saved file no longer exists")
+        try:
+            with open(real, "r", encoding="utf-8", newline="") as f:
+                if not os.path.samestat(os.fstat(f.fileno()), os.stat(real)):
+                    raise fail("corrupted", "the saved file was replaced")
+                text = f.read(chars + 1)
+        except UnicodeDecodeError:
+            raise fail("corrupted", "the saved file is not valid text")
+        except OSError as e:
+            raise fail(
+                "unreadable", f"the saved file cannot be read ({e.strerror or e})"
+            )
+        if not text:
+            raise fail("empty", "the saved file is empty")
+        if len(text) != chars:
+            raise fail(
+                "incomplete",
+                f"the saved file holds {len(text):,} characters, not {chars:,}",
+            )
+        if hashlib.sha256(text.encode("utf-8")).hexdigest() != meta.get("sha256"):
+            raise fail("corrupted", "the saved file no longer matches the message")
+        return text
+
+    def insert_user_message_parts(self, pointer: EventRecord, text: str) -> int:
+        """Put ``text`` (read_saved_user_message) into the stream right after
+        its ``pointer``, as split_user_message parts, and mark the pointer read
+        back. Directly after it (and any parts already there), so a batch of
+        messages reads pointer 1, text 1, pointer 2, text 2 however the reads
+        interleave with other writes. Returns the number of parts.
+        """
+        meta = dict(pointer.event.externalized or {})
+        path = meta.get("path", "")
+        name = Path(path).name
+        chunks = split_user_message(text)
+        records = [
+            EventRecord(
+                event=Event(
+                    message=(
+                        f"[Part {i} of {len(chunks)} of the user message saved in "
+                        f"{name}]\n{chunk}\n[End of part {i} of {len(chunks)}]"
+                    ),
+                    kind=USER_MESSAGE_PART_KIND,
+                    severity="INFO",
+                    event_type=EventType.INTERNAL,
+                    platform=pointer.event.platform,
+                    externalized={"part_of": path, "part": i, "parts": len(chunks)},
+                )
+            )
+            for i, chunk in enumerate(chunks, start=1)
+        ]
+        with self._lock:
+            at = next((i for i, r in enumerate(self.tail_events) if r is pointer), None)
+            if at is None:
+                at = len(self.tail_events)
+            else:
+                at += 1
+                while at < len(self.tail_events) and (
+                    (self.tail_events[at].event.externalized or {}).get("part_of")
+                    == path
+                ):
+                    at += 1
+            self.tail_events[at:at] = records
+            self._total_tokens += sum(get_cached_token_count(r) for r in records)
+            meta["retrieved"] = True
+            pointer.event.externalized = meta
+        return len(records)
+
+    def unread_user_messages(self, up_to: Optional[int] = None) -> List[EventRecord]:
+        """Pointers to saved user messages among the first ``up_to`` events
+        that the model has not received and whose text was not read back, in
+        stream order.
+
+        A request carrying one would hand the model a file path instead of
+        the user's request (#441), so the router refuses to send it.
+        """
+        with self._lock:
+            unread = []
+            for r in self.tail_events[:up_to]:
+                meta = r.event.externalized or {}
+                if (
+                    not r.delivered
+                    and r.event.event_type is EventType.USER_MESSAGE
+                    and meta.get("content") == EXTERNALIZED_USER_MESSAGE
+                    and not meta.get("retrieved")
+                    and not meta.get("set_aside")
+                ):
+                    unread.append(r)
+            return unread
+
+    def set_aside_unsent_user_messages(
+        self, why: str
+    ) -> List[Tuple[int, int, Optional[str]]]:
+        """Replace the user messages the model has not received with a note.
+
+        For a run that ended without the model reading them: the request
+        carrying them cannot fit the context window, or a saved one could not
+        be read back. ``why`` completes "this message (N characters) ...".
+        The user has been told; the note tells the model the same, so a later
+        turn does not act on a message nobody processed, and says where the
+        text is saved. Parts read back for a message are emptied with it. The
+        chat bubble (display_message) is unchanged.
+
+        Returns ``(characters, tokens, platform)`` for each message set aside;
+        ``platform`` names the integration it came from, or is None for a
+        message typed in CraftBot itself.
+        """
+        with self._lock:
+            set_aside: List[Tuple[int, int, Optional[str]]] = []
+            for rec in self.tail_events:
+                event = rec.event
+                if rec.delivered or event.event_type is not EventType.USER_MESSAGE:
+                    continue
+                meta = dict(event.externalized or {})
+                if meta.get("set_aside"):
+                    continue
+                # "user message from platform: WhatsApp" (see
+                # AgentBase._handle_chat_message); a UI message is "user message".
+                _, _, platform = event.kind.partition("from platform: ")
+                path = meta.get("path")
+                if meta.get("content") == EXTERNALIZED_USER_MESSAGE:
+                    chars = int(meta.get("chars") or 0)
+                    parts = [
+                        r
+                        for r in self.tail_events
+                        if not r.delivered
+                        and (r.event.externalized or {}).get("part_of") == path
+                    ]
+                    tokens = sum(get_cached_token_count(r) for r in parts) or (
+                        count_tokens(event.display_message or "")
+                    )
+                    for part in parts:
+                        # Emptied in place, not removed: the UI's cursor and
+                        # the sync points find events by identity and index.
+                        before = get_cached_token_count(part)
+                        info = part.event.externalized
+                        part.event.message = (
+                            f"[Part {info.get('part')} of {info.get('parts')}: "
+                            "not processed]"
+                        )
+                        part._cached_tokens = None
+                        self._total_tokens -= before - get_cached_token_count(part)
+                else:
+                    chars, tokens = len(event.message), count_tokens(event.message)
+                    if self.temp_dir is not None:
+                        try:
+                            self.temp_dir.mkdir(parents=True, exist_ok=True)
+                            ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S%f")
+                            target = (
+                                self.temp_dir
+                                / f"event_user_message_{ts}_{len(set_aside)}.txt"
+                            )
+                            target.write_text(event.message, encoding="utf-8")
+                            path = str(target)
+                        except Exception:
+                            logger.exception(
+                                "[EventStream] Failed to save a user message set aside"
+                            )
+                set_aside.append((chars, tokens, platform or None))
+                where = f" Its full text is saved in {path}." if path else ""
+                before = get_cached_token_count(rec)
+                event.message = (
+                    f"[Not processed: this message ({chars:,} characters) {why}, "
+                    f"and the user was told.{where}]"
+                )
+                meta["set_aside"] = True
+                event.externalized = meta
+                rec._cached_tokens = None
+                self._total_tokens -= before - get_cached_token_count(rec)
+            return set_aside
 
     def _find_token_cutoff(self, events: List[EventRecord], keep_tokens: int) -> int:
         """
@@ -550,14 +891,22 @@ class EventStream:
                 EventType.SKILL_INSTRUCTIONS,
             ):
                 continue
-            pointer = self._externalize_message(
-                message, action_name=rec.event.action_name, force=True
+            pointer, meta = self._externalize(
+                message,
+                action_name=rec.event.action_name,
+                event_type=rec.event.event_type,
+                kind=rec.event.kind,
+                force=True,
             )
             if pointer is message:
                 # Externalization failed (already logged); leave the event alone.
                 continue
             before = get_cached_token_count(rec)
             rec.event.message = pointer
+            if meta is not None and meta["content"] == EXTERNALIZED_USER_MESSAGE:
+                # Collapsed after the model has read it: nothing to read back.
+                meta["retrieved"] = True
+            rec.event.externalized = meta
             rec._cached_tokens = None
             reclaimed += before - get_cached_token_count(rec)
 

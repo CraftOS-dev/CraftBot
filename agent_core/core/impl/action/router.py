@@ -31,6 +31,7 @@ from agent_core.core.prompts import (
     decision_system_prompt,
 )
 from agent_core.core.impl.llm.interface import LLMContextOverflowError, LLMReply
+from agent_core.core.impl.event_stream.event_stream import UserMessageReadBackError
 from agent_core.core.impl.llm.streaming import streaming_to
 from agent_core.core.event_stream.event import EventType
 from agent_core import get_event_stream_manager
@@ -638,6 +639,21 @@ class ActionRouter:
             # Anything logged while it is in flight (other code paths write to
             # a session's stream at any time) is left for the next request.
             point = stream.get_event_count() if stream is not None else None
+            # (A stream without unread_user_messages saves no user messages.)
+            unread_of = getattr(stream, "unread_user_messages", None)
+            if unread_of is not None:
+                unread = unread_of(point)
+                if unread:
+                    # The request would carry a file path in place of the
+                    # user's message (#441): the model would answer the
+                    # pointer. Refused before the try below, which retries.
+                    meta = unread[0].event.externalized
+                    raise UserMessageReadBackError(
+                        "not_read_back",
+                        "the message was not read back from its saved file",
+                        path=str(meta.get("path") or ""),
+                        chars=int(meta.get("chars") or 0),
+                    )
             # Where this request streams its reply (None: it does not).
             reply_attempt = (
                 reply_stream.begin_attempt()
