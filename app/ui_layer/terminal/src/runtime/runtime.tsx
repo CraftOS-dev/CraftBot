@@ -118,8 +118,12 @@ export async function startClient(): Promise<void> {
       case 'client_hello': {
         const d = (msg.data ?? {}) as { protocol?: number; edition?: string; version?: string }
         store.dispatch(setHello({ protocol: d.protocol ?? 0, edition: d.edition ?? '', version: d.version ?? '' }))
+        // Only `craftbot tui` reaches a backend of another edition, and it does
+        // so on purpose: it attaches to the CraftBot already running, which a
+        // launcher such as Omarchy's runs as the browser edition for its web
+        // app. Chats are shared, so this is a passing note, not an error.
         if (d.edition && d.edition !== 'terminal') {
-          store.dispatch(pushToast(i18n.t('tui:connect.wrongEdition', { edition: d.edition }), 'error', null, 'edition'))
+          store.dispatch(pushToast(i18n.t('tui:connect.sharedWithBrowser'), 'info', 10_000, 'edition'))
         }
         break
       }

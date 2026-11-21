@@ -66,7 +66,7 @@
     "seeLog": "Log-nya: {{path}}",
     "stopHint": "Tekan Ctrl+C untuk keluar, lalu jalankan: python craftbot.py stop",
     "legacyConsole": "Ini konsol Windows klasik. CraftBot bekerja lebih baik di Windows Terminal (gambar ulang lebih mulus, Shift+Enter, tempel).",
-    "wrongEdition": "CraftBot berjalan sebagai edisi {{edition}}. Mulai ulang untuk terminal: python craftbot.py restart --tui"
+    "sharedWithBrowser": "Terhubung ke CraftBot yang dipakai browser Anda: obrolan tampil di keduanya, dan halaman yang dibuatnya hanya tampil di browser."
   },
   "working": {
     "label": "Bekerja",

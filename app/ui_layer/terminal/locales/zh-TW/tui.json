@@ -66,7 +66,7 @@
     "seeLog": "記錄檔：{{path}}",
     "stopHint": "按 Ctrl+C 結束，然後執行：python craftbot.py stop",
     "legacyConsole": "這是傳統的 Windows 主控台。CraftBot 在 Windows Terminal 中運作得更好（重繪更流暢，支援 Shift+Enter 與貼上）。",
-    "wrongEdition": "CraftBot 正以 {{edition}} 版本執行。請重新啟動為終端機版：python craftbot.py restart --tui"
+    "sharedWithBrowser": "已連線到瀏覽器正在使用的 CraftBot：聊天會同時顯示在兩邊，它產生的頁面只會在瀏覽器中顯示。"
   },
   "working": {
     "label": "處理中",

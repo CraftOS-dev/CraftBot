@@ -66,7 +66,7 @@
     "seeLog": "日志：{{path}}",
     "stopHint": "按 Ctrl+C 退出，然后运行：python craftbot.py stop",
     "legacyConsole": "这是经典 Windows 控制台。CraftBot 在 Windows Terminal 中体验更好（重绘更流畅，支持 Shift+Enter 和粘贴）。",
-    "wrongEdition": "CraftBot 正以 {{edition}} 版本运行。请重启为终端版：python craftbot.py restart --tui"
+    "sharedWithBrowser": "已连接到浏览器正在使用的 CraftBot：聊天会同时显示在两边，它生成的页面只在浏览器中显示。"
   },
   "working": {
     "label": "工作中",

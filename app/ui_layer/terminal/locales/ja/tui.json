@@ -66,7 +66,7 @@
     "seeLog": "ログ: {{path}}",
     "stopHint": "Ctrl+C で終了してから、次を実行してください: python craftbot.py stop",
     "legacyConsole": "これは従来の Windows コンソールです。CraftBot は Windows Terminal のほうが快適に動作します（再描画が滑らか、Shift+Enter、貼り付けに対応）。",
-    "wrongEdition": "CraftBot は {{edition}} エディションとして実行中です。ターミナル版で再起動してください: python craftbot.py restart --tui"
+    "sharedWithBrowser": "ブラウザーで使っている CraftBot に接続しました。チャットは両方に表示され、作成されたページはブラウザーにのみ表示されます。"
   },
   "working": {
     "label": "作業中",
