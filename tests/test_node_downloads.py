@@ -2,6 +2,7 @@
 
 import json
 import re
+import sys
 import urllib.request
 
 import pytest
@@ -97,3 +98,44 @@ def test_the_sidecar_downloads_against_the_pin(monkeypatch, tmp_path):
     assert node_runtime.download_sidecar() is None
     assert calls == [node_runtime.pinned_download()[1:]]
     assert [path.name for path in tmp_path.iterdir()] == []
+
+
+def _node(path, version):
+    """A node binary that reports `version`, as probe_version asks it."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(f"#!/bin/sh\necho {version}\n")
+    path.chmod(0o755)
+    return path
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="unix node layout")
+def test_a_path_node_whose_npm_it_cannot_run_gives_way_to_the_sidecar(
+    monkeypatch, tmp_path
+):
+    # Arch's nodejs: node on PATH with no npm beside it, and another install's
+    # npm (a version manager's) found on PATH instead.
+    path_node = _node(tmp_path / "usr" / "bin" / "node", "v26.12.0")
+    foreign_npm = tmp_path / "mise" / "bin" / "npm"
+    foreign_npm.parent.mkdir(parents=True)
+    foreign_npm.write_text("#!/bin/sh\n")
+    which = {"node": str(path_node), "npm": str(foreign_npm)}
+    monkeypatch.setattr(node_runtime.shutil, "which", lambda name: which.get(name))
+    monkeypatch.setattr(node_runtime, "_recorded_node", lambda: None)
+    monkeypatch.delenv("CRAFTBOT_NODE", raising=False)
+
+    # The sidecar, laid out as nodejs.org's archive is.
+    sidecar = tmp_path / "sidecar"
+    root = sidecar / "node-v24.22.3-linux-x64"
+    _node(root / "bin" / "node", "v24.22.3")
+    cli = root / "lib" / "node_modules" / "npm" / "bin" / "npm-cli.js"
+    cli.parent.mkdir(parents=True)
+    cli.write_text("")
+    (root / "bin" / "npm").symlink_to("../lib/node_modules/npm/bin/npm-cli.js")
+    monkeypatch.setattr(node_runtime, "SIDECAR_DIR", sidecar)
+    monkeypatch.setattr(node_runtime.Path, "home", lambda: tmp_path / "home")
+
+    rt = node_runtime.resolve(refresh=True)
+
+    assert rt.source == "discovered"
+    assert rt.node == str(root / "bin" / "node")
+    assert node_runtime.npm_command(rt) == [str(root / "bin" / "node"), str(cli)]

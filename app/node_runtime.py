@@ -206,14 +206,22 @@ def resolve(refresh: bool = False) -> Optional[NodeRuntime]:
         and path_major is not None
         and path_major >= MIN_NODE_MAJOR
     ):
-        _cached = NodeRuntime(
+        candidate = NodeRuntime(
             node=path_node,
             npm=path_npm,
             bin_dir=os.path.dirname(path_node),
             version=path_version,
             source="path",
         )
-        return _cached
+        # Only an npm this node can run counts. Arch's nodejs ships node
+        # without npm, so the npm on PATH can be another install's (a version
+        # manager's), which npm_command cannot pair with it. Taking that pair
+        # left `install` downloading the sidecar and then resolving the same
+        # unusable pair again, so setup never finished; the sidecar is used
+        # instead.
+        if npm_command(candidate):
+            _cached = candidate
+            return _cached
 
     discovered = discover_node()
     if discovered:
