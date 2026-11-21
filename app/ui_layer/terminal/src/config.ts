@@ -6,6 +6,7 @@
  *   --state-dir DIR  CraftBot's state directory (remembered UI state lives here)
  *   --log FILE       the backend's log file, shown when it fails to start
  *   --plain          numbered menus and labeled lines, never the alternate screen
+ *   --message TEXT   start a new chat with this message once the agent is ready
  */
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -16,6 +17,8 @@ export interface ClientConfig {
   stateDir: string
   logFile: string | null
   plain: boolean
+  /** A prompt to open a new chat with (see runtime/startupMessage). */
+  message: string | null
 }
 
 function valueOf(argv: string[], flag: string): string | undefined {
@@ -40,6 +43,7 @@ export function parseConfig(argv: string[], env: NodeJS.ProcessEnv): ClientConfi
     stateDir: valueOf(argv, '--state-dir') ?? env.CRAFTBOT_HOME ?? join(homedir(), '.craftbot'),
     logFile: valueOf(argv, '--log') ?? null,
     plain,
+    message: valueOf(argv, '--message')?.trim() || null,
   }
 }
 

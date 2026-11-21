@@ -8,9 +8,10 @@
 //! module puts it. When install.py later runs its own `python` stage it
 //! finds this one already there and accepts it; nothing is downloaded twice.
 //!
-//! Asset URLs are resolved from GitHub release metadata, including the final
-//! Python 3.10 release when the newest release no longer carries that version.
-//! This mirrors app/provision/runtimes.py and its dependency-lock constraint.
+//! The archive comes from the release python_downloads.json pins, checked
+//! against the SHA-256 it pins for this platform before it is unpacked, as
+//! app/provision/runtimes.py does. No release listing is asked for, so a
+//! GitHub API rate limit cannot stop an install.
 
 use crate::download;
 use crate::logger;
@@ -25,12 +26,12 @@ pub const TARGET: (u32, u32) = (3, 10);
 // the source payload. The CLI reads the same file from that payload.
 #[derive(serde::Deserialize)]
 struct DownloadConfig {
-    api_base: String,
     download_base: String,
     repository: String,
     fallback_release: String,
     fallback_version: String,
     fallback_platforms: Vec<String>,
+    sha256: std::collections::HashMap<String, String>,
 }
 
 impl DownloadConfig {
@@ -39,37 +40,37 @@ impl DownloadConfig {
             .map_err(|error| format!("invalid Python download configuration: {error}"))
     }
 
-    fn compatible_fallback(&self) -> bool {
-        self.fallback_version
+    /// The pinned archive for `triple` and the SHA-256 it must have.
+    fn pinned(&self, triple: &str) -> Result<(String, String), String> {
+        if !self
+            .fallback_version
             .starts_with(&format!("{}.{}.", TARGET.0, TARGET.1))
-    }
-
-    fn indexes(&self) -> Vec<String> {
-        let api = format!(
-            "{}/repos/{}/releases",
-            self.api_base.trim_end_matches('/'),
-            self.repository
+        {
+            return Err(format!(
+                "the pinned Python {} is not {}.{}",
+                self.fallback_version, TARGET.0, TARGET.1
+            ));
+        }
+        let digest = self
+            .sha256
+            .get(triple)
+            .filter(|_| self.fallback_platforms.iter().any(|p| p == triple))
+            .filter(|d| d.len() == 64 && d.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')))
+            .ok_or_else(|| {
+                format!(
+                    "no pinned Python {} build for {triple}",
+                    self.fallback_version
+                )
+            })?;
+        let url = format!(
+            "{}/{}/releases/download/{}/cpython-{}%2B{}-{triple}-install_only.tar.gz",
+            self.download_base.trim_end_matches('/'),
+            self.repository,
+            self.fallback_release,
+            self.fallback_version,
+            self.fallback_release
         );
-        let mut indexes = vec![format!("{api}/latest")];
-        if self.compatible_fallback() {
-            indexes.push(format!("{api}/tags/{}", self.fallback_release));
-        }
-        indexes
-    }
-
-    fn archived_url(&self, triple: &str) -> Option<String> {
-        if self.compatible_fallback() && self.fallback_platforms.iter().any(|p| p == triple) {
-            Some(format!(
-                "{}/{}/releases/download/{}/cpython-{}%2B{}-{triple}-install_only.tar.gz",
-                self.download_base.trim_end_matches('/'),
-                self.repository,
-                self.fallback_release,
-                self.fallback_version,
-                self.fallback_release
-            ))
-        } else {
-            None
-        }
+        Ok((url, digest.clone()))
     }
 }
 
@@ -109,14 +110,14 @@ pub fn ensure(
         )
     })?;
     say(&format!("Downloading Python {}.{}…", TARGET.0, TARGET.1));
-    let url = resolve_url(&triple)?;
+    let (url, sha256) = DownloadConfig::bundled()?.pinned(&triple)?;
     logger::log(&format!("python: {url}"));
 
     let dest_dir = paths::python_runtime_dir();
     std::fs::create_dir_all(&dest_dir)
         .map_err(|e| format!("cannot create {}: {e}", dest_dir.display()))?;
     let archive = dest_dir.join("_download.tar.gz");
-    download::to_file(&url, &archive, progress)?;
+    download::verified_to_file(&url, &archive, &sha256, progress)?;
 
     say("Unpacking Python…");
     let result = extract_tar_gz(&archive, &dest_dir);
@@ -178,61 +179,6 @@ fn triple() -> Option<String> {
     }
 }
 
-fn resolve_url(triple: &str) -> Result<String, String> {
-    resolve_url_with(triple, download::get_json)
-}
-
-fn resolve_url_with(
-    triple: &str,
-    fetch: impl FnMut(&str) -> Result<serde_json::Value, String>,
-) -> Result<String, String> {
-    resolve_url_with_config(triple, &DownloadConfig::bundled()?, fetch)
-}
-
-fn resolve_url_with_config(
-    triple: &str,
-    config: &DownloadConfig,
-    mut fetch: impl FnMut(&str) -> Result<serde_json::Value, String>,
-) -> Result<String, String> {
-    let prefix = format!("cpython-{}.{}.", TARGET.0, TARGET.1);
-    let suffix = format!("-{triple}-install_only.tar.gz");
-    for index in config.indexes() {
-        let data = match fetch(&index) {
-            Ok(data) => data,
-            Err(error) => {
-                // GitHub API quotas are shared by public egress IP. Assets
-                // use a separate endpoint, so metadata throttling must not
-                // strand a fresh install whose compatible build is known.
-                if let Some(url) = config.archived_url(triple) {
-                    logger::log(&format!(
-                        "Python index unavailable ({error}); using archived {} download",
-                        config.fallback_version
-                    ));
-                    return Ok(url);
-                }
-                return Err(format!(
-                    "could not reach the Python download index: {error}"
-                ));
-            }
-        };
-        if let Some(assets) = data.get("assets").and_then(|a| a.as_array()) {
-            for asset in assets {
-                let name = asset.get("name").and_then(|n| n.as_str()).unwrap_or("");
-                if name.starts_with(&prefix) && name.ends_with(&suffix) {
-                    if let Some(url) = asset.get("browser_download_url").and_then(|u| u.as_str()) {
-                        if !url.is_empty() {
-                            return Ok(url.to_string());
-                        }
-                    }
-                }
-            }
-        }
-    }
-    Err(format!(
-        "no {prefix}*{suffix} in the checked python-build-standalone releases"
-    ))
-}
-
 /// Extract a .tar.gz, preserving permissions — the executable bit on
 /// bin/python3 is the whole point on macOS and Linux.
 fn extract_tar_gz(archive: &std::path::Path, dest: &std::path::Path) -> Result<(), String> {
@@ -261,83 +207,43 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn api_rate_limit_does_not_block_known_python_downloads() {
+    fn every_platform_resolves_its_pinned_archive_and_digest() {
         let config = DownloadConfig::bundled().unwrap();
         for triple in &config.fallback_platforms {
-            let url =
-                resolve_url_with(triple, |_| Err("HTTP 403 rate limit exceeded".into())).unwrap();
-            assert_eq!(url, config.archived_url(triple).unwrap());
+            let (url, sha256) = config.pinned(triple).unwrap();
+            assert_eq!(
+                url,
+                format!(
+                    "https://github.com/astral-sh/python-build-standalone/releases/download/{0}/cpython-{1}%2B{0}-{triple}-install_only.tar.gz",
+                    config.fallback_release, config.fallback_version
+                )
+            );
+            assert_eq!(&sha256, &config.sha256[triple]);
+            assert_eq!(sha256.len(), 64);
         }
-        assert!(resolve_url_with("unsupported-target", |_| Err("HTTP 403".into())).is_err());
+        assert!(config.pinned("unsupported-target").is_err());
     }
 
     #[test]
-    fn resolves_retired_python_from_last_supported_release() {
-        let config = DownloadConfig::bundled().unwrap();
-        for triple in &config.fallback_platforms {
-            let mut requests = Vec::new();
-            let url = resolve_url_with(triple, |index| {
-                requests.push(index.to_string());
-                Ok(if index == config.indexes()[0] {
-                    json!({"assets": []})
-                } else {
-                    json!({"assets": [{
-                        "name": format!("cpython-{}+{}-{triple}-install_only.tar.gz", config.fallback_version, config.fallback_release),
-                        "browser_download_url": "https://example.test/compatible-python.tar.gz"
-                    }]})
-                })
-            })
-            .unwrap();
-            assert_eq!(requests, config.indexes());
-            assert_eq!(url, "https://example.test/compatible-python.tar.gz");
-        }
-    }
-
-    #[test]
-    fn latest_matching_asset_takes_priority() {
-        let mut requests = Vec::new();
-        let url = resolve_url_with("x86_64-unknown-linux-gnu", |index| {
-            requests.push(index.to_string());
-            Ok(json!({"assets": [{
-                "name": "cpython-3.10.99+test-x86_64-unknown-linux-gnu-install_only.tar.gz",
-                "browser_download_url": "https://example.test/newer-python.tar.gz"
-            }]}))
-        })
-        .unwrap();
-        assert_eq!(url, "https://example.test/newer-python.tar.gz");
-        assert_eq!(requests.len(), 1);
-    }
-
-    #[test]
-    fn configuration_controls_indexes_and_archive() {
+    fn a_platform_without_a_pinned_digest_is_refused() {
         let config: DownloadConfig = serde_json::from_value(json!({
-            "api_base": "https://api.example.test/",
             "download_base": "https://downloads.example.test/",
             "repository": "maintainer/python",
             "fallback_release": "20990101",
             "fallback_version": "3.10.99",
-            "fallback_platforms": ["test-platform"]
+            "fallback_platforms": ["pinned", "unpinned", "malformed"],
+            "sha256": {"pinned": "a".repeat(64), "malformed": "A".repeat(64), "unlisted": "b".repeat(64)}
         }))
         .unwrap();
-        for fail_on in [1, 2] {
-            let mut requests = Vec::new();
-            let url = resolve_url_with_config("test-platform", &config, |index| {
-                requests.push(index.to_string());
-                if requests.len() == fail_on {
-                    Err("index unavailable".into())
-                } else {
-                    Ok(json!({"assets": []}))
-                }
-            })
-            .unwrap();
-            assert_eq!(url, "https://downloads.example.test/maintainer/python/releases/download/20990101/cpython-3.10.99%2B20990101-test-platform-install_only.tar.gz");
-            assert_eq!(
-                requests,
-                [
-                    "https://api.example.test/repos/maintainer/python/releases/latest",
-                    "https://api.example.test/repos/maintainer/python/releases/tags/20990101"
-                ][..fail_on]
-            );
+        assert_eq!(
+            config.pinned("pinned").unwrap(),
+            (
+                "https://downloads.example.test/maintainer/python/releases/download/20990101/cpython-3.10.99%2B20990101-pinned-install_only.tar.gz".to_string(),
+                "a".repeat(64)
+            )
+        );
+        for triple in ["unpinned", "malformed", "unlisted"] {
+            assert!(config.pinned(triple).is_err(), "{triple}");
         }
     }
 
@@ -345,21 +251,6 @@ mod tests {
     fn configuration_cannot_supply_a_different_python_version() {
         let mut config = DownloadConfig::bundled().unwrap();
         config.fallback_version = "3.11.0".into();
-        assert!(
-            resolve_url_with_config("x86_64-pc-windows-msvc", &config, |_| Err("offline".into()))
-                .is_err()
-        );
-        assert_eq!(config.indexes().len(), 1);
-    }
-
-    #[test]
-    fn does_not_substitute_a_different_python_version() {
-        let result = resolve_url_with("x86_64-unknown-linux-gnu", |_| {
-            Ok(json!({"assets": [{
-                "name": "cpython-3.11.0+20261110-x86_64-unknown-linux-gnu-install_only.tar.gz",
-                "browser_download_url": "https://example.test/wrong-python.tar.gz"
-            }]}))
-        });
-        assert!(result.is_err());
+        assert!(config.pinned("x86_64-unknown-linux-gnu").is_err());
     }
 }

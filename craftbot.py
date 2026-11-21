@@ -11,11 +11,13 @@ Commands:
                                           first if it is not running (desktop icon)
     python craftbot.py stop               Stop CraftBot
     python craftbot.py restart [options]  Stop then start
-    python craftbot.py status             Show if CraftBot is running
+    python craftbot.py status [--json]    Show if CraftBot is running (--json: as JSON,
+                                          for launchers and scripts)
     python craftbot.py logs [-n N]        Show last N log lines (default: 50)
     python craftbot.py tui [options]      Open the terminal edition in this console,
                                           starting CraftBot in the background first
-                                          if it is not running
+                                          if it is not running; --message TEXT opens
+                                          a new chat with that message
     python craftbot.py install [options]  Register for auto-start on boot/login
     python craftbot.py autostart enable   Enable automatic startup at login
     python craftbot.py autostart disable  Disable automatic startup (keep installed)
@@ -38,6 +40,8 @@ Options passed to 'start' / 'install':
     --conda                 Use conda environment
     --no-conda              Don't use conda
     --no-autostart          Install without automatic startup at login
+    --no-start              Install without starting CraftBot now (a caller such
+                            as systemd starts it)
 
 'start' waits until CraftBot answers (or prints why it stopped).
 
@@ -72,7 +76,7 @@ import signal
 import subprocess
 import time
 import webbrowser
-from typing import Callable, List, Optional
+from typing import Callable, List, Optional, Tuple
 
 from installer import helpers as _helpers
 from installer import metadata as _metadata
@@ -874,6 +878,23 @@ def cmd_start(extra_args: List[str]) -> bool:
     return True
 
 
+def _take_value(args: List[str], flag: str) -> Tuple[Optional[str], List[str]]:
+    """The value given for `flag` (as `flag VALUE` or `flag=VALUE`) and the
+    arguments without it. The separate form takes the next argument whatever
+    it is, so a message that starts with a dash stays a message."""
+    value: Optional[str] = None
+    rest: List[str] = []
+    it = iter(args)
+    for arg in it:
+        if arg == flag:
+            value = next(it, None)
+        elif arg.startswith(f"{flag}="):
+            value = arg.split("=", 1)[1]
+        else:
+            rest.append(arg)
+    return value, rest
+
+
 def cmd_tui(extra_args: List[str]) -> int:
     """Open the terminal edition in this console.
 
@@ -882,8 +903,14 @@ def cmd_tui(extra_args: List[str]) -> int:
     terminal edition in the background first. Quitting the client leaves the
     service running, so scheduled and proactive work goes on; `craftbot.py
     stop` stops it.
+
+    `--message TEXT` opens a new chat with that message once the agent is
+    ready (after onboarding, if it still needs it), as a launcher passes one.
     """
     from app import edition, node_runtime
+
+    message, extra_args = _take_value(extra_args, "--message")
+    message_args = ["--message", message] if message and message.strip() else []
 
     ui = _instance.read_ui()
     if ui is None or not _instance.http_answers(str(ui["url"])):
@@ -925,6 +952,7 @@ def cmd_tui(extra_args: List[str]) -> int:
                 str(paths.STATE_ROOT),
                 "--log",
                 LOG_FILE,
+                *message_args,
             ],
             env=node_runtime.child_env(),
         ).returncode
@@ -1163,8 +1191,40 @@ def _kill_owned_pid(pid: int) -> None:
             print(f"Warning: {e}")
 
 
-def cmd_status() -> None:
+def _status_record() -> dict:
+    """What `status --json` prints, for launchers and scripts.
+
+    `ready` is the same signal `start` waits for: run.py writes ui.json once
+    the agent has booted and the backend answers, so a launcher can open
+    `url` the moment it is true. ui.json is read only while this install's
+    process runs, since a crash leaves the last one behind. In the terminal
+    edition `url` is the backend, which points a browser to `tui`.
+    """
+    pid = _owned_pid()
+    ui = _instance.read_ui() if pid else None
+    return {
+        "running": pid is not None,
+        "pid": pid,
+        "ready": ui is not None,
+        "url": str(ui["url"]) if ui else None,
+        "edition": ui.get("edition") if ui else None,
+        "frontend_port": ui.get("frontend_port") if ui else None,
+        "backend_port": ui.get("backend_port") if ui else None,
+        "autostart": _is_installed(),
+        "version": _read_bundled_version(),
+        "code_root": str(paths.CODE_ROOT),
+        "state_root": str(paths.STATE_ROOT.resolve()),
+        "log_file": LOG_FILE,
+    }
+
+
+def cmd_status(args: Optional[List[str]] = None) -> None:
     """Print whether CraftBot is currently running and whether auto-start is installed."""
+    if args and "--json" in args:
+        import json
+
+        print(json.dumps(_status_record()))
+        return
     W = max(50, len(LOG_FILE) + 12)
     pid = _owned_pid()
     print(f"\n{ORANGE}╔{'═' * W}╗{RESET}")
@@ -2330,7 +2390,15 @@ def _install_failed(message: str, hint: Optional[str] = None) -> bool:
 
 def cmd_install(extra_args: List[str]) -> bool:
     """Install dependencies (source mode) or copy-and-register (frozen mode),
-    then start the service."""
+    then start the service.
+
+    --no-start leaves starting to the caller: a launcher that runs CraftBot
+    through its systemd unit, rather than as the detached process `start`
+    makes, starts the unit itself once install returns. (On macOS, loading
+    the launchd agent starts it all the same.)
+    """
+    no_start = "--no-start" in extra_args
+    extra_args = [arg for arg in extra_args if arg != "--no-start"]
     if "--cli" in extra_args:
         print(f"  {RED}✗{RESET} {WHITE}{_CLI_RETIRED}{RESET}")
         return False
@@ -2415,9 +2483,19 @@ def cmd_install(extra_args: List[str]) -> bool:
                 "Packages installed but not importable. Wrong interpreter?",
                 "Run 'python install.py' to reinstall with this Python.",
             )
+        _install_command()
         print()
     else:
         print(f"  {DIM}(install.py not found, skipping dependency install){RESET}\n")
+
+    if no_start:
+        _retro_step(2, 2, "Updating automatic startup")
+        if not _configure_autostart(auto_start, extra_args):
+            _hold_console_on_failure()
+            return False
+        print(f"\n  {GREEN}▸{RESET} {WHITE}CRAFTBOT IS INSTALLED{RESET}")
+        print(f"  {DIM}Start it with: python craftbot.py start{RESET}")
+        return True
 
     # ── Step 2: Start the service now ──────────────────────────────────────
     #
@@ -2459,6 +2537,92 @@ def cmd_install(extra_args: List[str]) -> bool:
     return True
 
 
+#: Written into the `craftbot` command, so `install` can tell its own from one
+#: the user put there and `uninstall` removes only what install wrote.
+_COMMAND_MARKER = "# The craftbot command, written by `craftbot.py install`."
+
+
+def _command_path() -> Optional[str]:
+    """Where `install` puts the `craftbot` command: ~/.local/bin on Linux and
+    macOS. None on Windows and in the frozen installer EXE."""
+    if IS_FROZEN or _PLATFORM == "win32":
+        return None
+    return os.path.join(os.path.expanduser("~"), ".local", "bin", "craftbot")
+
+
+def _command_target() -> str:
+    """The line the command runs: this install's interpreter and craftbot.py,
+    naming its state root, as the desktop icon does (a shell does not carry
+    CRAFTBOT_HOME)."""
+    return " ".join(
+        shlex.quote(part)
+        for part in [
+            _installed_python(),
+            os.path.abspath(__file__),
+            f"--state-root={paths.STATE_ROOT.resolve()}",
+        ]
+    )
+
+
+def _command_text(path: str) -> Optional[str]:
+    """The command at `path` if CraftBot wrote it, else None. A link, or a
+    file without the marker, is someone else's."""
+    try:
+        if os.path.islink(path) or not os.path.isfile(path):
+            return None
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            text = f.read(4096)
+    except OSError:
+        return None
+    return text if _COMMAND_MARKER in text else None
+
+
+def _install_command() -> None:
+    """Put a `craftbot` command on PATH that runs this install's craftbot.py,
+    so `craftbot status` or `craftbot tui` reach it from any shell and a
+    launcher has a command to run. Rewritten on every install, so it follows
+    the interpreter; anything at the path CraftBot did not write stays."""
+    path = _command_path()
+    if not path:
+        return
+    if os.path.lexists(path) and _command_text(path) is None:
+        print(f"  {DIM}Left {path} alone: CraftBot did not write it.{RESET}")
+        return
+    content = f'#!/bin/sh\n{_COMMAND_MARKER}\nexec {_command_target()} "$@"\n'
+    temporary = f"{path}.{os.getpid()}.tmp"
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(temporary, "w", encoding="utf-8") as f:
+            f.write(content)
+        os.chmod(temporary, 0o755)
+        os.replace(temporary, path)
+    except OSError as e:
+        print(f"  {DIM}Could not write the craftbot command at {path}: {e}{RESET}")
+        return
+    finally:
+        if os.path.exists(temporary):
+            os.remove(temporary)
+    print(f"  {DIM}Command: {path}{RESET}")
+    if os.path.dirname(path) not in os.environ.get("PATH", "").split(os.pathsep):
+        print(
+            f"  {DIM}Add {os.path.dirname(path)} to PATH to run it as `craftbot`.{RESET}"
+        )
+
+
+def _remove_command() -> None:
+    """Remove the `craftbot` command if this install wrote it. One that runs
+    another install (a second checkout, another CRAFTBOT_HOME) stays."""
+    path = _command_path()
+    text = _command_text(path) if path else None
+    if text is None or _command_target() not in text:
+        return
+    try:
+        os.remove(path)
+        print(f"Command removed: {path}")
+    except OSError as e:
+        print(f"Warning: Could not remove {path} — {e}")
+
+
 def _remove_desktop_shortcut() -> None:
     """Remove the CraftBot desktop shortcut if it exists."""
     desktop = _find_desktop()
@@ -2493,6 +2657,7 @@ def cmd_uninstall() -> None:
 
     # Remove desktop shortcut
     _remove_desktop_shortcut()
+    _remove_command()
 
     if IS_FROZEN:
         # Frozen mode: remove the install dir and everything in the user data
@@ -2803,7 +2968,7 @@ def main() -> None:
         sys.exit(cmd_tui(rest))
 
     elif command == "status":
-        cmd_status()
+        cmd_status(rest)
 
     elif command == "logs":
         n = 50

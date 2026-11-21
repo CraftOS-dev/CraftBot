@@ -173,25 +173,6 @@ pub fn fetch_text(url: &str) -> Result<String, String> {
     })
 }
 
-/// A small JSON document (a GitHub release listing), with retries.
-pub fn get_json(url: &str) -> Result<serde_json::Value, String> {
-    let url = mirror(url);
-    logger::log(&format!("fetch: {url}"));
-    with_retries(&url, || {
-        get(&url, Some("application/vnd.github+json"))?
-            .into_json()
-            .map_err(|e| Failure::Transient(format!("{url}: bad JSON: {e}")))
-    })
-}
-
-/// Download `url` to `dest`, with retries, for a file published without a
-/// checksum (the Python runtime, resolved from its release listing).
-pub fn to_file(url: &str, dest: &Path, progress: Progress) -> Result<(), String> {
-    let url = mirror(url);
-    logger::log(&format!("download: {url}"));
-    with_retries(&url, || to_file_once(&url, dest, progress))
-}
-
 /// Download `url` to `dest` and check its SHA-256 before anything can use
 /// it. A mismatch is retried too: a mirror or cache can hand out a stale or
 /// partial file once and the right one next time.

@@ -66,7 +66,7 @@
     "seeLog": "Su registro: {{path}}",
     "stopHint": "Pulsa Ctrl+C para salir y luego ejecuta: python craftbot.py stop",
     "legacyConsole": "Esta es la consola clásica de Windows. CraftBot funciona mejor en Windows Terminal (redibujado más fluido, Shift+Enter, pegar).",
-    "wrongEdition": "CraftBot se está ejecutando en la edición {{edition}}. Reinícialo para la terminal: python craftbot.py restart --tui"
+    "sharedWithBrowser": "Conectado al CraftBot que usa tu navegador: los chats aparecen en ambos, y las páginas que crea solo se ven en el navegador."
   },
   "working": {
     "label": "Trabajando",
