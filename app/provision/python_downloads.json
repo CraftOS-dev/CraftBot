@@ -1,5 +1,4 @@
 {
-  "api_base": "https://api.github.com",
   "download_base": "https://github.com",
   "repository": "astral-sh/python-build-standalone",
   "fallback_release": "20261009",
