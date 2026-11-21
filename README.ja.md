@@ -248,7 +248,7 @@ TLS 通信を検査するネットワークでも追加の設定は不要です�
 export CRAFTBOT_MIRRORS="https://github.com/=https://<your-github-proxy>/https://github.com/;https://nodejs.org/dist/=https://npmmirror.com/mirrors/node/"
 ```
 
-Python パッケージとメモリ用の埋め込みモデルは、ミラーを使っても固定された SHA-256 チェックサムで検証されるため、ミラーがそれらを変えることはできません。Python と Node.js のランタイムはチェックサムが固定されていないため、信頼できるミラーだけを使ってください。Windows PowerShell では `export` の代わりに `$env:NAME = "value"` で変数を設定します。
+Python パッケージ、Python と Node.js のランタイム、メモリ用の埋め込みモデルは、ミラーを使っても固定された SHA-256 チェックサムで検証されるため、ミラーがそれらを変えることはできません。Windows PowerShell では `export` の代わりに `$env:NAME = "value"` で変数を設定します。
 
 ### デスクトップのないサーバー
 

@@ -248,7 +248,7 @@ Antes de instalar, dirige las descargas a mirrors:
 export CRAFTBOT_MIRRORS="https://github.com/=https://<your-github-proxy>/https://github.com/;https://nodejs.org/dist/=https://npmmirror.com/mirrors/node/"
 ```
 
-Los paquetes de Python y el modelo de embeddings de la memoria se siguen verificando con checksums SHA-256 fijados, así que un mirror no puede cambiarlos. Los runtimes de Python y Node.js no están fijados, así que para ellos usa solo un mirror de confianza. En Windows PowerShell, define las variables con `$env:NAME = "value"` en lugar de `export`.
+Los paquetes de Python, los runtimes de Python y Node.js y el modelo de embeddings de la memoria se verifican con checksums SHA-256 fijados, así que un mirror no puede cambiarlos. En Windows PowerShell, define las variables con `$env:NAME = "value"` en lugar de `export`.
 
 ### Servidor sin escritorio
 
