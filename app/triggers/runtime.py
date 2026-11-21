@@ -27,6 +27,7 @@ from agent_core.core.impl.trigger.session_queue import (
 )
 from agent_core.core.session import MAIN_SESSION_ID
 from agent_core.core.state.session import StateSession
+from app.startup_diagnostics import format_exception_details
 from app.triggers.sources import TriggerSource
 
 if TYPE_CHECKING:
@@ -602,10 +603,11 @@ class SessionRuntimeManager:
                             if self._on_stopped:
                                 await self._on_stopped(session_id)
                         except Exception as e:
+                            # No logger kwargs: loguru would str.format() the
+                            # message and raise on braces in the error text.
                             logger.error(
                                 f"[SessionRuntime] Stop finalize failed for "
-                                f"{session_id}: {e}",
-                                exc_info=True,
+                                f"{session_id}: {e}\n{format_exception_details(e)}"
                             )
                         finally:
                             self._stops.pop(session_id, None)
@@ -615,9 +617,13 @@ class SessionRuntimeManager:
                     # rehydration reclaims them (at-least-once delivery).
                     raise
                 except Exception as e:
+                    # No logger kwargs: with any kwarg loguru str.format()s the
+                    # message, so an error text containing braces (a dict
+                    # repr, JSON) raised inside this handler and killed the
+                    # loop before the rows were nacked.
                     logger.error(
-                        f"[SessionRuntime] Turn failed for {session_id}: {e}",
-                        exc_info=True,
+                        f"[SessionRuntime] Turn failed for {session_id}: {e}\n"
+                        f"{format_exception_details(e)}"
                     )
                     if self._service:
                         for t in group:
