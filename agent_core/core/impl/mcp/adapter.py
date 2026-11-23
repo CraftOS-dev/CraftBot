@@ -132,16 +132,20 @@ class MCPActionAdapter:
         Returns:
             Tuple of (handler_function, source_code_string)
         """
-        # Generate the source code as a string with values baked in
+        # Generate the source code as a string with values baked in.
+        # Server and tool names can contain any character (the server picks
+        # its tool names), so they are inserted with repr(), which always
+        # gives a valid string literal for them.
         # Note: We use double braces {{ }} for dict literals since this is an f-string
-        source_code = f'''def mcp_handler(input_data):
-    """MCP tool handler for {server_name}/{tool_name}."""
+        docstring = f"MCP tool handler for {server_name}/{tool_name}."
+        source_code = f"""def mcp_handler(input_data):
+    {docstring!r}
     import asyncio
     from agent_core.core.impl.mcp.client import mcp_client
     from agent_core.utils.logger import logger
 
-    _server = "{server_name}"
-    _tool = "{tool_name}"
+    _server = {server_name!r}
+    _tool = {tool_name!r}
 
     # Remove any internal parameters (starting with _)
     tool_args = {{
@@ -166,7 +170,7 @@ class MCPActionAdapter:
     except Exception as e:
         logger.error(f"Error calling MCP tool {{_server}}/{{_tool}}: {{e}}")
         return {{"status": "error", "message": str(e)}}
-'''
+"""
 
         # Create the actual function by executing the source
         local_ns = {}
