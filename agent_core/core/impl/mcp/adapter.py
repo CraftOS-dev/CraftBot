@@ -141,6 +141,7 @@ class MCPActionAdapter:
         source_code = f"""def mcp_handler(input_data):
     {docstring!r}
     import asyncio
+    import concurrent.futures
     from agent_core.core.impl.mcp.client import mcp_client
     from agent_core.utils.logger import logger
 
@@ -166,7 +167,15 @@ class MCPActionAdapter:
         # Use run_coroutine_threadsafe to schedule on the MCP client's event loop
         # This works from any thread (including ThreadPoolExecutor workers)
         future = asyncio.run_coroutine_threadsafe(async_call(), loop)
-        return future.result(timeout=60)
+        wait = mcp_client.handler_timeout(_server)
+        try:
+            return future.result(timeout=wait)
+        except concurrent.futures.TimeoutError:
+            future.cancel()  # do not leave the call running unseen
+            return {{
+                "status": "error",
+                "message": f"MCP tool {{_server}}/{{_tool}} did not finish within {{wait:g}}s",
+            }}
     except Exception as e:
         logger.error(f"Error calling MCP tool {{_server}}/{{_tool}}: {{e}}")
         return {{"status": "error", "message": str(e)}}
@@ -203,7 +212,7 @@ class MCPActionAdapter:
             RegisteredAction ready for registration
         """
         # Generate unique action name
-        action_name = f"mcp_{server_name}_{tool.name}"
+        action_name = MCPActionAdapter.action_name(server_name, tool.name)
 
         # Build description with MCP context
         description_parts = [f"[MCP:{server_name}]"]
@@ -324,4 +333,21 @@ class MCPActionAdapter:
             count += 1
             logger.debug(f"Unregistered MCP action: {action_name}")
 
+        return count
+
+    @staticmethod
+    def action_name(server_name: str, tool_name: str) -> str:
+        """The action name an MCP tool is registered under."""
+        return f"mcp_{server_name}_{tool_name}"
+
+    @staticmethod
+    def unregister_actions(action_names) -> int:
+        """Unregister exactly these actions (unlike unregister_mcp_tools,
+        whose prefix match also hits a server whose name extends this one,
+        e.g. "foo" and "foo_bar")."""
+        count = 0
+        for action_name in list(action_names):
+            if registry_instance._registry.pop(action_name, None) is not None:
+                count += 1
+                logger.debug(f"Unregistered MCP action: {action_name}")
         return count

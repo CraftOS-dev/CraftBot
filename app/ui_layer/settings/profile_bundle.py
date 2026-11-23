@@ -32,6 +32,11 @@ from app.config import (
     get_app_version,
 )
 from app.logger import logger
+from agent_core.core.impl.mcp.config import (
+    ENV_REF_RE as _ENV_REF_RE,
+    MCPConfigError,
+    MCPServerConfig,
+)
 
 
 BUNDLE_FORMAT_VERSION = "1.0"
@@ -115,25 +120,75 @@ def _validate_skill_md(skill_md: Path) -> Optional[str]:
 
 
 def _validate_mcp_entry(server: Dict[str, Any]) -> Optional[str]:
-    """Mirror agent_core.core.impl.mcp.config.MCPConfig.from_dict validation.
+    """The runtime's own validation (MCPServerConfig), not a copy of it.
 
     Returns None if the entry would be accepted by the runtime, else a short
     reason. This is the same shape check applied by the bundler — the
     importer enforces it again so corrupt bundles (or polluted upstream
     catalogs) can never silently bloat the recipient's mcp_config.json.
     """
-    if not server.get("name"):
+    if not isinstance(server, dict) or not server.get("name"):
         return "missing name"
-    transport = server.get("transport", "stdio")
-    if transport == "stdio":
-        if not server.get("command"):
-            return "transport=stdio without command"
-    elif transport in ("sse", "http", "streamable_http"):
-        if not server.get("url"):
-            return f"transport={transport} without url"
-    else:
-        return f"unknown transport {transport!r}"
+    try:
+        MCPServerConfig.from_dict(server)
+    except (MCPConfigError, ValueError, TypeError, KeyError) as exc:
+        return str(exc)
     return None
+
+
+# Header value prefixes that are not secrets themselves ("Bearer ${TOKEN}").
+_AUTH_SCHEMES = ("", "Bearer", "Basic", "Token", "Bot")
+
+
+def _header_is_template(value: Any) -> bool:
+    """True when a header value holds no literal secret: only ${NAME}
+    references, optionally after an auth scheme word."""
+    if not isinstance(value, str) or "${" not in value:
+        return False
+    leftover = _ENV_REF_RE.sub("", value).strip()
+    return leftover in _AUTH_SCHEMES
+
+
+def _mcp_needs_config(server: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """What the recipient must fill in before a bundled server can connect:
+    empty env values (including ones its headers reference) and headers
+    whose value was blanked on export."""
+    env = server.get("env") or {}
+    if not isinstance(env, dict):
+        env = {}
+    missing = [k for k in env if not env.get(k)]
+    headers = server.get("headers") or {}
+    if not isinstance(headers, dict):
+        headers = {}
+    for value in headers.values():
+        for ref in _ENV_REF_RE.findall(value) if isinstance(value, str) else []:
+            if not env.get(ref) and ref not in missing:
+                missing.append(ref)
+    blank_headers = [k for k, v in headers.items() if v == ""]
+    if not missing and not blank_headers:
+        return None
+    result: Dict[str, Any] = {"name": server.get("name", ""), "env_keys": missing}
+    if blank_headers:
+        result["header_names"] = blank_headers
+    return result
+
+
+def _same_mcp_target(a: Dict[str, Any], b: Dict[str, Any]) -> bool:
+    """Whether two entries reach the same server: same transport and the
+    same command+args or URL. Local credentials are only ever carried over
+    to an imported entry that passes this, so a bundle cannot reuse a local
+    server's name to point its secrets somewhere else."""
+
+    def key(entry: Dict[str, Any]) -> Tuple[Any, ...]:
+        transport = str(entry.get("transport") or "stdio").strip().lower()
+        transport = {"streamable_http": "http", "streamable-http": "http"}.get(
+            transport, transport
+        )
+        if transport == "stdio":
+            return (transport, entry.get("command"), list(entry.get("args") or []))
+        return (transport, entry.get("url"))
+
+    return key(a) == key(b)
 
 
 def _copy_dir_filtered(src: Path, dst: Path) -> None:
@@ -177,7 +232,10 @@ def _looks_like_secret(env_key: str) -> bool:
 def _strip_mcp_secrets(
     servers: List[Dict[str, Any]],
 ) -> Tuple[List[Dict[str, Any]], List[str]]:
-    """Strip env-var values that look like secrets. Returns (cleaned, stripped_names)."""
+    """Strip env-var values that look like secrets. Returns (cleaned, stripped_names).
+
+    HTTP header values are blanked too, unless they are pure ``${NAME}``
+    templates (whose secret lives in env, which is always blanked)."""
     stripped: List[str] = []
     cleaned: List[Dict[str, Any]] = []
     for server in servers:
@@ -192,6 +250,16 @@ def _strip_mcp_secrets(
                     stripped.append(f"{s.get('name', '?')}::{key}")
                 env[key] = ""
         s["env"] = env
+        headers = s.get("headers")
+        if isinstance(headers, dict) and headers:
+            kept: Dict[str, Any] = {}
+            for header, value in headers.items():
+                if _header_is_template(value) or value == "":
+                    kept[header] = value
+                else:
+                    stripped.append(f"{s.get('name', '?')}::header:{header}")
+                    kept[header] = ""
+            s["headers"] = kept
         cleaned.append(s)
     return cleaned, stripped
 
@@ -430,12 +498,9 @@ def inspect_bundle(bundle_path: str) -> Dict[str, Any]:
                 mcp_servers_in_bundle = []
             mcp_needs_env: List[Dict[str, Any]] = []
             for server in mcp_servers_in_bundle:
-                env = server.get("env") or {}
-                missing = [k for k in env if not env.get(k)]
-                if missing:
-                    mcp_needs_env.append(
-                        {"name": server.get("name", ""), "env_keys": missing}
-                    )
+                needs = _mcp_needs_config(server) if isinstance(server, dict) else None
+                if needs:
+                    mcp_needs_env.append(needs)
 
             contents = manifest.get("contents", {})
             return {
@@ -747,9 +812,9 @@ def _apply_mcp(
         cleaned: List[Dict[str, Any]] = []
         for server in _filter_valid(bundle_servers):
             name = server["name"]
-            missing_env = [k for k, v in (server.get("env") or {}).items() if not v]
-            if missing_env:
-                needs_env.append({"name": name, "env_keys": missing_env})
+            needs = _mcp_needs_config(server)
+            if needs:
+                needs_env.append(needs)
             cleaned.append(server)
             added.append(name)
         MCP_CONFIG_PATH.write_text(
@@ -765,25 +830,44 @@ def _apply_mcp(
 
     for server in _filter_valid(bundle_servers):
         name = server["name"]
-        missing_env = [k for k, v in (server.get("env") or {}).items() if not v]
-        if missing_env:
-            needs_env.append({"name": name, "env_keys": missing_env})
 
         if name in by_name:
-            # Keep ANY env values the user had set locally — don't blow
-            # them away, since the user's filled-in tokens are more
-            # valuable than the (empty) tokens from the bundle.
-            preserved_env = by_name[name].get("env", {})
-            merged_env = dict(server.get("env", {}))
-            for k, v in preserved_env.items():
-                if v and k in merged_env and not merged_env[k]:
-                    merged_env[k] = v
-            server["env"] = merged_env
+            # Keep env values (and blanked header values) the user had set
+            # locally — their filled-in tokens are more valuable than the
+            # bundle's empty ones — but ONLY when the imported entry still
+            # reaches the same server. Otherwise a bundle could reuse a
+            # local name with a new url/command and receive the user's keys.
+            local = by_name[name]
+            if _same_mcp_target(local, server):
+                preserved_env = local.get("env", {}) or {}
+                merged_env = dict(server.get("env", {}) or {})
+                for k, v in preserved_env.items():
+                    if v and k in merged_env and not merged_env[k]:
+                        merged_env[k] = v
+                server["env"] = merged_env
+                local_headers = local.get("headers") or {}
+                if isinstance(server.get("headers"), dict) and isinstance(
+                    local_headers, dict
+                ):
+                    merged_headers = dict(server["headers"])
+                    for k, v in local_headers.items():
+                        if v and merged_headers.get(k) == "":
+                            merged_headers[k] = v
+                    server["headers"] = merged_headers
+            else:
+                logger.warning(
+                    f"[PROFILE_BUNDLE] MCP '{name}' points somewhere new; "
+                    "local credentials are not carried over"
+                )
             by_name[name] = server
             added.append(name)
         else:
             by_name[name] = server
             added.append(name)
+        # After any merge, so values the user already has are not reported.
+        needs = _mcp_needs_config(server)
+        if needs:
+            needs_env.append(needs)
 
     current["mcp_servers"] = list(by_name.values())
     MCP_CONFIG_PATH.write_text(
