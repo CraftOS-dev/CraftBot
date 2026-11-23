@@ -1,14 +1,44 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit'
 import { register } from '../socket/messageRegistry'
 
+/** A header of an http server: its name and the env keys it references.
+ * Header values never leave the backend. */
+export interface MCPHeaderInfo {
+  name: string
+  uses: string[]
+}
+
+/** Live connection state from the running MCP client, if it knows the server. */
+export interface MCPServerStatus {
+  connected: boolean
+  error: string | null
+  tool_count: number
+}
+
+/** A server as `mcp_list` sends it: no env or header values. */
 export interface MCPServerConfig {
   name: string
   description: string
   enabled: boolean
   transport: string
-  command?: string
-  action_set: string
-  env: Record<string, string>
+  command?: string | null
+  /** Never sent (arguments can hold tokens): see args_count. */
+  args?: string[] | null
+  args_count?: number
+  /** Redacted: user info and query string removed. */
+  url?: string | null
+  timeout?: number | null
+  action_set: string | null
+  /** Env key -> whether a value is set. */
+  env: Record<string, boolean>
+  headers?: MCPHeaderInfo[]
+  missing_env?: string[]
+  needs_config?: boolean
+  platform_blocked?: boolean
+  /** The entry failed validation; `error` says why. */
+  invalid?: boolean
+  error?: string | null
+  status?: MCPServerStatus | null
 }
 
 interface McpSettingsState {

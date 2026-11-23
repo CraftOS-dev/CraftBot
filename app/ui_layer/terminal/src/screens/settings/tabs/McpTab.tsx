@@ -22,6 +22,7 @@ import * as TB from '../../../input/TextBuffer'
 import { glyphs, ink } from '../../../theme/theme'
 import { truncate, wrap } from '../../../text/width'
 import { editorName, editText } from '../connectEditor'
+import { envKeysToSave, needsConfig } from '../mcpEnv'
 import {
   FilterLine,
   filterKey,
@@ -59,15 +60,11 @@ export function isSecretEnvKey(key: string): boolean {
   return /key|token|secret|pass|auth|credential/i.test(key)
 }
 
-function needsConfig(server: MCPServerConfig): boolean {
-  const values = Object.values(server.env ?? {})
-  return values.length > 0 && values.some(v => !v || !v.trim())
-}
-
 interface EnvEdit {
   name: string
   keys: string[]
-  base: Record<string, string>
+  /** Keys that already have a stored value. */
+  setKeys: string[]
   form: FormState
   saving: number
 }
@@ -103,11 +100,17 @@ export function McpTab() {
   const selected = items[view.index]
 
   const envFields: FormField[] = env
-    ? env.keys.map(key => ({ kind: 'text', key, label: key, masked: isSecretEnvKey(key), placeholder: t('mcp.envPlaceholder') }))
+    ? env.keys.map(key => ({
+      kind: 'text',
+      key,
+      label: key,
+      masked: isSecretEnvKey(key),
+      placeholder: env.setKeys.includes(key) ? t('mcp.envKeep') : t('mcp.envPlaceholder'),
+    }))
     : []
   useTextFocus(active && (filtering || (env !== null && formTyping(env.form, envFields))))
 
-  useInbound(['mcp_list', 'mcp_enable', 'mcp_disable', 'mcp_remove', 'mcp_add_json', 'mcp_get_env', 'mcp_update_env'], (type, d) => {
+  useInbound(['mcp_list', 'mcp_enable', 'mcp_disable', 'mcp_remove', 'mcp_add_json', 'mcp_update_env'], (type, d) => {
     const ok = d.success === true
     const error = str(d.error)
     if (type === 'mcp_list') {
@@ -127,10 +130,6 @@ export function McpTab() {
       } else {
         showNotice(t('mcp.addFailedFix', { error: error || t('mcp.addFailed') }), 'error', null)
       }
-    } else if (type === 'mcp_get_env') {
-      const values = d.env as Record<string, string> | undefined
-      if (!ok || !values || !env || str(d.name) !== env.name) return
-      setEnv({ ...env, base: { ...env.base, ...values }, form: { ...formInit(envFields, values), index: env.form.index } })
     } else if (type === 'mcp_update_env') {
       // Several replies can arrive in one batch: count them in a ref.
       if (pendingSaves.current <= 0) return
@@ -154,16 +153,17 @@ export function McpTab() {
       showNotice(t('mcp.noEnv'))
       return
     }
-    const base = { ...server.env }
+    // Write-only: fields start empty; a set key says so in its placeholder.
+    const setKeys = keys.filter(key => server.env?.[key])
     const fields: FormField[] = keys.map(key => ({ kind: 'text', key, label: key }))
-    setEnv({ name: server.name, keys, base, form: formInit(fields, base), saving: 0 })
-    send('mcp_get_env', { name: server.name })
+    const empty = Object.fromEntries(keys.map(key => [key, '']))
+    setEnv({ name: server.name, keys, setKeys, form: formInit(fields, empty), saving: 0 })
   }
 
   const saveEnv = () => {
     if (!env || env.saving > 0) return
     const values = formValues(env.form)
-    const changed = env.keys.filter(key => (values[key] as string) !== (env.base[key] ?? ''))
+    const changed = envKeysToSave(env.keys, values)
     if (changed.length === 0) {
       setEnv(null)
       showNotice(t('mcp.envUnchanged'))
@@ -339,7 +339,7 @@ export function McpTab() {
           ))}
           <Text color={ink.muted}>
             {truncate(
-              [selected.transport, selected.command, t('mcp.envCount', { count: Object.keys(selected.env ?? {}).length })]
+              [selected.transport, selected.command || selected.url, t('mcp.envCount', { count: Object.keys(selected.env ?? {}).length })]
                 .filter(Boolean)
                 .join(' · '),
               width - 1,

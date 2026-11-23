@@ -524,7 +524,7 @@
     "configure": "Configure",
     "remove": "Remove",
     "addServer": "Add Server",
-    "addHint": "Add a new MCP server with JSON configuration",
+    "addHint": "Add a local (stdio) or remote (HTTP) MCP server",
     "toast": {
       "enableFailed": "Failed to enable server",
       "disableFailed": "Failed to disable server",
@@ -554,6 +554,44 @@
       "desc": "Set the required environment variables for this MCP server.",
       "none": "No environment variables to configure.",
       "placeholder": "Enter {{key}}..."
+    },
+    "addJson": "Add from JSON",
+    "invalid": "Invalid",
+    "invalidEntry": "This entry is not valid and is not loaded: {{error}}",
+    "connected": "Connected · {{count}} tools",
+    "connectFailed": "Not connected: {{error}}",
+    "editor": {
+      "createTitle": "Add MCP Server",
+      "editTitle": "Edit {{name}}",
+      "name": "Name",
+      "description": "Description",
+      "transport": "Transport",
+      "transports": {
+        "http": "Streamable HTTP",
+        "stdio": "Local command (stdio)",
+        "sse": "HTTP + SSE (legacy)",
+        "websocket": "WebSocket"
+      },
+      "url": "Server URL",
+      "urlKept": "The saved URL is kept; type a new one to replace it.",
+      "urlRequired": "Enter the server URL",
+      "nameRequired": "Enter a name for the server",
+      "command": "Command",
+      "args": "Arguments (one per line)",
+      "argsKept": "{{count}} saved arguments; leave empty to keep",
+      "timeout": "Timeout (seconds)",
+      "headers": "HTTP headers",
+      "headersHint": "Sent only to this server. Reference a secret as ${NAME} and set NAME under Environment below.",
+      "headerName": "Header name",
+      "headerValue": "Value",
+      "addHeader": "Add header",
+      "env": "Environment",
+      "envHint": "Values are stored on this computer and never shown again.",
+      "envKey": "Name",
+      "envValue": "Value",
+      "addEnv": "Add variable",
+      "keepValue": "Saved; leave empty to keep",
+      "uses": "Uses {{keys}}"
     }
   },
   "integrations": {

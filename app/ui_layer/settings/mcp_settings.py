@@ -4,8 +4,9 @@ The one path by which the UI and the ``/mcp`` command change
 ``mcp_config.json``. Every write builds an ``MCPServerConfig`` first, so they
 share the runtime's validation, and a rejected change is never saved.
 
-Header values are never listed: a server's headers are reported by name
-(and the env keys they reference) only.
+Secrets: env values and header values are write-only here. Listing a server
+reports which env keys are set and which headers exist, never their values,
+so nothing sent to the browser or shown in chat contains a credential.
 """
 
 from __future__ import annotations
@@ -60,6 +61,11 @@ def save_mcp_config(config: MCPConfig) -> bool:
         return False
 
 
+def _env_status(env: Dict[str, Any]) -> Dict[str, bool]:
+    """Which env keys have a value. The values themselves stay server-side."""
+    return {key: bool(value) for key, value in (env or {}).items()}
+
+
 def _missing_config(server: MCPServerConfig) -> List[str]:
     """Env keys the server needs but has no value for: empty env entries,
     and variables its headers reference."""
@@ -88,11 +94,15 @@ def describe_server(server: MCPServerConfig) -> Dict[str, Any]:
         "enabled": server.enabled,
         "transport": server.transport,
         "command": server.command,
+        # Arguments can carry tokens (--api-key ...): count only. The
+        # editor keeps them unless the user enters a new list.
+        "args": None,
+        "args_count": len(server.args or []),
         "url": redact_url(server.url) if server.url else None,
         "timeout": server.timeout,
         "action_set": server.resolved_action_set_name,
-        # Unchanged shape for the existing editors (see mcp_get_env).
-        "env": dict(server.env or {}),
+        # Key -> whether a value is set (values are never sent).
+        "env": _env_status(server.env),
         # Header names and the env keys each references; no values.
         "headers": [
             {
@@ -137,6 +147,8 @@ def list_mcp_servers() -> List[Dict[str, Any]]:
                 if isinstance(raw.get("transport"), str)
                 else None,
                 "command": None,
+                "args": None,
+                "args_count": 0,
                 "url": None,
                 "timeout": None,
                 "action_set": None,
@@ -163,6 +175,17 @@ def get_server_env_vars(server_name: str) -> Dict[str, str]:
     if server:
         return server.env
     return {}
+
+
+def get_server_env_status(server_name: str) -> Optional[Dict[str, bool]]:
+    """Which env keys of a server are set (None if there is no such server)."""
+    server = load_mcp_config().get_server_by_name(server_name)
+    if server is None:
+        return None
+    status = _env_status(server.env)
+    for ref in server.header_env_refs():
+        status.setdefault(ref, False)
+    return status
 
 
 def _build_server(data: Dict[str, Any]) -> Tuple[Optional[MCPServerConfig], str]:
@@ -250,6 +273,99 @@ def add_mcp_server_from_json(name: str, json_config: str) -> tuple[bool, str]:
         return False, "The server configuration must be a JSON object"
 
     return _add_entry({**config_dict, "name": name})
+
+
+def save_mcp_server(form: Dict[str, Any], *, create: bool) -> Tuple[bool, str]:
+    """Add or edit a server from the settings form.
+
+    Secrets are write-only: in ``headers`` and ``env`` (lists of
+    ``{"name"/"key", "value"}``) a ``value`` of None keeps the stored value,
+    so the browser never needs to hold existing credentials. An item that is
+    left out is removed. On edit, ``url: None`` keeps the stored URL (the
+    list shows a redacted one). Fields the form does not know are preserved.
+    """
+    name = form.get("name")
+    if not isinstance(name, str) or not name.strip():
+        return False, "Server name is required"
+    config = load_mcp_config()
+    existing = config.get_server_by_name(name)
+    if create and (existing or config.get_invalid_entries(name)):
+        return False, f"Server '{name}' already exists"
+    if not create and existing is None:
+        if config.get_invalid_entries(name):
+            return False, (
+                f"Server '{name}' has an invalid entry; fix it in the JSON file "
+                "or remove it and add it again"
+            )
+        return False, f"Server '{name}' not found"
+
+    data: Dict[str, Any] = existing.to_dict() if existing else {"name": name}
+    for key in ("description", "transport", "enabled"):
+        if key in form:
+            data[key] = form[key]
+    if "timeout" in form:
+        data["timeout"] = form["timeout"] if form["timeout"] not in ("", None) else None
+    if form.get("url") is not None:
+        data["url"] = form["url"]
+    if "command" in form:
+        data["command"] = form["command"] or None
+    if form.get("args") is not None:  # None keeps the stored arguments
+        data["args"] = list(form["args"])
+
+    old_headers = existing.headers if existing else {}
+    old_env = existing.env if existing else {}
+    try:
+        if "headers" in form:
+            data["headers"] = _merge_write_only(
+                form["headers"], old_headers, "name", "header", case_insensitive=True
+            )
+        if "env" in form:
+            data["env"] = _merge_write_only(form["env"], old_env, "key", "env key")
+    except MCPConfigError as e:
+        return False, str(e)
+    if data.get("transport") not in ("http", "streamable_http", "streamable-http"):
+        data.pop("headers", None)
+
+    server, error = _build_server(data)
+    if server is None:
+        return False, error
+    if existing:
+        config.replace_server(server)
+    else:
+        config.add_server(server)
+    if not save_mcp_config(config):
+        return False, f"Could not save the MCP config for '{name}'"
+    return True, f"{'Added' if create else 'Updated'} MCP server: {name}"
+
+
+def _merge_write_only(
+    items: Any,
+    old: Dict[str, str],
+    key_field: str,
+    label: str,
+    *,
+    case_insensitive: bool = False,
+) -> Dict[str, str]:
+    if not isinstance(items, list):
+        raise MCPConfigError(f"'{label}s' must be a list")
+    lookup = {(k.lower() if case_insensitive else k): v for k, v in old.items()}
+    merged: Dict[str, str] = {}
+    for item in items:
+        if not isinstance(item, dict) or not isinstance(item.get(key_field), str):
+            raise MCPConfigError(f"Each {label} needs a {key_field}")
+        key = item[key_field].strip()
+        if not key:
+            raise MCPConfigError(f"A {label} name cannot be empty")
+        value = item.get("value")
+        if value is None:
+            lookup_key = key.lower() if case_insensitive else key
+            if lookup_key not in lookup:
+                raise MCPConfigError(f"Enter a value for {label} '{key}'")
+            value = lookup[lookup_key]
+        elif not isinstance(value, str):
+            raise MCPConfigError(f"The value for {label} '{key}' must be text")
+        merged[key] = value
+    return merged
 
 
 def remove_mcp_server(name: str) -> tuple[bool, str]:

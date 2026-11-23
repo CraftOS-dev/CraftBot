@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import {
   Loader2,
   Plus,
@@ -6,6 +6,7 @@ import {
   Trash2,
   RotateCcw,
   X,
+  Braces,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Button, Badge, ConfirmModal } from '../../components/ui'
@@ -14,6 +15,7 @@ import { useConfirmModal, usePersistedState } from '../../hooks'
 import { formatNumber, localeCompare } from '../../i18n/format'
 import styles from './SettingsPage.module.css'
 import { useSettingsWebSocket } from './useSettingsWebSocket'
+import { MCPServerEditor } from './MCPServerEditor'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import {
   setEnabled as setMcpEnabled,
@@ -28,15 +30,7 @@ import {
 import { UI_STATE } from '../../store/uiState'
 import { RESOURCES, useResource } from '../../store/resources'
 
-interface MCPItem {
-  name: string
-  description: string
-  enabled: boolean
-  transport?: string
-  action_set?: string
-  env?: Record<string, string>
-  needsConfig?: boolean
-}
+type EditorState = { mode: 'create' } | { mode: 'edit'; server: MCPServerConfig } | null
 
 export function MCPSettings() {
   const { t } = useTranslation(['settings', 'common'])
@@ -54,16 +48,15 @@ export function MCPSettings() {
   const [isReloading, setIsReloading] = useState(false)
   const isReloadingRef = useRef(false)
 
-  // Add custom server modal state
+  // Add-from-JSON modal state
   const [showAddModal, setShowAddModal] = useState(false)
   const [customJsonConfig, setCustomJsonConfig] = useState('')
   const [isAdding, setIsAdding] = useState(false)
   const [addError, setAddError] = useState('')
 
-  // Configure env state
-  const [configServer, setConfigServer] = useState<MCPServerConfig | null>(null)
-  const [envValues, setEnvValues] = useState<Record<string, string>>({})
-  const [isSavingEnv, setIsSavingEnv] = useState(false)
+  // Form editor (add / edit one server)
+  const [editor, setEditor] = useState<EditorState>(null)
+  const closeEditor = useCallback(() => setEditor(null), [])
 
   // Confirm modal
   const { modalProps: confirmModalProps, confirm } = useConfirmModal()
@@ -110,44 +103,21 @@ export function MCPSettings() {
           setCustomJsonConfig('')
           setAddError('')
         } else {
-          setAddError(d.error || t('settings:mcp.toast.addFailed'))
-        }
-      }),
-      onMessage('mcp_get_env', (data: unknown) => {
-        const d = data as { success: boolean; name: string; env?: Record<string, string> }
-        if (d.success && d.env) setEnvValues(d.env)
-      }),
-      onMessage('mcp_update_env', (data: unknown) => {
-        const d = data as { success: boolean; message?: string; error?: string }
-        setIsSavingEnv(false)
-        if (d.success) {
-          showToast('success', d.message || t('settings:mcp.toast.configSaved'))
-          setConfigServer(null)
-        } else {
-          showToast('error', d.error || t('settings:mcp.toast.configFailed'))
+          // The backend reports validation problems in `message`.
+          setAddError(d.error || d.message || t('settings:mcp.toast.addFailed'))
         }
       }),
     ]
 
     return () => cleanups.forEach(c => c())
-  }, [onMessage, showToast])
+  }, [onMessage, showToast, t])
 
-  // Build MCP list
-  const mcpList: MCPItem[] = servers
-    .filter(s => {
-      if (!searchQuery) return true
-      return s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (s.description && s.description.toLowerCase().includes(searchQuery.toLowerCase()))
-    })
-    .map(s => ({
-      name: s.name,
-      description: s.description,
-      enabled: s.enabled,
-      transport: s.transport,
-      action_set: s.action_set,
-      env: s.env,
-      needsConfig: s.env && Object.keys(s.env).length > 0 && Object.values(s.env).some(v => !v || v.trim() === '')
-    }))
+  const query = (searchQuery || '').toLowerCase()
+  const mcpList = servers
+    .filter(s => !query
+      || s.name.toLowerCase().includes(query)
+      || (s.description && s.description.toLowerCase().includes(query)))
+    .slice()
     .sort((a, b) => localeCompare(a.name, b.name))
 
   const totalServers = servers.length
@@ -182,28 +152,6 @@ export function MCPSettings() {
     })
   }
 
-  const handleConfigureServer = (server: MCPServerConfig) => {
-    setConfigServer(server)
-    setEnvValues({ ...server.env })
-    send('mcp_get_env', { name: server.name })
-  }
-
-  const handleSaveEnv = () => {
-    if (!configServer) return
-    setIsSavingEnv(true)
-
-    const envEntries = Object.entries(envValues)
-    if (envEntries.length === 0) {
-      setIsSavingEnv(false)
-      setConfigServer(null)
-      return
-    }
-
-    envEntries.forEach(([key, value]) => {
-      send('mcp_update_env', { name: configServer.name, key, value })
-    })
-  }
-
   const handleAddCustomServer = () => {
     setAddError('')
     try {
@@ -217,6 +165,23 @@ export function MCPSettings() {
     } catch {
       setAddError(t('settings:mcp.validation.invalidJson'))
     }
+  }
+
+  const renderStatus = (item: MCPServerConfig) => {
+    if (item.invalid) {
+      return <p className={styles.formError}>{t('settings:mcp.invalidEntry', { error: item.error })}</p>
+    }
+    if (!item.enabled || !item.status) return null
+    if (item.status.connected) {
+      return (
+        <p className={styles.mcpItemDesc}>
+          {t('settings:mcp.connected', { count: item.status.tool_count })}
+        </p>
+      )
+    }
+    return item.status.error
+      ? <p className={styles.formError}>{t('settings:mcp.connectFailed', { error: item.status.error })}</p>
+      : null
   }
 
   return (
@@ -279,21 +244,23 @@ export function MCPSettings() {
                   <Badge variant={item.enabled ? 'success' : 'default'}>
                     {item.enabled ? t('common:status.enabled') : t('common:status.disabled')}
                   </Badge>
-                  {item.needsConfig && (
+                  {item.transport && item.transport !== 'stdio' && (
+                    <Badge variant="default">{t(`settings:mcp.editor.transports.${item.transport}`, item.transport)}</Badge>
+                  )}
+                  {item.invalid && <Badge variant="error">{t('settings:mcp.invalid')}</Badge>}
+                  {item.needs_config && (
                     <Badge variant="warning">{t('settings:mcp.needsConfig')}</Badge>
                   )}
                 </div>
                 <p className={styles.mcpItemDesc}>{item.description}</p>
+                {renderStatus(item)}
               </div>
               <div className={styles.mcpItemActions}>
-                {item.env && Object.keys(item.env).length > 0 && (
+                {!item.invalid && (
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => {
-                      const server = servers.find(s => s.name === item.name)
-                      if (server) handleConfigureServer(server)
-                    }}
+                    onClick={() => setEditor({ mode: 'edit', server: item })}
                     icon={<Edit2 size={14} />}
                     title={t('settings:mcp.configure')}
                   />
@@ -309,6 +276,7 @@ export function MCPSettings() {
                   type="checkbox"
                   className={styles.toggle}
                   checked={item.enabled}
+                  disabled={item.invalid}
                   onChange={(e) => handleToggleServer(item.name, e.target.checked)}
                   title={item.enabled ? t('common:actions.disable') : t('common:actions.enable')}
                 />
@@ -322,15 +290,22 @@ export function MCPSettings() {
       <div className={styles.mcpAddSection}>
         <Button
           variant="secondary"
-          onClick={() => setShowAddModal(true)}
+          onClick={() => setEditor({ mode: 'create' })}
           icon={<Plus size={14} />}
         >
           {t('settings:mcp.addServer')}
         </Button>
+        <Button
+          variant="ghost"
+          onClick={() => setShowAddModal(true)}
+          icon={<Braces size={14} />}
+        >
+          {t('settings:mcp.addJson')}
+        </Button>
         <span className={styles.hint}>{t('settings:mcp.addHint')}</span>
       </div>
 
-      {/* Add Custom Server Modal */}
+      {/* Add Custom Server (JSON) Modal */}
       {showAddModal && (
         <div className={styles.modalOverlay} onClick={() => { setShowAddModal(false); setAddError('') }}>
           <div className={styles.modalContent} onClick={e => e.stopPropagation()}>
@@ -351,11 +326,11 @@ export function MCPSettings() {
                   onChange={(e) => setCustomJsonConfig(e.target.value)}
                   placeholder={`{
   "name": "my-server",
-  "description": "My custom MCP server",
-  "transport": "stdio",
-  "command": "npx @my-org/my-mcp-server",
-  "action_set": "default",
-  "env": {}
+  "description": "My remote MCP server",
+  "transport": "http",
+  "url": "https://example.com/mcp",
+  "headers": { "Authorization": "Bearer \${TOKEN}" },
+  "env": { "TOKEN": "" }
 }`}
                   rows={10}
                   style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)' }}
@@ -381,50 +356,12 @@ export function MCPSettings() {
         </div>
       )}
 
-      {/* Environment Configuration Modal */}
-      {configServer && (
-        <div className={styles.modalOverlay} onClick={() => setConfigServer(null)}>
-          <div className={styles.modalContent} onClick={e => e.stopPropagation()}>
-            <div className={styles.modalHeader}>
-              <h3>{t('settings:mcp.env.title', { name: configServer.name })}</h3>
-              <button className={styles.modalClose} onClick={() => setConfigServer(null)}>
-                <X size={18} />
-              </button>
-            </div>
-            <div className={styles.modalBody}>
-              <p className={styles.hint}>
-                {t('settings:mcp.env.desc')}
-              </p>
-              {Object.keys(configServer.env).length === 0 ? (
-                <p>{t('settings:mcp.env.none')}</p>
-              ) : (
-                Object.entries(configServer.env).map(([key]) => (
-                  <div key={key} className={styles.formGroup}>
-                    <label>{key}</label>
-                    <input
-                      type={key.toLowerCase().includes('key') || key.toLowerCase().includes('token') || key.toLowerCase().includes('secret') ? 'password' : 'text'}
-                      value={envValues[key] || ''}
-                      onChange={(e) => setEnvValues(prev => ({ ...prev, [key]: e.target.value }))}
-                      placeholder={t('settings:mcp.env.placeholder', { key })}
-                    />
-                  </div>
-                ))
-              )}
-            </div>
-            <div className={styles.modalFooter}>
-              <Button variant="secondary" onClick={() => setConfigServer(null)}>
-                {t('common:actions.cancel')}
-              </Button>
-              <Button
-                variant="primary"
-                onClick={handleSaveEnv}
-                disabled={isSavingEnv}
-              >
-                {isSavingEnv ? t('common:status.saving') : t('common:actions.save')}
-              </Button>
-            </div>
-          </div>
-        </div>
+      {editor && (
+        <MCPServerEditor
+          mode={editor.mode}
+          server={editor.mode === 'edit' ? editor.server : null}
+          onClose={closeEditor}
+        />
       )}
 
       {/* Confirm Modal */}
