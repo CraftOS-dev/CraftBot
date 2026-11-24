@@ -100,14 +100,20 @@ class MCPTool:
     name: str
     description: str = ""
     input_schema: Dict[str, Any] = field(default_factory=dict)
+    # MCP tool annotations (readOnlyHint, destructiveHint, openWorldHint...),
+    # as the server sent them. Hints, per the spec: see adapter.py for how
+    # they are used.
+    annotations: Dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "MCPTool":
         """Create MCPTool from dictionary."""
+        annotations = data.get("annotations")
         return cls(
             name=data.get("name", ""),
             description=data.get("description", ""),
             input_schema=data.get("inputSchema", {}),
+            annotations=annotations if isinstance(annotations, dict) else {},
         )
 
 
