@@ -17,6 +17,7 @@ from agent_core import action
     input_schema={
         "section": {
             "type": "string",
+            "required": False,
             "description": "One top-level section to return, e.g. 'model'. Omit for all.",
             "example": "model",
         },
