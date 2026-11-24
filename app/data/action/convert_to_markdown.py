@@ -122,6 +122,11 @@ def clean_to_md(input_data: dict) -> dict:
     try:
         input_file = input_data.get("input_file")
         output_md = input_data.get("output_md")
+        from app.security.paths import first_refusal
+
+        refused = first_refusal([(input_file, False), (output_md, True)])
+        if refused:
+            return {"status": "error", "message": refused}
 
         if not input_file or not os.path.isfile(input_file):
             return {

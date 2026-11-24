@@ -200,6 +200,12 @@ def convert_to_pdf(input_data: dict) -> dict:
     image_paths = input_data.get("image_paths") or []
     if isinstance(image_paths, str):
         image_paths = [image_paths]
+
+    from app.security.paths import first_refusal
+
+    refused = first_refusal([(source_path, False), (output_path, True)] + [(p, False) for p in image_paths])
+    if refused:
+        return {"status": "error", "message": refused}
     content = input_data.get("content")
     source_format = str(input_data.get("source_format", "")).strip().lower()
     title = str(input_data.get("title", "")).strip()

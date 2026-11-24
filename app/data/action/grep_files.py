@@ -151,7 +151,15 @@ def grep_files(input_data: dict) -> dict:
     root = os.path.abspath(os.path.expanduser(input_data.get("path") or os.getcwd()))
     if not os.path.exists(root):
         return make_result("error", f"Path does not exist: {root}")
+    from app.security.paths import check_file_access, is_protected
+
+    refused = check_file_access(root, write=False)
+    if refused:
+        return make_result("error", refused)
     root_is_dir = os.path.isdir(root)
+    # Matches inside protected files (Settings > Security > Files) are left
+    # out of a search over a folder that contains them; decided once per file.
+    protected_files = {}
 
     glob = input_data.get("glob") or None
     ignore_case = bool(input_data.get("ignore_case", False))
@@ -253,6 +261,10 @@ def grep_files(input_data: dict) -> dict:
             if not nul or not digits:
                 continue
             path = path_bytes.decode("utf-8", "replace")
+            if path not in protected_files:
+                protected_files[path] = is_protected(path)
+            if protected_files[path]:
+                continue
             line_no = int(rest[:digits])
             is_match = rest[digits : digits + 1] == b":"
             if limit_line is not None:

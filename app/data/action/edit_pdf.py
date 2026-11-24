@@ -289,6 +289,12 @@ def edit_pdf_file(input_data: dict) -> dict:
     output_path = str(input_data.get("output_path", "")).strip()
     operations = input_data.get("operations", [])
 
+    from app.security.paths import first_refusal
+
+    refused = first_refusal([(file_path, False), (output_path or file_path, True)])
+    if refused:
+        return {"status": "error", "message": refused}
+
     if not isinstance(operations, list):
         operations = []
 

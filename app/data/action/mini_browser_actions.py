@@ -697,6 +697,12 @@ async def mini_browser_upload_file(input_data: dict) -> dict:
         }
     from app.mini_browser.actions_api import run_action
 
+    from app.security.paths import first_refusal
+
+    # Uploading sends a file to a website: protected files never leave.
+    refused = first_refusal((path, False) for path in input_data.get("paths") or [])
+    if refused:
+        return {"status": "error", "message": refused}
     return await run_action("upload_file", input_data)
 
 

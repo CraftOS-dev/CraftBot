@@ -100,6 +100,12 @@ def convert_from_pdf(input_data: dict) -> dict:
     target_format = str(input_data.get("target_format", "")).strip().lower()
     mode = str(input_data.get("mode", "xhtml")).strip().lower() or "xhtml"
 
+    from app.security.paths import first_refusal
+
+    refused = first_refusal([(source_path, False), (output_path, True)])
+    if refused:
+        return {"status": "error", "message": refused}
+
     if not source_path:
         return {"status": "error", "message": "'source_path' is required."}
     if not source_path.lower().endswith(".pdf"):

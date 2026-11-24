@@ -116,6 +116,16 @@ def stream_edit_action(input_data: dict) -> dict:
                 "occurrences_replaced": 0,
             }
 
+        from app.security.paths import check_file_access
+
+        refused = check_file_access(file_path, write=True)
+        if refused:
+            return {
+                "status": "error",
+                "message": refused,
+                "occurrences_replaced": 0,
+            }
+
         if not os.path.isfile(file_path):
             return {
                 "status": "error",

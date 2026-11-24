@@ -145,6 +145,20 @@ def read_file(input_data: dict) -> dict:
             "message": "file_path is required.",
         }
 
+    from app.security.paths import check_file_access
+
+    refused = check_file_access(file_path, write=False)
+    if refused:
+        return {
+            "status": "error",
+            "content": "",
+            "total_lines": 0,
+            "lines_returned": 0,
+            "offset": 0,
+            "has_more": False,
+            "message": refused,
+        }
+
     if not os.path.isfile(file_path):
         return {
             "status": "error",

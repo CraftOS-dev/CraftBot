@@ -90,6 +90,17 @@ def write_file(input_data: dict) -> dict:
             "message": "mode must be 'overwrite' or 'append'.",
         }
 
+    from app.security.paths import check_file_access
+
+    refused = check_file_access(file_path, write=True)
+    if refused:
+        return {
+            "status": "error",
+            "file_path": file_path,
+            "bytes_written": 0,
+            "message": refused,
+        }
+
     lock = get_file_lock(file_path)
 
     try:
