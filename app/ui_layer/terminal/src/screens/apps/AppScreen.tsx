@@ -31,6 +31,7 @@ import { padEnd, truncate, width as cells } from '../../text/width'
 import * as TB from '../../input/TextBuffer'
 import { TextField, fieldKey } from '../../ui/TextField'
 import { frameworkSessionIdentity } from '../../../../browser/frontend/src/features/agentApps/frameworkIdentity'
+import { selectPendingQuestions } from '../../../../browser/frontend/src/store/selectors/messages'
 import { recordActions, renderBlock, requiredParams, opLabel, type Action, type Block, type Line, type Operation, type Screen } from '../../apps/view'
 import { listRecords, listTasks, loadApp, OpError, prefillFromRow, runOp, type LoadedApp } from '../../apps/engine'
 import { appPhase, canChangeState, changeAppState, errorText, frameworkAppKey, useAppSession, type RegistryApp } from '../../apps/framework'
@@ -83,6 +84,10 @@ export function AppScreen({ arg }: { arg?: string }) {
 
   const building = !!session && (!!session.agentAppFrameworkPending || !!session.agentAppBuild?.building)
   const checkpoint = building && waitingForPerson(session?.agentAppBuild?.checkpoint)
+  // A build also stops for you with a question in its chat (the importer asks
+  // there which route to take): the build view says so and the chat opens on it.
+  const question = useAppSelector(s => (sessionId ? selectPendingQuestions(s, sessionId)[0] : undefined))
+  const asking = building ? question?.messageId : undefined
   useBuildFeed(sessionId, building)
   const phase = app ? appPhase(app, job) : undefined
   const running = phase === 'running'
@@ -104,6 +109,11 @@ export function AppScreen({ arg }: { arg?: string }) {
   const chatKeys = useRef<ChatPaneKeys | null>(null)
   const checkpointKeys = useRef<CheckpointKeys | null>(null)
   const [checkpointTyping, setCheckpointTyping] = useState(false)
+
+  // Once per question: closing the chat again afterwards is respected.
+  useEffect(() => {
+    if (asking) setChatOpen(true)
+  }, [asking])
 
   // Connect to the running app and read what it offers.
   const port = app?.port
@@ -549,7 +559,7 @@ export function AppScreen({ arg }: { arg?: string }) {
       return checkpoint ? (
         <BuildCheckpoints sessionId={sessionId} columns={bodyWidth} rows={contentRows} keysRef={checkpointKeys} onTextFocus={setCheckpointTyping} />
       ) : (
-        <BuildView sessionId={sessionId} name={name} columns={bodyWidth} rows={contentRows} verifying={!!session?.agentAppBuild?.verifying} />
+        <BuildView sessionId={sessionId} name={name} columns={bodyWidth} rows={contentRows} verifying={!!session?.agentAppBuild?.verifying} asking={!!asking} />
       )
     }
     if (!app) return <Text color={ink.muted}>{t('loading')}</Text>
