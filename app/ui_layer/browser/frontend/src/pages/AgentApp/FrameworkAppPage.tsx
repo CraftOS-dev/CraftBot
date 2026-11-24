@@ -107,6 +107,7 @@ export function FrameworkView({ path, appId, blocked = false, moving = false }: 
   return <section className={surface.surface} aria-label={t('registry.view.title')} style={blocked ? { pointerEvents: 'none' } : undefined}>
     <FrameworkRequestFeedback name={name} state={requests} remote={!!app?.connection} />
     {view && !connected && <div className={styles.connectionNotice} role="status">{t('registry.disconnected')}</div>}
+    {view && connected && app?.status === 'unreachable' && <div className={styles.connectionNotice} role="status">{t('registry.view.unconfirmed')}</div>}
     {url && !message ? <FrameworkFrame key={`${url}:${frameAttempt}`} id={frameworkFrameId(path, appId)} url={url} name={name} blocked={blocked || requests.open} moving={moving} retry={retry} />
       : <div className={surface.state} role={message ? 'alert' : 'status'}>
         {busy && job.operation === 'start' ? <CraftBotMascot state="launching" size={96} />

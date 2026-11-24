@@ -206,6 +206,34 @@ test('a deleted app is forgotten and its frame disposed; stopping disposes the f
   await expect(appPanel(page).getByRole('button', { name: /^Start / })).toBeVisible()
 })
 
+test('an unconfirmed status probe or a reconnect keeps the app frame and its state', async ({ page }) => {
+  await page.goto('/tests/panel-agent-apps.html')
+  await show(page, 'Notes')
+  await note(page).fill('Keep through probes')
+  const list = (status: string) => page.evaluate(status => {
+    const w = window as any
+    const apps = w.panelProjects.map((p: any) => p.id === 'notes' ? { ...p, status } : p)
+    w.panelReceive({ type: 'agent_app_framework_list', data: { status: 'success', data: { apps, connected: [] } } })
+  }, status)
+  // A probe that misses the framework's answer window is not a stop.
+  await list('unreachable')
+  await expect(appPanel(page).getByText(/Couldn't confirm the app is responding/)).toBeVisible()
+  await expect(note(page)).toHaveValue('Keep through probes')
+  await list('running')
+  await expect(appPanel(page).getByText(/Couldn't confirm the app is responding/)).toHaveCount(0)
+  // A dropped socket re-trusts the pushed list instead of re-opening each view.
+  const opens = (await requests(page, ['agent_app_framework_open'])).length
+  await page.evaluate(() => {
+    const store = (window as any).panelStore
+    store.dispatch({ type: 'connection/setConnected', payload: false })
+    store.dispatch({ type: 'connection/setConnected', payload: true })
+  })
+  await list('running')
+  await expect(note(page)).toHaveValue('Keep through probes')
+  expect((await requests(page, ['agent_app_framework_open'])).length).toBe(opens)
+  await expect(page.locator('iframe[title="Notes"]')).toHaveCount(1)
+})
+
 test('outputs and the browser can take the panel; the app comes back with its state', async ({ page }) => {
   await page.goto('/tests/panel-agent-apps.html')
   await show(page, 'Notes')

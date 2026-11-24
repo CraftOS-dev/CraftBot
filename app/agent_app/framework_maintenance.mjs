@@ -1,7 +1,10 @@
 // CraftBot-owned housekeeping over the pinned, unchanged framework library.
 // Reuse CLI commands or upstream atomic helpers for recorded parent blueprints.
-import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync, rmSync, truncateSync } from 'node:fs';
-import { join, resolve, relative, isAbsolute } from 'node:path';
+import {
+  closeSync, copyFileSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync,
+  realpathSync, renameSync, rmSync, statSync, truncateSync,
+} from 'node:fs';
+import { dirname, join, resolve, relative, isAbsolute } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const [pkg, app, expectedId, operation, ...args] = process.argv.slice(2);
@@ -58,6 +61,111 @@ function layout() {
   if (!existsSync(data)) return { mode: null, reason: 'This app has no saved data yet. Launch it before creating a backup.' };
   return { mode, dataDir: dir };
 }
+
+// A live backup copies a running app's data without stopping it, so its share
+// links stay up. It writes the framework's own backup format (a plain mirror of
+// the data directory, published atomically under .a2app/backups/<id>), which
+// `restore` reads unchanged. Each SQLite database is copied through SQLite:
+// VACUUM INTO reads one transaction-consistent snapshot without blocking a
+// WAL-mode writer, and folds in the -wal/-shm/-journal companions, so those are
+// skipped. Any other file is copied again until it held still during the copy.
+const SQLITE_HEADER = Buffer.from('SQLite format 3\0', 'latin1');
+const COMPANIONS = ['-wal', '-shm', '-journal'];
+const sleep = ms => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+const gone = error => error?.code === 'ENOENT';
+function isSqlite(path) {
+  const fd = openSync(path, 'r');
+  try {
+    const head = Buffer.alloc(SQLITE_HEADER.length);
+    return readSync(fd, head, 0, head.length, 0) === head.length && head.equals(SQLITE_HEADER);
+  } finally {
+    closeSync(fd);
+  }
+}
+function stamp(path) {
+  const stat = statSync(path, { bigint: true });
+  return `${stat.ino}:${stat.size}:${stat.mtimeNs}`;
+}
+function walk(dir, found = { dirs: [], files: [] }) {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = inside(join(dir, entry.name));
+    if (entry.isDirectory()) {
+      found.dirs.push(path);
+      walk(path, found);
+    } else found.files.push(path);
+  }
+  return found;
+}
+function copyStable(from, to) {
+  for (let attempt = 1; attempt <= 5; attempt++) {
+    try {
+      const before = stamp(from);
+      copyFileSync(from, to);
+      if (stamp(from) === before) return;
+    } catch (error) {
+      // Removed while backing up (a temp file of an atomic write): not data.
+      if (gone(error)) return rmSync(to, { force: true });
+      throw error;
+    }
+    sleep(attempt * 20);
+  }
+  throw Error(`${relative(root, from)} kept changing while it was backed up. Try again.`);
+}
+async function liveBackup(data, dest) {
+  const { DatabaseSync } = await import('node:sqlite');
+  const folder = dirname(dest);
+  mkdirSync(folder, { recursive: true });
+  // An interrupted live backup leaves its staging folder; the lifecycle lock
+  // held here rules out one still running.
+  for (const name of readdirSync(folder).filter(name => name.includes('.staging-live-'))) {
+    rmSync(inside(join(folder, name)), { recursive: true, force: true });
+  }
+  const staged = `${dest}.staging-live-${process.pid}`;
+  const target = file => join(staged, relative(data, file));
+  const { dirs, files } = walk(data);
+  const databases = new Set(files.filter(file => {
+    try { return isSqlite(file); } catch (error) { if (gone(error)) return false; throw error; }
+  }));
+  try {
+    mkdirSync(staged);
+    for (const dir of dirs) mkdirSync(target(dir), { recursive: true });
+    for (const file of databases) {
+      const source = new DatabaseSync(file, { readOnly: true });
+      try {
+        source.exec('PRAGMA busy_timeout = 15000');
+        source.exec(`VACUUM INTO '${target(file).replace(/'/g, "''")}'`);
+      } finally {
+        source.close();
+      }
+      const copy = new DatabaseSync(target(file), { readOnly: true });
+      try {
+        if (copy.prepare('PRAGMA quick_check').get().quick_check !== 'ok') {
+          throw Error(`The copy of ${relative(root, file)} failed its integrity check.`);
+        }
+      } finally {
+        copy.close();
+      }
+    }
+    for (const file of files) {
+      const companion = COMPANIONS.some(end => file.endsWith(end) && databases.has(file.slice(0, -end.length)));
+      if (!databases.has(file) && !companion) copyStable(file, target(file));
+    }
+    // A virus scanner can briefly hold a just-written file on Windows.
+    for (let attempt = 1; ; attempt++) {
+      try {
+        renameSync(staged, dest);
+        break;
+      } catch (error) {
+        if (process.platform !== 'win32' || !['EPERM', 'EACCES', 'EBUSY'].includes(error.code) || attempt >= 10) throw error;
+        sleep(attempt * 20);
+      }
+    }
+  } catch (error) {
+    rmSync(staged, { recursive: true, force: true });
+    throw error;
+  }
+}
+
 try {
   inside(join(root, '.a2app'));
   const project = loadProject(root);
@@ -65,6 +173,15 @@ try {
   const result = await withLock(lifecycleLock(root), async () => {
     if (operation === 'list') return { ok: true, backups: entries(), backupSupport: layout() };
     if (operation === 'layout') return { ok: true, backupSupport: layout() };
+    if (operation === 'backup-live') {
+      // Deliberately no assertNotServing: this copy is safe while the app runs.
+      const support = layout();
+      if (!support.mode) throw Error(support.reason);
+      const id = backupId(new Date());
+      const path = inside(join(backupsDir(root), id));
+      await liveBackup(inside(resolve(root, support.dataDir)), path);
+      return { ok: true, backup: id, path };
+    }
     if (operation === 'backup-parent' || operation === 'restore-parent') {
       const support = layout();
       if (support.mode !== 'parent-toolkit') throw Error('The backup toolkit changed. Refresh the app settings.');

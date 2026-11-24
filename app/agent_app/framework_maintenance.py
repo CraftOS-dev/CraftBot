@@ -16,6 +16,29 @@ from app.agent_app.framework_commands import command
 from app.agent_app.framework_store import app_key
 
 INTERVALS = {"hourly": 3600, "6h": 21600, "daily": 86400, "weekly": 604800}
+FIRST_RETRY = 300
+
+
+def retry_delay(failures, interval):
+    """Back off after consecutive failures, never beyond the regular interval,
+    so a backup that keeps failing is not retried every few minutes."""
+    return min(FIRST_RETRY * 2 ** max(failures - 1, 0), INTERVALS[interval])
+
+
+def record_failure(attachment, error, now):
+    failures = attachment.get("backupFailures", 0) + 1
+    attachment.update(
+        backupError=error,
+        backupFailures=failures,
+        nextBackupAt=now
+        + retry_delay(failures, attachment.get("backupInterval", "daily")),
+    )
+
+
+class BackupFailed(RuntimeError):
+    """A backup failure that backup() already recorded on the attachment."""
+
+
 APP_THEMES = frozenset(
     "craftbot modern normal ocean forest pastel glass classic velvet ink acid blueprint brutalist drafting clay atelier custom".split()
 )
@@ -44,7 +67,7 @@ def validate_ui_theme(value):
     return result
 
 
-async def housekeeping(cli, path, app_id, operation, *args):
+async def housekeeping(cli, path, app_id, operation, *args, timeout=120):
     argv, env = await asyncio.to_thread(cli._prepare, "agent-app", {})
     argv[1:] = [
         str(Path(__file__).with_suffix(".mjs")),
@@ -67,7 +90,7 @@ async def housekeeping(cli, path, app_id, operation, *args):
         ),
     )
     try:
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), 120)
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout)
     except BaseException:
         await _terminate(proc)
         raise
@@ -115,6 +138,8 @@ class FrameworkMaintenance:
                 ]
             )
         attachment.update(values)
+        if "nextBackupAt" in values:
+            attachment.pop("backupFailures", None)  # a new schedule starts clean
         self.host.store.put("attachment", attachment["key"], attachment)
         return attachment
 
@@ -175,7 +200,11 @@ class FrameworkMaintenance:
                 return {"status": "success", "data": {"ok": True}}
             if row["status"] not in {"running", "stopped"}:
                 raise ValueError("The app is unavailable. Refresh its status.")
-            if any(
+            # A running app is backed up live, so its tasks, visitors and share
+            # links carry on. Restore replaces the data the app has open, so it
+            # still stops and restarts the app.
+            live = verb == "backup" and row["status"] == "running"
+            if not live and any(
                 r["path"] == path and r["authority"].active
                 for r in self.host.bridge.runs.values()
             ):
@@ -187,23 +216,29 @@ class FrameworkMaintenance:
             )
             if not support.get("mode"):
                 raise ValueError(support["reason"])
-            was_running = row["status"] == "running"
-            if was_running:
+            restarts = row["status"] == "running" and not live
+            if restarts:
                 attachment["maintenanceResume"] = True
                 self.host.store.put("attachment", attachment["key"], attachment)
             result = None
             failure = None
             try:
-                if was_running:
+                if restarts:
                     stopped = await framework.change_app_state_locked(
-                        path, app_id, "stop", preserve_shares=True
+                        path, app_id, "stop", preserve_shares=True,
+                        reason=f"{trigger} {verb}",
                     )
                     if stopped["status"] != "success":
                         raise RuntimeError(
                             stopped.get("message", "The app could not stop.")
                         )
                 args = [path, verb] + ([backup_id] if backup_id else [])
-                if support["mode"] == "parent-toolkit":
+                if live:
+                    doc = await housekeeping(
+                        cli, path, app_id, "backup-live", timeout=1200
+                    )
+                    result = {"status": "success", "data": doc}
+                elif support["mode"] == "parent-toolkit":
                     doc = await housekeeping(
                         cli,
                         path,
@@ -254,11 +289,11 @@ class FrameworkMaintenance:
             except Exception as exc:
                 failure = str(exc)
             finally:
-                if was_running:
+                if restarts:
                     # Keep the resume receipt if restart fails or shutdown interrupts us.
                     try:
                         started = await framework.change_app_state_locked(
-                            path, app_id, "start"
+                            path, app_id, "start", reason=f"after {trigger} {verb}"
                         )
                         if started["status"] != "success":
                             raise RuntimeError(
@@ -271,21 +306,21 @@ class FrameworkMaintenance:
                 saved = (
                     self.host.store.get("attachment", attachment["key"]) or attachment
                 )
-                saved.update(
-                    backupError=failure,
-                    nextBackupAt=time.time()
-                    + (
-                        300
-                        if failure
-                        else INTERVALS[saved.get("backupInterval", "daily")]
-                    ),
-                )
+                if failure:
+                    record_failure(saved, failure, time.time())
+                else:
+                    saved.update(
+                        backupError=None,
+                        nextBackupAt=time.time()
+                        + INTERVALS[saved.get("backupInterval", "daily")],
+                    )
+                    saved.pop("backupFailures", None)
                 if not attachment.get("maintenanceResume"):
                     saved.pop("maintenanceResume", None)
                 self.host.store.put("attachment", saved["key"], saved)
                 await self.host.changed()
             if failure:
-                raise RuntimeError(failure)
+                raise BackupFailed(failure)
             return result
 
     async def tick(self, now=None):
@@ -302,9 +337,11 @@ class FrameworkMaintenance:
                 continue
             try:
                 await self.backup(saved["path"], saved["appId"], trigger="scheduled")
+            except BackupFailed:
+                pass  # backup() recorded it and scheduled the retry
             except Exception as exc:
                 latest = self.host.store.get("attachment", saved["key"]) or saved
-                latest.update(backupError=str(exc), nextBackupAt=now + 300)
+                record_failure(latest, str(exc), now)
                 self.host.store.put("attachment", saved["key"], latest)
                 await self.host.changed()
 

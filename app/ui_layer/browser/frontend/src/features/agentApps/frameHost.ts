@@ -219,8 +219,20 @@ export function acquireIframe(id: string, src: string) {
   }
 }
 
+/**
+ * Whether a registry status still warrants an app's frame. `unreachable` is a
+ * status probe that could not CONFIRM the app (it must answer as itself within
+ * 1.5s; a busy machine misses that), not evidence that it stopped. Disposing
+ * on it reloaded the app, losing its page state, whenever a background
+ * refresh landed in a slow moment. Only a stopped, missing or removed app
+ * loses its frame.
+ */
+export function keepsFrame(status: string): boolean {
+  return status === 'running' || status === 'unreachable'
+}
+
 /** Dispose stopped/deleted frames even when their React surface is absent. */
 export function reconcileFrameworkIframes(apps: { path: string; id: string; status: string }[]) {
-  const running = new Set(apps.filter(a => a.status === 'running').map(a => frameworkFrameId(a.path, a.id)))
-  for (const id of pool.keys()) if (!running.has(id)) removeIframe(id)
+  const live = new Set(apps.filter(a => keepsFrame(a.status)).map(a => frameworkFrameId(a.path, a.id)))
+  for (const id of pool.keys()) if (!live.has(id)) removeIframe(id)
 }
