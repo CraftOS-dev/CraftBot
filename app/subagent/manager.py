@@ -111,6 +111,10 @@ class SubAgentManager:
             compiled_actions=definition.compiled_actions,
         )
         self.subagents[sub.id] = sub
+        from app.security.content import runs as security_runs
+
+        # The security gate treats the sub-agent as part of the spawning run.
+        security_runs.link_child(sub.id, parent_session_id)
 
         # Its workspace lives inside the spawning session's: oversized action
         # outputs are saved there (EventStream._externalize_message), so the

@@ -214,3 +214,14 @@ def test_decisions_are_audited_with_an_intact_chain(store):
     ok, count, broken = log.verify()
     assert ok and count == 1 and broken is None
     assert log.entries()[0]["outcome"] == "user_deny"
+
+
+def test_a_sub_agent_shares_its_parents_run():
+    runs = RunRegistry()
+    runs.turn_started(
+        "parent", source=TriggerSource.CRON_JOB.value, origin={}, starts_run=True
+    )
+    runs.link_child("sub_1", "parent")
+    assert not runs.get("sub_1").interactive
+    runs.mark_tainted("sub_1", "a web page")
+    assert runs.get("parent").tainted

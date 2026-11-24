@@ -93,6 +93,14 @@ class RunRegistry:
                 state.taint_reason = f"a message from a third party on {platform}"
             return state
 
+    def link_child(self, child_session_id: str, parent_session_id: Optional[str]) -> None:
+        """A sub-agent shares its parent's run: who started it, whether it
+        has read outside content, and the parent learns what the child read
+        (the child's results flow back into the parent)."""
+        parent = self.get(parent_session_id)
+        with self._lock:
+            self._runs[child_session_id] = parent
+
     def mark_tainted(self, session_id: Optional[str], reason: str) -> None:
         state = self.get(session_id)
         if not state.tainted:
