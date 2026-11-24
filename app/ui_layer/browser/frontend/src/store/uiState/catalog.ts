@@ -174,6 +174,7 @@ export const UI_STATE = {
     /** By category: the page scroll offset. */
     scrollTop: defineUiStateFamily('settings.scrollTop', 0, 'session'),
     generalShowAdvanced: defineUiState('settings.general.showAdvanced', false, 'preference'),
+    securityShowAdvanced: defineUiState('settings.security.showAdvanced', false, 'preference'),
     /** By provider: "Use API key instead" expanded. */
     modelApiKeyExpanded: defineUiState<Record<string, boolean>>('settings.model.apiKeyExpanded', {}, 'preference'),
     /** By picker ('llm' | 'vlm'). */

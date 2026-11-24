@@ -7,6 +7,7 @@ import { BusyBanner } from './BusyBanner'
 import { useTourEnvAction } from '../../tour'
 import { usePersistedState } from '../../hooks'
 import { UI_STATE } from '../../store/uiState'
+import { RESOURCES, useResource } from '../../store/resources'
 import styles from './Layout.module.css'
 
 // Matches the mobile breakpoint in Layout.module.css, where the sidebar
@@ -26,6 +27,10 @@ export function Layout({ children }: LayoutProps) {
   // preference on screen without overwriting it, until the user toggles.
   const [revealedByTour, setRevealedByTour] = useState(false)
   const collapsed = collapsedPreference && !revealedByTour
+
+  // Pending security approvals, app-wide: their cards show in whichever chat
+  // is open, and come back after a reconnect.
+  useResource(RESOURCES.securityApprovals)
 
   // Close the mobile drawer on route change so navigating doesn't leave
   // the overlay covering the content.

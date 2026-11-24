@@ -1,0 +1,192 @@
+/* Approval cards above the composer. Same placement and frame as the pinned
+   agent question (QuestionBox.module.css): inside .inputArea, outside the
+   scrolling timeline. */
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+  max-height: 55vh;
+  overflow-y: auto;
+}
+
+.box {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-left: 3px solid var(--color-warning);
+  border-radius: var(--radius-md);
+  animation: approvalIn 0.18s ease-out;
+}
+
+@keyframes approvalIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.icon {
+  color: var(--color-warning);
+  flex-shrink: 0;
+}
+
+.title {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sessionBadge {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-sm);
+  padding: 1px var(--space-2);
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex-shrink: 1;
+}
+
+.countdown {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.countdownUrgent {
+  color: var(--color-warning);
+}
+
+.reason {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  line-height: var(--leading-normal);
+}
+
+.inputs {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.inputsLabel {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.inputsBlock {
+  margin: 0;
+  padding: var(--space-2);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: var(--leading-normal);
+  color: var(--text-primary);
+  white-space: pre;
+  overflow-x: auto;
+}
+
+.inputsExpanded {
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.moreToggle {
+  align-self: flex-start;
+  padding: 0;
+  background: none;
+  border: none;
+  font-size: var(--text-xs);
+  color: var(--color-primary);
+  cursor: pointer;
+}
+
+.moreToggle:hover {
+  text-decoration: underline;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.deny {
+  margin-left: auto;
+}
+
+/* One line pointing at a request waiting in another chat. */
+.elsewhere {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+}
+
+.elsewhereText {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.elsewhereOpen {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px var(--space-2);
+  background: none;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  color: var(--text-primary);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.elsewhereOpen:hover {
+  background: var(--bg-tertiary);
+}
+
+@media (max-width: 480px) {
+  .deny {
+    margin-left: 0;
+  }
+}

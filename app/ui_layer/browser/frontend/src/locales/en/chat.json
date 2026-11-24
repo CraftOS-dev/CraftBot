@@ -199,5 +199,35 @@
     "title": "Agent apps",
     "noInstalled": "No installed apps.",
     "close": "Close"
+  },
+  "approval": {
+    "aria": "Approval request",
+    "title": "{{action}} needs your approval",
+    "inSession": "In {{session}}",
+    "highRisk": "This action can {{effects}}.",
+    "untrusted": "The agent read outside content ({{detail}}) before asking to do this.",
+    "untrustedNoDetail": "The agent read outside content before asking to do this.",
+    "effects": {
+      "execute": "run commands or code",
+      "write_files": "create or change files",
+      "send_external": "send messages or change outside services",
+      "change_agent": "change CraftBot's own setup, schedules or tools",
+      "use_credentials": "use stored credentials"
+    },
+    "inputs": "Inputs",
+    "showAll_one": "Show all {{count}} line",
+    "showAll_other": "Show all {{count}} lines",
+    "showLess": "Show less",
+    "expiresIn": "Denied automatically in {{time}}",
+    "expired": "Timed out",
+    "allowOnce": "Allow once",
+    "allowSession": "Allow for this session",
+    "allowSessionHint": "Don't ask again for {{action}} in this chat until CraftBot restarts",
+    "deny": "Deny",
+    "notConnected": "Not connected, so your answer was not sent. Try again once CraftBot is back.",
+    "waitingIn_one": "An action in {{session}} is waiting for your approval",
+    "waitingIn_other": "{{count}} actions in {{session}} are waiting for your approval",
+    "open": "Open",
+    "unknownSession": "another chat"
   }
 }

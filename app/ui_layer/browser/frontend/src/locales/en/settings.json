@@ -102,6 +102,7 @@
     "mcps": "MCPs",
     "skills": "Skills",
     "integrations": "Integrations",
+    "security": "Security",
     "agent_app": "Agent App"
   },
   "model": {
@@ -766,5 +767,183 @@
     "createLanLink": "Create LAN Link",
     "starting": "Starting...",
     "createTunnel": "Create Tunnel"
+  },
+  "security": {
+    "title": "Security",
+    "subtitle": "Choose how carefully CraftBot guards your computer, your keys and your data",
+    "loading": "Loading security settings...",
+    "autoMode": {
+      "label": "Auto mode",
+      "on": "The agent acts without asking — same as before.",
+      "off": "High-risk actions wait for your approval on a card in the chat.",
+      "askTitle": "Ask before…",
+      "askAfterUntrusted": "Also ask before any action after the agent reads outside content",
+      "askAfterUntrustedHint": "Web pages, emails and messages from other people can carry instructions meant for the agent.",
+      "timeout": "Deny automatically after",
+      "timeoutHint": "An approval card nobody answers in time counts as Deny.",
+      "seconds_one": "{{count}} second",
+      "seconds_other": "{{count}} seconds",
+      "minutes_one": "{{count}} minute",
+      "minutes_other": "{{count}} minutes",
+      "hours_one": "{{count}} hour",
+      "hours_other": "{{count}} hours"
+    },
+    "effects": {
+      "execute": "Running commands or code",
+      "write_files": "Creating or changing files",
+      "send_external": "Sending messages or changing outside services",
+      "change_agent": "Changing CraftBot's own setup, schedules or tools",
+      "use_credentials": "Using stored credentials"
+    },
+    "level": {
+      "title": "Security level",
+      "desc": "Each level turns on a set of protections. Fine-tune them under Advanced.",
+      "aria": "Security level",
+      "custom": "Custom",
+      "noticeLabel": "What you'll notice:",
+      "changed": "Changed on top of {{level}}: {{settings}}",
+      "reset": "Reset to {{level}}",
+      "lowerTitle": "Lower security to {{level}}?",
+      "lowerMessage": "{{level}} turns off protections that {{from}} keeps on, and settings you changed go back to {{level}}'s defaults. Auto mode and your lists of folders and domains stay as they are.",
+      "lowerConfirm": "Switch to {{level}}",
+      "standard": {
+        "name": "Standard",
+        "desc": "Works exactly as before.",
+        "notice": "Nothing new: no prompts and nothing blocked."
+      },
+      "enhanced": {
+        "name": "Enhanced",
+        "desc": "Keeps the agent away from your keys, checks every web request, marks outside content, keeps an audit log. Rarely prompts.",
+        "notice": "The agent can't open your key files, unsafe web requests are refused, and on Discord it answers only when mentioned. Records older than 90 days are deleted."
+      },
+      "strict": {
+        "name": "Strict",
+        "desc": "Everything in Enhanced, plus file writes stay in your workspace, no third-party reader, shorter data retention.",
+        "notice": "Saving files outside your workspace fails, some pages may not load without the reader, and records older than 30 days are deleted. With Auto mode off, file changes ask first too."
+      }
+    },
+    "advanced": {
+      "toggle": "Advanced",
+      "desc": "Every protection on its own. Changing one marks the level as Custom.",
+      "groups": {
+        "untrusted": "Untrusted content",
+        "files": "Files",
+        "network": "Network",
+        "secrets": "Secrets & data",
+        "channels": "Channels",
+        "audit": "Audit"
+      }
+    },
+    "fields": {
+      "auto_mode": {
+        "label": "Auto mode"
+      },
+      "approval_effects": {
+        "label": "Ask before…"
+      },
+      "ask_after_untrusted": {
+        "label": "Ask after outside content"
+      },
+      "approval_timeout_s": {
+        "label": "Approval timeout"
+      },
+      "mark_untrusted_content": {
+        "label": "Mark outside content",
+        "help": "Web pages, emails and other people's messages are marked so the agent treats them as information, not instructions."
+      },
+      "protect_secret_files": {
+        "label": "Protect key files",
+        "help": "The agent's file tools can't read or change API keys, credentials or CraftBot's security settings. Commands it runs are not limited by this."
+      },
+      "extra_protected_paths": {
+        "label": "Also protect",
+        "help": "More files or folders the agent can't read or change.",
+        "placeholder": "/path/to/file-or-folder"
+      },
+      "confine_writes": {
+        "label": "Keep file changes in the workspace",
+        "help": "The agent's file tools can only create or change files in its workspace and the folders below. Commands it runs are not limited by this."
+      },
+      "workspace_paths": {
+        "label": "Workspace folders",
+        "help": "Extra folders the agent may write to while file changes are kept in the workspace.",
+        "placeholder": "/path/to/folder"
+      },
+      "network_guard": {
+        "label": "Check web requests",
+        "help": "The agent's web requests can only reach public internet sites. This computer, your local network and cloud metadata services are refused, and every redirect is checked again."
+      },
+      "allowed_domains": {
+        "label": "Only allow these domains",
+        "help": "When you add domains, the agent's web requests can reach only these domains and their subdomains. Leave it empty to allow any public site.",
+        "placeholder": "example.com"
+      },
+      "third_party_reader": {
+        "label": "Third-party page reader",
+        "help": "When a page won't load directly, the agent may fetch it through an outside reader service, which then sees the page address."
+      },
+      "scrub_child_env": {
+        "label": "Keep keys out of MCP servers",
+        "help": "MCP servers get only basic system settings plus the values you gave them, not the other keys and tokens in CraftBot's environment."
+      },
+      "redact_logs": {
+        "label": "Hide secrets in logs",
+        "help": "CraftBot's own API keys, credentials and MCP server keys are blanked out before log lines are written."
+      },
+      "log_prompts": {
+        "label": "Log full prompts",
+        "help": "Writes everything sent to the AI model to the logs. Useful for debugging, but the logs then hold your conversations."
+      },
+      "retention_days": {
+        "label": "Keep data for",
+        "help": "Log files and recorded AI calls older than this are deleted. Your chats, memory and the audit log are kept. 0 keeps everything.",
+        "unit": "days"
+      },
+      "strict_channel_identity": {
+        "label": "Strict channel identity",
+        "help": "Discord owners are recognized only by their unique username, never by a display name or role name anyone can copy, and the bot must be mentioned in servers."
+      },
+      "audit_log": {
+        "label": "Audit log",
+        "help": "Keep a tamper-evident record of approvals and security changes."
+      }
+    },
+    "list": {
+      "add": "Add",
+      "remove": "Remove {{item}}",
+      "empty": "None",
+      "duplicate": "Already in the list."
+    },
+    "check": {
+      "title": "Security check",
+      "desc": "Looks at this install: who can read your secret files, who can reach the CraftBot window, the audit log and your level.",
+      "runAgain": "Run again",
+      "running": "Checking...",
+      "fix": "Fix",
+      "empty": "No results yet.",
+      "status": {
+        "ok": "OK",
+        "info": "Info",
+        "warn": "Warning",
+        "fail": "Problem"
+      }
+    },
+    "audit": {
+      "title": "Audit log",
+      "desc": "Approvals and security changes, newest first. Each record seals the one before it, so an edited or removed record shows.",
+      "off": "The audit log is off. Turn it on under Advanced → Audit, or choose Enhanced or Strict.",
+      "intact_one": "Chain intact, {{count}} record",
+      "intact_other": "Chain intact, {{count}} records",
+      "broken": "Changed at line {{line}}",
+      "empty": "Nothing recorded yet.",
+      "loading": "Loading the audit log...",
+      "showing": "Latest {{shown}} of {{total}}",
+      "refresh": "Refresh",
+      "events": {
+        "action_approval": "Action approval",
+        "security_settings_changed": "Settings changed",
+        "security_check_fixed": "Check fixed"
+      }
+    }
   }
 }
