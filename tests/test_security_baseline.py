@@ -71,3 +71,21 @@ def test_mcp_config_save_is_owner_only(tmp_path):
     path = tmp_path / "mcp_config.json"
     MCPConfig().save(path)
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
+
+
+def test_mcp_servers_get_only_basics_and_their_own_env(tmp_path):
+    from app.security.env import child_environment
+    from app.security.policy import SecurityLevel, SecurityStore, set_store_for_tests
+
+    base = {"PATH": "/usr/bin", "HOME": "/home/u", "AWS_SECRET_ACCESS_KEY": "x", "HTTPS_PROXY": "http://proxy:3128"}
+    store = SecurityStore(tmp_path / "security.json")
+    set_store_for_tests(store)
+    try:
+        assert child_environment({"TOKEN": "t"}, base)["AWS_SECRET_ACCESS_KEY"] == "x"
+        store.set_level(SecurityLevel.ENHANCED)
+        env = child_environment({"TOKEN": "t"}, base)
+        assert "AWS_SECRET_ACCESS_KEY" not in env
+        assert env["TOKEN"] == "t" and env["HTTPS_PROXY"] == "http://proxy:3128"
+        assert env.get("PATH") == "/usr/bin" or os.name == "nt"
+    finally:
+        set_store_for_tests(None)

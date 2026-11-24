@@ -204,9 +204,11 @@ class StdioTransport(MCPTransport):
     async def connect(self) -> bool:
         """Start the subprocess and establish connection."""
         try:
-            # Merge environment
-            full_env = os.environ.copy()
-            full_env.update(self.env)
+            # Merge environment. With Settings > Security > "Keep secrets out
+            # of tools" on, the server gets only basics plus its own env.
+            from app.security.env import child_environment
+
+            full_env = child_environment(self.env)
 
             # Resolve command path, especially for Windows
             command = self._resolve_command(self.command)
