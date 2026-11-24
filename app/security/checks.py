@@ -198,6 +198,25 @@ def _check_mcp_changes() -> CheckResult:
     )
 
 
+def _check_mcp_pins() -> CheckResult:
+    from app.security import mcp_pins, mcp_trust
+
+    unpinned = mcp_pins.unpinned_servers(mcp_trust._configured_servers())
+    if not unpinned:
+        return CheckResult(
+            "mcp_packages_pinned", "ok", "MCP packages have fixed versions",
+            "No enabled MCP server downloads a different package version on its own.",
+        )
+    shown = ", ".join(f"{name} ({spec})" for name, spec in unpinned[:5])
+    more = f" and {len(unpinned) - 5} more" if len(unpinned) > 5 else ""
+    return CheckResult(
+        "mcp_packages_pinned", "warn", "Some MCP servers run the newest package version",
+        f"These download whatever version is newest at each start, so a change by the "
+        f"package's publisher runs here without review: {shown}{more}. Add a version "
+        f"in Settings > MCP, for example package@1.2.3 or package==1.2.3.",
+    )
+
+
 def runtime_secret_files() -> List[Path]:
     """Files CraftBot writes at run time that must stay private: the session
     token files, the audit log and the MCP trust ledger."""
@@ -328,6 +347,7 @@ CHECKS: List[Callable[[], CheckResult]] = [
     _check_level,
     _check_auto_mode,
     _check_mcp_changes,
+    _check_mcp_pins,
     _check_runtime_files,
     _check_prompt_logging,
     _check_web_guard,

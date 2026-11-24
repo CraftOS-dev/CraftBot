@@ -65,7 +65,7 @@ Changing any single setting shows the level as **Custom**; **Reset** returns to 
 
 ## Security check and audit log
 
-**Security check** lists the state of this installation (file permissions, whether the interface is reachable from the network, the audit chain) with a Fix button where a safe fix exists.
+**Security check** lists the state of this installation with a Fix button where a safe fix exists: file permissions, whether the interface is reachable from the network, the audit chain, whether every inbox email or Discord message reaches the agent, MCP servers changed outside Settings, and MCP servers that download the newest package version at each start.
 
 The **audit log** (`.security/audit.jsonl`) records approvals, refusals and settings changes, never prompts or secrets. Each line carries a hash of the line before it, so the check reports where the log was edited or cut.
 

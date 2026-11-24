@@ -56,5 +56,5 @@ def test_security_check_runs(adapter):
 def test_every_check_runs_without_error(adapter):
     reply = _send(adapter, "security_check_run")
     checks = reply["data"]["checks"]
-    assert len(checks) == 11
+    assert len(checks) == 12
     assert not [c for c in checks if c["title"] == "Check could not run"], checks
