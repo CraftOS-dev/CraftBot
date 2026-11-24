@@ -628,7 +628,7 @@
       },
       "strict_channel_identity": {
         "label": "厳格な送信者確認",
-        "help": "Discord のオーナーは一意のユーザー名でのみ照合され、サーバーではメンションが必要です"
+        "help": "Discord のオーナーはユーザー ID で識別（最初の一致で記録）、サーバーではメンションが必要"
       },
       "audit_log": {
         "label": "監査ログ",

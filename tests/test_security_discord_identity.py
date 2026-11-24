@@ -14,6 +14,8 @@ from craftos_integrations import ConfigStore
 def client(monkeypatch):
     cfg = discord_client.DiscordConfig(self_usernames=["owner"])
     monkeypatch.setattr(discord_client, "load_config", lambda *a, **k: cfg)
+    saved = []
+    monkeypatch.setattr(discord_client, "save_config", lambda path, obj: saved.append(list(obj.self_user_ids)))
     c = discord_client.DiscordClient()
     c._bot_user_id = "bot"
     c._catchup_done = True
@@ -31,9 +33,9 @@ def client(monkeypatch):
     return c, seen
 
 
-def _message(username, global_name, mentioned=False, guild="g1"):
+def _message(username, global_name, mentioned=False, guild="g1", user_id="u1"):
     return {
-        "author": {"id": "u1", "username": username, "global_name": global_name},
+        "author": {"id": user_id, "username": username, "global_name": global_name},
         "content": "run something",
         "channel_id": "c1",
         "guild_id": guild,
@@ -61,3 +63,22 @@ def test_strict_identity_ignores_display_names_and_needs_a_mention(client, monke
     assert not seen  # in a server, the bot must be mentioned
     _run(c, _message("owner", "Owner", mentioned=True), True, monkeypatch)
     assert seen and seen[-1].raw["is_self_message"] is True
+
+
+def test_strict_identity_pins_the_owner_id_on_first_match(client, monkeypatch):
+    c, seen = client
+    _run(c, _message("owner", "Owner", mentioned=True, user_id="111"), True, monkeypatch)
+    assert seen[-1].raw["is_self_message"] is True
+    # The username is later taken by another account: the pinned ID decides.
+    _run(c, _message("owner", "Owner", mentioned=True, user_id="999"), True, monkeypatch)
+    assert len(seen) == 1
+    _run(c, _message("renamed", "New name", mentioned=True, user_id="111"), True, monkeypatch)
+    assert seen[-1].raw["is_self_message"] is True
+
+
+def test_listed_ids_match_without_strict_identity(client, monkeypatch):
+    c, seen = client
+    cfg = discord_client.load_config()
+    cfg.self_user_ids = ["222"]
+    _run(c, _message("someone", "Someone", user_id="222"), False, monkeypatch)
+    assert seen[-1].raw["is_self_message"] is True

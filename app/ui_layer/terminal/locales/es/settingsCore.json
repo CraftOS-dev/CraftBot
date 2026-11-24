@@ -628,7 +628,7 @@
       },
       "strict_channel_identity": {
         "label": "Comprobación estricta del remitente",
-        "help": "los propietarios de Discord se reconocen solo por su nombre de usuario único, y en los servidores hace falta una mención"
+        "help": "los propietarios de Discord se reconocen por ID de usuario (se registra en la primera coincidencia); en servidores hay que mencionarlo"
       },
       "audit_log": {
         "label": "Registro de auditoría",

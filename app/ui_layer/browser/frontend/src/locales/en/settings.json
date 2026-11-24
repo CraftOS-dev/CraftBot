@@ -902,7 +902,7 @@
       },
       "strict_channel_identity": {
         "label": "Strict channel identity",
-        "help": "Discord owners are recognized only by their unique username, never by a display name or role name anyone can copy, and the bot must be mentioned in servers."
+        "help": "Discord owners are recognized by their user ID. Until one is saved, the first owner matched by unique username has their ID recorded; display names and role names never count. In servers, the bot must be mentioned."
       },
       "audit_log": {
         "label": "Audit log",

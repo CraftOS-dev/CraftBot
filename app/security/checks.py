@@ -301,7 +301,14 @@ def _check_discord() -> CheckResult:
     if not has_credential(discord.DiscordClient.spec.cred_file):
         return CheckResult("discord_senders_limited", "ok", "Discord is not connected", "")
     cfg = load_config(discord._discord_config_file(), discord.DiscordConfig) or discord.DiscordConfig()
-    lists = (cfg.self_usernames, cfg.self_role_names, cfg.third_party_usernames, cfg.third_party_role_names)
+    lists = (
+        cfg.self_usernames,
+        cfg.self_role_names,
+        cfg.self_user_ids,
+        cfg.third_party_usernames,
+        cfg.third_party_role_names,
+        cfg.third_party_user_ids,
+    )
     if cfg.mention_only or any(lists) or get_policy().strict_channel_identity:
         return CheckResult(
             "discord_senders_limited", "ok", "Discord messages are limited",

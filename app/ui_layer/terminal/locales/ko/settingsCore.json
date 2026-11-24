@@ -628,7 +628,7 @@
       },
       "strict_channel_identity": {
         "label": "엄격한 발신자 확인",
-        "help": "Discord 소유자는 고유한 사용자 이름으로만 확인하며, 서버에서는 멘션이 필요합니다"
+        "help": "Discord 소유자는 사용자 ID로 식별(처음 일치 시 기록), 서버에서는 멘션 필요"
       },
       "audit_log": {
         "label": "감사 로그",

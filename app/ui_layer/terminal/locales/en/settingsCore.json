@@ -628,7 +628,7 @@
       },
       "strict_channel_identity": {
         "label": "Strict sender check",
-        "help": "Discord owners match by unique username only, and servers need a mention"
+        "help": "Discord owners match by user ID (recorded on first match); servers need a mention"
       },
       "audit_log": {
         "label": "Audit log",

@@ -628,7 +628,7 @@
       },
       "strict_channel_identity": {
         "label": "Pemeriksaan pengirim ketat",
-        "help": "pemilik Discord dicocokkan hanya dengan nama pengguna unik, dan server memerlukan penyebutan"
+        "help": "pemilik Discord dicocokkan dengan ID pengguna (dicatat saat pertama cocok); di server bot harus disebut"
       },
       "audit_log": {
         "label": "Log audit",

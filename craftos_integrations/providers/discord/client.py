@@ -21,6 +21,7 @@ from ... import (
     load_config,
     load_credential,
     register_client,
+    save_config,
 )
 from ...helpers import Result, request as http_request
 from ...logger import get_logger
@@ -83,6 +84,15 @@ class DiscordConfig:
     # Same matching semantics as the third-party fields above.
     self_usernames: List[str] = field(default_factory=list)
     self_role_names: List[str] = field(default_factory=list)
+
+    # ----- Matching by Discord user ID (snowflake) -----
+    # An ID belongs to one account forever; names can be changed or copied.
+    # A listed ID matches on its own. With the host's strict channel
+    # identity on, owner authority comes from these IDs once any is known,
+    # and the first owner matched by unique username has their ID recorded
+    # here.
+    self_user_ids: List[str] = field(default_factory=list)
+    third_party_user_ids: List[str] = field(default_factory=list)
 
 
 DISCORD = IntegrationSpec(
@@ -389,7 +399,11 @@ class DiscordClient(BasePlatformClient):
                 role_map.get(rid, "") for rid in role_ids if role_map.get(rid)
             }
 
-        def _matches(usernames: list, role_names: list) -> bool:
+        author_id = str(author.get("id") or "")
+
+        def _matches(usernames: list, role_names: list, user_ids: list = ()) -> bool:
+            if author_id and author_id in {str(i).strip() for i in (user_ids or [])}:
+                return True
             uns = {u.lower().strip() for u in (usernames or []) if u.strip()}
             rns = {r.lower().strip() for r in (role_names or []) if r.strip()}
             if uns and any(c and c in uns for c in author_username_candidates):
@@ -398,14 +412,31 @@ class DiscordClient(BasePlatformClient):
                 return True
             return False
 
-        any_self = bool(cfg.self_usernames or cfg.self_role_names)
-        any_tp = bool(cfg.third_party_usernames or cfg.third_party_role_names)
+        any_self = bool(cfg.self_usernames or cfg.self_role_names or cfg.self_user_ids)
+        any_tp = bool(
+            cfg.third_party_usernames
+            or cfg.third_party_role_names
+            or cfg.third_party_user_ids
+        )
 
         is_self_message = False
-        self_roles = [] if strict else cfg.self_role_names
-        if any_self and _matches(cfg.self_usernames, self_roles):
+        if strict and cfg.self_user_ids:
+            # Strict identity with a known owner ID: only the ID counts.
+            owner = _matches([], [], cfg.self_user_ids)
+        elif strict:
+            owner = _matches(cfg.self_usernames, [])
+            if owner and author_id:
+                # First match by unique username: pin the account's ID, so a
+                # later rename or a recycled username cannot take over.
+                cfg.self_user_ids = [author_id]
+                await asyncio.to_thread(save_config, _discord_config_file(), cfg)
+        else:
+            owner = _matches(cfg.self_usernames, cfg.self_role_names, cfg.self_user_ids)
+        if any_self and owner:
             is_self_message = True
-        elif any_tp and _matches(cfg.third_party_usernames, cfg.third_party_role_names):
+        elif any_tp and _matches(
+            cfg.third_party_usernames, cfg.third_party_role_names, cfg.third_party_user_ids
+        ):
             is_self_message = False
         elif any_self or any_tp:
             # At least one list configured but the user matched none → drop.

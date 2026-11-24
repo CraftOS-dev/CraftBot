@@ -628,7 +628,7 @@
       },
       "strict_channel_identity": {
         "label": "嚴格的傳送者檢查",
-        "help": "Discord 擁有者僅依唯一使用者名稱比對，且在伺服器中需要提及"
+        "help": "Discord 擁有者依使用者 ID 辨識（首次比對時記錄）；伺服器中需提及機器人"
       },
       "audit_log": {
         "label": "稽核記錄",

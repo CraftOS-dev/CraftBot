@@ -902,7 +902,7 @@
       },
       "strict_channel_identity": {
         "label": "Identitas saluran ketat",
-        "help": "Pemilik Discord hanya dikenali dari nama pengguna uniknya, tidak pernah dari nama tampilan atau nama peran yang dapat ditiru siapa pun, dan bot harus disebut di server."
+        "help": "Pemilik Discord dikenali dari ID penggunanya. Sebelum ada yang tersimpan, ID pemilik pertama yang cocok berdasarkan nama pengguna unik akan dicatat; nama tampilan dan nama peran tidak pernah dihitung. Di server, bot harus disebut."
       },
       "audit_log": {
         "label": "Log audit",

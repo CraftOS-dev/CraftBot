@@ -902,7 +902,7 @@
       },
       "strict_channel_identity": {
         "label": "Identidad estricta en los canales",
-        "help": "Los propietarios de Discord se reconocen solo por su nombre de usuario único, nunca por un nombre visible o de rol que cualquiera puede copiar, y en los servidores hay que mencionar al bot."
+        "help": "Los propietarios en Discord se reconocen por su ID de usuario. Mientras no haya uno guardado, se registra el ID del primer propietario que coincida por nombre de usuario único; los nombres visibles y de rol nunca cuentan. En los servidores hay que mencionar al bot."
       },
       "audit_log": {
         "label": "Registro de auditoría",

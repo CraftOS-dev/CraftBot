@@ -143,6 +143,20 @@ class DiscordProvider:
             "help": "Their messages are treated as if you (the bot owner) sent them - used for trusted admins who can drive the bot like its owner. Self matches win over third-party matches. Leave empty to skip.",
         },
         {
+            "key": "self_user_ids",
+            "label": "Self user IDs",
+            "type": "list",
+            "placeholder": "123456789012345678",
+            "help": "Discord user IDs (Developer Mode > Copy User ID) treated as you. An ID cannot be changed or copied, unlike a name. With Settings > Security > Strict channel identity on, these IDs are the only owner check once one is set, and the first owner matched by username is added here automatically.",
+        },
+        {
+            "key": "third_party_user_ids",
+            "label": "Third-party user IDs",
+            "type": "list",
+            "placeholder": "123456789012345678",
+            "help": "Discord user IDs whose messages reach the agent as external messages.",
+        },
+        {
             "key": "self_role_names",
             "label": "Self roles",
             "type": "list",

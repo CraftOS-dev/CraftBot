@@ -50,7 +50,7 @@ How an action is classified comes from what the action declares about itself (it
 | Mask CraftBot's own secrets in logs (and stop printing variables in error tracebacks, from the next start) | Off | On | On |
 | Write full prompts to logs | On | Off | Off |
 | Delete old logs and recorded AI calls | Never | After 90 days | After 30 days |
-| Discord owners by unique username, mention required | Off | On | On |
+| Discord owners by user ID (the first owner matched by unique username has their ID recorded), mention required | Off | On | On |
 | Security audit log | Off | On | On |
 
 Changing any single setting shows the level as **Custom**; **Reset** returns to the level's defaults. Your own lists (extra protected paths, allowed folders, allowed domains, email senders) and Auto mode are kept when you switch levels.

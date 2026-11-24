@@ -628,7 +628,7 @@
       },
       "strict_channel_identity": {
         "label": "严格的发送者检查",
-        "help": "Discord 所有者仅按唯一用户名匹配，且在服务器中需要提及"
+        "help": "Discord 主人按用户 ID 识别（首次匹配时记录）；服务器中需提及机器人"
       },
       "audit_log": {
         "label": "审计日志",
