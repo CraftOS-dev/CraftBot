@@ -11,6 +11,7 @@ import { McpTab } from './tabs/McpTab'
 import { SkillsTab } from './tabs/SkillsTab'
 import { IntegrationsTab } from './tabs/IntegrationsTab'
 import { CredentialsTab } from './tabs/CredentialsTab'
+import { SecurityTab } from './tabs/SecurityTab'
 import { AgentAppsTab } from './tabs/AgentAppsTab'
 
 export type SettingsTabId =
@@ -22,6 +23,7 @@ export type SettingsTabId =
   | 'skills'
   | 'integrations'
   | 'credentials'
+  | 'security'
   | 'agentApps'
 
 export interface SettingsTab {
@@ -40,5 +42,6 @@ export const SETTINGS_TABS: SettingsTab[] = [
   { id: 'skills', label: 'settings.tabs.skills', component: SkillsTab },
   { id: 'integrations', label: 'settings.tabs.integrations', component: IntegrationsTab },
   { id: 'credentials', label: 'settings.tabs.credentials', component: CredentialsTab },
+  { id: 'security', label: 'settings.tabs.security', component: SecurityTab },
   { id: 'agentApps', label: 'settings.tabs.agentApps', component: AgentAppsTab },
 ]

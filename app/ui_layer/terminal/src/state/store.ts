@@ -22,6 +22,7 @@ import memorySettingsReducer from '../../../browser/frontend/src/store/slices/me
 import skillsSettingsReducer from '../../../browser/frontend/src/store/slices/skillsSettingsSlice'
 import commandsSettingsReducer from '../../../browser/frontend/src/store/slices/commandsSettingsSlice'
 import proactiveSettingsReducer from '../../../browser/frontend/src/store/slices/proactiveSettingsSlice'
+import securityReducer from '../../../browser/frontend/src/store/slices/securitySlice'
 import generalSettingsReducer from '../../../browser/frontend/src/store/slices/generalSettingsSlice'
 import modelSettingsReducer from '../../../browser/frontend/src/store/slices/modelSettingsSlice'
 import reasoningReducer from '../../../browser/frontend/src/store/slices/reasoningSlice'
@@ -57,6 +58,7 @@ export const store = configureStore({
     skillsSettings: skillsSettingsReducer,
     commandsSettings: commandsSettingsReducer,
     proactiveSettings: proactiveSettingsReducer,
+    security: securityReducer,
     generalSettings: generalSettingsReducer,
     modelSettings: modelSettingsReducer,
     reasoning: reasoningReducer,

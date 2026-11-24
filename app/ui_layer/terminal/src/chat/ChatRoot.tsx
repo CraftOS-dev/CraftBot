@@ -8,9 +8,12 @@
  * renderer never falls back to clearing the screen.
  *
  * One input handler routes every key: global shortcuts first, then the
- * slash and @ popup, the question box or a rejected message when it has
- * focus, and the composer. `@` offers other chats and Agent Apps (given to
- * the agent as context with the message) before files on this computer.
+ * slash and @ popup, the approval box, the question box or a rejected
+ * message when it has focus, and the composer. An action waiting for the
+ * user's approval (Settings > Security, Auto mode off) pins its box above
+ * the question box, the open chat's request first. `@` offers other chats
+ * and Agent Apps (given to the agent as context with the message) before
+ * files on this computer.
  */
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { Box, Text, useApp, useInput, usePaste, useStdout, useWindowSize, type Key } from 'ink'
@@ -29,14 +32,16 @@ import { takeTranscriptDump } from '../screens/TranscriptScreen'
 import { selectLastMessageIdBySession } from '../../../browser/frontend/src/store/selectors/messages'
 import { clearPendingPrefill, setDraftText } from '../../../browser/frontend/src/store/slices/chatInputSlice'
 import { RESOURCES, useResource } from '../../../browser/frontend/src/store/resources'
-import { markSeen, sendChat, stopSession } from './intents'
+import { answerApproval, markSeen, sendChat, stopSession } from './intents'
 import { choiceKey, rejectedKey, useSessionLive } from './sessionLive'
 import { RejectedBlock, REJECTED_ROWS } from './RejectedBlock'
 import { latestTodos } from './activity'
-import { pendingScrollback, reopenActiveSession } from './transcriptWriter'
+import { pendingScrollback, reopenActiveSession, sessionTitle } from './transcriptWriter'
 import { WorkingBlock, workingBlockHeight } from './WorkingBlock'
 import { DraftReplyBlock, draftReplyHeight } from './DraftReply'
 import { ChoiceBox, choiceBoxHeight } from './ChoiceBox'
+import { ApprovalBox, approvalBoxHeight } from './ApprovalBox'
+import { approvalKey, approvalQueue } from './approval'
 import { StatusLine } from './StatusLine'
 import { COMPOSER_CHROME_ROWS, ComposerView, composerTextColumns } from '../input/ComposerView'
 import { applyKey, applyPaste, EMPTY_MODEL, modelFromText, submittedText, type ComposerModel } from '../input/composer'
@@ -68,7 +73,7 @@ const MAX_REFERENCES = 8
 const PATH_LIKE = /^(\.|~|[A-Za-z]:|.*[\\/])/
 
 export function ChatRoot() {
-  const { t } = useTranslation('tui')
+  const { t, i18n } = useTranslation('tui')
   const dispatch = useAppDispatch()
   const store = useStore<RootState>()
   const { write } = useStdout()
@@ -86,11 +91,14 @@ export function ChatRoot() {
   const commands = useAppSelector(s => s.commandsSettings.commands)
   const skills = useAppSelector(s => s.skillsSettings.skills)
   const lastMessageId = useAppSelector(s => selectLastMessageIdBySession(s)[sessionId])
+  const approvals = useAppSelector(s => s.security.approvals)
 
   useResource(RESOURCES.commands)
   useResource(RESOURCES.skills)
   // The welcome card names the model.
   useResource(RESOURCES.modelSettings)
+  // Approvals waiting for an answer (always live: refetched on every reconnect).
+  useResource(RESOURCES.securityApprovals)
   const replyTarget = useSyncExternalStore(subscribeReplyTarget, () => getReplyTarget(sessionId))
 
   // --- composer state ------------------------------------------------------
@@ -104,6 +112,10 @@ export function ChatRoot() {
   const [popupClosed, setPopupClosed] = useState(false)
   const [questionFocus, setQuestionFocus] = useState(false)
   const [rejectedFocus, setRejectedFocus] = useState(false)
+  const [approvalFocus, setApprovalFocus] = useState(false)
+  const [approvalIndex, setApprovalIndex] = useState(0)
+  // Approvals answered here, hidden until the backend reports them resolved.
+  const [answered, setAnswered] = useState<string[]>([])
   // Chats and apps given as context with the next message.
   const [references, setReferences] = useState<Reference[]>([])
   const [optionIndex, setOptionIndex] = useState(0)
@@ -121,6 +133,7 @@ export function ChatRoot() {
     setModel(modelFromText(store.getState().chatInput.drafts[sessionId] ?? ''))
     setQuestionFocus(false)
     setRejectedFocus(false)
+    setApprovalFocus(false)
     setReferences([])
   }, [sessionId, dispatch, setModel, store])
 
@@ -182,6 +195,10 @@ export function ChatRoot() {
 
   // --- derived live state ----------------------------------------------------
   const todos = todoOpen ? latestTodos(activity) : null
+  const approvalList = approvalQueue(approvals, sessionId, answered)
+  const approval = approvalList[0]
+  const approvalHere = approval?.session_id === sessionId
+  const approvalSession = approval?.session_id && !approvalHere ? sessionTitle(store.getState(), approval.session_id) : undefined
   const mention = mentionAt(model.buffer.text, model.buffer.cursor)
   const referenceItems: PopupItem[] =
     mention && !PATH_LIKE.test(mention.path) && references.length < MAX_REFERENCES
@@ -226,6 +243,20 @@ export function ChatRoot() {
   useEffect(() => {
     if (!rejected) setRejectedFocus(false)
   }, [rejected?.clientId])
+  useEffect(() => {
+    if (!approval) setApprovalFocus(false)
+    setApprovalIndex(0)
+  }, [approval?.id])
+  // Forget answers once the backend has removed their requests.
+  useEffect(() => {
+    setAnswered(prev => (prev.every(id => approvals.some(a => a.id === id)) ? prev : prev.filter(id => approvals.some(a => a.id === id))))
+  }, [approvals])
+  // An answer the backend refused (the request had already ended, say).
+  useEffect(() => onInboundMessage(msg => {
+    if (msg.type !== 'security_approval_answer') return
+    const d = (msg.data ?? {}) as { success?: boolean; error?: string }
+    if (d.success === false) dispatch(pushToast(t('approval.answerFailed', { error: d.error ?? '' }), 'error'))
+  }), [dispatch, t])
 
   // --- actions -----------------------------------------------------------------
   const submit = useCallback(async (raw: string) => {
@@ -327,8 +358,9 @@ export function ChatRoot() {
         setModel(EMPTY_MODEL)
         return
       }
-      if (questionFocus) {
+      if (questionFocus || approvalFocus) {
         setQuestionFocus(false)
+        setApprovalFocus(false)
         return
       }
       if (quitArmedAt && now - quitArmedAt < QUIT_WINDOW_MS) {
@@ -370,7 +402,7 @@ export function ChatRoot() {
     }
 
     // The slash popup takes Up/Down/Tab/Enter/Esc while it is open.
-    if (popupOpen && !questionFocus) {
+    if (popupOpen && !questionFocus && !approvalFocus) {
       if (key.upArrow) {
         setPopupIndex(i => (i - 1 + popupItems.length) % popupItems.length)
         return
@@ -409,7 +441,20 @@ export function ChatRoot() {
       }
     }
 
-    // The pinned question box, when focused, takes every key.
+    // The approval box, when focused, takes every key.
+    if (approvalFocus && approval) {
+      const result = approvalKey(approvalIndex, input, key)
+      if (result.kind === 'move') setApprovalIndex(result.index)
+      else if (result.kind === 'blur') setApprovalFocus(false)
+      else if (result.kind === 'answer') {
+        answerApproval(approval.id, result.decision)
+        const id = approval.id
+        setAnswered(prev => [...prev, id])
+        setApprovalFocus(false)
+      }
+      return
+    }
+    // So does the pinned question box.
     if (questionFocus && choice) {
       const result = choiceKey(choice, optionIndex, input, key)
       if (result.kind === 'move') setOptionIndex(result.index)
@@ -427,6 +472,10 @@ export function ChatRoot() {
       return
     }
 
+    if (key.tab && approval && !popupOpen) {
+      setApprovalFocus(true)
+      return
+    }
     if (key.tab && choice && !popupOpen) {
       setQuestionFocus(true)
       return
@@ -460,7 +509,7 @@ export function ChatRoot() {
       setPopupClosed(false)
     }
     if (result.effect?.kind === 'submit') void submit(result.effect.text)
-  }, [busy, choice, columns, dispatch, exit, optionIndex, popupItems, popupOpen, questionFocus, quitArmedAt, redraw, references, rejected, rejectedFocus, runLeader, runState, selectedSuggestion, sessionId, setModel, submit, t])
+  }, [approval, approvalFocus, approvalIndex, busy, choice, columns, dispatch, exit, optionIndex, popupItems, popupOpen, questionFocus, quitArmedAt, redraw, references, rejected, rejectedFocus, runLeader, runState, selectedSuggestion, sessionId, setModel, submit, t])
 
   useInput(handleKey)
   usePaste(text => {
@@ -482,7 +531,7 @@ export function ChatRoot() {
   }, [model.buffer.text, sessionId, dispatch])
 
   // --- layout --------------------------------------------------------------------
-  // Top to bottom: the reply being written, the working block, the to-do list, the pinned question,
+  // Top to bottom: the reply being written, the working block, the to-do list, the approval box, the pinned question,
   // toasts (or the slash popup while it is open), the composer rule and
   // text, the footer. The popup sits above the rule, so the composer never
   // moves. The region stays well under the viewport: the composer gets what
@@ -495,6 +544,9 @@ export function ChatRoot() {
   const draftMax = Math.max(2, Math.min(6, Math.floor(rows / 4)))
   const draftRows = draftReplyHeight(drafts, columns, draftMax)
   const choiceRows = choice ? choiceBoxHeight(choice, columns, choiceBody) : 0
+  const approvalInputs = Math.max(1, Math.min(4, rows - 22))
+  const approvalOptions = { language: i18n.language, sessionLabel: approvalSession }
+  const approvalRows = approval ? approvalBoxHeight(approval, columns, approvalInputs, t, approvalOptions) : 0
   const todoRows = todos ? Math.min(6, todos.length + 1) : 0
   const toastRows = popupOpen ? 0 : toasts.length
   const firstRunRows = showFirstRun && !popupOpen ? 1 : 0
@@ -502,7 +554,7 @@ export function ChatRoot() {
   const rejectedRows = rejected ? REJECTED_ROWS : 0
   const referenceRows = references.length > 0 ? 1 : 0
   const popupRows = popupOpen ? popupItems.length : 0
-  const above = 1 + draftRows + workingRows + todoRows + choiceRows + rejectedRows + toastRows + popupRows + firstRunRows + replyRows + referenceRows
+  const above = 1 + draftRows + workingRows + todoRows + approvalRows + choiceRows + rejectedRows + toastRows + popupRows + firstRunRows + replyRows + referenceRows
   const composerRows = Math.max(1, Math.min(6, budget - above - 1 - COMPOSER_CHROME_ROWS))
   const quitHint = quitArmedAt !== null && Date.now() - quitArmedAt < QUIT_WINDOW_MS
   const labelWidth = Math.min(26, Math.max(10, ...popupItems.map(item => width(item.label))) + 2)
@@ -514,7 +566,7 @@ export function ChatRoot() {
         <WorkingBlock
           startedAt={runStart}
           stopping={runState === 'stopping'}
-          waiting={!!choice}
+          waiting={!!choice || approvalHere}
           status={stepStatus}
           items={workingItems}
           subagents={subagentRows}
@@ -541,6 +593,17 @@ export function ChatRoot() {
             )
           })}
         </Box>
+      ) : null}
+      {approval ? (
+        <ApprovalBox
+          request={approval}
+          total={approvalList.length}
+          focused={approvalFocus}
+          selected={approvalIndex}
+          columns={columns}
+          maxInputLines={approvalInputs}
+          sessionLabel={approvalSession}
+        />
       ) : null}
       {choice ? (
         <ChoiceBox
@@ -597,7 +660,7 @@ export function ChatRoot() {
         columns={columns}
         placeholder={t('composer.placeholder')}
         maxRows={composerRows}
-        focused={!questionFocus && !rejectedFocus}
+        focused={!questionFocus && !rejectedFocus && !approvalFocus}
         offsetTop={above}
       />
       <StatusLine

@@ -29,6 +29,7 @@ import {
 import { setSessionRunState } from '../../../browser/frontend/src/store/slices/agentSlice'
 import { selectSessionRunState } from '../../../browser/frontend/src/store/selectors/agent'
 import { transferDraft } from '../../../browser/frontend/src/store/slices/chatInputSlice'
+import type { ApprovalDecision } from '../../../browser/frontend/src/store/slices/securitySlice'
 import { selectPendingQuestions } from '../../../browser/frontend/src/store/selectors/messages'
 import { onInboundMessage } from '../../../browser/frontend/src/store/socket/socketMiddleware'
 import { getApiBaseUrl } from '../platform/connection'
@@ -239,6 +240,14 @@ export function dismissQuestion(question: ChatMessage): void {
 export function clickOption(message: ChatMessage, value: string): void {
   store.dispatch(markOptionSelected({ sessionId: message.sessionId, messageId: message.messageId, value }))
   send('option_click', { value, sessionId: message.sessionId, messageId: message.messageId })
+}
+
+/**
+ * Answer a security approval request. The prompt goes away when the backend
+ * reports the request resolved (securitySlice removes it).
+ */
+export function answerApproval(id: string, decision: ApprovalDecision): void {
+  send('security_approval_response', { id, decision })
 }
 
 export function requestHistory(sessionId: string, beforeTimestamp?: number, limit = 50): void {

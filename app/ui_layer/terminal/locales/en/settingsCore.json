@@ -543,5 +543,143 @@
       "expired": "expired",
       "about": "about {{time}}"
     }
+  },
+  "security": {
+    "loading": "Loading security settings...",
+    "error": "Error: {{error}}",
+    "saved": "Saved",
+    "saveFailed": "Could not save the security settings",
+    "approvalsTitle": "Approvals",
+    "autoMode": "Auto mode",
+    "autoModeOn": "the agent acts without asking, as before",
+    "autoModeOff": "high-risk actions wait for your approval",
+    "askFirst": "Ask first before:",
+    "effects": {
+      "execute": "Running commands or code",
+      "write_files": "Creating or changing files",
+      "send_external": "Sending messages or changing outside services",
+      "change_agent": "Changing CraftBot's own setup, schedules or tools",
+      "use_credentials": "Using stored credentials"
+    },
+    "askAfterUntrusted": "Outside content",
+    "askAfterUntrustedDetail": "ask before any action once the agent has read web pages, email or other outside content",
+    "approvalsNote": "Approvals appear in the chat. No answer within {{minutes}} min counts as Deny.",
+    "levelTitle": "Security level",
+    "custom": "Custom",
+    "customAside": "Custom ({{level}})",
+    "levels": {
+      "standard": {
+        "name": "Standard",
+        "description": "Works exactly as before."
+      },
+      "enhanced": {
+        "name": "Enhanced",
+        "description": "Keeps the agent away from your keys, checks web requests, marks outside content and keeps an audit log. Rarely asks."
+      },
+      "strict": {
+        "name": "Strict",
+        "description": "Enhanced, plus file writes stay in the workspace, no third-party reader and shorter retention."
+      }
+    },
+    "hintChoose": "choose",
+    "lowerConfirm": "Lower security to {{level}}? Protections it does not include turn off.",
+    "switchConfirm": "Switch to {{level}}? Your custom settings go back to its defaults.",
+    "useDefaultsConfirm": "Drop your custom settings and use the {{level}} defaults?",
+    "customNote_one": "Custom: {{count}} setting changed on top of {{level}}.",
+    "customNote_other": "Custom: {{count}} settings changed on top of {{level}}.",
+    "useDefaults": "Use the {{level}} defaults",
+    "advancedTitle": "Advanced",
+    "showAdvanced": "Show advanced settings",
+    "hideAdvanced": "Hide advanced settings",
+    "advancedDetail": "each protection on its own",
+    "changed": "changed",
+    "settings": {
+      "mark_untrusted_content": {
+        "label": "Mark outside content",
+        "help": "web pages, email and other outside content reach the agent marked as data, not instructions"
+      },
+      "protect_secret_files": {
+        "label": "Protect secret files",
+        "help": "the agent's file tools cannot read or change keys, credentials or security settings (commands are not limited)"
+      },
+      "confine_writes": {
+        "label": "Confine file writes",
+        "help": "the agent creates and changes files only inside the workspace folders"
+      },
+      "network_guard": {
+        "label": "Check web requests",
+        "help": "the agent's web requests reach public sites only; local network and every redirect are checked"
+      },
+      "third_party_reader": {
+        "label": "Third-party reader",
+        "help": "web pages may be read through an outside reading service"
+      },
+      "scrub_child_env": {
+        "label": "Keep keys out of MCP servers",
+        "help": "MCP servers get basic system settings and their own values, not your other keys"
+      },
+      "redact_logs": {
+        "label": "Redact logs",
+        "help": "CraftBot's own keys and credentials are blanked out in logs"
+      },
+      "log_prompts": {
+        "label": "Log prompts",
+        "help": "the full prompts sent to the model are written to the logs"
+      },
+      "strict_channel_identity": {
+        "label": "Strict sender check",
+        "help": "Discord owners match by unique username only, and servers need a mention"
+      },
+      "audit_log": {
+        "label": "Audit log",
+        "help": "a tamper-evident record of security decisions"
+      },
+      "retention_days": {
+        "label": "Keep history for",
+        "help": "older log files and recorded AI calls are deleted; chats are kept; 0 keeps everything"
+      }
+    },
+    "keepForever": "Forever",
+    "days_one": "{{count}} day",
+    "days_other": "{{count}} days",
+    "badDays": "Use a whole number of days, 0 or more",
+    "lists": {
+      "extra_protected_paths": "Protected paths",
+      "workspace_paths": "Workspace folders",
+      "allowed_domains": "Only these domains (empty: any public site)"
+    },
+    "none": "none",
+    "listsNote": "These lists are edited in the browser: Settings > Security.",
+    "checkTitle": "Security check",
+    "checkIssues_one": "{{count}} to look at",
+    "checkIssues_other": "{{count}} to look at",
+    "checkAllGood": "nothing to fix",
+    "checking": "Checking...",
+    "checkAgain": "Run the check again",
+    "status": {
+      "ok": "OK",
+      "info": "Note",
+      "warn": "Warning",
+      "fail": "Problem"
+    },
+    "canFix": "fix available",
+    "hintFix": "fix",
+    "fixConfirm": "Apply the fix for \"{{title}}\"?",
+    "fixed": "Fixed",
+    "fixFailed": "The fix did not apply",
+    "auditTitle": "Audit log",
+    "auditOff": "Off. Turn it on under Advanced, or choose Enhanced or Strict.",
+    "auditLoading": "Loading the audit log...",
+    "auditRecords": "Records",
+    "records_one": "{{count}} record",
+    "records_other": "{{count}} records",
+    "auditIntact": "intact: none changed or removed",
+    "auditBroken": "changed: the chain breaks at line {{line}}",
+    "auditFile": "File",
+    "auditRefresh": "Refresh the audit log",
+    "resetTitle": "Reset",
+    "resetDesc": "Back to Standard with Auto mode on, and the path and domain lists emptied.",
+    "reset": "Reset security settings",
+    "resetConfirm": "Reset all security settings to Standard?"
   }
 }
