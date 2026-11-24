@@ -637,6 +637,10 @@
       "retention_days": {
         "label": "Simpan riwayat selama",
         "help": "berkas log dan panggilan AI terekam yang lebih lama dihapus; obrolan tetap disimpan; 0 menyimpan semuanya"
+      },
+      "verify_mcp_servers": {
+        "label": "Server MCP hanya sesuai yang disimpan",
+        "help": "server MCP yang diubah di luar Pengaturan menunggu persetujuan Anda"
       }
     },
     "keepForever": "Selamanya",

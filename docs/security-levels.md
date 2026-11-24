@@ -39,6 +39,7 @@ How an action is classified comes from what the action declares about itself (it
 | Protection | Standard (default) | Enhanced | Strict |
 | --- | --- | --- | --- |
 | Mark outside content as data, not instructions | Partial (as before) | On | On |
+| Start MCP servers only as saved in Settings | Off | On | On |
 | Ask after outside content (when Auto mode is off) | Off | On | On |
 | Keep the agent's file tools away from keys and security settings | Off | On | On |
 | File tools write only in the workspace | Off | Off | On |

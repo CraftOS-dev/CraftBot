@@ -637,6 +637,10 @@
       "retention_days": {
         "label": "歷史記錄保留時間",
         "help": "較舊的記錄檔和已記錄的 AI 呼叫會被刪除；聊天會保留；0 表示全部保留"
+      },
+      "verify_mcp_servers": {
+        "label": "僅依儲存內容啟動 MCP 伺服器",
+        "help": "在設定之外被更改的 MCP 伺服器需等待你確認"
       }
     },
     "keepForever": "永久",

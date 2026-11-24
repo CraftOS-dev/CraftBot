@@ -911,6 +911,10 @@
         "label": "Solo correo de",
         "help": "Solo los correos de estas direcciones llegan al agente. Déjalo vacío para que pase todo el correo de la bandeja de entrada. Una dirección de remitente se puede falsificar, así que esto reduce lo que llega, pero no demuestra quién lo envió.",
         "placeholder": "nombre@ejemplo.com"
+      },
+      "verify_mcp_servers": {
+        "label": "Iniciar solo servidores MCP guardados en Ajustes",
+        "help": "Un servidor MCP cuyo comando se cambió de otra forma, por ejemplo con un comando que ejecutó el agente, no se inicia hasta que lo confirmes en la Comprobación de seguridad."
       }
     },
     "list": {

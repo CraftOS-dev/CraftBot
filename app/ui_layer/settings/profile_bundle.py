@@ -767,6 +767,9 @@ def _apply_mcp(
             cleaned.append(server)
             added.append(name)
         write_private_json(MCP_CONFIG_PATH, {"mcp_servers": cleaned})
+        from app.security.mcp_trust import record
+
+        record(cleaned)  # the user chose to import this bundle
         return added, skipped, needs_env, invalid
 
     # replace mode — additive with overwrite-on-conflict + env preservation
@@ -800,6 +803,9 @@ def _apply_mcp(
 
     current["mcp_servers"] = list(by_name.values())
     write_private_json(MCP_CONFIG_PATH, current)
+    from app.security.mcp_trust import record
+
+    record(current["mcp_servers"])  # the user chose to import this bundle
     return added, skipped, needs_env, invalid
 
 

@@ -82,6 +82,9 @@ class SecurityPolicy:
 
     # ── Untrusted content ──
     mark_untrusted_content: bool = False
+    # Start an MCP server only as it was saved through CraftBot's settings
+    # (app/security/mcp_trust.py).
+    verify_mcp_servers: bool = False
 
     # ── Files ──
     protect_secret_files: bool = False
@@ -137,6 +140,7 @@ _PRESETS: Dict[SecurityLevel, Dict[str, Any]] = {
     SecurityLevel.ENHANCED: {
         "ask_after_untrusted": True,
         "mark_untrusted_content": True,
+        "verify_mcp_servers": True,
         "protect_secret_files": True,
         "network_guard": True,
         "scrub_child_env": True,
@@ -150,6 +154,7 @@ _PRESETS: Dict[SecurityLevel, Dict[str, Any]] = {
         "approval_effects": HIGH_RISK_EFFECTS | {Effect.WRITE_FILES},
         "ask_after_untrusted": True,
         "mark_untrusted_content": True,
+        "verify_mcp_servers": True,
         "protect_secret_files": True,
         "confine_writes": True,
         "network_guard": True,

@@ -168,12 +168,43 @@ def _check_auto_mode() -> CheckResult:
     )
 
 
+def _check_mcp_changes() -> CheckResult:
+    from app.security import mcp_trust
+    from app.security.policy import get_policy
+
+    if not get_policy().verify_mcp_servers:
+        return CheckResult(
+            "mcp_servers_unchanged",
+            "info",
+            "MCP servers start as configured",
+            "Any change to an MCP server's command takes effect on the next start. "
+            "Enhanced and Strict start only servers saved in Settings.",
+        )
+    changed = mcp_trust.changed_servers()
+    if not changed:
+        return CheckResult(
+            "mcp_servers_unchanged",
+            "ok",
+            "MCP servers match what was saved in Settings",
+            "No server's command was changed outside CraftBot's settings.",
+        )
+    return CheckResult(
+        "mcp_servers_unchanged",
+        "warn",
+        "MCP servers were changed outside Settings",
+        f"Not started until you confirm them: {', '.join(changed)}. Fix trusts them "
+        f"as they are now; review their commands in Settings > MCP first.",
+        fix_id="mcp_servers_unchanged",
+    )
+
+
 CHECKS: List[Callable[[], CheckResult]] = [
     _check_secret_files,
     _check_bind_address,
     _check_audit_chain,
     _check_level,
     _check_auto_mode,
+    _check_mcp_changes,
 ]
 
 
@@ -200,7 +231,16 @@ def _fix_secret_files() -> int:
     return sum(1 for p in secret_files() if restrict_to_owner(p))
 
 
-FIXES: Dict[str, Callable[[], int]] = {"secret_files_private": _fix_secret_files}
+def _fix_mcp_changes() -> int:
+    from app.security import mcp_trust
+
+    return mcp_trust.trust_current()
+
+
+FIXES: Dict[str, Callable[[], int]] = {
+    "secret_files_private": _fix_secret_files,
+    "mcp_servers_unchanged": _fix_mcp_changes,
+}
 
 
 def apply_fix(fix_id: str) -> bool:

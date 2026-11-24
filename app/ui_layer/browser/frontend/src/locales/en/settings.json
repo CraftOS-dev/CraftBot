@@ -911,6 +911,10 @@
         "label": "Only email from",
         "help": "Only emails from these addresses reach the agent. Leave it empty to let every inbox email through. A sender address can be forged, so this narrows what arrives; it does not prove who sent it.",
         "placeholder": "name@example.com"
+      },
+      "verify_mcp_servers": {
+        "label": "Only start MCP servers saved in Settings",
+        "help": "An MCP server whose command was changed any other way, for example by a command the agent ran, does not start until you confirm it in the Security check."
       }
     },
     "list": {

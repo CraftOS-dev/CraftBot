@@ -53,6 +53,7 @@ const SETTING_KEYS: SecuritySettingKey[] = [
   'ask_after_untrusted',
   'approval_timeout_s',
   'mark_untrusted_content',
+  'verify_mcp_servers',
   'protect_secret_files',
   'extra_protected_paths',
   'confine_writes',
@@ -72,6 +73,7 @@ const SETTING_KEYS: SecuritySettingKey[] = [
 /** On/off protections under Advanced (each has a label and one-line help). */
 type ToggleKey =
   | 'mark_untrusted_content'
+  | 'verify_mcp_servers'
   | 'protect_secret_files'
   | 'confine_writes'
   | 'network_guard'
@@ -370,7 +372,10 @@ export function SecuritySettings() {
         {showAdvanced && (
           <div className={styles.advancedContent}>
             <p className={styles.hint}>{t('settings:security.advanced.desc')}</p>
-            {group('untrusted', toggleRow('mark_untrusted_content'))}
+            {group('untrusted', <>
+              {toggleRow('mark_untrusted_content')}
+              {toggleRow('verify_mcp_servers')}
+            </>)}
             {group('files', <>
               {toggleRow('protect_secret_files')}
               {listRow('extra_protected_paths')}

@@ -911,6 +911,10 @@
         "label": "Hanya email dari",
         "help": "Hanya email dari alamat ini yang sampai ke agen. Kosongkan agar semua email di kotak masuk diteruskan. Alamat pengirim bisa dipalsukan, jadi ini hanya mempersempit yang masuk, bukan bukti siapa pengirimnya.",
         "placeholder": "nama@contoh.com"
+      },
+      "verify_mcp_servers": {
+        "label": "Hanya jalankan server MCP yang disimpan di Pengaturan",
+        "help": "Server MCP yang perintahnya diubah dengan cara lain, misalnya oleh perintah yang dijalankan agen, tidak dijalankan sampai Anda mengonfirmasinya di Pemeriksaan keamanan."
       }
     },
     "list": {

@@ -16,6 +16,7 @@ export const APPROVAL_EFFECTS: readonly SecurityEffect[] = ['execute', 'write_fi
 /** The Advanced on/off settings, in the page's order. */
 export const ADVANCED_TOGGLES = [
   'mark_untrusted_content',
+  'verify_mcp_servers',
   'protect_secret_files',
   'confine_writes',
   'network_guard',

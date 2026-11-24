@@ -637,6 +637,10 @@
       "retention_days": {
         "label": "历史记录保留时长",
         "help": "较旧的日志文件和已记录的 AI 调用会被删除；聊天会保留；0 表示全部保留"
+      },
+      "verify_mcp_servers": {
+        "label": "仅按保存内容启动 MCP 服务器",
+        "help": "在设置之外被更改的 MCP 服务器需等待你确认"
       }
     },
     "keepForever": "永久",

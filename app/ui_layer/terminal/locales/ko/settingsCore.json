@@ -637,6 +637,10 @@
       "retention_days": {
         "label": "기록 보관 기간",
         "help": "오래된 로그 파일과 기록된 AI 호출은 삭제되고 채팅은 유지됩니다. 0이면 모두 보관합니다"
+      },
+      "verify_mcp_servers": {
+        "label": "저장된 대로의 MCP 서버만",
+        "help": "설정 밖에서 바뀐 MCP 서버는 확인을 기다립니다"
       }
     },
     "keepForever": "영구",

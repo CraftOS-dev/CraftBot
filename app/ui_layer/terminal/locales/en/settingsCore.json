@@ -637,6 +637,10 @@
       "retention_days": {
         "label": "Keep history for",
         "help": "older log files and recorded AI calls are deleted; chats are kept; 0 keeps everything"
+      },
+      "verify_mcp_servers": {
+        "label": "MCP servers only as saved",
+        "help": "an MCP server changed outside Settings waits for your OK"
       }
     },
     "keepForever": "Forever",

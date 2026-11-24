@@ -27,6 +27,8 @@ export interface SecurityPolicy {
   ask_after_untrusted: boolean
   approval_timeout_s: number
   mark_untrusted_content: boolean
+  /** Start MCP servers only as saved through Settings. */
+  verify_mcp_servers: boolean
   protect_secret_files: boolean
   extra_protected_paths: string[]
   confine_writes: boolean

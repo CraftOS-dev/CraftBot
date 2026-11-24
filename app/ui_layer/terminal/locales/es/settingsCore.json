@@ -637,6 +637,10 @@
       "retention_days": {
         "label": "Conservar el historial durante",
         "help": "los archivos de registro y las llamadas a la IA grabadas más antiguos se eliminan; los chats se conservan; 0 lo conserva todo"
+      },
+      "verify_mcp_servers": {
+        "label": "Servidores MCP solo como se guardaron",
+        "help": "un servidor MCP cambiado fuera de Ajustes espera tu confirmación"
       }
     },
     "keepForever": "Para siempre",

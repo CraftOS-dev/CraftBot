@@ -891,6 +891,15 @@ class MCPServerConnection:
             logger.warning(f"Server '{self.config.name}' is already connected")
             return True
 
+        # Settings > Security: a server whose command was changed outside
+        # CraftBot's settings does not start until the user confirms it.
+        from app.security.mcp_trust import refusal
+
+        held_back = refusal(self.config)
+        if held_back:
+            logger.warning(f"[MCPServer:{self.config.name}] {held_back}")
+            return False
+
         try:
             # Create and connect transport
             logger.debug(

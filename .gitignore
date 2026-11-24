@@ -31,6 +31,9 @@ config.json
 node_modules
 .env
 .credentials/
+# Security state: audit log, MCP trust ledger, session token files
+.security/
+/run/
 **/agent_logs.txt
 **/memory.txt
 **/gui/config
