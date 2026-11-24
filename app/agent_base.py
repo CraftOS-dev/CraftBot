@@ -152,6 +152,15 @@ class TriggerData:
 
 
 
+def _email_sender_allowed(address: str) -> bool:
+    from app.security.policy import get_policy
+
+    allowed = get_policy().email_allowed_senders
+    if not allowed:
+        return True
+    return (address or "").strip().lower() in {a.strip().lower() for a in allowed}
+
+
 def _strict_channel_identity() -> bool:
     from app.security.policy import get_policy
 
@@ -4275,6 +4284,8 @@ class AgentBase:
                 # only (a callable, read per message, so a change applies
                 # at once).
                 "strict_channel_identity": _strict_channel_identity,
+                # Settings > Security: which email senders reach the agent.
+                "email_sender_allowed": _email_sender_allowed,
             },
         )
         # Install the inbound-event callback BEFORE any listener starts:

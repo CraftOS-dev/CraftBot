@@ -39,6 +39,8 @@ export interface SecurityPolicy {
   log_prompts: boolean
   retention_days: number
   strict_channel_identity: boolean
+  /** Only these senders' emails reach the agent; empty: every inbox email. */
+  email_allowed_senders: string[]
   audit_log: boolean
 }
 

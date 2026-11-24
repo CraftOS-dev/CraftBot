@@ -646,7 +646,8 @@
     "lists": {
       "extra_protected_paths": "Path yang dilindungi",
       "workspace_paths": "Folder ruang kerja",
-      "allowed_domains": "Hanya domain ini (kosong: situs publik mana pun)"
+      "allowed_domains": "Hanya domain ini (kosong: situs publik mana pun)",
+      "email_allowed_senders": "Email hanya dari"
     },
     "none": "tidak ada",
     "listsNote": "Daftar ini disunting di peramban: Pengaturan > Keamanan.",

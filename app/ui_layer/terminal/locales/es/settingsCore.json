@@ -646,7 +646,8 @@
     "lists": {
       "extra_protected_paths": "Rutas protegidas",
       "workspace_paths": "Carpetas del espacio de trabajo",
-      "allowed_domains": "Solo estos dominios (vacío: cualquier sitio público)"
+      "allowed_domains": "Solo estos dominios (vacío: cualquier sitio público)",
+      "email_allowed_senders": "Correo solo de"
     },
     "none": "ninguno",
     "listsNote": "Estas listas se editan en el navegador: Ajustes > Seguridad.",

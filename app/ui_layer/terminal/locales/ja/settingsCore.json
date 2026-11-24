@@ -646,7 +646,8 @@
     "lists": {
       "extra_protected_paths": "保護するパス",
       "workspace_paths": "ワークスペースのフォルダー",
-      "allowed_domains": "これらのドメインのみ（空: すべての公開サイト）"
+      "allowed_domains": "これらのドメインのみ（空: すべての公開サイト）",
+      "email_allowed_senders": "メールの送信者を限定"
     },
     "none": "なし",
     "listsNote": "これらのリストはブラウザの 設定 > セキュリティ で編集します。",

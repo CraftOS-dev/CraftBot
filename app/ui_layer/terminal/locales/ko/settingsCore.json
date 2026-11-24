@@ -646,7 +646,8 @@
     "lists": {
       "extra_protected_paths": "보호된 경로",
       "workspace_paths": "작업 공간 폴더",
-      "allowed_domains": "이 도메인만 (비어 있으면 모든 공개 사이트)"
+      "allowed_domains": "이 도메인만 (비어 있으면 모든 공개 사이트)",
+      "email_allowed_senders": "이메일 보낸 사람 제한"
     },
     "none": "없음",
     "listsNote": "이 목록은 브라우저의 설정 > 보안에서 편집합니다.",

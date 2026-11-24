@@ -65,6 +65,7 @@ const SETTING_KEYS: SecuritySettingKey[] = [
   'log_prompts',
   'retention_days',
   'strict_channel_identity',
+  'email_allowed_senders',
   'audit_log',
 ]
 
@@ -82,7 +83,7 @@ type ToggleKey =
   | 'audit_log'
 
 /** List settings under Advanced (label, help and an input placeholder). */
-type ListKey = 'extra_protected_paths' | 'workspace_paths' | 'allowed_domains'
+type ListKey = 'extra_protected_paths' | 'workspace_paths' | 'allowed_domains' | 'email_allowed_senders'
 
 const AUDIT_EVENTS = ['action_approval', 'security_settings_changed', 'security_check_fixed'] as const
 type KnownAuditEvent = (typeof AUDIT_EVENTS)[number]
@@ -387,7 +388,10 @@ export function SecuritySettings() {
               {toggleRow('log_prompts')}
               <RetentionField days={policy.retention_days} onSave={days => update('retention_days', days)} />
             </>)}
-            {group('channels', toggleRow('strict_channel_identity'))}
+            {group('channels', <>
+              {toggleRow('strict_channel_identity')}
+              {listRow('email_allowed_senders')}
+            </>)}
             {group('audit', toggleRow('audit_log'))}
           </div>
         )}

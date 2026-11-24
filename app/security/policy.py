@@ -102,6 +102,10 @@ class SecurityPolicy:
 
     # ── Channels ──
     strict_channel_identity: bool = False
+    # Only these senders' emails reach the agent (exact addresses). Empty:
+    # every inbox email, as before. A From address can be forged, so this
+    # narrows what arrives; it is not proof of who sent it.
+    email_allowed_senders: Tuple[str, ...] = ()
 
     # ── Audit ──
     audit_log: bool = False
@@ -116,7 +120,12 @@ class SecurityPolicy:
         data = asdict(self)
         data["level"] = self.level.value
         data["approval_effects"] = sorted(e.value for e in self.approval_effects)
-        for key in ("extra_protected_paths", "workspace_paths", "allowed_domains"):
+        for key in (
+            "extra_protected_paths",
+            "workspace_paths",
+            "allowed_domains",
+            "email_allowed_senders",
+        ):
             data[key] = list(data[key])
         return data
 
@@ -155,7 +164,13 @@ _PRESETS: Dict[SecurityLevel, Dict[str, Any]] = {
 }
 
 _USER_FIELDS = frozenset(
-    {"auto_mode", "extra_protected_paths", "workspace_paths", "allowed_domains"}
+    {
+        "auto_mode",
+        "extra_protected_paths",
+        "workspace_paths",
+        "allowed_domains",
+        "email_allowed_senders",
+    }
 )
 _FIELD_TYPES = {f.name: f for f in fields(SecurityPolicy)}
 _SETTABLE = frozenset(_FIELD_TYPES) - {"level", "customized"}

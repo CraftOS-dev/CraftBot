@@ -51,7 +51,9 @@ How an action is classified comes from what the action declares about itself (it
 | Discord owners by unique username, mention required | Off | On | On |
 | Security audit log | Off | On | On |
 
-Changing any single setting shows the level as **Custom**; **Reset** returns to the level's defaults. Your own lists (extra protected paths, allowed folders, allowed domains) and Auto mode are kept when you switch levels.
+Changing any single setting shows the level as **Custom**; **Reset** returns to the level's defaults. Your own lists (extra protected paths, allowed folders, allowed domains, email senders) and Auto mode are kept when you switch levels.
+
+**Only email from** (under Channels) lets only the listed addresses' Gmail and Outlook messages reach the agent. Empty, the default, lets every inbox email through as before. A sender address can be forged, so the list narrows what arrives; marking outside content and approvals still apply to what gets through.
 
 ## Always on, at every level
 

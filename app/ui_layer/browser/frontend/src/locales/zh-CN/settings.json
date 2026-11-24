@@ -906,6 +906,11 @@
       "audit_log": {
         "label": "审计日志",
         "help": "保留可检测篡改的批准和安全更改记录。"
+      },
+      "email_allowed_senders": {
+        "label": "仅接收这些地址的邮件",
+        "help": "只有来自这些地址的邮件会交给智能体。留空则收件箱中的所有邮件都会交给它。发件人地址可以伪造，所以这只能缩小范围，不能证明发件人是谁。",
+        "placeholder": "name@example.com"
       }
     },
     "list": {

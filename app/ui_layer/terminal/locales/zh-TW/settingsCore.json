@@ -646,7 +646,8 @@
     "lists": {
       "extra_protected_paths": "受保護的路徑",
       "workspace_paths": "工作區資料夾",
-      "allowed_domains": "只限這些網域（留空：任何公開網站）"
+      "allowed_domains": "只限這些網域（留空：任何公開網站）",
+      "email_allowed_senders": "僅限這些寄件人的郵件"
     },
     "none": "無",
     "listsNote": "這些清單需在瀏覽器中編輯：設定 > 安全性。",

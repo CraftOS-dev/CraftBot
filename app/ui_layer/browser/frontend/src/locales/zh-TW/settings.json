@@ -906,6 +906,11 @@
       "audit_log": {
         "label": "稽核記錄",
         "help": "保留可偵測竄改的核准與安全性變更記錄。"
+      },
+      "email_allowed_senders": {
+        "label": "僅接收這些地址的郵件",
+        "help": "只有來自這些地址的郵件會交給代理。留空則收件匣中的所有郵件都會交給它。寄件人地址可以偽造，所以這只能縮小範圍，無法證明寄件人是誰。",
+        "placeholder": "name@example.com"
       }
     },
     "list": {

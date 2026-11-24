@@ -646,7 +646,8 @@
     "lists": {
       "extra_protected_paths": "Protected paths",
       "workspace_paths": "Workspace folders",
-      "allowed_domains": "Only these domains (empty: any public site)"
+      "allowed_domains": "Only these domains (empty: any public site)",
+      "email_allowed_senders": "Email only from"
     },
     "none": "none",
     "listsNote": "These lists are edited in the browser: Settings > Security.",

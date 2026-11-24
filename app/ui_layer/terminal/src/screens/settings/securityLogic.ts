@@ -30,7 +30,7 @@ export const ADVANCED_TOGGLES = [
 export type AdvancedToggle = (typeof ADVANCED_TOGGLES)[number]
 
 /** The path and domain lists (shown read-only here). */
-export const SECURITY_LISTS = ['extra_protected_paths', 'workspace_paths', 'allowed_domains'] as const satisfies readonly (keyof SecurityPolicy)[]
+export const SECURITY_LISTS = ['extra_protected_paths', 'workspace_paths', 'allowed_domains', 'email_allowed_senders'] as const satisfies readonly (keyof SecurityPolicy)[]
 
 export function levelRank(level: SecurityLevel): number {
   return Math.max(0, SECURITY_LEVELS.indexOf(level))

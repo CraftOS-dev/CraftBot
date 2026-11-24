@@ -906,6 +906,11 @@
       "audit_log": {
         "label": "Log audit",
         "help": "Simpan catatan persetujuan dan perubahan keamanan yang memperlihatkan jika ada yang mengutak-atiknya."
+      },
+      "email_allowed_senders": {
+        "label": "Hanya email dari",
+        "help": "Hanya email dari alamat ini yang sampai ke agen. Kosongkan agar semua email di kotak masuk diteruskan. Alamat pengirim bisa dipalsukan, jadi ini hanya mempersempit yang masuk, bukan bukti siapa pengirimnya.",
+        "placeholder": "nama@contoh.com"
       }
     },
     "list": {

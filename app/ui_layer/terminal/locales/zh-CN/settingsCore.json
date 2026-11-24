@@ -646,7 +646,8 @@
     "lists": {
       "extra_protected_paths": "受保护的路径",
       "workspace_paths": "工作区文件夹",
-      "allowed_domains": "仅限这些域名（留空：任何公共网站）"
+      "allowed_domains": "仅限这些域名（留空：任何公共网站）",
+      "email_allowed_senders": "仅限这些发件人的邮件"
     },
     "none": "无",
     "listsNote": "这些列表需在浏览器中编辑：设置 > 安全。",

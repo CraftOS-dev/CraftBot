@@ -906,6 +906,11 @@
       "audit_log": {
         "label": "Registro de auditoría",
         "help": "Guarda un registro a prueba de manipulaciones de las aprobaciones y los cambios de seguridad."
+      },
+      "email_allowed_senders": {
+        "label": "Solo correo de",
+        "help": "Solo los correos de estas direcciones llegan al agente. Déjalo vacío para que pase todo el correo de la bandeja de entrada. Una dirección de remitente se puede falsificar, así que esto reduce lo que llega, pero no demuestra quién lo envió.",
+        "placeholder": "nombre@ejemplo.com"
       }
     },
     "list": {

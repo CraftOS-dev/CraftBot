@@ -156,3 +156,19 @@ def test_tracebacks_stop_printing_variables_when_logs_are_redacted(tmp_path):
         assert _diagnose() is False
     finally:
         set_store_for_tests(None)
+
+
+def test_email_sender_list_is_empty_by_default_and_exact_when_set(tmp_path):
+    from app.agent_base import _email_sender_allowed
+    from app.security.policy import SecurityStore, set_store_for_tests
+
+    store = SecurityStore(tmp_path / "security.json")
+    set_store_for_tests(store)
+    try:
+        assert _email_sender_allowed("anyone@example.com")
+        store.update({"email_allowed_senders": ["Me@Example.com"]})
+        assert _email_sender_allowed("me@example.com")
+        assert not _email_sender_allowed("me@example.com.evil.test")
+        assert not store.policy.customized  # the user's own list, not a level change
+    finally:
+        set_store_for_tests(None)

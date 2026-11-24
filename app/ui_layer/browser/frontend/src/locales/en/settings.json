@@ -906,6 +906,11 @@
       "audit_log": {
         "label": "Audit log",
         "help": "Keep a tamper-evident record of approvals and security changes."
+      },
+      "email_allowed_senders": {
+        "label": "Only email from",
+        "help": "Only emails from these addresses reach the agent. Leave it empty to let every inbox email through. A sender address can be forged, so this narrows what arrives; it does not prove who sent it.",
+        "placeholder": "name@example.com"
       }
     },
     "list": {
