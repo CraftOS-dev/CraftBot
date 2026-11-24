@@ -38,7 +38,8 @@
       "identityChanged": "The app at this location has changed.",
       "separateView": "This app has a separate interface address that Agent-App does not yet provide to CraftBot.",
       "failed": "Couldn't check this app. Retry when Agent-App is available.",
-      "frameFailed": "The app view hasn't finished loading. Retry to check the app and load its view again."
+      "frameFailed": "The app view hasn't finished loading. Retry to check the app and load its view again.",
+      "unconfirmed": "Couldn't confirm the app is responding. Showing its current view."
     },
     "loading": "Checking for apps…",
     "failed": "Couldn't load the app list.",

@@ -1,5 +1,5 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit'
-import { reconcileFrameworkIframes, frameworkFrameId, removeIframe } from '../../features/agentApps/frameHost'
+import { reconcileFrameworkIframes, frameworkFrameId, keepsFrame, removeIframe } from '../../features/agentApps/frameHost'
 import { setConnected } from './connectionSlice'
 import type { AgentAppBuildEvent, BuildSnapshot, FrameworkRegistryApp, FrameworkConnectedApp, FrameworkRegistryResponse, FrameworkAppView, FrameworkOpenResponse, FrameworkLifecycleResult } from '../../types'
 import { register } from '../socket/messageRegistry'
@@ -132,11 +132,12 @@ const agentAppSlice = createSlice({
       if (result.status === 'success') {
         state.framework.hasSnapshot = true
         const registered = new Set(result.data.apps.map(app => frameworkAppKey(app.path, app.id)))
-        const running = new Set(result.data.apps.filter(app => app.status === 'running').map(app => frameworkAppKey(app.path, app.id)))
+        // An unconfirmed (`unreachable`) app keeps its view and frame: see keepsFrame.
+        const live = new Set(result.data.apps.filter(app => keepsFrame(app.status)).map(app => frameworkAppKey(app.path, app.id)))
         for (const key of Object.keys(state.frameworkResolvedViews)) {
           const app = result.data.apps.find(app => frameworkAppKey(app.path, app.id) === key)
           const previous = state.framework.apps.find(app => frameworkAppKey(app.path, app.id) === key)
-          if (!running.has(key) || (app?.port !== previous?.port)) {
+          if (!live.has(key) || (app?.port !== previous?.port)) {
             delete state.frameworkResolvedViews[key]
             if (app?.port !== previous?.port && app) removeIframe(frameworkFrameId(app.path, app.id))
           }
@@ -175,10 +176,13 @@ const agentAppSlice = createSlice({
     },
   },
   extraReducers: (builder) => {
-    // Events may be missed while disconnected; trust the next list fully.
+    // Events may be missed while disconnected; trust the next list fully. The
+    // backend pushes that list on every connect and it prunes resolved views
+    // of apps that stopped, vanished or moved port, so views survive the
+    // disconnect: re-opening each one re-ran a CLI probe whose failure
+    // disposed the frame and reloaded a perfectly healthy app.
     builder.addCase(setConnected, (state, action) => {
       if (!action.payload) {
-        state.frameworkResolvedViews = {}
         state.frameworkSessions = {}
         state.frameworkViews = {}
         for (const operation of Object.values(state.frameworkLifecycle)) {
