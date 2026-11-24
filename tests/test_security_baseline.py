@@ -172,3 +172,27 @@ def test_email_sender_list_is_empty_by_default_and_exact_when_set(tmp_path):
         assert not store.policy.customized  # the user's own list, not a level change
     finally:
         set_store_for_tests(None)
+
+
+def test_shell_commands_keep_the_users_env_but_not_craftbot_keys(tmp_path, monkeypatch):
+    from app.security import env as env_module
+    from app.security import redact
+    from app.security.policy import SecurityLevel, SecurityStore, set_store_for_tests
+
+    settings = tmp_path / "settings.json"
+    settings.write_text(json.dumps({"api_keys": {"openai": "sk-live-abcdef123456"}}))
+    monkeypatch.setattr(redact, "_sources", lambda: [settings])
+    base = {
+        "PATH": "/bin",
+        "JAVA_HOME": "/opt/jdk",
+        "OPENAI_API_KEY": "sk-from-env-0000",  # a provider's declared key variable
+        "MY_COPY": "sk-live-abcdef123456",  # the stored key under another name
+    }
+    store = SecurityStore(tmp_path / "security.json")
+    set_store_for_tests(store)
+    try:
+        assert env_module.command_environment(base) == base
+        store.set_level(SecurityLevel.ENHANCED)
+        assert env_module.command_environment(base) == {"PATH": "/bin", "JAVA_HOME": "/opt/jdk"}
+    finally:
+        set_store_for_tests(None)
