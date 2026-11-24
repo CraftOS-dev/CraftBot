@@ -11,6 +11,7 @@ import { SettingsPage } from './pages/Settings'
 import { OnboardingPage } from './pages/Onboarding'
 import { AgentAppPage } from './pages/AgentApp'
 import { FrameworkAppPage } from './pages/AgentApp/FrameworkAppPage'
+import { BuildQuestionNotice } from './features/agentApps/BuildQuestionNotice'
 import { useWebSocket } from './contexts/WebSocketContext'
 import { useAppSelector } from './store/hooks'
 import { selectNeedsHardOnboarding } from './store/selectors/onboarding'
@@ -143,9 +144,10 @@ function App() {
   // the router, so the tour can navigate between pages.
   return (
     <TourProvider autoStartEnabled>
-    {/* Root-level: an import outlives the modal that started it, so the
-        progress/outcome toast has to be mounted somewhere that never
-        unmounts. Renders nothing. */}
+    {/* Root-level: a build can wait on the person from any page (one
+        started from another chat, or left running), so its notice has to be
+        mounted somewhere that never unmounts. Renders nothing. */}
+    <BuildQuestionNotice />
     <Layout>
       <Routes>
         <Route path="/" element={<ChatPage key="main" sessionId="main" />} />

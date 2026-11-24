@@ -9,8 +9,9 @@
  *   - `agent_app_todos` (or the session's own copy): the bar before the
  *     first picture arrives.
  *
- * API: <BuildView sessionId name columns rows verifying? /> renders inside the
- * parent's frame body and fills at most `rows` lines of `columns` cells.
+ * API: <BuildView sessionId name columns rows verifying? asking? /> renders
+ * inside the parent's frame body and fills at most `rows` lines of `columns`
+ * cells. `asking`: the build waits on a question in its chat.
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Box, Text } from 'ink'
@@ -89,7 +90,7 @@ export function useBuildFeed(sessionId: string | undefined, building: boolean) {
   }, [building, sessionId, connected, dispatch])
 }
 
-export function BuildView({ sessionId, name, columns, rows, verifying = false }: { sessionId: string; name: string; columns: number; rows: number; verifying?: boolean }) {
+export function BuildView({ sessionId, name, columns, rows, verifying = false, asking = false }: { sessionId: string; name: string; columns: number; rows: number; verifying?: boolean; asking?: boolean }) {
   const { t } = useTranslation(['appsHost', 'agentapp'])
   const projectId = `framework-build:${sessionId}`
   const sessionTodos = useAppSelector(s => s.sessions.sessions.find(x => x.id === sessionId)?.agentAppBuild?.todos)
@@ -122,7 +123,7 @@ export function BuildView({ sessionId, name, columns, rows, verifying = false }:
       : shown.stage === 'building' && shown.task
         ? t('agentapp:construction.stage.buildingTask', { task: shown.task })
         : t(`agentapp:construction.stage.${shown.stage}`)
-  const activity = (verifying ? t('appsHost:build.verifying') : '') || stageLabel || todoView.label || t('agentapp:construction.preparingWorkspace')
+  const activity = (verifying ? t('appsHost:build.verifying') : asking ? t('agentapp:construction.stage.questions') : '') || stageLabel || todoView.label || t('agentapp:construction.preparingWorkspace')
 
   const counts = [
     shown?.tasksTotal ? t('agentapp:construction.taskCount', { done: shown.tasksDone, total: shown.tasksTotal }) : '',

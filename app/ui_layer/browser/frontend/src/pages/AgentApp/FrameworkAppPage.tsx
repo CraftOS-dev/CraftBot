@@ -16,6 +16,7 @@ import { BuildCheckpoints, waitingForPerson } from '../../features/agentApps/Bui
 import { AgentAppWorkspace } from './AgentAppWorkspace'
 import { ConstructionDock } from './ConstructionDock'
 import { frameworkSessionIdentity } from '../../features/agentApps/frameworkIdentity'
+import { selectPendingQuestions } from '../../store/selectors/messages'
 import type { AgentAppBuildEvent, BuildSnapshot, FrameworkAppView } from '../../types'
 import surface from '../../features/agentApps/AgentAppSurface.module.css'
 import styles from './FrameworkAppPage.module.css'
@@ -152,6 +153,11 @@ function FrameworkWorkspace({ path, appId, knownSessionId }: { path: string; app
   const todos = useAppSelector(state => state.agentApp.todos[`framework-build:${sessionId}`]) ?? session?.agentAppBuild?.todos
   const building = session?.agentAppFrameworkPending || session?.agentAppBuild?.building
   const feed = useAppSelector(state => state.agentApp.buildFeeds[`framework-build:${sessionId}`])
+  // A build also stops for the person with a question in its chat (the
+  // importer asks there which route to take). That question is what the build
+  // waits on, so the build view says so and opens the chat on it.
+  const question = useAppSelector(state => (sessionId ? selectPendingQuestions(state, sessionId)[0] : undefined))
+  const asking = building ? question?.messageId : undefined
   const [error, setError] = useState('')
   const [attempt, setAttempt] = useState(0)
 
@@ -186,13 +192,13 @@ function FrameworkWorkspace({ path, appId, knownSessionId }: { path: string; app
     <p>{error ? t('registry.view.chatFailed') : t(connected ? 'registry.view.chatLoading' : 'registry.disconnected')}</p>
     {error && <><p>{error}</p><Button variant="secondary" disabled={!connected} onClick={() => setAttempt(value => value + 1)}>{t('registry.view.retry')}</Button></>}
   </div> : undefined
-  return <AgentAppWorkspace sessionId={sessionId} chatFallback={fallback}>
+  return <AgentAppWorkspace sessionId={sessionId} chatFallback={fallback} revealChat={asking}>
     {moving => building && sessionId && waitingForPerson(session?.agentAppBuild?.checkpoint)
       // The build stopped for the person: its questions or the requirements, here.
       ? <BuildCheckpoints sessionId={sessionId} />
       : building ? <ConstructionDock project={{ name: app?.name || session?.title || t('registry.view.title'), status: 'creating' }}
       todos={todos} events={feed?.events ?? NO_BUILD_EVENTS} snapshot={feed?.snapshot ?? null}
-      activity={session?.agentAppBuild?.verifying ? t('registry.view.verifying') : undefined} />
+      activity={session?.agentAppBuild?.verifying ? t('registry.view.verifying') : asking ? t('construction.stage.questions') : undefined} />
       : <FrameworkView path={path} appId={appId} moving={moving} />}
   </AgentAppWorkspace>
 }

@@ -17,9 +17,12 @@ const MOBILE_MAX_RATIO = 0.85
 const MOBILE_COLLAPSE_RATIO = 0.07
 
 /** The existing CraftBot app/chat split, used by framework apps and in-progress builds. */
-export function AgentAppWorkspace({ sessionId, chatFallback, children }: {
+export function AgentAppWorkspace({ sessionId, chatFallback, revealChat, children }: {
   sessionId?: string
   chatFallback?: React.ReactNode
+  /** Opens the chat panel each time it changes to a new value (the id of a
+   *  question waiting there), even if the person had collapsed it. */
+  revealChat?: string
   children: (moving: boolean) => React.ReactNode
 }) {
   const { t } = useTranslation('agentapp')
@@ -53,6 +56,11 @@ export function AgentAppWorkspace({ sessionId, chatFallback, children }: {
   }
 
   const toggleChat = () => setShowChat(prev => !prev)
+
+  // Once per value: collapsing the panel again afterwards is respected.
+  useEffect(() => {
+    if (revealChat) setShowChat(true)
+  }, [revealChat, setShowChat])
 
   useEffect(() => {
     if (!isResizing) return
