@@ -4497,7 +4497,7 @@ Need a workflow              →  read_file app/config/skills_config.json (skill
 Need an integration          →  list_available_integrations (registry + connected state)
                                  /cred status (user-side overview)
 Need a cron job              →  cron_job_list (avoid duplicate setups)
-Need a model                 →  read_file settings.json (user may have it set already)
+Need a model                 →  read_settings (user may have it set already; keys hidden)
                                  list of supported providers in ## Models
 ```
 

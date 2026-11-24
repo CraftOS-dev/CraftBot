@@ -64,7 +64,7 @@ def collect_secrets(sources: Iterable[Path]) -> Tuple[str, ...]:
         if data is None:
             continue
         if path.name == "settings.json":
-            for section in ("api_keys", "aws_credentials"):
+            for section in SECRET_SECTIONS:
                 found.update(_strings(data.get(section)))
         elif path.name == "mcp_config.json":
             for server in data.get("mcp_servers") or []:
@@ -76,6 +76,33 @@ def collect_secrets(sources: Iterable[Path]) -> Tuple[str, ...]:
             found.update(_strings(data))
     # Longest first, so a secret that contains another is masked whole.
     return tuple(sorted((s for s in found if len(s) >= _MIN_LENGTH), key=len, reverse=True))
+
+
+SECRET_SECTIONS = ("api_keys", "aws_credentials")
+
+
+def hide_secrets(settings: dict) -> dict:
+    """A copy of settings.json for the agent: every value in a secret
+    section becomes whether it is set, and any other value that equals a
+    known secret is masked."""
+    known = set(collect_secrets(_sources()))
+
+    def mask(value):
+        if isinstance(value, dict):
+            return {k: mask(v) for k, v in value.items()}
+        if isinstance(value, list):
+            return [mask(v) for v in value]
+        if isinstance(value, str) and value in known:
+            return MASK
+        return value
+
+    out = {}
+    for key, value in settings.items():
+        if key in SECRET_SECTIONS and isinstance(value, dict):
+            out[key] = {k: ("set" if v else "not set") for k, v in value.items()}
+        else:
+            out[key] = mask(value)
+    return out
 
 
 class Redactor:

@@ -71,8 +71,9 @@ def check_file_access(path, *, write: bool) -> Optional[str]:
             if _inside(real, root):
                 return (
                     f"{path} is protected: it holds CraftBot's keys or security "
-                    f"settings (Settings > Security > Files). Ask the user instead "
-                    f"of reading or changing it."
+                    f"settings (Settings > Security > Files). To see settings, use "
+                    f"read_settings (keys hidden); to change them, ask the user to "
+                    f"use the Settings page."
                 )
     if write and policy.confine_writes:
         if not any(_inside(real, root) for root in writable_roots(policy)):

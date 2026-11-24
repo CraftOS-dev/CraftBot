@@ -73,3 +73,23 @@ def test_strict_confines_writes_to_the_workspace(layout, tmp_path):
     allowed = tmp_path / "projects"
     store.update({"workspace_paths": [str(allowed)]})
     assert guard.check_file_access(allowed / "a.txt", write=True) is None
+
+
+def test_read_settings_hides_every_key(tmp_path, monkeypatch):
+    import json
+
+    from app.security import redact
+
+    mcp = tmp_path / "mcp_config.json"
+    mcp.write_text(json.dumps({"mcp_servers": [{"name": "x", "env": {"T": "tok-0123456789"}}]}))
+    monkeypatch.setattr(redact, "_sources", lambda: [mcp])
+    shown = redact.hide_secrets(
+        {
+            "model": {"llm_provider": "anthropic", "llm_model": "claude"},
+            "api_keys": {"anthropic": "sk-ant-secret", "openai": ""},
+            "endpoints": {"remote_model_url": "tok-0123456789"},
+        }
+    )
+    assert shown["model"]["llm_provider"] == "anthropic"
+    assert shown["api_keys"] == {"anthropic": "set", "openai": "not set"}
+    assert shown["endpoints"]["remote_model_url"] == "[REDACTED]"
