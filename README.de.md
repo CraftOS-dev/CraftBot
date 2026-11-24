@@ -248,7 +248,7 @@ Leite die Downloads vor der Installation auf Mirrors um:
 export CRAFTBOT_MIRRORS="https://github.com/=https://<your-github-proxy>/https://github.com/;https://nodejs.org/dist/=https://npmmirror.com/mirrors/node/"
 ```
 
-Python-Pakete und das Embedding-Modell für den Speicher werden weiterhin gegen fest hinterlegte SHA-256-Prüfsummen geprüft, ein Mirror kann sie also nicht verändern. Die Python- und Node.js-Laufzeiten sind nicht fest hinterlegt, verwende dafür nur einen Mirror, dem du vertraust. In Windows PowerShell setzt du Variablen mit `$env:NAME = "value"` statt `export`.
+Python-Pakete, die Python- und Node.js-Laufzeiten und das Embedding-Modell für den Speicher werden gegen fest hinterlegte SHA-256-Prüfsummen geprüft, ein Mirror kann sie also nicht verändern. In Windows PowerShell setzt du Variablen mit `$env:NAME = "value"` statt `export`.
 
 ### Server ohne Desktop
 

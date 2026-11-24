@@ -11,10 +11,11 @@ from __future__ import annotations
 
 import os
 import platform
+import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
 
 from app.provision.types import Context, LogFn, StageResult, Status
 
@@ -26,7 +27,11 @@ from app import python_runtime
 #
 # The native launcher embeds this same file. Keep download locations and
 # the compatible fallback release together so the two install paths agree.
+# `sha256` pins each platform's archive of that release, as published in the
+# release's SHA256SUMS.
 PBS_CONFIG_PATH = Path(__file__).with_name("python_downloads.json")
+
+_SHA256_RE = re.compile(r"[0-9a-f]{64}")
 
 # The version the locks are generated for. NOT a minimum: a lock is valid
 # for exactly one (platform, python) pair, so accepting "3.10 or newer" would
@@ -189,17 +194,19 @@ def _pbs_triple() -> Optional[str]:
     return f"{arch}-unknown-linux-gnu"
 
 
-def _pbs_download_url(log: LogFn) -> Optional[str]:
-    """Resolve the download URL for a TARGET_PYTHON build, or None.
+def _pbs_download(log: LogFn) -> Optional[Tuple[str, str]]:
+    """The pinned TARGET_PYTHON build for this machine: (url, sha256), or None.
 
-    Tries the newest release, then the configured compatible fallback release,
-    and picks the asset matching this machine's triple. `install_only` extracts to a
-    ready-to-run tree; the full builds carry object files and headers nobody
-    here needs.
+    Only the release python_downloads.json names, checked against the SHA-256
+    it pins for this machine's triple, so the runtime every later stage
+    installs into is the one the repository was reviewed with. The newest
+    upstream release is never consulted: it may have dropped 3.10, and
+    nothing could vouch for it. Resolving needs no network either, so a
+    GitHub API rate limit or a slow index cannot fail an install.
+    `install_only` extracts to a ready-to-run tree; the full builds carry
+    object files and headers nobody here needs.
     """
     import json
-    import ssl
-    import urllib.request
 
     triple = _pbs_triple()
     if not triple:
@@ -207,55 +214,29 @@ def _pbs_download_url(log: LogFn) -> Optional[str]:
 
     try:
         config = json.loads(PBS_CONFIG_PATH.read_text(encoding="utf-8"))
-        api = f"{config['api_base'].rstrip('/')}/repos/{config['repository']}/releases"
         release = config["fallback_release"]
         version = config["fallback_version"]
-        compatible = version.startswith(f"{TARGET_PYTHON[0]}.{TARGET_PYTHON[1]}.")
-        archive = (
+        platforms = config["fallback_platforms"]
+        digest = config["sha256"].get(triple, "") if triple in platforms else ""
+        url = (
             f"{config['download_base'].rstrip('/')}/{config['repository']}"
             f"/releases/download/{release}/cpython-{version}%2B{release}"
             f"-{triple}-install_only.tar.gz"
-            if compatible and triple in config["fallback_platforms"]
-            else None
         )
     except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
         log(f"    invalid Python download configuration: {error}")
         return None
 
-    try:
-        import certifi
-
-        ctx = ssl.create_default_context(cafile=certifi.where())
-    except ImportError:
-        ctx = ssl.create_default_context()
-
-    prefix = f"cpython-{TARGET_PYTHON[0]}.{TARGET_PYTHON[1]}."
-    suffix = f"-{triple}-install_only.tar.gz"
-    indexes = [f"{api}/latest"]
-    if compatible:
-        indexes.append(f"{api}/tags/{release}")
-    for index in indexes:
-        try:
-            req = urllib.request.Request(index, headers={"User-Agent": "CraftBot"})
-            with urllib.request.urlopen(req, timeout=60, context=ctx) as response:
-                data = json.load(response)
-        except Exception as e:
-            log(f"    could not reach the Python download index: {str(e)[:160]}")
-            # Shared/public IPs can exhaust GitHub's unauthenticated API quota.
-            # Release assets have a separate download endpoint. Keep the known
-            # compatible build available even when metadata cannot be queried.
-            if archive:
-                log(f"    using the archived Python {version} release download")
-                return archive
-            return None
-        for asset in data.get("assets", []):
-            name = asset.get("name") or ""
-            if name.startswith(prefix) and name.endswith(suffix):
-                url = asset.get("browser_download_url")
-                if url:
-                    return url
-        log(f"    no {prefix}*{suffix} in release {data.get('tag_name')}")
-    return None
+    if not version.startswith(f"{TARGET_PYTHON[0]}.{TARGET_PYTHON[1]}."):
+        log(
+            f"    the pinned Python {version} is not "
+            f"{TARGET_PYTHON[0]}.{TARGET_PYTHON[1]}; refusing to download it"
+        )
+        return None
+    if not _SHA256_RE.fullmatch(str(digest)):
+        log(f"    no pinned Python {version} build for {triple}")
+        return None
+    return url, digest
 
 
 class PythonStage:
@@ -342,7 +323,6 @@ class PythonStage:
         if ctx.offline:
             return StageResult(Status.FAILED, "offline: cannot download Python")
 
-        import shutil as _shutil
         import tarfile
 
         from app import downloads
@@ -351,40 +331,25 @@ class PythonStage:
         dest.mkdir(parents=True, exist_ok=True)
         archive = dest / "_download.tar.gz"
 
-        # Look in the cache BEFORE asking the network anything. Resolving the
-        # URL means fetching a large release index, which is itself a failure
-        # point on a slow link - and failing there while holding the very file
-        # we need would be perverse.
-        triple = _pbs_triple()
-        cached = (
-            downloads.find_cached(
-                f"cpython-{TARGET_PYTHON[0]}.{TARGET_PYTHON[1]}.*-{triple}-install_only.tar.gz"
+        pinned = _pbs_download(log)
+        if not pinned:
+            return StageResult(
+                Status.FAILED,
+                f"no portable Python {TARGET_PYTHON[0]}.{TARGET_PYTHON[1]} "
+                f"available for {platform.machine()} on {sys.platform}",
             )
-            if triple
-            else None
-        )
-
-        url = None
-        if not cached:
-            url = _pbs_download_url(log)
-            if not url:
-                return StageResult(
-                    Status.FAILED,
-                    f"no portable Python {TARGET_PYTHON[0]}.{TARGET_PYTHON[1]} "
-                    f"available for {platform.machine()} on {sys.platform}",
-                )
+        url, sha256 = pinned
 
         try:
-            if cached:
-                log(f"    using cached {os.path.basename(cached)}")
-                _shutil.copyfile(cached, archive)
-            else:
-                downloads.download(
-                    url,
-                    str(archive),
-                    log=log,
-                    label=f"Python {TARGET_PYTHON[0]}.{TARGET_PYTHON[1]}",
-                )
+            # A cached copy (CRAFTBOT_DOWNLOAD_CACHE) is used only when it
+            # matches the pin, and a download that doesn't is never extracted.
+            downloads.download(
+                url,
+                str(archive),
+                log=log,
+                label=f"Python {TARGET_PYTHON[0]}.{TARGET_PYTHON[1]}",
+                expected_sha256=sha256,
+            )
             log("    extracting...")
             # tar preserves the executable bit, which a zip would not — that
             # matters on macOS/Linux where the extracted python must be +x.

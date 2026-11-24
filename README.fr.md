@@ -248,7 +248,7 @@ Avant l'installation, redirigez les téléchargements vers des miroirs :
 export CRAFTBOT_MIRRORS="https://github.com/=https://<your-github-proxy>/https://github.com/;https://nodejs.org/dist/=https://npmmirror.com/mirrors/node/"
 ```
 
-Les paquets Python et le modèle d'embeddings de la mémoire restent vérifiés avec des sommes de contrôle SHA-256 épinglées : un miroir ne peut donc pas les modifier. Les environnements d'exécution Python et Node.js ne sont pas épinglés, n'utilisez donc pour eux qu'un miroir de confiance. Dans Windows PowerShell, définissez les variables avec `$env:NAME = "value"` au lieu de `export`.
+Les paquets Python, les environnements d'exécution Python et Node.js et le modèle d'embeddings de la mémoire sont vérifiés avec des sommes de contrôle SHA-256 épinglées : un miroir ne peut donc pas les modifier. Dans Windows PowerShell, définissez les variables avec `$env:NAME = "value"` au lieu de `export`.
 
 ### Serveur sans bureau
 

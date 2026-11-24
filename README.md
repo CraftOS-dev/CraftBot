@@ -241,7 +241,7 @@ Point the downloads at mirrors before you install:
 export CRAFTBOT_MIRRORS="https://github.com/=https://<your-github-proxy>/https://github.com/;https://nodejs.org/dist/=https://npmmirror.com/mirrors/node/"
 ```
 
-Python packages and the memory embedding model are still checked against pinned SHA-256 checksums, so a mirror cannot change them. The Python and Node.js runtimes are not pinned, so only use a mirror you trust for those. In Windows PowerShell, set variables with `$env:NAME = "value"` instead of `export`.
+Python packages, the Python and Node.js runtimes, and the memory embedding model are checked against pinned SHA-256 checksums, so a mirror cannot change them. In Windows PowerShell, set variables with `$env:NAME = "value"` instead of `export`.
 
 ### Server without a desktop
 

@@ -248,7 +248,7 @@ python craftbot.py install
 export CRAFTBOT_MIRRORS="https://github.com/=https://<your-github-proxy>/https://github.com/;https://nodejs.org/dist/=https://npmmirror.com/mirrors/node/"
 ```
 
-Python 套件和記憶嵌入模型仍會以固定的 SHA-256 檢查碼驗證,因此鏡像站無法改變它們。Python 和 Node.js 執行環境沒有固定檢查碼,請只為它們使用你信任的鏡像站。在 Windows PowerShell 中,請用 `$env:NAME = "value"` 取代 `export` 來設定變數。
+Python 套件、Python 和 Node.js 執行環境以及記憶嵌入模型都會以固定的 SHA-256 檢查碼驗證,因此鏡像站無法改變它們。在 Windows PowerShell 中,請用 `$env:NAME = "value"` 取代 `export` 來設定變數。
 
 ### 沒有桌面環境的伺服器
 

@@ -1,5 +1,4 @@
 {
-  "api_base": "https://api.github.com",
   "download_base": "https://github.com",
   "repository": "astral-sh/python-build-standalone",
   "fallback_release": "20261009",
@@ -10,5 +9,12 @@
     "aarch64-unknown-linux-gnu",
     "x86_64-apple-darwin",
     "aarch64-apple-darwin"
-  ]
+  ],
+  "sha256": {
+    "x86_64-pc-windows-msvc": "cb023e83e42d8937ba77c7cf83641083c3b81e88e1226e1c694a347ae1924d54",
+    "x86_64-unknown-linux-gnu": "1780de9ddda04e956d2a4a0ad09b7f5667d92f4f12cd0881ec939de5d542903f",
+    "aarch64-unknown-linux-gnu": "ad9fc572c8e67cae305de627433e3cb6d459cbe94711921d5b673766b5a20c72",
+    "x86_64-apple-darwin": "998d4159933724eba107bbb0e01ed920d267d59c815b256fc39ffe8658df1350",
+    "aarch64-apple-darwin": "02d1a66b5fe8676e6df5084f4e0b71779a4e6f1c46f192d3d3a12b7eb3a789ec"
+  }
 }

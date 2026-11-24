@@ -248,7 +248,7 @@ TLS 트래픽을 검사하는 네트워크에서도 추가 설정이 필요 없�
 export CRAFTBOT_MIRRORS="https://github.com/=https://<your-github-proxy>/https://github.com/;https://nodejs.org/dist/=https://npmmirror.com/mirrors/node/"
 ```
 
-Python 패키지와 메모리 임베딩 모델은 미러를 거쳐도 고정된 SHA-256 체크섬으로 검증되므로, 미러가 이를 바꿀 수 없습니다. Python과 Node.js 런타임은 체크섬이 고정되어 있지 않으므로, 신뢰할 수 있는 미러만 사용하세요. Windows PowerShell에서는 `export` 대신 `$env:NAME = "value"`로 변수를 설정합니다.
+Python 패키지, Python과 Node.js 런타임, 메모리 임베딩 모델은 미러를 거쳐도 고정된 SHA-256 체크섬으로 검증되므로, 미러가 이를 바꿀 수 없습니다. Windows PowerShell에서는 `export` 대신 `$env:NAME = "value"`로 변수를 설정합니다.
 
 ### 데스크톱이 없는 서버
 

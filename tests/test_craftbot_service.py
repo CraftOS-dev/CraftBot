@@ -649,3 +649,140 @@ def test_start_without_browser_still_checks_the_announced_url(
     assert probed == ["http://localhost:7925"]
     assert opened == []
     assert "Waiting for the browser interface" in output
+
+
+# ─── Launcher interface: status --json, tui --message, install --no-start ──
+
+
+def test_status_json_says_where_a_ready_craftbot_answers(monkeypatch, capsys):
+    craftbot._instance.write_ui(7925, 7926)
+    monkeypatch.setattr(craftbot, "_owned_pid", lambda: 4242)
+    monkeypatch.setattr(craftbot, "_is_installed", lambda: True)
+
+    craftbot.cmd_status(["--json"])
+
+    record = json.loads(capsys.readouterr().out)
+    assert record["running"] is True and record["ready"] is True
+    assert record["pid"] == 4242 and record["autostart"] is True
+    assert record["url"] == craftbot._instance.read_ui()["url"]
+    assert (record["frontend_port"], record["backend_port"]) == (7925, 7926)
+    assert record["edition"] == "browser"
+    assert record["state_root"] == str(craftbot.paths.STATE_ROOT.resolve())
+
+
+def test_status_json_never_offers_a_crashed_runs_address(monkeypatch, capsys):
+    craftbot._instance.write_ui(7925, 7926)
+    monkeypatch.setattr(craftbot, "_owned_pid", lambda: None)
+    monkeypatch.setattr(craftbot, "_is_installed", lambda: False)
+
+    craftbot.cmd_status(["--json"])
+
+    record = json.loads(capsys.readouterr().out)
+    assert record["running"] is False and record["ready"] is False
+    assert record["url"] is None
+
+
+@pytest.mark.parametrize(
+    "args", [["--message", "-make a theme"], ["--message=-make a theme"]]
+)
+def test_tui_hands_its_message_to_the_client(tmp_path, monkeypatch, args):
+    from app import edition, node_runtime
+
+    craftbot._instance.write_ui(7925, 7926)
+    monkeypatch.setattr(craftbot._instance, "http_answers", lambda url: True)
+    bundle = tmp_path / "craftbot-tui.mjs"
+    bundle.write_text("")
+    monkeypatch.setattr(edition, "terminal_client_bundle", lambda: bundle)
+    monkeypatch.setattr(node_runtime, "node_cmd", lambda: "node")
+    monkeypatch.setattr(node_runtime, "child_env", lambda extra=None: {})
+    monkeypatch.setattr(craftbot, "cmd_start", lambda args: pytest.fail("started"))
+    runs = []
+    monkeypatch.setattr(
+        craftbot.subprocess,
+        "run",
+        lambda cmd, **kwargs: runs.append(cmd) or SimpleNamespace(returncode=0),
+    )
+
+    assert craftbot.cmd_tui(args) == 0
+    assert runs[0][:2] == ["node", str(bundle)]
+    assert runs[0][-2:] == ["--message", "-make a theme"]
+
+
+def test_install_without_start_registers_startup_and_starts_nothing(
+    tmp_path, monkeypatch, capsys
+):
+    monkeypatch.setattr(craftbot, "IS_FROZEN", False)
+    monkeypatch.setattr(craftbot, "BASE_DIR", str(tmp_path))
+    monkeypatch.setattr(craftbot, "cmd_start", lambda args: pytest.fail("started"))
+    registered = []
+    monkeypatch.setattr(
+        craftbot,
+        "_configure_autostart",
+        lambda enabled, args: registered.append((enabled, list(args))) or True,
+    )
+
+    assert craftbot.cmd_install(["--no-start", "--no-open-browser"]) is True
+    # The flag is install's own: run.py never sees it in the unit it registers.
+    assert registered == [(True, ["--no-open-browser"])]
+    assert "CRAFTBOT IS INSTALLED" in capsys.readouterr().out
+
+
+# ─── The craftbot command ──────────────────────────────────────────────────
+
+
+@pytest.fixture
+def command_home(tmp_path, monkeypatch):
+    """A home of its own, and an interpreter that prints what it was given."""
+    home = tmp_path / "home"
+    # Windows' expanduser reads USERPROFILE, not HOME.
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
+    monkeypatch.setattr(craftbot, "IS_FROZEN", False)
+    monkeypatch.setattr(craftbot, "_PLATFORM", "linux")
+    python = tmp_path / "py thon"
+    python.write_text('#!/bin/sh\nprintf "%s\\n" "$@"\n')
+    python.chmod(0o755)
+    monkeypatch.setattr(craftbot, "_installed_python", lambda: str(python))
+    return home / ".local" / "bin" / "craftbot"
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="the command is for unix shells")
+def test_install_puts_a_command_on_path_that_runs_this_install(command_home):
+    craftbot._install_command()
+
+    out = subprocess.run(
+        [str(command_home), "tui", "--message", "a b"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.splitlines()
+    assert out == [
+        str(Path(craftbot.__file__).resolve()),
+        f"--state-root={craftbot.paths.STATE_ROOT.resolve()}",
+        "tui",
+        "--message",
+        "a b",
+    ]
+
+
+def test_a_command_craftbot_did_not_write_is_left_alone(command_home):
+    command_home.parent.mkdir(parents=True)
+    command_home.write_text("#!/bin/sh\necho mine\n")
+
+    craftbot._install_command()
+    craftbot._remove_command()
+
+    assert command_home.read_text() == "#!/bin/sh\necho mine\n"
+
+
+def test_uninstall_removes_only_the_command_for_this_install(
+    tmp_path, monkeypatch, command_home
+):
+    craftbot._install_command()
+    monkeypatch.setattr(craftbot.paths, "STATE_ROOT", tmp_path / "another install")
+    craftbot._remove_command()
+    assert command_home.exists()
+
+    monkeypatch.setattr(craftbot.paths, "STATE_ROOT", tmp_path)
+    craftbot._remove_command()
+    assert not command_home.exists()

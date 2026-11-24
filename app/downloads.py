@@ -205,30 +205,6 @@ def cache_name(url: str) -> str:
     return unquote(name) or "download.bin"
 
 
-def find_cached(pattern: str) -> Optional[str]:
-    """A cached archive matching a glob, or None.
-
-    Lets a caller use the cache WITHOUT first resolving a download URL.
-    That matters more than it sounds: resolving the Python runtime's URL
-    means fetching a large JSON release index, and on a slow or flaky link
-    that request is itself a failure point — observed as
-    `IncompleteRead(1277952 bytes read)` in Windows Sandbox. Having the file
-    already and still failing because the index could not be read is an
-    absurd way to lose an install.
-
-    The archive names carry version and platform, so a glob like
-    `cpython-3.10.*-x86_64-pc-windows-msvc-install_only.tar.gz` identifies
-    the right file without asking anyone.
-    """
-    import glob as _glob
-
-    cache = cache_dir()
-    if not cache:
-        return None
-    matches = sorted(_glob.glob(os.path.join(cache, pattern)))
-    return matches[-1] if matches else None
-
-
 def _download_once(
     url: str,
     dest: str,

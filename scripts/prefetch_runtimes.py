@@ -49,30 +49,32 @@ def _fetch_archives(out: Path) -> int:
 
     targets = []
 
-    py_url = runtimes._pbs_download_url(print)
-    if py_url:
-        targets.append(("Python runtime", py_url))
+    python = runtimes._pbs_download(print)
+    if python:
+        targets.append(("Python runtime", *python))
     else:
         print("warning: could not resolve the Python runtime URL", file=sys.stderr)
 
-    node_url = node_runtime.latest_download_url(log=print)
-    if node_url:
-        targets.append(("Node.js", node_url))
+    node = node_runtime.pinned_download(log=print)
+    if node:
+        targets.append(("Node.js", *node[1:]))
     else:
         print("warning: could not resolve the Node URL", file=sys.stderr)
 
     if sys.platform == "win32":
-        targets.append(("Visual C++ runtime", _vcredist_url()))
+        targets.append(("Visual C++ runtime", _vcredist_url(), None))
 
     failures = 0
-    for label, url in targets:
+    for label, url, sha256 in targets:
         dest = out / downloads.cache_name(url)
-        if dest.is_file():
+        if downloads.verify_checksum(str(dest), sha256):
             print(f"\n{label}: cached already ({dest.stat().st_size / 1048576:.1f} MB)")
             continue
         print(f"\n{label}:")
         try:
-            downloads.download(url, str(dest), log=print, label=label)
+            downloads.download(
+                url, str(dest), log=print, label=label, expected_sha256=sha256
+            )
         except Exception as e:
             failures += 1
             print(f"  failed: {str(e)[:200]}", file=sys.stderr)
