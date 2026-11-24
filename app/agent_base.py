@@ -151,6 +151,12 @@ class TriggerData:
     payload: dict | None = None
 
 
+
+def _strict_channel_identity() -> bool:
+    from app.security.policy import get_policy
+
+    return get_policy().strict_channel_identity
+
 def _message_origin(trigger_data: TriggerData) -> dict:
     """The trusted turn origin a turn's actions run with
     (current_message_origin), from the trigger, never from action inputs."""
@@ -2925,6 +2931,17 @@ class AgentBase:
                 f"(channel={channel_name or channel_id}, self={is_self_message})"
             )
 
+            if not (owner_authenticated or is_self_message):
+                from app.security.content import wrap_untrusted
+                from app.security.policy import get_policy
+
+                if get_policy().mark_untrusted_content:
+                    # Settings > Security: a third party's words reach the
+                    # model inside markers with a random id, as data.
+                    message_body = wrap_untrusted(
+                        message_body, f"{source} message from {contact_name}"
+                    )
+
             # Map integration type to platform for reply routing
             platform_map = {
                 "whatsapp_web": "whatsapp",
@@ -4250,6 +4267,10 @@ class AgentBase:
                 # runtime this app resolved. Injected rather than imported —
                 # the integrations package must stay host-blind.
                 "node_runtime": _node_runtime,
+                # Settings > Security: match chat owners by unique identity
+                # only (a callable, read per message, so a change applies
+                # at once).
+                "strict_channel_identity": _strict_channel_identity,
             },
         )
         # Install the inbound-event callback BEFORE any listener starts:

@@ -14,6 +14,7 @@ from urllib.parse import quote as _url_quote
 
 from ... import (
     BasePlatformClient,
+    ConfigStore,
     IntegrationSpec,
     PlatformMessage,
     has_credential,
@@ -360,7 +361,12 @@ class DiscordClient(BasePlatformClient):
             or DiscordConfig()
         )
 
-        if cfg.mention_only:
+        # The host's security setting (Settings > Security > Channels): in a
+        # server, the bot must be mentioned, and owner authority comes only
+        # from a unique username, never a display name or a role name that
+        # anyone can choose.
+        strict = bool(ConfigStore.extras.get("strict_channel_identity", lambda: False)())
+        if cfg.mention_only or (strict and d.get("guild_id")):
             mentions = d.get("mentions") or []
             mentioned_ids = {str(m.get("id")) for m in mentions if isinstance(m, dict)}
             if self._bot_user_id and self._bot_user_id not in mentioned_ids:
@@ -369,10 +375,10 @@ class DiscordClient(BasePlatformClient):
         guild_id = d.get("guild_id")
         member = d.get("member") or {}
         role_ids = [str(r) for r in (member.get("roles") or [])]
-        author_username_candidates = {
-            (author.get("username") or "").lower(),
-            (author.get("global_name") or "").lower(),
-        }
+        author_username_candidates = {(author.get("username") or "").lower()}
+        if not strict:
+            # Display names are not unique: anyone can set one to match.
+            author_username_candidates.add((author.get("global_name") or "").lower())
         # Resolve role names lazily - only fetch if any role list is set.
         # Cached 10 min per guild, async helper takes a thread off the event loop.
         user_role_names: set = set()
@@ -396,7 +402,8 @@ class DiscordClient(BasePlatformClient):
         any_tp = bool(cfg.third_party_usernames or cfg.third_party_role_names)
 
         is_self_message = False
-        if any_self and _matches(cfg.self_usernames, cfg.self_role_names):
+        self_roles = [] if strict else cfg.self_role_names
+        if any_self and _matches(cfg.self_usernames, self_roles):
             is_self_message = True
         elif any_tp and _matches(cfg.third_party_usernames, cfg.third_party_role_names):
             is_self_message = False
