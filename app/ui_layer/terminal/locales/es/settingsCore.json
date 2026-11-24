@@ -615,8 +615,8 @@
         "help": "las páginas web pueden leerse a través de un servicio lector externo"
       },
       "scrub_child_env": {
-        "label": "Mantener las claves fuera de los servidores MCP",
-        "help": "los servidores MCP reciben los ajustes básicos del sistema y sus propios valores, no tus otras claves"
+        "label": "Mantener las claves fuera de las herramientas",
+        "help": "los servidores MCP reciben solo lo básico; los comandos, tu entorno sin las claves de CraftBot"
       },
       "redact_logs": {
         "label": "Ocultar datos en los registros",
@@ -641,6 +641,10 @@
       "verify_mcp_servers": {
         "label": "Servidores MCP solo como se guardaron",
         "help": "un servidor MCP cambiado fuera de Ajustes espera tu confirmación"
+      },
+      "block_destructive_commands": {
+        "label": "Bloquear comandos destructivos",
+        "help": "rechaza comandos que ninguna aprobación puede deshacer (borrar carpetas principales, escribir en discos)"
       }
     },
     "keepForever": "Para siempre",

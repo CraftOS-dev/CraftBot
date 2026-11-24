@@ -615,8 +615,8 @@
         "help": "網頁可能會透過外部閱讀服務讀取"
       },
       "scrub_child_env": {
-        "label": "不讓 MCP 伺服器取得金鑰",
-        "help": "MCP 伺服器只取得基本系統設定和它自己的值，不會取得你的其他金鑰"
+        "label": "不讓工具拿到金鑰",
+        "help": "MCP 伺服器只取得基本設定；命令取得不含 CraftBot 金鑰的環境"
       },
       "redact_logs": {
         "label": "記錄遮蔽",
@@ -641,6 +641,10 @@
       "verify_mcp_servers": {
         "label": "僅依儲存內容啟動 MCP 伺服器",
         "help": "在設定之外被更改的 MCP 伺服器需等待你確認"
+      },
+      "block_destructive_commands": {
+        "label": "封鎖破壞性命令",
+        "help": "拒絕無法挽回的命令（刪除頂層資料夾、寫入磁碟）"
       }
     },
     "keepForever": "永久",

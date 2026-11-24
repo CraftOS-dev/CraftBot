@@ -85,6 +85,19 @@ def shell_exec(input_data: dict) -> dict:
     env_input = input_data.get("env") or {}
     background = input_data.get("background", False)
 
+    from app.security.commands import refusal as _command_refusal
+
+    _refused = _command_refusal(command)
+    if _refused:
+        return {
+            "status": "error",
+            "stdout": "",
+            "stderr": "",
+            "return_code": -1,
+            "message": _refused,
+            "pid": None,
+        }
+
     if simulated_mode:
         # Return mock result for testing
         return {
@@ -123,7 +136,10 @@ def shell_exec(input_data: dict) -> dict:
     # action — the system default may be an older major (app/node_runtime.py).
     from app import node_runtime
 
-    env = node_runtime.child_env()
+    from app.security.env import command_environment
+
+    # Settings > Security: CraftBot's own keys stay out of the command.
+    env = command_environment(node_runtime.child_env())
     for k, v in env_input.items():
         env[str(k)] = str(v)
 
@@ -340,6 +356,19 @@ def shell_exec_windows(input_data: dict) -> dict:
     env_input = input_data.get("env") or {}
     background = input_data.get("background", False)
 
+    from app.security.commands import refusal as _command_refusal
+
+    _refused = _command_refusal(command, windows=True)
+    if _refused:
+        return {
+            "status": "error",
+            "stdout": "",
+            "stderr": "",
+            "return_code": -1,
+            "message": _refused,
+            "pid": None,
+        }
+
     timeout_seconds = float(timeout_val) if timeout_val is not None else 600.0
 
     if not command:
@@ -367,7 +396,10 @@ def shell_exec_windows(input_data: dict) -> dict:
     # action — the system default may be an older major (app/node_runtime.py).
     from app import node_runtime
 
-    env = node_runtime.child_env()
+    from app.security.env import command_environment
+
+    # Settings > Security: CraftBot's own keys stay out of the command.
+    env = command_environment(node_runtime.child_env())
     for k, v in env_input.items():
         env[str(k)] = str(v)
 
@@ -587,6 +619,19 @@ def shell_exec_darwin(input_data: dict) -> dict:
     env_input = input_data.get("env") or {}
     background = input_data.get("background", False)
 
+    from app.security.commands import refusal as _command_refusal
+
+    _refused = _command_refusal(command)
+    if _refused:
+        return {
+            "status": "error",
+            "stdout": "",
+            "stderr": "",
+            "return_code": -1,
+            "message": _refused,
+            "pid": None,
+        }
+
     timeout_seconds = float(timeout_val) if timeout_val is not None else 600.0
 
     if not command:
@@ -614,7 +659,10 @@ def shell_exec_darwin(input_data: dict) -> dict:
     # action — the system default may be an older major (app/node_runtime.py).
     from app import node_runtime
 
-    env = node_runtime.child_env()
+    from app.security.env import command_environment
+
+    # Settings > Security: CraftBot's own keys stay out of the command.
+    env = command_environment(node_runtime.child_env())
     for k, v in env_input.items():
         env[str(k)] = str(v)
 

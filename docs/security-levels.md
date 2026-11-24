@@ -38,6 +38,7 @@ How an action is classified comes from what the action declares about itself (it
 
 | Protection | Standard (default) | Enhanced | Strict |
 | --- | --- | --- | --- |
+| Block commands that do damage no approval can undo (delete a top-level or home folder, write to a disk, download piped into a root shell, fork bomb) | Off | On | On |
 | Mark outside content as data, not instructions | Partial (as before) | On | On |
 | Start MCP servers only as saved in Settings | Off | On | On |
 | Ask after outside content (when Auto mode is off) | Off | On | On |
@@ -45,7 +46,7 @@ How an action is classified comes from what the action declares about itself (it
 | File tools write only in the workspace | Off | Off | On |
 | Web tools reach public internet only, every redirect checked | First request only (as before) | On | On |
 | Third-party page reader (r.jina.ai) | On | On | Off |
-| MCP servers get only basic system variables plus their own | Off | On | On |
+| Keep CraftBot's keys out of tools: MCP servers get only basic system variables plus their own; commands get your environment without CraftBot's keys | Off | On | On |
 | Mask CraftBot's own secrets in logs (and stop printing variables in error tracebacks, from the next start) | Off | On | On |
 | Write full prompts to logs | On | Off | Off |
 | Delete old logs and recorded AI calls | Never | After 90 days | After 30 days |
@@ -71,6 +72,7 @@ The **audit log** (`.security/audit.jsonl`) records approvals, refusals and sett
 ## What the protections do not cover
 
 - The file and network guards cover the agent's file and web tools, not commands it runs in a shell. Approving commands (Auto mode off) is what covers the shell.
+- The destructive-command floor judges the parsed command (program, arguments, and for disks the target's file type). It catches the worst mistakes, not every harmful command; approving commands covers the rest.
 - The network guard checks every address a name resolves to and every redirect, and connects to the address it checked. Through a proxy you configured, the proxy makes the connection, so only the checks apply.
 - Marking outside content lowers the chance that the agent follows planted instructions; it does not remove it.
 

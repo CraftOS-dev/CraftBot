@@ -831,7 +831,8 @@
         "network": "Jaringan",
         "secrets": "Rahasia & data",
         "channels": "Saluran",
-        "audit": "Audit"
+        "audit": "Audit",
+        "commands": "Perintah"
       }
     },
     "fields": {
@@ -883,8 +884,8 @@
         "help": "Jika halaman tidak dapat dimuat secara langsung, agen dapat mengambilnya melalui layanan pembaca luar, yang kemudian dapat melihat alamat halaman tersebut."
       },
       "scrub_child_env": {
-        "label": "Jauhkan kunci dari server MCP",
-        "help": "Server MCP hanya mendapatkan pengaturan sistem dasar ditambah nilai yang Anda berikan, bukan kunci dan token lain di lingkungan CraftBot."
+        "label": "Jauhkan kunci dari alat",
+        "help": "Server MCP hanya mendapat pengaturan sistem dasar ditambah nilai yang Anda berikan, dan perintah yang dijalankan agen mendapat lingkungan Anda tanpa kunci API dan token milik CraftBot."
       },
       "redact_logs": {
         "label": "Sembunyikan rahasia di log",
@@ -915,6 +916,10 @@
       "verify_mcp_servers": {
         "label": "Hanya jalankan server MCP yang disimpan di Pengaturan",
         "help": "Server MCP yang perintahnya diubah dengan cara lain, misalnya oleh perintah yang dijalankan agen, tidak dijalankan sampai Anda mengonfirmasinya di Pemeriksaan keamanan."
+      },
+      "block_destructive_commands": {
+        "label": "Blokir perintah yang merusak",
+        "help": "Menolak perintah yang kerusakannya tidak bisa dibatalkan oleh persetujuan apa pun, seperti menghapus folder tingkat atas atau folder rumah Anda, menulis langsung ke disk, atau mengalirkan unduhan ke shell root. Berlaku meskipun Mode otomatis aktif."
       }
     },
     "list": {

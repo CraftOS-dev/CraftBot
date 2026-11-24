@@ -831,7 +831,8 @@
         "network": "Red",
         "secrets": "Secretos y datos",
         "channels": "Canales",
-        "audit": "Auditoría"
+        "audit": "Auditoría",
+        "commands": "Comandos"
       }
     },
     "fields": {
@@ -883,8 +884,8 @@
         "help": "Si una página no carga directamente, el agente puede obtenerla a través de un servicio lector externo, que entonces ve la dirección de la página."
       },
       "scrub_child_env": {
-        "label": "Mantener las claves fuera de los servidores MCP",
-        "help": "Los servidores MCP solo reciben los ajustes básicos del sistema y los valores que les diste, no las demás claves y tokens del entorno de CraftBot."
+        "label": "Mantener las claves fuera de las herramientas",
+        "help": "Los servidores MCP reciben solo la configuración básica del sistema y los valores que les diste, y los comandos que ejecuta el agente reciben tu entorno sin las claves y tokens propios de CraftBot."
       },
       "redact_logs": {
         "label": "Ocultar secretos en los registros",
@@ -915,6 +916,10 @@
       "verify_mcp_servers": {
         "label": "Iniciar solo servidores MCP guardados en Ajustes",
         "help": "Un servidor MCP cuyo comando se cambió de otra forma, por ejemplo con un comando que ejecutó el agente, no se inicia hasta que lo confirmes en la Comprobación de seguridad."
+      },
+      "block_destructive_commands": {
+        "label": "Bloquear comandos destructivos",
+        "help": "Rechaza comandos cuyo daño ninguna aprobación puede deshacer, como borrar una carpeta de nivel superior o tu carpeta personal, escribir directamente en un disco o pasar una descarga a un shell de administrador. Se aplica incluso con el Modo automático activado."
       }
     },
     "list": {

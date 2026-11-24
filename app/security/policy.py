@@ -80,6 +80,10 @@ class SecurityPolicy:
     ask_after_untrusted: bool = False
     approval_timeout_s: int = 300
 
+    # ── Commands ──
+    # Refuse commands that do damage no approval can undo (commands.py).
+    block_destructive_commands: bool = False
+
     # ── Untrusted content ──
     mark_untrusted_content: bool = False
     # Start an MCP server only as it was saved through CraftBot's settings
@@ -141,6 +145,7 @@ _PRESETS: Dict[SecurityLevel, Dict[str, Any]] = {
         "ask_after_untrusted": True,
         "mark_untrusted_content": True,
         "verify_mcp_servers": True,
+        "block_destructive_commands": True,
         "protect_secret_files": True,
         "network_guard": True,
         "scrub_child_env": True,
@@ -155,6 +160,7 @@ _PRESETS: Dict[SecurityLevel, Dict[str, Any]] = {
         "ask_after_untrusted": True,
         "mark_untrusted_content": True,
         "verify_mcp_servers": True,
+        "block_destructive_commands": True,
         "protect_secret_files": True,
         "confine_writes": True,
         "network_guard": True,

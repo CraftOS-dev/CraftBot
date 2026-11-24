@@ -26,6 +26,8 @@ export interface SecurityPolicy {
   approval_effects: SecurityEffect[]
   ask_after_untrusted: boolean
   approval_timeout_s: number
+  /** Refuse commands that do damage no approval can undo. */
+  block_destructive_commands: boolean
   mark_untrusted_content: boolean
   /** Start MCP servers only as saved through Settings. */
   verify_mcp_servers: boolean

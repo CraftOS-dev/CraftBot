@@ -831,7 +831,8 @@
         "network": "Network",
         "secrets": "Secrets & data",
         "channels": "Channels",
-        "audit": "Audit"
+        "audit": "Audit",
+        "commands": "Commands"
       }
     },
     "fields": {
@@ -883,8 +884,8 @@
         "help": "When a page won't load directly, the agent may fetch it through an outside reader service, which then sees the page address."
       },
       "scrub_child_env": {
-        "label": "Keep keys out of MCP servers",
-        "help": "MCP servers get only basic system settings plus the values you gave them, not the other keys and tokens in CraftBot's environment."
+        "label": "Keep keys out of tools",
+        "help": "MCP servers get only basic system settings plus the values you gave them, and commands the agent runs get your environment without CraftBot's own API keys and tokens."
       },
       "redact_logs": {
         "label": "Hide secrets in logs",
@@ -915,6 +916,10 @@
       "verify_mcp_servers": {
         "label": "Only start MCP servers saved in Settings",
         "help": "An MCP server whose command was changed any other way, for example by a command the agent ran, does not start until you confirm it in the Security check."
+      },
+      "block_destructive_commands": {
+        "label": "Block destructive commands",
+        "help": "Refuses commands whose damage no approval can undo, such as deleting a top-level folder or your home folder, writing directly to a disk, or piping a download into a root shell. Applies even with Auto mode on."
       }
     },
     "list": {

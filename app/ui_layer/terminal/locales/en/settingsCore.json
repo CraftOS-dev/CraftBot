@@ -615,8 +615,8 @@
         "help": "web pages may be read through an outside reading service"
       },
       "scrub_child_env": {
-        "label": "Keep keys out of MCP servers",
-        "help": "MCP servers get basic system settings and their own values, not your other keys"
+        "label": "Keep keys out of tools",
+        "help": "MCP servers get only basics; commands get your environment without CraftBot's keys"
       },
       "redact_logs": {
         "label": "Redact logs",
@@ -641,6 +641,10 @@
       "verify_mcp_servers": {
         "label": "MCP servers only as saved",
         "help": "an MCP server changed outside Settings waits for your OK"
+      },
+      "block_destructive_commands": {
+        "label": "Block destructive commands",
+        "help": "refuses commands no approval can undo (deleting top-level folders, writing to disks)"
       }
     },
     "keepForever": "Forever",

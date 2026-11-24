@@ -615,8 +615,8 @@
         "help": "halaman web dapat dibaca melalui layanan pembaca luar"
       },
       "scrub_child_env": {
-        "label": "Jauhkan kunci dari server MCP",
-        "help": "server MCP mendapatkan pengaturan sistem dasar dan nilainya sendiri, bukan kunci Anda yang lain"
+        "label": "Jauhkan kunci dari alat",
+        "help": "server MCP hanya mendapat dasar; perintah mendapat lingkungan Anda tanpa kunci CraftBot"
       },
       "redact_logs": {
         "label": "Sembunyikan rahasia di log",
@@ -641,6 +641,10 @@
       "verify_mcp_servers": {
         "label": "Server MCP hanya sesuai yang disimpan",
         "help": "server MCP yang diubah di luar Pengaturan menunggu persetujuan Anda"
+      },
+      "block_destructive_commands": {
+        "label": "Blokir perintah yang merusak",
+        "help": "menolak perintah yang tidak bisa dibatalkan (menghapus folder utama, menulis ke disk)"
       }
     },
     "keepForever": "Selamanya",

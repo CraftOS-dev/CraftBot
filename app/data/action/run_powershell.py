@@ -99,6 +99,19 @@ def powershell_exec_windows(input_data: dict) -> dict:
             "pid": None,
         }
 
+    from app.security.commands import refusal as _command_refusal
+
+    _refused = _command_refusal(script, windows=True)
+    if _refused:
+        return {
+            "status": "error",
+            "stdout": "",
+            "stderr": "",
+            "return_code": -1,
+            "message": _refused,
+            "pid": None,
+        }
+
     if cwd and not os.path.isdir(cwd):
         return {
             "status": "error",
@@ -113,7 +126,10 @@ def powershell_exec_windows(input_data: dict) -> dict:
     # bare `node` is the major the agent-app CLI needs (app/node_runtime.py).
     from app import node_runtime
 
-    env = node_runtime.child_env()
+    from app.security.env import command_environment
+
+    # Settings > Security: CraftBot's own keys stay out of the command.
+    env = command_environment(node_runtime.child_env())
     for k, v in env_input.items():
         env[str(k)] = str(v)
 

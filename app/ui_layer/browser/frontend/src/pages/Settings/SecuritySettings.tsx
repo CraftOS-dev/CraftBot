@@ -49,6 +49,7 @@ const TIMEOUT_OPTIONS = [30, 60, 120, 300, 600, 900, 1800, 3600]
 /** Settings a level can set, by the name the backend reports in `overrides`. */
 const SETTING_KEYS: SecuritySettingKey[] = [
   'auto_mode',
+  'block_destructive_commands',
   'approval_effects',
   'ask_after_untrusted',
   'approval_timeout_s',
@@ -72,6 +73,7 @@ const SETTING_KEYS: SecuritySettingKey[] = [
 
 /** On/off protections under Advanced (each has a label and one-line help). */
 type ToggleKey =
+  | 'block_destructive_commands'
   | 'mark_untrusted_content'
   | 'verify_mcp_servers'
   | 'protect_secret_files'
@@ -216,7 +218,7 @@ export function SecuritySettings() {
     />
   )
 
-  const group = (id: 'untrusted' | 'files' | 'network' | 'secrets' | 'channels' | 'audit', rows: ReactNode) => (
+  const group = (id: 'commands' | 'untrusted' | 'files' | 'network' | 'secrets' | 'channels' | 'audit', rows: ReactNode) => (
     <div className={sec.group}>
       <div className={sec.groupTitle}>{t(`settings:security.advanced.groups.${id}`)}</div>
       {rows}
@@ -372,6 +374,7 @@ export function SecuritySettings() {
         {showAdvanced && (
           <div className={styles.advancedContent}>
             <p className={styles.hint}>{t('settings:security.advanced.desc')}</p>
+            {group('commands', toggleRow('block_destructive_commands'))}
             {group('untrusted', <>
               {toggleRow('mark_untrusted_content')}
               {toggleRow('verify_mcp_servers')}

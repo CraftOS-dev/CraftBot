@@ -615,8 +615,8 @@
         "help": "웹 페이지를 외부 읽기 서비스를 통해 읽을 수 있습니다"
       },
       "scrub_child_env": {
-        "label": "MCP 서버에 키 숨기기",
-        "help": "MCP 서버는 기본 시스템 설정과 자체 값만 받으며, 다른 키는 받지 않습니다"
+        "label": "도구에서 키 분리",
+        "help": "MCP 서버는 기본값만, 명령은 CraftBot 키를 뺀 환경을 받습니다"
       },
       "redact_logs": {
         "label": "로그 가리기",
@@ -641,6 +641,10 @@
       "verify_mcp_servers": {
         "label": "저장된 대로의 MCP 서버만",
         "help": "설정 밖에서 바뀐 MCP 서버는 확인을 기다립니다"
+      },
+      "block_destructive_commands": {
+        "label": "파괴적인 명령 차단",
+        "help": "되돌릴 수 없는 명령(최상위 폴더 삭제, 디스크 쓰기)을 거부합니다"
       }
     },
     "keepForever": "영구",

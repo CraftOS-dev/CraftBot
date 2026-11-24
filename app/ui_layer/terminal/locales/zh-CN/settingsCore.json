@@ -615,8 +615,8 @@
         "help": "网页可能会通过外部阅读服务读取"
       },
       "scrub_child_env": {
-        "label": "不向 MCP 服务器暴露密钥",
-        "help": "MCP 服务器只获得基本系统设置和其自身的值，不会获得你的其他密钥"
+        "label": "不让工具拿到密钥",
+        "help": "MCP 服务器只获得基本设置；命令获得不含 CraftBot 密钥的环境"
       },
       "redact_logs": {
         "label": "日志脱敏",
@@ -641,6 +641,10 @@
       "verify_mcp_servers": {
         "label": "仅按保存内容启动 MCP 服务器",
         "help": "在设置之外被更改的 MCP 服务器需等待你确认"
+      },
+      "block_destructive_commands": {
+        "label": "阻止破坏性命令",
+        "help": "拒绝无法挽回的命令（删除顶层文件夹、写入磁盘）"
       }
     },
     "keepForever": "永久",
