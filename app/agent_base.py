@@ -409,6 +409,12 @@ class AgentBase:
             self.state_manager,
             idempotency_guard=ActivityLogGuard(self.activity_log),
         )
+        from app.security.gate import gate as security_gate
+
+        # Every action, sub-agents' included, passes the security gate
+        # (Settings > Security). At the default settings it only notes
+        # where results came from.
+        self.action_manager.set_action_gate(security_gate)
         self.action_router = ActionRouter(
             self.action_library,
             self.llm,
@@ -817,6 +823,16 @@ class AgentBase:
             await self._log_deferred_user_messages(trigger, session_id)
 
             trigger_data = self._extract_trigger_data(trigger, session_id)
+            from app.security.content import runs as security_runs
+
+            # What the security gate knows about this run: who started it,
+            # and whether it has read content from a third party.
+            security_runs.turn_started(
+                session_id,
+                source=trigger.source,
+                origin=_message_origin(trigger_data),
+                starts_run=trigger.source in RUN_START_SOURCES,
+            )
             from app.telegram_feedback import start_typing
 
             typing_task = start_typing(trigger_data.payload or {})
