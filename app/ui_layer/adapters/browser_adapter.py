@@ -1186,6 +1186,16 @@ class BrowserAdapter(InterfaceAdapter):
         # connected window and terminal; with none connected, actions that
         # need approval are refused instead of left waiting.
         approval_broker.attach_ui(self._broadcast, lambda: bool(self._channels))
+        # Local programs of the same user (the terminal client) read the
+        # session token from an owner-only file; /api/session-token answers
+        # browsers only (ws_auth.py).
+        try:
+            from app import paths
+            from app.ui_layer.adapters.ws_auth import publish_token
+
+            publish_token(paths.STATE_ROOT, self._port, self._ws_auth.token)
+        except Exception as exc:
+            logger.warning(f"[BROWSER ADAPTER] Could not write the session token file: {exc}")
         self._controller.agent.session_manager.add_post_update_todos_hook(
             make_todo_broadcast_hook(self._broadcast)
         )

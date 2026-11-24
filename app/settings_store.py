@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import stat
 import tempfile
 import threading
 import time
@@ -42,7 +43,10 @@ def write_settings(path: Path, settings: dict) -> None:
                 stream.flush()
                 os.fsync(stream.fileno())
             if path.exists():
-                os.chmod(temporary, path.stat().st_mode)
+                # Keep the owner's bits only: settings.json holds API keys,
+                # so an older world-readable file becomes private on its
+                # next write (mkstemp already creates a new one 0600).
+                os.chmod(temporary, stat.S_IMODE(path.stat().st_mode) & 0o700)
             for attempt in range(10):
                 try:
                     os.replace(temporary, path)

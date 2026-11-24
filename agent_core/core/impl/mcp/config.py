@@ -6,6 +6,8 @@ Handles loading and validation of MCP server configurations.
 """
 
 import json
+import tempfile
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Any
@@ -159,8 +161,18 @@ class MCPConfig:
         config_path = Path(config_path)
         config_path.parent.mkdir(parents=True, exist_ok=True)
 
-        with open(config_path, "w", encoding="utf-8") as f:
-            json.dump(self.to_dict(), f, indent=2)
+        # Server env values are API keys: write owner-only (mkstemp creates
+        # the file 0600) and replace atomically, never through a plain open().
+        descriptor, temporary = tempfile.mkstemp(
+            prefix=f".{config_path.name}.", dir=config_path.parent
+        )
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8") as f:
+                json.dump(self.to_dict(), f, indent=2)
+            os.replace(temporary, config_path)
+        finally:
+            if os.path.exists(temporary):
+                os.unlink(temporary)
 
     def get_enabled_servers(self) -> List[MCPServerConfig]:
         """Get list of enabled server configurations."""

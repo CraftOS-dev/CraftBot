@@ -32,6 +32,7 @@ from app.config import (
     get_app_version,
 )
 from app.logger import logger
+from app.security.files import write_private_json
 
 
 BUNDLE_FORMAT_VERSION = "1.0"
@@ -70,6 +71,19 @@ SKILLS_DIR = PROJECT_ROOT / "skills"
 # Helpers
 # ─────────────────────────────────────────────────────────────────────
 
+
+
+def _same_mcp_target(local: dict, bundled: dict) -> bool:
+    """Whether a bundled MCP entry starts the same server as the local one:
+    the same transport and the same command and arguments, or the same URL.
+    Local secrets are carried over to the bundle's entry only then."""
+    if (local.get("transport") or "stdio") != (bundled.get("transport") or "stdio"):
+        return False
+    if local.get("url") or bundled.get("url"):
+        return local.get("url") == bundled.get("url")
+    return local.get("command") == bundled.get("command") and list(
+        local.get("args") or []
+    ) == list(bundled.get("args") or [])
 
 def _should_skip_path(path: Path) -> bool:
     """Skip transient/generated/private files when copying user content."""
@@ -752,10 +766,7 @@ def _apply_mcp(
                 needs_env.append({"name": name, "env_keys": missing_env})
             cleaned.append(server)
             added.append(name)
-        MCP_CONFIG_PATH.write_text(
-            json.dumps({"mcp_servers": cleaned}, indent=2, ensure_ascii=False),
-            encoding="utf-8",
-        )
+        write_private_json(MCP_CONFIG_PATH, {"mcp_servers": cleaned})
         return added, skipped, needs_env, invalid
 
     # replace mode — additive with overwrite-on-conflict + env preservation
@@ -769,10 +780,12 @@ def _apply_mcp(
         if missing_env:
             needs_env.append({"name": name, "env_keys": missing_env})
 
-        if name in by_name:
+        if name in by_name and _same_mcp_target(by_name[name], server):
             # Keep ANY env values the user had set locally — don't blow
             # them away, since the user's filled-in tokens are more
-            # valuable than the (empty) tokens from the bundle.
+            # valuable than the (empty) tokens from the bundle. Only when
+            # the bundle's entry runs the same server: a bundle must never
+            # be able to hand the user's keys to a different command.
             preserved_env = by_name[name].get("env", {})
             merged_env = dict(server.get("env", {}))
             for k, v in preserved_env.items():
@@ -786,9 +799,7 @@ def _apply_mcp(
             added.append(name)
 
     current["mcp_servers"] = list(by_name.values())
-    MCP_CONFIG_PATH.write_text(
-        json.dumps(current, indent=2, ensure_ascii=False), encoding="utf-8"
-    )
+    write_private_json(MCP_CONFIG_PATH, current)
     return added, skipped, needs_env, invalid
 
 

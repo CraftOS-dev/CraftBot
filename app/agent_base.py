@@ -415,6 +415,12 @@ class AgentBase:
         # (Settings > Security). At the default settings it only notes
         # where results came from.
         self.action_manager.set_action_gate(security_gate)
+        from app.security.checks import secret_files
+        from app.security.files import restrict_all
+
+        # Files holding keys are owner-only at every security level; files
+        # written by older versions are tightened once here.
+        restrict_all(secret_files())
         self.action_router = ActionRouter(
             self.action_library,
             self.llm,

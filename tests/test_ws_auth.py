@@ -6,6 +6,7 @@ The integration tests run the real BrowserAdapter handlers (built with
 
 import asyncio
 import json
+import os
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -59,9 +60,13 @@ def test_token_from_protocols():
 
 def test_token_request_checks():
     auth = WsAuth(7926, token=TOKEN)
-    ok = {"Host": "localhost:7925"}
+    ok = {"Host": "localhost:7925", "Sec-Fetch-Site": "same-origin"}
     assert auth.check_token_request(ok) is None
-    assert auth.check_token_request({**ok, "Sec-Fetch-Site": "same-origin"}) is None
+    # Not a browser's same-origin fetch: programs read the token file instead.
+    assert auth.check_token_request({"Host": "localhost:7925"}) == "fetch-site"
+    assert (
+        auth.check_token_request({**ok, "Sec-Fetch-Site": "none"}) == "fetch-site"
+    )
     assert (
         auth.check_token_request({**ok, "Sec-Fetch-Site": "cross-site"}) == "fetch-site"
     )
@@ -188,18 +193,36 @@ def test_token_endpoint_same_origin_only():
             cross = r.status
         async with s.get(url, headers={"Host": "evil.example"}) as r:
             rebind = r.status
-        return ok, foreign, cross, rebind
+        async with s.get(url) as r:
+            program = r.status
+        return ok, foreign, cross, rebind, program
 
-    ok, foreign, cross, rebind = _run(go)
+    ok, foreign, cross, rebind, program = _run(go)
     assert ok == (200, {"token": TOKEN}, None)
-    assert (foreign, cross, rebind) == (403, 403, 403)
+    assert (foreign, cross, rebind, program) == (403, 403, 403, 403)
+
+
+def test_token_file_is_owner_only(tmp_path):
+    import stat
+
+    from app.ui_layer.adapters.ws_auth import publish_token, token_file
+
+    path = publish_token(tmp_path, 7926, TOKEN)
+    assert path == token_file(tmp_path, 7926)
+    assert path.read_text() == TOKEN
+    if os.name != "nt":
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600
+        assert stat.S_IMODE(path.parent.stat().st_mode) == 0o700
 
 
 def test_fetched_token_opens_socket():
     """The flow the UI runs: fetch token, then connect with it."""
 
     async def go(s, port):
-        async with s.get(f"http://127.0.0.1:{port}/api/session-token") as r:
+        async with s.get(
+            f"http://127.0.0.1:{port}/api/session-token",
+            headers={"Sec-Fetch-Site": "same-origin"},
+        ) as r:
             token = (await r.json())["token"]
         return await _handshake(
             s, port, "http://localhost:7925", ("craftbot", f"craftbot-auth.{token}")
