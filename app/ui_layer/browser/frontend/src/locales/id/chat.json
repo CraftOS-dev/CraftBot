@@ -165,5 +165,35 @@
     "title": "Agent App",
     "noInstalled": "Tidak ada aplikasi terpasang.",
     "close": "Tutup"
+  },
+  "approval": {
+    "aria": "Permintaan persetujuan",
+    "title": "{{action}} memerlukan persetujuan Anda",
+    "inSession": "Di {{session}}",
+    "highRisk": "Tindakan ini dapat {{effects}}.",
+    "untrusted": "Agen membaca konten luar ({{detail}}) sebelum meminta untuk melakukan ini.",
+    "untrustedNoDetail": "Agen membaca konten luar sebelum meminta untuk melakukan ini.",
+    "effects": {
+      "execute": "menjalankan perintah atau kode",
+      "write_files": "membuat atau mengubah berkas",
+      "send_external": "mengirim pesan atau mengubah layanan luar",
+      "change_agent": "mengubah pengaturan, jadwal, atau alat CraftBot sendiri",
+      "use_credentials": "menggunakan kredensial tersimpan"
+    },
+    "inputs": "Input",
+    "showAll_one": "Tampilkan semua {{count}} baris",
+    "showAll_other": "Tampilkan semua {{count}} baris",
+    "showLess": "Tampilkan lebih sedikit",
+    "expiresIn": "Ditolak otomatis dalam {{time}}",
+    "expired": "Waktu habis",
+    "allowOnce": "Izinkan sekali",
+    "allowSession": "Izinkan untuk sesi ini",
+    "allowSessionHint": "Jangan tanya lagi untuk {{action}} di chat ini sampai CraftBot dimulai ulang",
+    "deny": "Tolak",
+    "notConnected": "Tidak tersambung, jadi jawaban Anda tidak terkirim. Coba lagi setelah CraftBot kembali.",
+    "waitingIn_one": "Sebuah tindakan di {{session}} menunggu persetujuan Anda",
+    "waitingIn_other": "{{count}} tindakan di {{session}} menunggu persetujuan Anda",
+    "open": "Buka",
+    "unknownSession": "chat lain"
   }
 }

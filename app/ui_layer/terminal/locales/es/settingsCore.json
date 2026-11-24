@@ -543,5 +543,143 @@
       "expired": "caducada",
       "about": "unos {{time}}"
     }
+  },
+  "security": {
+    "loading": "Cargando los ajustes de seguridad...",
+    "error": "Error: {{error}}",
+    "saved": "Guardado",
+    "saveFailed": "No se pudieron guardar los ajustes de seguridad",
+    "approvalsTitle": "Aprobaciones",
+    "autoMode": "Modo automático",
+    "autoModeOn": "el agente actúa sin preguntar, como antes",
+    "autoModeOff": "las acciones de alto riesgo esperan tu aprobación",
+    "askFirst": "Preguntar antes de:",
+    "effects": {
+      "execute": "Ejecutar comandos o código",
+      "write_files": "Crear o cambiar archivos",
+      "send_external": "Enviar mensajes o cambiar servicios externos",
+      "change_agent": "Cambiar la configuración, las programaciones o las herramientas de CraftBot",
+      "use_credentials": "Usar credenciales guardadas"
+    },
+    "askAfterUntrusted": "Contenido externo",
+    "askAfterUntrustedDetail": "preguntar antes de cualquier acción una vez que el agente haya leído páginas web, correos u otro contenido externo",
+    "approvalsNote": "Las aprobaciones aparecen en el chat. Si no respondes en {{minutes}} min, cuenta como Denegar.",
+    "levelTitle": "Nivel de seguridad",
+    "custom": "Personalizado",
+    "customAside": "Personalizado ({{level}})",
+    "levels": {
+      "standard": {
+        "name": "Estándar",
+        "description": "Funciona exactamente igual que antes."
+      },
+      "enhanced": {
+        "name": "Reforzado",
+        "description": "Mantiene al agente lejos de tus claves, revisa las solicitudes web, marca el contenido externo y guarda un registro de auditoría. Rara vez pregunta."
+      },
+      "strict": {
+        "name": "Estricto",
+        "description": "Reforzado y, además, los archivos solo se escriben en el espacio de trabajo, sin lector de terceros y con una retención más corta."
+      }
+    },
+    "hintChoose": "elegir",
+    "lowerConfirm": "¿Bajar la seguridad a {{level}}? Las protecciones que no incluye se desactivan.",
+    "switchConfirm": "¿Cambiar a {{level}}? Tus ajustes personalizados vuelven a sus valores predeterminados.",
+    "useDefaultsConfirm": "¿Descartar tus ajustes personalizados y usar los valores predeterminados de {{level}}?",
+    "customNote_one": "Personalizado: {{count}} ajuste cambiado sobre {{level}}.",
+    "customNote_other": "Personalizado: {{count}} ajustes cambiados sobre {{level}}.",
+    "useDefaults": "Usar los valores predeterminados de {{level}}",
+    "advancedTitle": "Avanzado",
+    "showAdvanced": "Mostrar ajustes avanzados",
+    "hideAdvanced": "Ocultar ajustes avanzados",
+    "advancedDetail": "cada protección por separado",
+    "changed": "cambiado",
+    "settings": {
+      "mark_untrusted_content": {
+        "label": "Marcar contenido externo",
+        "help": "las páginas web, los correos y otro contenido externo llegan al agente marcados como datos, no como instrucciones"
+      },
+      "protect_secret_files": {
+        "label": "Proteger archivos secretos",
+        "help": "las herramientas de archivos del agente no pueden leer ni cambiar claves, credenciales ni ajustes de seguridad (los comandos no se limitan)"
+      },
+      "confine_writes": {
+        "label": "Limitar la escritura de archivos",
+        "help": "el agente crea y cambia archivos solo dentro de las carpetas del espacio de trabajo"
+      },
+      "network_guard": {
+        "label": "Revisar solicitudes web",
+        "help": "las solicitudes web del agente solo llegan a sitios públicos; se revisan la red local y cada redirección"
+      },
+      "third_party_reader": {
+        "label": "Lector de terceros",
+        "help": "las páginas web pueden leerse a través de un servicio lector externo"
+      },
+      "scrub_child_env": {
+        "label": "Mantener las claves fuera de los servidores MCP",
+        "help": "los servidores MCP reciben los ajustes básicos del sistema y sus propios valores, no tus otras claves"
+      },
+      "redact_logs": {
+        "label": "Ocultar datos en los registros",
+        "help": "las claves y credenciales propias de CraftBot se borran en los registros"
+      },
+      "log_prompts": {
+        "label": "Registrar prompts",
+        "help": "los prompts completos enviados al modelo se escriben en los registros"
+      },
+      "strict_channel_identity": {
+        "label": "Comprobación estricta del remitente",
+        "help": "los propietarios de Discord se reconocen solo por su nombre de usuario único, y en los servidores hace falta una mención"
+      },
+      "audit_log": {
+        "label": "Registro de auditoría",
+        "help": "un registro a prueba de manipulaciones de las decisiones de seguridad"
+      },
+      "retention_days": {
+        "label": "Conservar el historial durante",
+        "help": "los archivos de registro y las llamadas a la IA grabadas más antiguos se eliminan; los chats se conservan; 0 lo conserva todo"
+      }
+    },
+    "keepForever": "Para siempre",
+    "days_one": "{{count}} día",
+    "days_other": "{{count}} días",
+    "badDays": "Usa un número entero de días, 0 o más",
+    "lists": {
+      "extra_protected_paths": "Rutas protegidas",
+      "workspace_paths": "Carpetas del espacio de trabajo",
+      "allowed_domains": "Solo estos dominios (vacío: cualquier sitio público)"
+    },
+    "none": "ninguno",
+    "listsNote": "Estas listas se editan en el navegador: Ajustes > Seguridad.",
+    "checkTitle": "Comprobación de seguridad",
+    "checkIssues_one": "{{count}} para revisar",
+    "checkIssues_other": "{{count}} para revisar",
+    "checkAllGood": "nada que corregir",
+    "checking": "Comprobando...",
+    "checkAgain": "Volver a ejecutar la comprobación",
+    "status": {
+      "ok": "OK",
+      "info": "Nota",
+      "warn": "Advertencia",
+      "fail": "Problema"
+    },
+    "canFix": "corrección disponible",
+    "hintFix": "corregir",
+    "fixConfirm": "¿Aplicar la corrección de «{{title}}»?",
+    "fixed": "Corregido",
+    "fixFailed": "No se aplicó la corrección",
+    "auditTitle": "Registro de auditoría",
+    "auditOff": "Desactivado. Actívalo en Avanzado o elige Reforzado o Estricto.",
+    "auditLoading": "Cargando el registro de auditoría...",
+    "auditRecords": "Entradas",
+    "records_one": "{{count}} entrada",
+    "records_other": "{{count}} entradas",
+    "auditIntact": "intacto: ninguna entrada cambiada ni eliminada",
+    "auditBroken": "cambiado: la cadena se rompe en la línea {{line}}",
+    "auditFile": "Archivo",
+    "auditRefresh": "Actualizar el registro de auditoría",
+    "resetTitle": "Restablecer",
+    "resetDesc": "Vuelve a Estándar con el modo automático activado y las listas de rutas y dominios vacías.",
+    "reset": "Restablecer los ajustes de seguridad",
+    "resetConfirm": "¿Restablecer todos los ajustes de seguridad a Estándar?"
   }
 }

@@ -102,6 +102,7 @@
     "mcps": "MCP",
     "skills": "スキル",
     "integrations": "連携",
+    "security": "セキュリティ",
     "agent_app": "Agent App"
   },
   "model": {
@@ -147,6 +148,10 @@
       "startingShort": "起動中..."
     },
     "subscription": {
+      "recoveryHint": "この保存済みのサブスクリプションはまだ選択されています。API キーを使用するには切断するか、もう一度サインインしてください。",
+      "claudeProfileNote": "CraftBot 用に別途サインインしてください。切断するとこのプロファイルからサインアウトしますが、単体の Claude Code のログインには影響しません。",
+      "disconnectFailed": "サブスクリプションを切断できませんでした。もう一度お試しください。",
+      "connectFailed": "サブスクリプションにサインインできませんでした。もう一度お試しください。",
       "label": "サブスクリプション",
       "awaitingCode": "コードを待機中",
       "pastePlaceholder": "サインインページのコードを貼り付け",
@@ -602,6 +607,26 @@
       "waitingQrScan": "QR スキャンを待機中...",
       "connectNamed": "{{name}} に接続"
     },
+    "figma": {
+      "canvasTitle": "Figma でデザイン",
+      "canvasIntro": "ブラウザで Talk to Figma を使用します。接続は CraftBot が実行するため、デスクトップアプリや追加のサーバーをインストールする必要はありません。",
+      "canvasAccount": "CraftBot アカウント",
+      "canvasStepStart": "下のボタンで接続を開始します。",
+      "canvasPluginLink": "Talk to Figma MCP プラグインを開く",
+      "canvasStepPlugin": "（対象の Figma デザインで開き、ポート 3055 の Connect をクリックします。）",
+      "canvasStepChannel": "プラグインに表示されたチャネルを貼り付けて、CraftBot に接続します。",
+      "canvasConnected": "{{page}} に接続済み · チャネル {{channel}}",
+      "canvasWaiting": "接続を実行中 · プラグインのチャネルを待機しています",
+      "canvasStopped": "キャンバス接続を停止しました",
+      "canvasStart": "キャンバス接続を開始",
+      "canvasChannel": "プラグインのチャネル",
+      "canvasConnect": "チャネルに接続",
+      "canvasStop": "接続を停止",
+      "canvasRefresh": "状態を更新",
+      "canvasTimeout": "接続の確認がタイムアウトしました。状態を更新してからもう一度お試しください。",
+      "canvasTarget": "編集はプラグインで開いているファイルとページに適用されます。CraftBot の作業中は開いたままにし、ページを切り替えたり再起動したりした後は再接続してください。デフォルトの REST ファイルはキャンバスの選択には使われません。",
+      "canvasPrivacy": "このコミュニティプラグインは開いているデザインを読み取り・編集でき、利用状況の分析を行うと表明しています。CraftBot は Figma トークンをローカルに保存します。CraftBot と Figma の両方をこのコンピューターで実行する必要があります。"
+    },
     "whatsapp": {
       "starting": "WhatsApp Web セッションを開始中...",
       "scanDesc": "WhatsApp モバイルアプリでこの QR コードをスキャンして接続します。",
@@ -742,5 +767,183 @@
     "createLanLink": "LANリンクを作成",
     "starting": "起動中...",
     "createTunnel": "トンネルを作成"
+  },
+  "security": {
+    "title": "セキュリティ",
+    "subtitle": "CraftBot がコンピューター、キー、データをどれだけ慎重に守るかを選びます",
+    "loading": "セキュリティ設定を読み込み中...",
+    "autoMode": {
+      "label": "自動モード",
+      "on": "エージェントは確認せずに操作します（従来どおり）。",
+      "off": "リスクの高い操作は、チャットのカードであなたの承認を待ちます。",
+      "askTitle": "次の操作の前に確認…",
+      "askAfterUntrusted": "エージェントが外部コンテンツを読んだ後は、どの操作の前にも確認する",
+      "askAfterUntrustedHint": "ウェブページ、メール、他の人からのメッセージには、エージェントに向けた指示が含まれていることがあります。",
+      "timeout": "自動的に拒否するまでの時間",
+      "timeoutHint": "時間内に誰も応答しなかった承認カードは、拒否として扱われます。",
+      "seconds_one": "{{count}} 秒",
+      "seconds_other": "{{count}} 秒",
+      "minutes_one": "{{count}} 分",
+      "minutes_other": "{{count}} 分",
+      "hours_one": "{{count}} 時間",
+      "hours_other": "{{count}} 時間"
+    },
+    "effects": {
+      "execute": "コマンドやコードの実行",
+      "write_files": "ファイルの作成・変更",
+      "send_external": "メッセージの送信や外部サービスの変更",
+      "change_agent": "CraftBot 自体の設定・スケジュール・ツールの変更",
+      "use_credentials": "保存済みの認証情報の使用"
+    },
+    "level": {
+      "title": "セキュリティレベル",
+      "desc": "各レベルで一連の保護が有効になります。細かな調整は「詳細」で行えます。",
+      "aria": "セキュリティレベル",
+      "custom": "カスタム",
+      "noticeLabel": "気づく変化:",
+      "changed": "{{level}} から変更: {{settings}}",
+      "reset": "{{level}} に戻す",
+      "lowerTitle": "セキュリティを {{level}} に下げますか？",
+      "lowerMessage": "{{level}} では {{from}} で有効な保護の一部がオフになり、変更した設定は {{level}} のデフォルトに戻ります。自動モードと、フォルダーおよびドメインのリストはそのまま残ります。",
+      "lowerConfirm": "{{level}} に切り替え",
+      "standard": {
+        "name": "標準",
+        "desc": "従来どおりに動作します。",
+        "notice": "変化はありません。確認もブロックもありません。"
+      },
+      "enhanced": {
+        "name": "強化",
+        "desc": "エージェントをキーから遠ざけ、すべてのウェブリクエストを確認し、外部コンテンツに印を付け、監査ログを記録します。確認を求めることはほとんどありません。",
+        "notice": "エージェントはキーファイルを開けなくなり、安全でないウェブリクエストは拒否され、Discord ではメンションされたときだけ応答します。90 日より古い記録は削除されます。"
+      },
+      "strict": {
+        "name": "厳格",
+        "desc": "強化のすべてに加え、ファイルの書き込みはワークスペース内に限定され、サードパーティのリーダーは使わず、データの保持期間が短くなります。",
+        "notice": "ワークスペース外へのファイル保存は失敗し、リーダーなしでは一部のページを読み込めない場合があり、30 日より古い記録は削除されます。自動モードがオフの場合は、ファイルを変更する前にも確認します。"
+      }
+    },
+    "advanced": {
+      "toggle": "詳細",
+      "desc": "各保護を個別に設定します。いずれかを変更すると、レベルはカスタムになります。",
+      "groups": {
+        "untrusted": "信頼できないコンテンツ",
+        "files": "ファイル",
+        "network": "ネットワーク",
+        "secrets": "シークレットとデータ",
+        "channels": "チャネル",
+        "audit": "監査"
+      }
+    },
+    "fields": {
+      "auto_mode": {
+        "label": "自動モード"
+      },
+      "approval_effects": {
+        "label": "次の操作の前に確認…"
+      },
+      "ask_after_untrusted": {
+        "label": "外部コンテンツの後に確認"
+      },
+      "approval_timeout_s": {
+        "label": "承認のタイムアウト"
+      },
+      "mark_untrusted_content": {
+        "label": "外部コンテンツに印を付ける",
+        "help": "ウェブページ、メール、他の人のメッセージに印を付け、エージェントが指示ではなく情報として扱うようにします。"
+      },
+      "protect_secret_files": {
+        "label": "キーファイルを保護",
+        "help": "エージェントのファイルツールは、API キー、認証情報、CraftBot のセキュリティ設定を読み取ったり変更したりできません。エージェントが実行するコマンドはこの制限を受けません。"
+      },
+      "extra_protected_paths": {
+        "label": "追加で保護",
+        "help": "エージェントが読み取りも変更もできないファイルやフォルダーを追加します。",
+        "placeholder": "/path/to/file-or-folder"
+      },
+      "confine_writes": {
+        "label": "ファイルの変更をワークスペース内に限定",
+        "help": "エージェントのファイルツールは、ワークスペースと下記のフォルダー内でのみファイルを作成・変更できます。エージェントが実行するコマンドはこの制限を受けません。"
+      },
+      "workspace_paths": {
+        "label": "ワークスペースのフォルダー",
+        "help": "ファイルの変更をワークスペース内に限定しているときに、エージェントが書き込める追加のフォルダーです。",
+        "placeholder": "/path/to/folder"
+      },
+      "network_guard": {
+        "label": "ウェブリクエストを確認",
+        "help": "エージェントのウェブリクエストは、インターネット上の公開サイトにしか届きません。このコンピューター、ローカルネットワーク、クラウドのメタデータサービスへのリクエストは拒否され、リダイレクトのたびに再確認されます。"
+      },
+      "allowed_domains": {
+        "label": "これらのドメインのみ許可",
+        "help": "ドメインを追加すると、エージェントのウェブリクエストはそのドメインとサブドメインにしか届きません。空のままにすると、すべての公開サイトを許可します。",
+        "placeholder": "example.com"
+      },
+      "third_party_reader": {
+        "label": "サードパーティのページリーダー",
+        "help": "ページを直接読み込めない場合、エージェントは外部のリーダーサービス経由で取得することがあります。その場合、サービス側にページのアドレスが伝わります。"
+      },
+      "scrub_child_env": {
+        "label": "MCP サーバーにキーを渡さない",
+        "help": "MCP サーバーには基本的なシステム設定とあなたが指定した値だけが渡され、CraftBot の環境にある他のキーやトークンは渡されません。"
+      },
+      "redact_logs": {
+        "label": "ログ内のシークレットを隠す",
+        "help": "CraftBot 自身の API キー、認証情報、MCP サーバーのキーは、ログに書き込まれる前に伏せ字になります。"
+      },
+      "log_prompts": {
+        "label": "プロンプト全文を記録",
+        "help": "AI モデルに送信したすべての内容をログに書き込みます。デバッグに役立ちますが、ログに会話内容が残ります。"
+      },
+      "retention_days": {
+        "label": "データの保持期間",
+        "help": "これより古いログファイルと記録された AI 呼び出しは削除されます。チャット、メモリー、監査ログは保持されます。0 にするとすべて保持します。",
+        "unit": "日"
+      },
+      "strict_channel_identity": {
+        "label": "厳格なチャネル ID 確認",
+        "help": "Discord のオーナーは一意のユーザー名でのみ識別され、誰でもまねできる表示名やロール名では識別されません。また、サーバーではボットへのメンションが必要です。"
+      },
+      "audit_log": {
+        "label": "監査ログ",
+        "help": "承認とセキュリティの変更を、改ざんを検出できる形で記録します。"
+      }
+    },
+    "list": {
+      "add": "追加",
+      "remove": "{{item}} を削除",
+      "empty": "なし",
+      "duplicate": "すでにリストにあります。"
+    },
+    "check": {
+      "title": "セキュリティチェック",
+      "desc": "このインストールを確認します: シークレットファイルを読み取れるユーザー、CraftBot のウィンドウにアクセスできるユーザー、監査ログ、セキュリティレベル。",
+      "runAgain": "再実行",
+      "running": "確認中...",
+      "fix": "修正",
+      "empty": "まだ結果はありません。",
+      "status": {
+        "ok": "OK",
+        "info": "情報",
+        "warn": "警告",
+        "fail": "問題"
+      }
+    },
+    "audit": {
+      "title": "監査ログ",
+      "desc": "承認とセキュリティの変更を新しい順に表示します。各記録は直前の記録を封印するため、編集や削除された記録があればわかります。",
+      "off": "監査ログはオフです。詳細 → 監査 でオンにするか、強化または厳格を選択してください。",
+      "intact_one": "チェーンは正常です（{{count}} 件の記録）",
+      "intact_other": "チェーンは正常です（{{count}} 件の記録）",
+      "broken": "{{line}} 行目で変更されています",
+      "empty": "まだ記録はありません。",
+      "loading": "監査ログを読み込み中...",
+      "showing": "{{total}} 件中、最新 {{shown}} 件",
+      "refresh": "更新",
+      "events": {
+        "action_approval": "操作の承認",
+        "security_settings_changed": "設定の変更",
+        "security_check_fixed": "チェック項目の修正"
+      }
+    }
   }
 }

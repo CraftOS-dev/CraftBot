@@ -102,6 +102,7 @@
     "mcps": "MCP",
     "skills": "Keahlian",
     "integrations": "Integrasi",
+    "security": "Keamanan",
     "agent_app": "Agent App"
   },
   "model": {
@@ -147,6 +148,10 @@
       "startingShort": "Memulai..."
     },
     "subscription": {
+      "recoveryHint": "Langganan tersimpan ini masih dipilih. Putuskan untuk menggunakan kunci API, atau masuk lagi.",
+      "claudeProfileNote": "Masuk secara terpisah untuk CraftBot. Memutuskan akan mengeluarkan Anda dari profil ini tanpa memengaruhi login Claude Code mandiri Anda.",
+      "disconnectFailed": "Tidak dapat memutuskan langganan. Silakan coba lagi.",
+      "connectFailed": "Tidak dapat masuk ke langganan. Silakan coba lagi.",
       "label": "Langganan",
       "awaitingCode": "Menunggu kode",
       "pastePlaceholder": "Tempel kode dari halaman masuk",
@@ -602,6 +607,26 @@
       "waitingQrScan": "Menunggu pemindaian QR...",
       "connectNamed": "Sambungkan {{name}}"
     },
+    "figma": {
+      "canvasTitle": "Desain di Figma",
+      "canvasIntro": "Gunakan Talk to Figma di peramban Anda. CraftBot menjalankan koneksinya untuk Anda, tanpa perlu menginstal aplikasi Desktop atau server tambahan.",
+      "canvasAccount": "Akun CraftBot",
+      "canvasStepStart": "Mulai koneksi di bawah ini.",
+      "canvasPluginLink": "Buka Plugin Talk to Figma MCP",
+      "canvasStepPlugin": "di desain Figma tujuan Anda, lalu klik Connect pada port 3055.",
+      "canvasStepChannel": "Tempel kanal yang ditampilkan plugin dan sambungkan ke CraftBot.",
+      "canvasConnected": "Tersambung ke {{page}} · kanal {{channel}}",
+      "canvasWaiting": "Koneksi berjalan · menunggu kanal plugin",
+      "canvasStopped": "Koneksi kanvas dihentikan",
+      "canvasStart": "Mulai koneksi kanvas",
+      "canvasChannel": "Kanal plugin",
+      "canvasConnect": "Sambungkan kanal",
+      "canvasStop": "Hentikan koneksi",
+      "canvasRefresh": "Segarkan status",
+      "canvasTimeout": "Pemeriksaan koneksi melewati batas waktu. Segarkan status sebelum mencoba lagi.",
+      "canvasTarget": "Suntingan berlaku pada berkas dan halaman yang terbuka di plugin. Biarkan plugin tetap terbuka selama CraftBot bekerja; sambungkan ulang setelah berganti halaman atau memulai ulang. Berkas REST default Anda tidak menentukan kanvas.",
+      "canvasPrivacy": "Plugin komunitas ini dapat membaca dan menyunting desain yang terbuka serta menyatakan memakai analitik penggunaan. CraftBot menyimpan token Figma Anda secara lokal. CraftBot dan Figma harus berjalan di komputer ini."
+    },
     "whatsapp": {
       "starting": "Memulai sesi WhatsApp Web...",
       "scanDesc": "Pindai kode QR ini dengan aplikasi WhatsApp di ponsel Anda untuk menyambungkan.",
@@ -742,5 +767,183 @@
     "createLanLink": "Buat Tautan LAN",
     "starting": "Memulai...",
     "createTunnel": "Buat Tunnel"
+  },
+  "security": {
+    "title": "Keamanan",
+    "subtitle": "Pilih seberapa ketat CraftBot menjaga komputer, kunci, dan data Anda",
+    "loading": "Memuat pengaturan keamanan...",
+    "autoMode": {
+      "label": "Mode otomatis",
+      "on": "Agen bertindak tanpa bertanya, sama seperti sebelumnya.",
+      "off": "Tindakan berisiko tinggi menunggu persetujuan Anda pada kartu di chat.",
+      "askTitle": "Tanya sebelum…",
+      "askAfterUntrusted": "Tanya juga sebelum tindakan apa pun setelah agen membaca konten luar",
+      "askAfterUntrustedHint": "Halaman web, email, dan pesan dari orang lain dapat berisi instruksi yang ditujukan untuk agen.",
+      "timeout": "Tolak otomatis setelah",
+      "timeoutHint": "Kartu persetujuan yang tidak dijawab tepat waktu dianggap Tolak.",
+      "seconds_one": "{{count}} detik",
+      "seconds_other": "{{count}} detik",
+      "minutes_one": "{{count}} menit",
+      "minutes_other": "{{count}} menit",
+      "hours_one": "{{count}} jam",
+      "hours_other": "{{count}} jam"
+    },
+    "effects": {
+      "execute": "Menjalankan perintah atau kode",
+      "write_files": "Membuat atau mengubah berkas",
+      "send_external": "Mengirim pesan atau mengubah layanan luar",
+      "change_agent": "Mengubah pengaturan, jadwal, atau alat CraftBot sendiri",
+      "use_credentials": "Menggunakan kredensial tersimpan"
+    },
+    "level": {
+      "title": "Tingkat keamanan",
+      "desc": "Setiap tingkat mengaktifkan serangkaian perlindungan. Sesuaikan di Lanjutan.",
+      "aria": "Tingkat keamanan",
+      "custom": "Kustom",
+      "noticeLabel": "Yang akan Anda perhatikan:",
+      "changed": "Diubah dari {{level}}: {{settings}}",
+      "reset": "Atur ulang ke {{level}}",
+      "lowerTitle": "Turunkan keamanan ke {{level}}?",
+      "lowerMessage": "{{level}} menonaktifkan perlindungan yang tetap aktif di {{from}}, dan pengaturan yang Anda ubah kembali ke default {{level}}. Mode otomatis serta daftar folder dan domain Anda tetap seperti semula.",
+      "lowerConfirm": "Beralih ke {{level}}",
+      "standard": {
+        "name": "Standar",
+        "desc": "Berfungsi persis seperti sebelumnya.",
+        "notice": "Tidak ada yang baru: tanpa permintaan konfirmasi dan tidak ada yang diblokir."
+      },
+      "enhanced": {
+        "name": "Ditingkatkan",
+        "desc": "Menjauhkan agen dari kunci Anda, memeriksa setiap permintaan web, menandai konten luar, dan menyimpan log audit. Jarang meminta konfirmasi.",
+        "notice": "Agen tidak dapat membuka berkas kunci Anda, permintaan web yang tidak aman ditolak, dan di Discord agen hanya menjawab saat disebut. Catatan yang lebih lama dari 90 hari dihapus."
+      },
+      "strict": {
+        "name": "Ketat",
+        "desc": "Semua yang ada di Ditingkatkan, ditambah penulisan berkas tetap di ruang kerja Anda, tanpa pembaca pihak ketiga, dan masa simpan data lebih singkat.",
+        "notice": "Menyimpan berkas di luar ruang kerja Anda akan gagal, beberapa halaman mungkin tidak termuat tanpa pembaca, dan catatan yang lebih lama dari 30 hari dihapus. Saat mode otomatis nonaktif, perubahan berkas juga meminta konfirmasi lebih dulu."
+      }
+    },
+    "advanced": {
+      "toggle": "Lanjutan",
+      "desc": "Setiap perlindungan secara terpisah. Mengubah salah satunya menandai tingkat sebagai Kustom.",
+      "groups": {
+        "untrusted": "Konten tak tepercaya",
+        "files": "Berkas",
+        "network": "Jaringan",
+        "secrets": "Rahasia & data",
+        "channels": "Saluran",
+        "audit": "Audit"
+      }
+    },
+    "fields": {
+      "auto_mode": {
+        "label": "Mode otomatis"
+      },
+      "approval_effects": {
+        "label": "Tanya sebelum…"
+      },
+      "ask_after_untrusted": {
+        "label": "Tanya setelah konten luar"
+      },
+      "approval_timeout_s": {
+        "label": "Batas waktu persetujuan"
+      },
+      "mark_untrusted_content": {
+        "label": "Tandai konten luar",
+        "help": "Halaman web, email, dan pesan orang lain ditandai agar agen memperlakukannya sebagai informasi, bukan instruksi."
+      },
+      "protect_secret_files": {
+        "label": "Lindungi berkas kunci",
+        "help": "Alat berkas milik agen tidak dapat membaca atau mengubah kunci API, kredensial, atau pengaturan keamanan CraftBot. Perintah yang dijalankannya tidak dibatasi oleh ini."
+      },
+      "extra_protected_paths": {
+        "label": "Lindungi juga",
+        "help": "Berkas atau folder lain yang tidak dapat dibaca atau diubah oleh agen.",
+        "placeholder": "/path/ke/berkas-atau-folder"
+      },
+      "confine_writes": {
+        "label": "Batasi perubahan berkas di ruang kerja",
+        "help": "Alat berkas milik agen hanya dapat membuat atau mengubah berkas di ruang kerjanya dan folder di bawah ini. Perintah yang dijalankannya tidak dibatasi oleh ini."
+      },
+      "workspace_paths": {
+        "label": "Folder ruang kerja",
+        "help": "Folder tambahan yang boleh ditulisi agen saat perubahan berkas dibatasi di ruang kerja.",
+        "placeholder": "/path/ke/folder"
+      },
+      "network_guard": {
+        "label": "Periksa permintaan web",
+        "help": "Permintaan web agen hanya dapat menjangkau situs internet publik. Komputer ini, jaringan lokal Anda, dan layanan metadata cloud ditolak, dan setiap pengalihan diperiksa ulang."
+      },
+      "allowed_domains": {
+        "label": "Hanya izinkan domain ini",
+        "help": "Jika Anda menambahkan domain, permintaan web agen hanya dapat menjangkau domain tersebut dan subdomainnya. Biarkan kosong untuk mengizinkan situs publik mana pun.",
+        "placeholder": "example.com"
+      },
+      "third_party_reader": {
+        "label": "Pembaca halaman pihak ketiga",
+        "help": "Jika halaman tidak dapat dimuat secara langsung, agen dapat mengambilnya melalui layanan pembaca luar, yang kemudian dapat melihat alamat halaman tersebut."
+      },
+      "scrub_child_env": {
+        "label": "Jauhkan kunci dari server MCP",
+        "help": "Server MCP hanya mendapatkan pengaturan sistem dasar ditambah nilai yang Anda berikan, bukan kunci dan token lain di lingkungan CraftBot."
+      },
+      "redact_logs": {
+        "label": "Sembunyikan rahasia di log",
+        "help": "Kunci API, kredensial, dan kunci server MCP milik CraftBot dikosongkan sebelum baris log ditulis."
+      },
+      "log_prompts": {
+        "label": "Catat prompt lengkap",
+        "help": "Menulis semua yang dikirim ke model AI ke dalam log. Berguna untuk debugging, tetapi log kemudian berisi percakapan Anda."
+      },
+      "retention_days": {
+        "label": "Simpan data selama",
+        "help": "Berkas log dan panggilan AI terekam yang lebih lama dari ini akan dihapus. Chat, memori, dan log audit Anda tetap disimpan. 0 menyimpan semuanya.",
+        "unit": "hari"
+      },
+      "strict_channel_identity": {
+        "label": "Identitas saluran ketat",
+        "help": "Pemilik Discord hanya dikenali dari nama pengguna uniknya, tidak pernah dari nama tampilan atau nama peran yang dapat ditiru siapa pun, dan bot harus disebut di server."
+      },
+      "audit_log": {
+        "label": "Log audit",
+        "help": "Simpan catatan persetujuan dan perubahan keamanan yang memperlihatkan jika ada yang mengutak-atiknya."
+      }
+    },
+    "list": {
+      "add": "Tambah",
+      "remove": "Hapus {{item}}",
+      "empty": "Tidak ada",
+      "duplicate": "Sudah ada di daftar."
+    },
+    "check": {
+      "title": "Pemeriksaan keamanan",
+      "desc": "Memeriksa instalasi ini: siapa yang dapat membaca berkas rahasia Anda, siapa yang dapat menjangkau jendela CraftBot, log audit, dan tingkat keamanan Anda.",
+      "runAgain": "Jalankan lagi",
+      "running": "Memeriksa...",
+      "fix": "Perbaiki",
+      "empty": "Belum ada hasil.",
+      "status": {
+        "ok": "OK",
+        "info": "Info",
+        "warn": "Peringatan",
+        "fail": "Masalah"
+      }
+    },
+    "audit": {
+      "title": "Log audit",
+      "desc": "Persetujuan dan perubahan keamanan, terbaru lebih dulu. Setiap catatan menyegel catatan sebelumnya, sehingga catatan yang diubah atau dihapus akan terlihat.",
+      "off": "Log audit nonaktif. Aktifkan di Lanjutan → Audit, atau pilih Ditingkatkan atau Ketat.",
+      "intact_one": "Rantai utuh, {{count}} catatan",
+      "intact_other": "Rantai utuh, {{count}} catatan",
+      "broken": "Diubah di baris {{line}}",
+      "empty": "Belum ada yang tercatat.",
+      "loading": "Memuat log audit...",
+      "showing": "{{shown}} terbaru dari {{total}}",
+      "refresh": "Segarkan",
+      "events": {
+        "action_approval": "Persetujuan tindakan",
+        "security_settings_changed": "Pengaturan diubah",
+        "security_check_fixed": "Pemeriksaan diperbaiki"
+      }
+    }
   }
 }

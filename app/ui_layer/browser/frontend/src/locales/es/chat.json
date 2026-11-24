@@ -165,5 +165,35 @@
     "title": "Agent Apps",
     "noInstalled": "No hay aplicaciones instaladas.",
     "close": "Cerrar"
+  },
+  "approval": {
+    "aria": "Solicitud de aprobación",
+    "title": "{{action}} necesita tu aprobación",
+    "inSession": "En {{session}}",
+    "highRisk": "Esta acción puede {{effects}}.",
+    "untrusted": "El agente leyó contenido externo ({{detail}}) antes de pedir hacer esto.",
+    "untrustedNoDetail": "El agente leyó contenido externo antes de pedir hacer esto.",
+    "effects": {
+      "execute": "ejecutar comandos o código",
+      "write_files": "crear o cambiar archivos",
+      "send_external": "enviar mensajes o cambiar servicios externos",
+      "change_agent": "cambiar la configuración, las programaciones o las herramientas de CraftBot",
+      "use_credentials": "usar credenciales guardadas"
+    },
+    "inputs": "Entradas",
+    "showAll_one": "Mostrar {{count}} línea",
+    "showAll_other": "Mostrar las {{count}} líneas",
+    "showLess": "Mostrar menos",
+    "expiresIn": "Se denegará automáticamente en {{time}}",
+    "expired": "Tiempo agotado",
+    "allowOnce": "Permitir una vez",
+    "allowSession": "Permitir en esta sesión",
+    "allowSessionHint": "No volver a preguntar por {{action}} en este chat hasta que CraftBot se reinicie",
+    "deny": "Denegar",
+    "notConnected": "Sin conexión, así que tu respuesta no se envió. Inténtalo de nuevo cuando CraftBot vuelva a estar disponible.",
+    "waitingIn_one": "Una acción en {{session}} está esperando tu aprobación",
+    "waitingIn_other": "{{count}} acciones en {{session}} están esperando tu aprobación",
+    "open": "Abrir",
+    "unknownSession": "otro chat"
   }
 }

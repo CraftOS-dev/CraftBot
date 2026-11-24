@@ -543,5 +543,143 @@
       "expired": "已過期",
       "about": "約 {{time}}"
     }
+  },
+  "security": {
+    "loading": "正在載入安全性設定...",
+    "error": "錯誤：{{error}}",
+    "saved": "已儲存",
+    "saveFailed": "無法儲存安全性設定",
+    "approvalsTitle": "核准",
+    "autoMode": "自動模式",
+    "autoModeOn": "代理不經詢問即可操作，與先前相同",
+    "autoModeOff": "高風險操作會等待你核准",
+    "askFirst": "以下操作前先詢問：",
+    "effects": {
+      "execute": "執行指令或程式碼",
+      "write_files": "建立或變更檔案",
+      "send_external": "傳送訊息或變更外部服務",
+      "change_agent": "變更 CraftBot 本身的設定、排程或工具",
+      "use_credentials": "使用已儲存的憑證"
+    },
+    "askAfterUntrusted": "外部內容",
+    "askAfterUntrustedDetail": "代理讀取網頁、電子郵件或其他外部內容後，任何操作前都先詢問",
+    "approvalsNote": "核准請求會顯示在聊天中。{{minutes}} 分鐘內未回覆將視為拒絕。",
+    "levelTitle": "安全性等級",
+    "custom": "自訂",
+    "customAside": "自訂（{{level}}）",
+    "levels": {
+      "standard": {
+        "name": "標準",
+        "description": "運作方式與先前完全相同。"
+      },
+      "enhanced": {
+        "name": "增強",
+        "description": "讓代理遠離你的金鑰、檢查網路請求、標記外部內容並保留稽核記錄。很少詢問。"
+      },
+      "strict": {
+        "name": "嚴格",
+        "description": "在增強的基礎上，檔案寫入僅限工作區、不使用第三方閱讀服務，保留時間更短。"
+      }
+    },
+    "hintChoose": "選擇",
+    "lowerConfirm": "要將安全性降低到 {{level}} 嗎？它不包含的保護措施將會關閉。",
+    "switchConfirm": "要切換到 {{level}} 嗎？你的自訂設定將回到該等級的預設值。",
+    "useDefaultsConfirm": "要捨棄你的自訂設定並使用 {{level}} 的預設值嗎？",
+    "customNote_one": "自訂：在 {{level}} 基礎上變更了 {{count}} 項設定。",
+    "customNote_other": "自訂：在 {{level}} 基礎上變更了 {{count}} 項設定。",
+    "useDefaults": "使用 {{level}} 的預設值",
+    "advancedTitle": "進階",
+    "showAdvanced": "顯示進階設定",
+    "hideAdvanced": "隱藏進階設定",
+    "advancedDetail": "個別設定每項保護",
+    "changed": "已變更",
+    "settings": {
+      "mark_untrusted_content": {
+        "label": "標記外部內容",
+        "help": "網頁、電子郵件和其他外部內容送達代理時會被標記為資料，而非指示"
+      },
+      "protect_secret_files": {
+        "label": "保護機密檔案",
+        "help": "代理的檔案工具無法讀取或變更金鑰、憑證或安全性設定（指令不受限制）"
+      },
+      "confine_writes": {
+        "label": "限制檔案寫入",
+        "help": "代理只在工作區資料夾內建立和變更檔案"
+      },
+      "network_guard": {
+        "label": "檢查網路請求",
+        "help": "代理的網路請求只能連到公開網站；會檢查區域網路和每次重新導向"
+      },
+      "third_party_reader": {
+        "label": "第三方閱讀服務",
+        "help": "網頁可能會透過外部閱讀服務讀取"
+      },
+      "scrub_child_env": {
+        "label": "不讓 MCP 伺服器取得金鑰",
+        "help": "MCP 伺服器只取得基本系統設定和它自己的值，不會取得你的其他金鑰"
+      },
+      "redact_logs": {
+        "label": "記錄遮蔽",
+        "help": "CraftBot 本身的金鑰和憑證會在記錄中被遮蔽"
+      },
+      "log_prompts": {
+        "label": "記錄提示",
+        "help": "傳送給模型的完整提示會寫入記錄"
+      },
+      "strict_channel_identity": {
+        "label": "嚴格的傳送者檢查",
+        "help": "Discord 擁有者僅依唯一使用者名稱比對，且在伺服器中需要提及"
+      },
+      "audit_log": {
+        "label": "稽核記錄",
+        "help": "可偵測竄改的安全性決策記錄"
+      },
+      "retention_days": {
+        "label": "歷史記錄保留時間",
+        "help": "較舊的記錄檔和已記錄的 AI 呼叫會被刪除；聊天會保留；0 表示全部保留"
+      }
+    },
+    "keepForever": "永久",
+    "days_one": "{{count}} 天",
+    "days_other": "{{count}} 天",
+    "badDays": "請輸入 0 或以上的整數天數",
+    "lists": {
+      "extra_protected_paths": "受保護的路徑",
+      "workspace_paths": "工作區資料夾",
+      "allowed_domains": "只限這些網域（留空：任何公開網站）"
+    },
+    "none": "無",
+    "listsNote": "這些清單需在瀏覽器中編輯：設定 > 安全性。",
+    "checkTitle": "安全性檢查",
+    "checkIssues_one": "{{count}} 項需要查看",
+    "checkIssues_other": "{{count}} 項需要查看",
+    "checkAllGood": "無需修正",
+    "checking": "檢查中...",
+    "checkAgain": "重新執行檢查",
+    "status": {
+      "ok": "正常",
+      "info": "提示",
+      "warn": "警告",
+      "fail": "問題"
+    },
+    "canFix": "可修正",
+    "hintFix": "修正",
+    "fixConfirm": "要套用「{{title}}」的修正嗎？",
+    "fixed": "已修正",
+    "fixFailed": "修正未能套用",
+    "auditTitle": "稽核記錄",
+    "auditOff": "已關閉。可在「進階」中開啟，或選擇增強或嚴格。",
+    "auditLoading": "正在載入稽核記錄...",
+    "auditRecords": "記錄",
+    "records_one": "{{count}} 筆記錄",
+    "records_other": "{{count}} 筆記錄",
+    "auditIntact": "完整：沒有記錄遭到變更或移除",
+    "auditBroken": "已變更：鏈結在第 {{line}} 行中斷",
+    "auditFile": "檔案",
+    "auditRefresh": "重新整理稽核記錄",
+    "resetTitle": "重設",
+    "resetDesc": "回到開啟自動模式的標準等級，並清空路徑和網域清單。",
+    "reset": "重設安全性設定",
+    "resetConfirm": "要將所有安全性設定重設為標準嗎？"
   }
 }

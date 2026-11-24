@@ -11,6 +11,7 @@
       "skills": "스킬",
       "integrations": "연동",
       "credentials": "자격 증명",
+      "security": "보안",
       "agentApps": "Agent App"
     }
   },
@@ -88,10 +89,38 @@
     "focusedChoiceHint": "1-9 또는 화살표로 선택 · Enter 확인 · Esc 입력으로 돌아가기",
     "dismissed": "질문을 닫았습니다"
   },
+  "approval": {
+    "title": "승인 필요 · {{action}}",
+    "timeLeft": "{{time}} 남음",
+    "timeLeftCount": "{{total}}개 중 {{index}}번째 · {{time}} 남음",
+    "hint": "Tab으로 응답 · 제시간에 응답하지 않으면 거부로 처리됩니다",
+    "focusedHint": "1-3 또는 화살표로 선택 · Enter 응답 · a 한 번 허용 · s 세션에서 허용 · d 거부 · Esc 입력으로 돌아가기",
+    "allowOnce": "한 번 허용",
+    "allowSession": "이 세션에서 허용",
+    "deny": "거부",
+    "reasonHighRisk": "자동 모드가 꺼져 있으며, 이 작업은 다음을 수행할 수 있습니다: {{effects}}.",
+    "reasonGeneric": "자동 모드가 꺼져 있어 이 작업에는 승인이 필요합니다.",
+    "reasonUntrusted": "에이전트가 먼저 외부 콘텐츠({{detail}})를 읽었으므로 작업 전에 확인합니다.",
+    "outsideContent": "웹 페이지, 이메일 또는 다른 사람의 파일",
+    "effects": {
+      "execute": "명령 또는 코드 실행",
+      "write_files": "파일 생성 또는 변경",
+      "send_external": "메시지 전송 또는 외부 서비스 변경",
+      "change_agent": "CraftBot 자체 설정, 일정 또는 도구 변경",
+      "use_credentials": "저장된 자격 증명 사용"
+    },
+    "inSession": "{{session}}에서",
+    "noInputs": "입력 없음",
+    "moreLines_one": "({{count}}줄 더)",
+    "moreLines_other": "({{count}}줄 더)",
+    "answerFailed": "승인이 전송되지 않음: {{error}}",
+    "waitingToast": "{{action}}에 대한 승인이 필요합니다. q를 누르면 채팅으로 돌아갑니다."
+  },
   "notify": {
     "question": "{{session}}에서 답변이 필요합니다",
     "done": "{{session}} 완료",
-    "needsYou": "{{count}}개 응답 필요"
+    "needsYou": "{{count}}개 응답 필요",
+    "approval": "{{action}}에 대한 승인이 필요합니다"
   },
   "firstRun": {
     "keys": "Enter 보내기 · Ctrl+J 줄바꿈 · Esc 중지 · / 명령 · Ctrl+X 화면 · Ctrl+P 팔레트 · ? 단축키 · Ctrl+C 두 번 종료"

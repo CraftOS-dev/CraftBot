@@ -543,5 +543,143 @@
       "expired": "만료됨",
       "about": "약 {{time}}"
     }
+  },
+  "security": {
+    "loading": "보안 설정을 불러오는 중...",
+    "error": "오류: {{error}}",
+    "saved": "저장됨",
+    "saveFailed": "보안 설정을 저장하지 못했습니다",
+    "approvalsTitle": "승인",
+    "autoMode": "자동 모드",
+    "autoModeOn": "에이전트가 이전처럼 묻지 않고 작업합니다",
+    "autoModeOff": "위험도가 높은 작업은 승인을 기다립니다",
+    "askFirst": "다음 작업 전에 확인:",
+    "effects": {
+      "execute": "명령 또는 코드 실행",
+      "write_files": "파일 생성 또는 변경",
+      "send_external": "메시지 전송 또는 외부 서비스 변경",
+      "change_agent": "CraftBot 자체 설정, 일정 또는 도구 변경",
+      "use_credentials": "저장된 자격 증명 사용"
+    },
+    "askAfterUntrusted": "외부 콘텐츠",
+    "askAfterUntrustedDetail": "에이전트가 웹 페이지, 이메일 등 외부 콘텐츠를 읽은 후에는 모든 작업 전에 확인합니다",
+    "approvalsNote": "승인 요청은 채팅에 표시됩니다. {{minutes}}분 안에 응답하지 않으면 거부로 처리됩니다.",
+    "levelTitle": "보안 수준",
+    "custom": "사용자 지정",
+    "customAside": "사용자 지정 ({{level}})",
+    "levels": {
+      "standard": {
+        "name": "표준",
+        "description": "이전과 똑같이 작동합니다."
+      },
+      "enhanced": {
+        "name": "강화",
+        "description": "에이전트가 키에 접근하지 못하게 하고, 웹 요청을 검사하고, 외부 콘텐츠를 표시하고, 감사 로그를 남깁니다. 확인 요청은 드뭅니다."
+      },
+      "strict": {
+        "name": "엄격",
+        "description": "강화에 더해 파일 쓰기는 작업 공간 안으로 제한되고, 타사 리더를 쓰지 않으며, 보관 기간이 더 짧습니다."
+      }
+    },
+    "hintChoose": "선택",
+    "lowerConfirm": "보안 수준을 {{level}}(으)로 낮출까요? 포함되지 않는 보호 기능은 꺼집니다.",
+    "switchConfirm": "{{level}}(으)로 전환할까요? 사용자 지정 설정은 해당 수준의 기본값으로 돌아갑니다.",
+    "useDefaultsConfirm": "사용자 지정 설정을 버리고 {{level}} 기본값을 사용할까요?",
+    "customNote_one": "사용자 지정: {{level}} 기준에서 설정 {{count}}개가 변경되었습니다.",
+    "customNote_other": "사용자 지정: {{level}} 기준에서 설정 {{count}}개가 변경되었습니다.",
+    "useDefaults": "{{level}} 기본값 사용",
+    "advancedTitle": "고급",
+    "showAdvanced": "고급 설정 표시",
+    "hideAdvanced": "고급 설정 숨기기",
+    "advancedDetail": "각 보호 기능을 개별 설정",
+    "changed": "변경됨",
+    "settings": {
+      "mark_untrusted_content": {
+        "label": "외부 콘텐츠 표시",
+        "help": "웹 페이지, 이메일 등 외부 콘텐츠는 지시가 아닌 데이터로 표시되어 에이전트에 전달됩니다"
+      },
+      "protect_secret_files": {
+        "label": "비밀 파일 보호",
+        "help": "에이전트의 파일 도구는 키, 자격 증명, 보안 설정을 읽거나 변경할 수 없습니다(명령은 제한되지 않음)"
+      },
+      "confine_writes": {
+        "label": "파일 쓰기 제한",
+        "help": "에이전트는 작업 공간 폴더 안에서만 파일을 생성하고 변경합니다"
+      },
+      "network_guard": {
+        "label": "웹 요청 검사",
+        "help": "에이전트의 웹 요청은 공개 사이트에만 접근하며, 로컬 네트워크와 모든 리디렉션을 검사합니다"
+      },
+      "third_party_reader": {
+        "label": "타사 리더",
+        "help": "웹 페이지를 외부 읽기 서비스를 통해 읽을 수 있습니다"
+      },
+      "scrub_child_env": {
+        "label": "MCP 서버에 키 숨기기",
+        "help": "MCP 서버는 기본 시스템 설정과 자체 값만 받으며, 다른 키는 받지 않습니다"
+      },
+      "redact_logs": {
+        "label": "로그 가리기",
+        "help": "CraftBot 자체의 키와 자격 증명은 로그에서 가려집니다"
+      },
+      "log_prompts": {
+        "label": "프롬프트 기록",
+        "help": "모델에 보낸 전체 프롬프트가 로그에 기록됩니다"
+      },
+      "strict_channel_identity": {
+        "label": "엄격한 발신자 확인",
+        "help": "Discord 소유자는 고유한 사용자 이름으로만 확인하며, 서버에서는 멘션이 필요합니다"
+      },
+      "audit_log": {
+        "label": "감사 로그",
+        "help": "보안 결정을 변조 여부를 확인할 수 있게 기록합니다"
+      },
+      "retention_days": {
+        "label": "기록 보관 기간",
+        "help": "오래된 로그 파일과 기록된 AI 호출은 삭제되고 채팅은 유지됩니다. 0이면 모두 보관합니다"
+      }
+    },
+    "keepForever": "영구",
+    "days_one": "{{count}}일",
+    "days_other": "{{count}}일",
+    "badDays": "0 이상의 정수로 일수를 입력하세요",
+    "lists": {
+      "extra_protected_paths": "보호된 경로",
+      "workspace_paths": "작업 공간 폴더",
+      "allowed_domains": "이 도메인만 (비어 있으면 모든 공개 사이트)"
+    },
+    "none": "없음",
+    "listsNote": "이 목록은 브라우저의 설정 > 보안에서 편집합니다.",
+    "checkTitle": "보안 점검",
+    "checkIssues_one": "확인할 항목 {{count}}개",
+    "checkIssues_other": "확인할 항목 {{count}}개",
+    "checkAllGood": "수정할 항목 없음",
+    "checking": "점검 중...",
+    "checkAgain": "점검 다시 실행",
+    "status": {
+      "ok": "정상",
+      "info": "참고",
+      "warn": "경고",
+      "fail": "문제"
+    },
+    "canFix": "수정 가능",
+    "hintFix": "수정",
+    "fixConfirm": "'{{title}}' 수정을 적용할까요?",
+    "fixed": "수정됨",
+    "fixFailed": "수정을 적용하지 못했습니다",
+    "auditTitle": "감사 로그",
+    "auditOff": "꺼짐. 고급에서 켜거나 강화 또는 엄격을 선택하세요.",
+    "auditLoading": "감사 로그를 불러오는 중...",
+    "auditRecords": "기록",
+    "records_one": "기록 {{count}}개",
+    "records_other": "기록 {{count}}개",
+    "auditIntact": "정상: 변경되거나 삭제된 기록 없음",
+    "auditBroken": "변경됨: {{line}}번째 줄에서 체인이 끊어짐",
+    "auditFile": "파일",
+    "auditRefresh": "감사 로그 새로 고침",
+    "resetTitle": "초기화",
+    "resetDesc": "자동 모드가 켜진 표준으로 돌아가고, 경로 및 도메인 목록을 비웁니다.",
+    "reset": "보안 설정 초기화",
+    "resetConfirm": "모든 보안 설정을 표준으로 초기화할까요?"
   }
 }

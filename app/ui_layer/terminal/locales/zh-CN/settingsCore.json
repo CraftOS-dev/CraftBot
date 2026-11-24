@@ -543,5 +543,143 @@
       "expired": "已过期",
       "about": "约 {{time}}"
     }
+  },
+  "security": {
+    "loading": "正在加载安全设置...",
+    "error": "错误：{{error}}",
+    "saved": "已保存",
+    "saveFailed": "无法保存安全设置",
+    "approvalsTitle": "批准",
+    "autoMode": "自动模式",
+    "autoModeOn": "智能体无需询问即可操作，与之前相同",
+    "autoModeOff": "高风险操作会等待你批准",
+    "askFirst": "以下操作前先询问：",
+    "effects": {
+      "execute": "运行命令或代码",
+      "write_files": "创建或更改文件",
+      "send_external": "发送消息或更改外部服务",
+      "change_agent": "更改 CraftBot 自身的设置、计划或工具",
+      "use_credentials": "使用已保存的凭据"
+    },
+    "askAfterUntrusted": "外部内容",
+    "askAfterUntrustedDetail": "智能体读取网页、邮件或其他外部内容后，任何操作前都先询问",
+    "approvalsNote": "批准请求会显示在聊天中。{{minutes}} 分钟内未回复将视为拒绝。",
+    "levelTitle": "安全级别",
+    "custom": "自定义",
+    "customAside": "自定义（{{level}}）",
+    "levels": {
+      "standard": {
+        "name": "标准",
+        "description": "与之前完全相同。"
+      },
+      "enhanced": {
+        "name": "增强",
+        "description": "让智能体远离你的密钥，检查网络请求，标记外部内容并保留审计日志。很少询问。"
+      },
+      "strict": {
+        "name": "严格",
+        "description": "在增强的基础上，文件写入仅限工作区，不使用第三方阅读服务，保留时间更短。"
+      }
+    },
+    "hintChoose": "选择",
+    "lowerConfirm": "将安全级别降低到 {{level}}？它不包含的保护措施将被关闭。",
+    "switchConfirm": "切换到 {{level}}？你的自定义设置将恢复为该级别的默认值。",
+    "useDefaultsConfirm": "放弃你的自定义设置并使用 {{level}} 的默认值？",
+    "customNote_one": "自定义：在 {{level}} 基础上更改了 {{count}} 项设置。",
+    "customNote_other": "自定义：在 {{level}} 基础上更改了 {{count}} 项设置。",
+    "useDefaults": "使用 {{level}} 的默认值",
+    "advancedTitle": "高级",
+    "showAdvanced": "显示高级设置",
+    "hideAdvanced": "隐藏高级设置",
+    "advancedDetail": "单独设置每项保护",
+    "changed": "已更改",
+    "settings": {
+      "mark_untrusted_content": {
+        "label": "标记外部内容",
+        "help": "网页、邮件和其他外部内容在到达智能体时会被标记为数据，而非指令"
+      },
+      "protect_secret_files": {
+        "label": "保护机密文件",
+        "help": "智能体的文件工具无法读取或更改密钥、凭据或安全设置（命令不受限制）"
+      },
+      "confine_writes": {
+        "label": "限制文件写入",
+        "help": "智能体只在工作区文件夹内创建和更改文件"
+      },
+      "network_guard": {
+        "label": "检查网络请求",
+        "help": "智能体的网络请求只能访问公共网站；会检查局域网和每次重定向"
+      },
+      "third_party_reader": {
+        "label": "第三方阅读服务",
+        "help": "网页可能会通过外部阅读服务读取"
+      },
+      "scrub_child_env": {
+        "label": "不向 MCP 服务器暴露密钥",
+        "help": "MCP 服务器只获得基本系统设置和其自身的值，不会获得你的其他密钥"
+      },
+      "redact_logs": {
+        "label": "日志脱敏",
+        "help": "CraftBot 自身的密钥和凭据会在日志中被遮盖"
+      },
+      "log_prompts": {
+        "label": "记录提示词",
+        "help": "发送给模型的完整提示词会写入日志"
+      },
+      "strict_channel_identity": {
+        "label": "严格的发送者检查",
+        "help": "Discord 所有者仅按唯一用户名匹配，且在服务器中需要提及"
+      },
+      "audit_log": {
+        "label": "审计日志",
+        "help": "可检测篡改的安全决策记录"
+      },
+      "retention_days": {
+        "label": "历史记录保留时长",
+        "help": "较旧的日志文件和已记录的 AI 调用会被删除；聊天会保留；0 表示全部保留"
+      }
+    },
+    "keepForever": "永久",
+    "days_one": "{{count}} 天",
+    "days_other": "{{count}} 天",
+    "badDays": "请输入 0 或更大的整数天数",
+    "lists": {
+      "extra_protected_paths": "受保护的路径",
+      "workspace_paths": "工作区文件夹",
+      "allowed_domains": "仅限这些域名（留空：任何公共网站）"
+    },
+    "none": "无",
+    "listsNote": "这些列表需在浏览器中编辑：设置 > 安全。",
+    "checkTitle": "安全检查",
+    "checkIssues_one": "{{count}} 项需要查看",
+    "checkIssues_other": "{{count}} 项需要查看",
+    "checkAllGood": "无需修复",
+    "checking": "检查中...",
+    "checkAgain": "重新运行检查",
+    "status": {
+      "ok": "正常",
+      "info": "提示",
+      "warn": "警告",
+      "fail": "问题"
+    },
+    "canFix": "可修复",
+    "hintFix": "修复",
+    "fixConfirm": "应用“{{title}}”的修复？",
+    "fixed": "已修复",
+    "fixFailed": "修复未能应用",
+    "auditTitle": "审计日志",
+    "auditOff": "已关闭。可在“高级”中开启，或选择增强或严格。",
+    "auditLoading": "正在加载审计日志...",
+    "auditRecords": "记录",
+    "records_one": "{{count}} 条记录",
+    "records_other": "{{count}} 条记录",
+    "auditIntact": "完整：没有记录被更改或删除",
+    "auditBroken": "已更改：链在第 {{line}} 行断开",
+    "auditFile": "文件",
+    "auditRefresh": "刷新审计日志",
+    "resetTitle": "重置",
+    "resetDesc": "恢复为开启自动模式的标准级别，并清空路径和域名列表。",
+    "reset": "重置安全设置",
+    "resetConfirm": "将所有安全设置重置为标准？"
   }
 }

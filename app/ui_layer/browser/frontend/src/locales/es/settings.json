@@ -102,6 +102,7 @@
     "mcps": "MCP",
     "skills": "Habilidades",
     "integrations": "Integraciones",
+    "security": "Seguridad",
     "agent_app": "Agent App"
   },
   "model": {
@@ -147,6 +148,10 @@
       "startingShort": "Iniciando..."
     },
     "subscription": {
+      "recoveryHint": "Esta suscripción guardada sigue seleccionada. Desconéctala para usar una clave de API o vuelve a iniciar sesión.",
+      "claudeProfileNote": "Inicia sesión por separado para CraftBot. Al desconectar se cierra la sesión de este perfil sin afectar a tu inicio de sesión independiente de Claude Code.",
+      "disconnectFailed": "No se pudo desconectar la suscripción. Inténtalo de nuevo.",
+      "connectFailed": "No se pudo iniciar sesión en la suscripción. Inténtalo de nuevo.",
       "label": "Suscripción",
       "awaitingCode": "Esperando el código",
       "pastePlaceholder": "Pega el código de la página de inicio de sesión",
@@ -602,6 +607,26 @@
       "waitingQrScan": "Esperando el escaneo del QR...",
       "connectNamed": "Conectar {{name}}"
     },
+    "figma": {
+      "canvasTitle": "Diseñar en Figma",
+      "canvasIntro": "Usa Talk to Figma en tu navegador. CraftBot gestiona la conexión por ti: no hace falta instalar la app de escritorio ni ningún servidor adicional.",
+      "canvasAccount": "Cuenta de CraftBot",
+      "canvasStepStart": "Inicia la conexión a continuación.",
+      "canvasPluginLink": "Abre el plugin Talk to Figma MCP",
+      "canvasStepPlugin": "en tu diseño de Figma de destino y luego haz clic en Connect en el puerto 3055.",
+      "canvasStepChannel": "Pega el canal que muestra el plugin y conéctalo a CraftBot.",
+      "canvasConnected": "Conectado a {{page}} · canal {{channel}}",
+      "canvasWaiting": "Conexión activa · esperando un canal del plugin",
+      "canvasStopped": "Conexión del lienzo detenida",
+      "canvasStart": "Iniciar conexión del lienzo",
+      "canvasChannel": "Canal del plugin",
+      "canvasConnect": "Conectar canal",
+      "canvasStop": "Detener conexión",
+      "canvasRefresh": "Actualizar estado",
+      "canvasTimeout": "Se agotó el tiempo al comprobar la conexión. Actualiza el estado antes de volver a intentarlo.",
+      "canvasTarget": "Los cambios se aplican al archivo y la página abiertos en el plugin. Mantenlo abierto mientras CraftBot trabaja y vuelve a conectar después de cambiar de página o reiniciar. Tu archivo REST predeterminado no determina el lienzo.",
+      "canvasPrivacy": "Este plugin de la comunidad puede leer y editar el diseño abierto y declara que recopila analíticas de uso. CraftBot guarda tu token de Figma en local. Tanto CraftBot como Figma deben ejecutarse en este equipo."
+    },
     "whatsapp": {
       "starting": "Iniciando la sesión de WhatsApp Web...",
       "scanDesc": "Escanea este código QR con la app móvil de WhatsApp para conectarte.",
@@ -742,5 +767,183 @@
     "createLanLink": "Crear enlace LAN",
     "starting": "Iniciando...",
     "createTunnel": "Crear túnel"
+  },
+  "security": {
+    "title": "Seguridad",
+    "subtitle": "Elige con cuánto cuidado protege CraftBot tu equipo, tus claves y tus datos",
+    "loading": "Cargando los ajustes de seguridad...",
+    "autoMode": {
+      "label": "Modo automático",
+      "on": "El agente actúa sin preguntar, igual que antes.",
+      "off": "Las acciones de alto riesgo esperan tu aprobación en una tarjeta del chat.",
+      "askTitle": "Preguntar antes de…",
+      "askAfterUntrusted": "Preguntar también antes de cualquier acción después de que el agente lea contenido externo",
+      "askAfterUntrustedHint": "Las páginas web, los correos y los mensajes de otras personas pueden contener instrucciones dirigidas al agente.",
+      "timeout": "Denegar automáticamente después de",
+      "timeoutHint": "Una tarjeta de aprobación que nadie responde a tiempo cuenta como Denegar.",
+      "seconds_one": "{{count}} segundo",
+      "seconds_other": "{{count}} segundos",
+      "minutes_one": "{{count}} minuto",
+      "minutes_other": "{{count}} minutos",
+      "hours_one": "{{count}} hora",
+      "hours_other": "{{count}} horas"
+    },
+    "effects": {
+      "execute": "Ejecutar comandos o código",
+      "write_files": "Crear o cambiar archivos",
+      "send_external": "Enviar mensajes o cambiar servicios externos",
+      "change_agent": "Cambiar la configuración, las programaciones o las herramientas de CraftBot",
+      "use_credentials": "Usar credenciales guardadas"
+    },
+    "level": {
+      "title": "Nivel de seguridad",
+      "desc": "Cada nivel activa un conjunto de protecciones. Ajústalas en Avanzado.",
+      "aria": "Nivel de seguridad",
+      "custom": "Personalizado",
+      "noticeLabel": "Lo que notarás:",
+      "changed": "Cambios sobre {{level}}: {{settings}}",
+      "reset": "Restablecer a {{level}}",
+      "lowerTitle": "¿Bajar la seguridad a {{level}}?",
+      "lowerMessage": "{{level}} desactiva protecciones que {{from}} mantiene activadas, y los ajustes que cambiaste vuelven a los valores predeterminados de {{level}}. El modo automático y tus listas de carpetas y dominios se quedan como están.",
+      "lowerConfirm": "Cambiar a {{level}}",
+      "standard": {
+        "name": "Estándar",
+        "desc": "Funciona exactamente igual que antes.",
+        "notice": "Nada nuevo: sin avisos y sin bloqueos."
+      },
+      "enhanced": {
+        "name": "Reforzado",
+        "desc": "Mantiene al agente lejos de tus claves, revisa cada solicitud web, marca el contenido externo y guarda un registro de auditoría. Rara vez pregunta.",
+        "notice": "El agente no puede abrir tus archivos de claves, las solicitudes web inseguras se rechazan y en Discord solo responde cuando lo mencionan. Los registros de más de 90 días se eliminan."
+      },
+      "strict": {
+        "name": "Estricto",
+        "desc": "Todo lo de Reforzado y, además, los archivos solo se escriben en tu espacio de trabajo, sin lector de terceros y con una retención de datos más corta.",
+        "notice": "Guardar archivos fuera de tu espacio de trabajo falla, algunas páginas pueden no cargarse sin el lector y los registros de más de 30 días se eliminan. Con el modo automático desactivado, los cambios en archivos también piden permiso antes."
+      }
+    },
+    "advanced": {
+      "toggle": "Avanzado",
+      "desc": "Cada protección por separado. Cambiar una marca el nivel como Personalizado.",
+      "groups": {
+        "untrusted": "Contenido no confiable",
+        "files": "Archivos",
+        "network": "Red",
+        "secrets": "Secretos y datos",
+        "channels": "Canales",
+        "audit": "Auditoría"
+      }
+    },
+    "fields": {
+      "auto_mode": {
+        "label": "Modo automático"
+      },
+      "approval_effects": {
+        "label": "Preguntar antes de…"
+      },
+      "ask_after_untrusted": {
+        "label": "Preguntar tras contenido externo"
+      },
+      "approval_timeout_s": {
+        "label": "Tiempo límite de aprobación"
+      },
+      "mark_untrusted_content": {
+        "label": "Marcar contenido externo",
+        "help": "Las páginas web, los correos y los mensajes de otras personas se marcan para que el agente los trate como información, no como instrucciones."
+      },
+      "protect_secret_files": {
+        "label": "Proteger archivos de claves",
+        "help": "Las herramientas de archivos del agente no pueden leer ni cambiar claves de API, credenciales ni los ajustes de seguridad de CraftBot. Esto no limita los comandos que ejecuta."
+      },
+      "extra_protected_paths": {
+        "label": "Proteger también",
+        "help": "Más archivos o carpetas que el agente no puede leer ni cambiar.",
+        "placeholder": "/ruta/al/archivo-o-carpeta"
+      },
+      "confine_writes": {
+        "label": "Mantener los cambios de archivos en el espacio de trabajo",
+        "help": "Las herramientas de archivos del agente solo pueden crear o cambiar archivos en su espacio de trabajo y en las carpetas de abajo. Esto no limita los comandos que ejecuta."
+      },
+      "workspace_paths": {
+        "label": "Carpetas del espacio de trabajo",
+        "help": "Carpetas adicionales en las que el agente puede escribir mientras los cambios de archivos se mantienen en el espacio de trabajo.",
+        "placeholder": "/ruta/a/la/carpeta"
+      },
+      "network_guard": {
+        "label": "Revisar solicitudes web",
+        "help": "Las solicitudes web del agente solo pueden llegar a sitios públicos de internet. Este equipo, tu red local y los servicios de metadatos de la nube se rechazan, y cada redirección se vuelve a revisar."
+      },
+      "allowed_domains": {
+        "label": "Permitir solo estos dominios",
+        "help": "Si añades dominios, las solicitudes web del agente solo pueden llegar a esos dominios y sus subdominios. Déjalo vacío para permitir cualquier sitio público.",
+        "placeholder": "example.com"
+      },
+      "third_party_reader": {
+        "label": "Lector de páginas de terceros",
+        "help": "Si una página no carga directamente, el agente puede obtenerla a través de un servicio lector externo, que entonces ve la dirección de la página."
+      },
+      "scrub_child_env": {
+        "label": "Mantener las claves fuera de los servidores MCP",
+        "help": "Los servidores MCP solo reciben los ajustes básicos del sistema y los valores que les diste, no las demás claves y tokens del entorno de CraftBot."
+      },
+      "redact_logs": {
+        "label": "Ocultar secretos en los registros",
+        "help": "Las claves de API, las credenciales y las claves de servidores MCP propias de CraftBot se borran antes de escribir las líneas del registro."
+      },
+      "log_prompts": {
+        "label": "Registrar los prompts completos",
+        "help": "Escribe en los registros todo lo que se envía al modelo de IA. Es útil para depurar, pero entonces los registros contienen tus conversaciones."
+      },
+      "retention_days": {
+        "label": "Conservar los datos durante",
+        "help": "Los archivos de registro y las llamadas a la IA grabadas con más antigüedad se eliminan. Tus chats, tu memoria y el registro de auditoría se conservan. 0 lo conserva todo.",
+        "unit": "días"
+      },
+      "strict_channel_identity": {
+        "label": "Identidad estricta en los canales",
+        "help": "Los propietarios de Discord se reconocen solo por su nombre de usuario único, nunca por un nombre visible o de rol que cualquiera puede copiar, y en los servidores hay que mencionar al bot."
+      },
+      "audit_log": {
+        "label": "Registro de auditoría",
+        "help": "Guarda un registro a prueba de manipulaciones de las aprobaciones y los cambios de seguridad."
+      }
+    },
+    "list": {
+      "add": "Añadir",
+      "remove": "Quitar {{item}}",
+      "empty": "Ninguno",
+      "duplicate": "Ya está en la lista."
+    },
+    "check": {
+      "title": "Comprobación de seguridad",
+      "desc": "Revisa esta instalación: quién puede leer tus archivos secretos, quién puede acceder a la ventana de CraftBot, el registro de auditoría y tu nivel.",
+      "runAgain": "Volver a ejecutar",
+      "running": "Comprobando...",
+      "fix": "Corregir",
+      "empty": "Aún no hay resultados.",
+      "status": {
+        "ok": "OK",
+        "info": "Info",
+        "warn": "Advertencia",
+        "fail": "Problema"
+      }
+    },
+    "audit": {
+      "title": "Registro de auditoría",
+      "desc": "Aprobaciones y cambios de seguridad, de más reciente a más antiguo. Cada entrada sella la anterior, así que se nota si una entrada se edita o se elimina.",
+      "off": "El registro de auditoría está desactivado. Actívalo en Avanzado → Auditoría o elige Reforzado o Estricto.",
+      "intact_one": "Cadena intacta, {{count}} entrada",
+      "intact_other": "Cadena intacta, {{count}} entradas",
+      "broken": "Cambiado en la línea {{line}}",
+      "empty": "Todavía no hay nada registrado.",
+      "loading": "Cargando el registro de auditoría...",
+      "showing": "Últimas {{shown}} de {{total}}",
+      "refresh": "Actualizar",
+      "events": {
+        "action_approval": "Aprobación de acción",
+        "security_settings_changed": "Ajustes cambiados",
+        "security_check_fixed": "Comprobación corregida"
+      }
+    }
   }
 }
