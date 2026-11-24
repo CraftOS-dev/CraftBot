@@ -183,6 +183,15 @@ class LLMCallStorage:
         with sqlite3.connect(self._db_path) as conn:
             return conn.execute("SELECT COUNT(*) FROM llm_calls").fetchone()[0]
 
+    def delete_older_than(self, cutoff: datetime) -> int:
+        """Delete calls recorded before ``cutoff`` (Settings > Security
+        retention). Returns how many were deleted."""
+        with sqlite3.connect(self._db_path) as conn:
+            cursor = conn.execute(
+                "DELETE FROM llm_calls WHERE timestamp < ?", (cutoff.isoformat(),)
+            )
+            return cursor.rowcount or 0
+
 
 # Global storage instance
 _llm_call_storage: Optional[LLMCallStorage] = None

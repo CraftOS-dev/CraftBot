@@ -431,6 +431,10 @@ class AgentBase:
 
         # Log lines lose CraftBot's own secret values when "Redact logs" is on.
         redact.install()
+        from app.security import retention
+
+        # Deletes old logs and LLM-call records when a retention period is set.
+        retention.start()
         self.action_router = ActionRouter(
             self.action_library,
             self.llm,

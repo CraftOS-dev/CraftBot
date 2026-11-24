@@ -118,3 +118,27 @@ def test_redactor_applies_only_when_enabled(tmp_path):
         assert r("key sk-live-abcdef123456") == "key [REDACTED]"
     finally:
         set_store_for_tests(None)
+
+
+def test_retention_prunes_old_logs_and_llm_calls_only(tmp_path, monkeypatch):
+    import time as _time
+    from datetime import datetime, timedelta
+
+    from app.security import retention
+    from app.usage import llm_call_storage as storage_module
+    from app.usage.llm_call_storage import LLMCallRow, LLMCallStorage
+
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    old_log, new_log = logs / "old.log", logs / "new.log"
+    old_log.write_text("x")
+    new_log.write_text("y")
+    past = _time.time() - 40 * 86400
+    os.utime(old_log, (past, past))
+    store = LLMCallStorage(str(tmp_path / "llm_calls.db"))
+    store.insert(LLMCallRow(provider="p", model="m", system_prompt="", user_prompt="old", response="", status="ok", timestamp=datetime.now() - timedelta(days=40)))
+    store.insert(LLMCallRow(provider="p", model="m", system_prompt="", user_prompt="new", response="", status="ok"))
+    monkeypatch.setattr(storage_module, "_llm_call_storage", store)
+    removed = retention.prune(30, logs_dir=logs)
+    assert removed == {"log_files": 1, "llm_calls": 1}
+    assert new_log.exists() and not old_log.exists() and store.count() == 1
