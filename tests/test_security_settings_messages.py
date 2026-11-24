@@ -51,3 +51,10 @@ def test_security_check_runs(adapter):
     reply = _send(adapter, "security_check_run")
     ids = {c["id"] for c in reply["data"]["checks"]}
     assert {"secret_files_private", "ui_local_only", "audit_log_intact", "security_level", "auto_mode"} <= ids
+
+
+def test_every_check_runs_without_error(adapter):
+    reply = _send(adapter, "security_check_run")
+    checks = reply["data"]["checks"]
+    assert len(checks) == 11
+    assert not [c for c in checks if c["title"] == "Check could not run"], checks

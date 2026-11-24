@@ -198,6 +198,122 @@ def _check_mcp_changes() -> CheckResult:
     )
 
 
+def runtime_secret_files() -> List[Path]:
+    """Files CraftBot writes at run time that must stay private: the session
+    token files, the audit log and the MCP trust ledger."""
+    from app import paths
+    from app.config import PROJECT_ROOT
+
+    found: List[Path] = []
+    for folder in (Path(paths.STATE_ROOT) / "run", Path(PROJECT_ROOT) / ".security"):
+        if folder.is_dir():
+            found.extend(p for p in folder.iterdir() if p.is_file())
+    return found
+
+
+def _check_runtime_files() -> CheckResult:
+    if os.name == "nt":
+        return CheckResult(
+            "runtime_files_private", "ok", "Session and audit files are private",
+            "Windows keeps them in your user profile.",
+        )
+    exposed = [p for p in runtime_secret_files() if not is_private(p)]
+    if not exposed:
+        return CheckResult(
+            "runtime_files_private", "ok", "Session and audit files are private",
+            "The session token, audit log and MCP trust records are readable by your user only.",
+        )
+    return CheckResult(
+        "runtime_files_private", "fail", "Session or audit files are readable by other users",
+        f"{len(exposed)} file(s): {', '.join(p.name for p in exposed[:5])}.",
+        fix_id="runtime_files_private",
+    )
+
+
+def _check_prompt_logging() -> CheckResult:
+    from app.security.policy import get_policy
+
+    if get_policy().log_prompts:
+        return CheckResult(
+            "prompts_not_logged", "info", "Full prompts are written to the logs",
+            "Useful for debugging, but the logs then hold your conversations and "
+            "anything the agent read. Enhanced and Strict turn this off.",
+        )
+    return CheckResult(
+        "prompts_not_logged", "ok", "Prompts stay out of the logs",
+        "Only metadata about AI calls is recorded.",
+    )
+
+
+def _check_web_guard() -> CheckResult:
+    from app.security.policy import get_policy
+
+    if get_policy().network_guard:
+        return CheckResult(
+            "web_requests_public_only", "ok", "Web requests reach public sites only",
+            "This computer, the local network and cloud metadata services are refused.",
+        )
+    return CheckResult(
+        "web_requests_public_only", "info", "Web requests are checked on the first request only",
+        "A redirect can still lead the agent's web tools into your local network. "
+        "Enhanced and Strict check every redirect.",
+    )
+
+
+def _check_inbox() -> CheckResult:
+    from craftos_integrations import has_credential, load_config
+    from craftos_integrations.providers.gmail import client as gmail
+
+    from app.security.policy import get_policy
+
+    policy = get_policy()
+    if not has_credential(gmail.GmailClient.spec.cred_file):
+        return CheckResult("inbox_reaches_agent", "ok", "No inbox connected", "Gmail is not connected.")
+    cfg = load_config(gmail._gmail_config_file(), gmail.GmailConfig) or gmail.GmailConfig()
+    if not cfg.process_incoming:
+        return CheckResult(
+            "inbox_reaches_agent", "ok", "Incoming email does not reach the agent",
+            "Gmail is connected with incoming processing off.",
+        )
+    if policy.email_allowed_senders:
+        return CheckResult(
+            "inbox_reaches_agent", "ok", "Only listed senders' email reaches the agent",
+            f"{len(policy.email_allowed_senders)} sender(s) allowed.",
+        )
+    if policy.auto_mode:
+        return CheckResult(
+            "inbox_reaches_agent", "warn", "Every email in your inbox reaches the agent",
+            "Anyone can send you an email, and with Auto mode on the agent can act on "
+            "what it asks. Turn Auto mode off, or list the senders under Channels.",
+        )
+    return CheckResult(
+        "inbox_reaches_agent", "info", "Every email in your inbox reaches the agent",
+        "Auto mode is off, so actions after reading an email wait for your approval.",
+    )
+
+
+def _check_discord() -> CheckResult:
+    from craftos_integrations import has_credential, load_config
+    from craftos_integrations.providers.discord import client as discord
+
+    from app.security.policy import get_policy
+
+    if not has_credential(discord.DiscordClient.spec.cred_file):
+        return CheckResult("discord_senders_limited", "ok", "Discord is not connected", "")
+    cfg = load_config(discord._discord_config_file(), discord.DiscordConfig) or discord.DiscordConfig()
+    lists = (cfg.self_usernames, cfg.self_role_names, cfg.third_party_usernames, cfg.third_party_role_names)
+    if cfg.mention_only or any(lists) or get_policy().strict_channel_identity:
+        return CheckResult(
+            "discord_senders_limited", "ok", "Discord messages are limited",
+            "The bot needs a mention, or only listed people reach the agent.",
+        )
+    return CheckResult(
+        "discord_senders_limited", "warn", "Every Discord message the bot sees reaches the agent",
+        "Anyone in any server or channel the bot is in can write to the agent. Require a "
+        "mention or list who may, in Settings > Integrations > Discord.",
+    )
+
+
 CHECKS: List[Callable[[], CheckResult]] = [
     _check_secret_files,
     _check_bind_address,
@@ -205,6 +321,11 @@ CHECKS: List[Callable[[], CheckResult]] = [
     _check_level,
     _check_auto_mode,
     _check_mcp_changes,
+    _check_runtime_files,
+    _check_prompt_logging,
+    _check_web_guard,
+    _check_inbox,
+    _check_discord,
 ]
 
 
@@ -237,7 +358,12 @@ def _fix_mcp_changes() -> int:
     return mcp_trust.trust_current()
 
 
+def _fix_runtime_files() -> int:
+    return sum(1 for p in runtime_secret_files() if restrict_to_owner(p))
+
+
 FIXES: Dict[str, Callable[[], int]] = {
+    "runtime_files_private": _fix_runtime_files,
     "secret_files_private": _fix_secret_files,
     "mcp_servers_unchanged": _fix_mcp_changes,
 }
