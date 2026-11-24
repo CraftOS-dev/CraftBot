@@ -117,6 +117,15 @@ def _call_type_from_name(name: str):
         return name
 
 
+def _prompts_logged() -> bool:
+    """Settings > Security > "Write full prompts to logs" (on at Standard)."""
+    try:
+        from app.security.policy import get_policy
+    except ImportError:  # agent_core used without the app
+        return True
+    return get_policy().log_prompts
+
+
 @dataclass(frozen=True)
 class RequestUsage:
     """What the provider reported for a session's last request."""
@@ -1142,7 +1151,7 @@ class LLMInterface:
         # Check if we've hit the consecutive failure threshold
         self._check_failure_latch()
 
-        if log_response:
+        if log_response and _prompts_logged():
             logger.info(f"[LLM SEND] system={system_prompt} | user={user_prompt}")
 
         try:
@@ -1240,7 +1249,7 @@ class LLMInterface:
             current_count = self._get_token_count()
             self._set_token_count(current_count + billable_tokens(response))
 
-            if log_response:
+            if log_response and _prompts_logged():
                 logger.info(f"[LLM RECV] {cleaned}")
             return LLMReply(cleaned, bool(response.get("cut_off")))
 
@@ -1789,7 +1798,7 @@ class LLMInterface:
         cleaned = re.sub(self._CODE_BLOCK_RE, "", content)
         current_count = self._get_token_count()
         self._set_token_count(current_count + billable_tokens(response))
-        if log_response:
+        if log_response and _prompts_logged():
             logger.info(f"[LLM RECV] {cleaned}")
         return LLMReply(cleaned, bool(response.get("cut_off")))
 

@@ -38,8 +38,12 @@ def _record_llm_call(record: LLMCallRecord) -> None:
     Runs synchronously in the LLM worker thread; the base wraps the call in
     try/except so a storage hiccup never breaks an LLM call.
     """
+    from app.security.policy import get_policy
     from app.usage import get_llm_call_storage, LLMCallRow
 
+    if not get_policy().log_prompts:
+        # Settings > Security: keep the call's metadata, not its text.
+        record.system_prompt = record.user_prompt = record.response = ""
     get_llm_call_storage().insert(
         LLMCallRow(
             provider=record.provider,

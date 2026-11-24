@@ -89,3 +89,32 @@ def test_mcp_servers_get_only_basics_and_their_own_env(tmp_path):
         assert env.get("PATH") == "/usr/bin" or os.name == "nt"
     finally:
         set_store_for_tests(None)
+
+
+def test_log_redaction_masks_known_secret_values_only(tmp_path):
+    from app.security.redact import collect_secrets
+
+    settings = tmp_path / "settings.json"
+    settings.write_text(json.dumps({"api_keys": {"openai": "sk-live-abcdef123456"}, "model": "gpt-5"}))
+    mcp = tmp_path / "mcp_config.json"
+    mcp.write_text(json.dumps({"mcp_servers": [{"name": "gh", "env": {"GITHUB_TOKEN": "ghp_0123456789abcd"}}]}))
+    secrets = collect_secrets([settings, mcp])
+    assert "sk-live-abcdef123456" in secrets and "ghp_0123456789abcd" in secrets
+    assert "gpt-5" not in secrets  # ordinary settings are left alone
+
+
+def test_redactor_applies_only_when_enabled(tmp_path):
+    from app.security.policy import SecurityLevel, SecurityStore, set_store_for_tests
+    from app.security.redact import Redactor
+
+    r = Redactor()
+    r._secrets = ("sk-live-abcdef123456",)
+    r._checked = 1e18  # skip the file scan
+    store = SecurityStore(tmp_path / "security.json")
+    set_store_for_tests(store)
+    try:
+        assert "sk-live" in r("key sk-live-abcdef123456")
+        store.set_level(SecurityLevel.ENHANCED)
+        assert r("key sk-live-abcdef123456") == "key [REDACTED]"
+    finally:
+        set_store_for_tests(None)

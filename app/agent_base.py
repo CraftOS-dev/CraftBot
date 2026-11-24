@@ -421,6 +421,10 @@ class AgentBase:
         # Files holding keys are owner-only at every security level; files
         # written by older versions are tightened once here.
         restrict_all(secret_files())
+        from app.security import redact
+
+        # Log lines lose CraftBot's own secret values when "Redact logs" is on.
+        redact.install()
         self.action_router = ActionRouter(
             self.action_library,
             self.llm,

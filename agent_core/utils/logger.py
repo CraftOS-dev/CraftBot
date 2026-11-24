@@ -30,6 +30,25 @@ from loguru import logger as _loguru_logger
 
 # Configuration state
 _configured = False
+
+# Optional hook that rewrites every log message before it reaches a sink
+# (Settings > Security > Redact logs, app/security/redact.py). None: no-op.
+_redactor = None
+
+
+def set_redactor(redactor) -> None:
+    """Install ``redactor(message) -> message`` for every log record."""
+    global _redactor
+    _redactor = redactor
+
+
+def _patch_record(record) -> None:
+    redactor = _redactor
+    if redactor is not None:
+        try:
+            record["message"] = redactor(record["message"])
+        except Exception:
+            pass
 _log_level = "INFO"
 _project_root: Optional[Path] = None
 
@@ -94,6 +113,7 @@ def configure_logging(
         retention=retention,
     )
 
+    _loguru_logger.configure(patcher=_patch_record)
     _configured = True
 
 
@@ -144,6 +164,7 @@ def define_log_level(
         rotation="50 MB",
         retention="14 days",
     )
+    _loguru_logger.configure(patcher=_patch_record)
 
     return _loguru_logger
 
