@@ -1,0 +1,83 @@
+name: Security
+
+# Settings > Security: the gate, guards and their tests, including the
+# check that the default Standard level changes nothing and the gate's
+# per-action time budget (tests/test_security_standard_unchanged.py).
+
+on:
+  push:
+    paths:
+      - 'app/security/**'
+      - 'app/data/action/**'
+      - 'app/agent_base.py'
+      - 'agent_core/core/impl/action/manager.py'
+      - 'agent_core/core/action_framework/registry.py'
+      - 'agent_core/core/action/action.py'
+      - 'agent_core/core/impl/mcp/**'
+      - 'agent_core/utils/logger.py'
+      - 'app/ui_layer/settings/security_settings.py'
+      - 'app/ui_layer/settings/profile_bundle.py'
+      - 'app/ui_layer/adapters/ws_auth.py'
+      - 'craftos_integrations/providers/discord/client.py'
+      - 'craftos_integrations/providers/gmail/client.py'
+      - 'craftos_integrations/providers/outlook/client.py'
+      - 'tests/test_security_*.py'
+      - 'tests/test_ws_auth.py'
+      - '.github/workflows/security.yml'
+  pull_request:
+    paths:
+      - 'app/security/**'
+      - 'app/data/action/**'
+      - 'app/agent_base.py'
+      - 'agent_core/core/impl/action/manager.py'
+      - 'agent_core/core/action_framework/registry.py'
+      - 'agent_core/core/action/action.py'
+      - 'agent_core/core/impl/mcp/**'
+      - 'agent_core/utils/logger.py'
+      - 'app/ui_layer/settings/security_settings.py'
+      - 'app/ui_layer/settings/profile_bundle.py'
+      - 'app/ui_layer/adapters/ws_auth.py'
+      - 'craftos_integrations/providers/discord/client.py'
+      - 'craftos_integrations/providers/gmail/client.py'
+      - 'craftos_integrations/providers/outlook/client.py'
+      - 'tests/test_security_*.py'
+      - 'tests/test_ws_auth.py'
+      - '.github/workflows/security.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  security-tests:
+    name: Security tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies from the lock
+        shell: bash
+        run: |
+          python -m venv .venv-sec
+          if [ -f .venv-sec/bin/python ]; then PY=.venv-sec/bin/python;
+          else PY=.venv-sec/Scripts/python.exe; fi
+          echo "PY=$PY" >> "$GITHUB_ENV"
+          "$PY" -m pip install --upgrade pip
+          LOCK=$("$PY" -c "from app.provision.deps import find_lock; print(find_lock('.') or '')")
+          if [ -z "$LOCK" ]; then
+            echo "::error::no lock for this platform — run scripts/generate_lock.py"
+            exit 1
+          fi
+          "$PY" -m pip install --require-hashes -r "$LOCK"
+          "$PY" -m pip install pytest==9.0.2
+
+      - name: Run security tests
+        shell: bash
+        run: '"$PY" -m pytest tests/test_security_*.py tests/test_ws_auth.py -q'
