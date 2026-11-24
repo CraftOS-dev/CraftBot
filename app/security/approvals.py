@@ -158,8 +158,14 @@ class ApprovalBroker:
         if entry is None:
             return False
         _, future = entry
-        if not future.done():
-            future.set_result(decision)
+
+        def settle() -> None:
+            if not future.done():
+                future.set_result(decision)
+
+        # Safe from any thread: the answer may arrive outside the loop the
+        # waiting action runs on.
+        future.get_loop().call_soon_threadsafe(settle)
         return True
 
     def pending(self) -> List[Dict[str, Any]]:
