@@ -68,7 +68,7 @@ The **audit log** (`.security/audit.jsonl`) records approvals, refusals and sett
 ## What the protections do not cover
 
 - The file and network guards cover the agent's file and web tools, not commands it runs in a shell. Approving commands (Auto mode off) is what covers the shell.
-- The network guard checks every address a name resolves to and every redirect. A name that changes its address between the check and the connection (DNS rebinding) can still slip through.
+- The network guard checks every address a name resolves to and every redirect, and connects to the address it checked. Through a proxy you configured, the proxy makes the connection, so only the checks apply.
 - Marking outside content lowers the chance that the agent follows planted instructions; it does not remove it.
 
 ## Performance

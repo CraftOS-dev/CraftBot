@@ -16,8 +16,11 @@ On at Enhanced and Strict. For ``http_request`` and ``web_fetch``:
 - With an allowlist set, only those domains and their subdomains are
   reachable.
 
-Name resolution can change between the check and the connection (DNS
-rebinding); checking every hop narrows that window but does not close it.
+The connection goes to the address that was checked (DNS pinning, as in
+OpenClaw's pinned lookup): the request is sent to that IP while TLS still
+verifies the certificate for the host name, so a name that changes its
+address after the check (DNS rebinding) cannot redirect it. Through a
+configured proxy the proxy connects, so only the checks apply there.
 The guard covers the web tools, not commands the agent runs in a shell.
 """
 
@@ -68,35 +71,46 @@ def _resolve(host: str, port: int) -> Tuple[str, ...]:
 
 def url_refusal(url: str, policy: Optional[SecurityPolicy] = None) -> Optional[str]:
     """None when the guard lets the agent's web tools fetch ``url``."""
-    policy = policy or get_policy()
+    return check_url(url, policy)[0]
+
+
+def check_url(
+    url: str, policy: Optional[SecurityPolicy] = None
+) -> Tuple[Optional[str], Tuple[str, ...]]:
+    """(refusal or None, the checked addresses the host resolves to)."""
+    refusal, addresses = _check_url(url, policy or get_policy())
+    return refusal, addresses
+
+
+def _check_url(url: str, policy: SecurityPolicy) -> Tuple[Optional[str], Tuple[str, ...]]:
     parts = urlsplit(url)
     if parts.scheme not in ("http", "https"):
-        return f"Only http and https URLs can be fetched, not {parts.scheme or 'this'}."
+        return f"Only http and https URLs can be fetched, not {parts.scheme or 'this'}.", ()
     host = parts.hostname
     if not host:
-        return "The URL has no host."
+        return "The URL has no host.", ()
     if policy.allowed_domains and not _domain_allowed(host, policy.allowed_domains):
         return (
             f"{host} is not in the allowed domains (Settings > Security > Network)."
-        )
+        ), ()
     try:
         port = parts.port or (443 if parts.scheme == "https" else 80)
     except ValueError:
-        return "The URL has an invalid port."
+        return "The URL has an invalid port.", ()
     try:
         addresses = _resolve(host, port)
     except (socket.gaierror, UnicodeError, OSError) as exc:
-        return f"{host} could not be resolved ({exc}); not fetched."
+        return f"{host} could not be resolved ({exc}); not fetched.", ()
     if not addresses:
-        return f"{host} has no address; not fetched."
+        return f"{host} has no address; not fetched.", ()
     for address in addresses:
         why = address_refusal(address)
         if why:
             return (
                 f"Blocked: {host} resolves to {why}. The agent's web tools only "
                 f"reach the public internet (Settings > Security > Network)."
-            )
-    return None
+            ), ()
+    return None, addresses
 
 
 def guard_active() -> bool:
@@ -105,6 +119,45 @@ def guard_active() -> bool:
 
 def _without_credentials(headers: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     return {k: v for k, v in (headers or {}).items() if k.lower() not in _CREDENTIAL_HEADERS}
+
+
+def _pinned_session(url: str, address: str):
+    """A requests session whose connection for ``url`` goes to ``address``,
+    the address the guard checked. TLS still verifies the host name."""
+    import requests
+    from requests.adapters import HTTPAdapter
+
+    parts = urlsplit(url)
+    host = parts.hostname
+
+    class PinnedAdapter(HTTPAdapter):
+        def build_connection_pool_key_attributes(self, request, verify, cert=None):
+            host_params, pool_kwargs = super().build_connection_pool_key_attributes(
+                request, verify, cert
+            )
+            host_params["host"] = address
+            if host_params.get("scheme") == "https":
+                pool_kwargs["server_hostname"] = host
+                pool_kwargs["assert_hostname"] = host
+            return host_params, pool_kwargs
+
+        def send(self, request, **kwargs):
+            # The connection is to the IP; the request still names the host,
+            # or virtual-hosted servers answer for the wrong site.
+            if urlsplit(request.url).hostname == host and "Host" not in request.headers:
+                request.headers["Host"] = parts.netloc.rsplit("@", 1)[-1]
+            return super().send(request, **kwargs)
+
+    session = requests.Session()
+    adapter = PinnedAdapter()
+    session.mount(f"{parts.scheme}://", adapter)
+    return session
+
+
+def _uses_proxy(url: str) -> bool:
+    from requests.utils import get_environ_proxies
+
+    return bool(get_environ_proxies(url))
 
 
 def guarded_request(method: str, url: str, *, allow_redirects: bool = True, session=None, **kwargs):
@@ -119,10 +172,14 @@ def guarded_request(method: str, url: str, *, allow_redirects: bool = True, sess
     current_method, current_url = method.upper(), url
     origin_host = urlsplit(url).hostname
     for _ in range(MAX_REDIRECTS + 1):
-        refused = url_refusal(current_url)
+        refused, addresses = check_url(current_url)
         if refused:
             raise NetworkBlocked(refused)
-        response = client.request(
+        hop_client = client
+        if session is None and not _uses_proxy(current_url):
+            # Connect to the address just checked, not a fresh lookup.
+            hop_client = _pinned_session(current_url, addresses[0])
+        response = hop_client.request(
             current_method, current_url, allow_redirects=False, **kwargs
         )
         if not allow_redirects or not response.is_redirect:
