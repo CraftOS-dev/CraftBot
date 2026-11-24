@@ -75,6 +75,7 @@ _OUTPUT_SCHEMA = {
 
 @action(
     name="grep_files",
+    effects=[],
     description=(
         "Search file contents with a ripgrep regex. Returns matching lines as "
         "'path:line: text', with paths relative to the searched folder. "

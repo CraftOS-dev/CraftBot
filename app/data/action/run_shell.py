@@ -3,6 +3,7 @@ from agent_core import action
 
 @action(
     name="run_shell",
+    effects=["execute"],
     description="Executes a shell command using the appropriate OS shell, capturing stdout, stderr, and exit code. Stdin is closed (EOF) by default. IMPORTANT: For long-running commands that don't terminate (e.g., 'npm run dev', 'npm start', 'python -m http.server', 'flask run', watch processes, dev servers), you MUST set background=true. Otherwise, the command will block the entire task until timeout and may not capture any output.",
     platforms=["linux"],
     default=True,
@@ -238,6 +239,7 @@ def shell_exec(input_data: dict) -> dict:
 
 @action(
     name="run_shell",
+    effects=["execute"],
     description="Executes a command line with cmd.exe, capturing stdout, stderr, and exit code. Stdin is closed (EOF) by default. For PowerShell, use run_powershell. IMPORTANT: For long-running commands that don't terminate (e.g., 'npm run dev', 'npm start', 'python -m http.server', 'flask run', watch processes, dev servers), you MUST set background=true. Otherwise, the command will block the entire task until timeout and may not capture any output. Keep helper processes hidden; use background=true instead of opening a terminal with start, cmd /k, or PowerShell -NoExit. Open a visible interactive window only when the user explicitly requests it.",
     platforms=["windows"],
     default=True,
@@ -491,6 +493,7 @@ def shell_exec_windows(input_data: dict) -> dict:
 
 @action(
     name="run_shell",
+    effects=["execute"],
     description="Executes a shell command using the appropriate OS shell, capturing stdout, stderr, and exit code. Stdin is closed (EOF) by default. IMPORTANT: For long-running commands that don't terminate (e.g., 'npm run dev', 'npm start', 'python -m http.server', 'flask run', watch processes, dev servers), you MUST set background=true. Otherwise, the command will block the entire task until timeout and may not capture any output.",
     platforms=["darwin"],
     default=True,

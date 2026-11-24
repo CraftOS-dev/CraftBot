@@ -21,6 +21,7 @@ _STYLE_DESC = (
 
 @action(
     name="convert_to_pdf",
+    effects=["write_files"],
     description=(
         "Universal source-to-PDF converter. Reads from `source_path`, an inline `content` string, "
         "`url` (live web page), or `image_paths` (list of images, one per page) and writes a PDF "

@@ -5,6 +5,7 @@ from agent_core import action
 
 @action(
     name="credential_list_api_keys",
+    effects=[],
     description=(
         "Find API keys saved by the user in Settings > Credentials. Returns only "
         "IDs, names (label), saved websites and groups, never secret values. Use "
@@ -43,6 +44,8 @@ async def credential_list_api_keys(input_data: dict) -> dict:
 
 @action(
     name="credential_api_request",
+    effects=["use_credentials", "send_external"],
+    result_source="network",
     description=(
         "Call an API using a saved API-key ID from credential_list_api_keys. "
         "The app injects the key into an HTTP header; you never see the key. "

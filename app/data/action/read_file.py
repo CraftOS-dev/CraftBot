@@ -3,6 +3,7 @@ from agent_core import action
 
 @action(
     name="read_file",
+    effects=[],
     description="Reads a file and returns its contents with line numbers. PDF files are returned as their extracted text (text layer only, one '## Page N' heading per page). By default reads up to 2000 lines from the beginning. Use offset and limit parameters to read specific sections of large files. For searching within files, use grep_files instead.",
     mode="CLI",
     action_sets=["core"],

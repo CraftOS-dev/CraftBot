@@ -3,6 +3,7 @@ from agent_core import action
 
 @action(
     name="end_turn",
+    effects=[],
     description=(
         "End the current run without sending any message. Use this when the "
         "incoming message or event requires no response and no further work "

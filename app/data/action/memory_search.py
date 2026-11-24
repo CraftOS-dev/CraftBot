@@ -48,6 +48,7 @@ _OUTPUT_SCHEMA = {
 
 @action(
     name="memory_search",
+    effects=[],
     description="Search the agent's memory for relevant information based on a semantic query. Returns memory pointers with file paths, section paths, titles, summaries, and relevance scores. Use this to recall past events, user preferences, decisions, and learned facts.",
     mode="ALL",
     platforms=["linux", "windows", "darwin"],

@@ -3,6 +3,7 @@ from agent_core import action
 
 @action(
     name="heartbeat_checklist_read",
+    effects=[],
     description="Read the Heartbeat checklist in PROACTIVE.md: the items the heartbeat checks every few minutes. Empty means the heartbeat does not run.",
     action_sets=["proactive"],
     input_schema={},

@@ -3,6 +3,8 @@ from agent_core import action
 
 @action(
     name="web_fetch",
+    effects=[],
+    result_source="network",
     description=(
         "Fetches a URL and returns cleaned text/markdown content. "
         "Use web_search first to find URLs, then web_fetch to read them. "

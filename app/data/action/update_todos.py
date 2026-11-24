@@ -3,6 +3,7 @@ from agent_core import action
 
 @action(
     name="update_todos",
+    effects=[],
     description=(
         "Update the todo list for the current run of this session. Use todos whenever the work "
         "takes more than a couple of actions. The todo list follows a structured workflow:\n"

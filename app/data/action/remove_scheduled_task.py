@@ -3,6 +3,7 @@ from agent_core import action
 
 @action(
     name="remove_scheduled_task",
+    effects=["change_agent"],
     description="Remove a scheduled task from the scheduler by its ID.",
     action_sets=["scheduler", "core", "proactive"],
     input_schema={

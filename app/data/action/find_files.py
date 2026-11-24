@@ -3,6 +3,7 @@ from agent_core import action
 
 @action(
     name="find_files",
+    effects=[],
     description="Finds files by name or pattern across the system. Supports wildcards and recursive search. Use absolute paths for base_directory.",
     mode="CLI",
     platforms=["linux", "darwin"],
@@ -98,6 +99,7 @@ def find_file_by_name(input_data: dict) -> dict:
 
 @action(
     name="find_files",
+    effects=[],
     description="Finds files by name or pattern across the system. Supports wildcards and recursive search. Use absolute paths for base_directory.",
     mode="CLI",
     platforms=["windows"],

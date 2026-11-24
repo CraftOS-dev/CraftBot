@@ -3,6 +3,7 @@ from agent_core import action
 
 @action(
     name="convert_to_markdown",
+    effects=["write_files"],
     description="Cleans scraped text from .txt, .md, or .docx and converts it into clean, well-structured Markdown suitable for PDF conversion. Use absolute paths.",
     mode="CLI",
     action_sets=["document_processing"],

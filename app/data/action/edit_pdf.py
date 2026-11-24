@@ -3,6 +3,7 @@ from agent_core import action
 
 @action(
     name="edit_pdf",
+    effects=["write_files"],
     description=(
         "Edits an existing PDF by applying a list of operations and saves the result "
         "to a new file. Accepts two input types per operation: "

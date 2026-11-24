@@ -7,6 +7,7 @@ from app.subagent.definitions.framework_walk_verify import VERDICTS
 
 @action(
     name="agent_app_framework_verification",
+    effects=[],
     description="Read independent verification status for an app. Use agent_app_framework_workflow(activity='verify') to await a verifier subagent; CraftBot records its verdict. Report is reserved for already-assigned legacy verifier runs. A pass must cover the current upstream validation stamp.",
     default=False,
     mode="CLI",
@@ -60,6 +61,7 @@ async def agent_app_framework_verification(input_data: dict) -> dict:
 
 @action(
     name="agent_app_framework_workflow",
+    effects=["execute"],
     description="Start the unchanged Agent-App creator, modify or importer workflow. Use the a2app action set to connect to or operate existing apps. For activity='verify', run the installed walk-verify skill in an independent CraftBot subagent and WAIT for its verdict in this action's verification field. It creates no separate chat. Run validate first. Repair defects, validate again and re-run verify before promotion; never treat queued/running/blocked/incomplete as pass.",
     default=False,
     mode="CLI",
@@ -119,6 +121,7 @@ async def agent_app_framework_workflow(input_data: dict) -> dict:
 
 @action(
     name="agent_app_command",
+    effects=["execute"],
     description=(
         "Build, evolve and manage apps through the bundled unchanged agent-app CLI: "
         "scaffold/dev/validate/promote/serve/stop/backup/restore/export/bridge/"
@@ -168,6 +171,7 @@ async def agent_app_command(input_data: dict) -> dict:
 
 @action(
     name="a2app_command",
+    effects=["execute"],
     description=(
         "Connect to, inspect and control apps through the bundled unchanged a2app CLI. "
         "Discover modules and operations, read current context, invoke operations, "
@@ -214,6 +218,7 @@ async def a2app_command(input_data: dict) -> dict:
 
 @action(
     name="agent_app_framework_list",
+    effects=[],
     description=(
         "List apps in the Agent-App framework registry, including canonical app "
         "IDs, paths, derived status and connected apps. Uses CraftBot's "

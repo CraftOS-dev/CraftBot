@@ -11,6 +11,7 @@ from agent_core import action
 
 @action(
     name="list_skills",
+    effects=[],
     description=(
         "List all enabled skills with their names and descriptions. "
         "Use this to discover available skills before using 'use_skill'."
@@ -54,6 +55,7 @@ def list_skills(input_data: dict) -> dict:
 
 @action(
     name="use_skill",
+    effects=[],
     description=(
         "Load a skill into this session: its instructions are injected into "
         "your context and its recommended action sets are loaded. Skills are "
@@ -135,6 +137,7 @@ def use_skill(input_data: dict) -> dict:
 
 @action(
     name="unload_skill",
+    effects=[],
     description=(
         "Unload a previously loaded skill from this session, removing its "
         "instructions from your context. Use this when a skill's work is done "

@@ -3,6 +3,7 @@ from agent_core import action
 
 @action(
     name="heartbeat_checklist_update",
+    effects=["change_agent"],
     description="Replace the Heartbeat checklist in PROACTIVE.md. Every heartbeat tick, the agent reads this checklist, checks each item and reports only if something needs attention. Use it for things to keep an eye on (e.g. '- Check my inbox for urgent client email'); use cron_job_add for work at a set time. Read it first with heartbeat_checklist_read and pass the FULL new list. IMPORTANT: Only change it with user consent.",
     action_sets=["proactive"],
     input_schema={

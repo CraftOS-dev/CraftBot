@@ -3,6 +3,7 @@ from agent_core import action
 
 @action(
     name="list_folder",
+    effects=[],
     description="Lists the contents of a specified folder/directory. Use absolute paths.",
     mode="CLI",
     action_sets=["core"],

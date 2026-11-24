@@ -3,6 +3,7 @@ from agent_core import action
 
 @action(
     name="clipboard_write",
+    effects=[],
     description="Write text content to the system clipboard.",
     mode="GUI",
     action_sets=["core"],

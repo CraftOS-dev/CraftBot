@@ -3,6 +3,7 @@ from agent_core import action
 
 @action(
     name="send_message",
+    effects=[],
     irreversible=True,
     description=(
         "Use this action to deliver a text update to the user; it is recorded in the "

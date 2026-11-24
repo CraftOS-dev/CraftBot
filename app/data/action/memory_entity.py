@@ -46,6 +46,7 @@ _OUTPUT_SCHEMA = {
 
 @action(
     name="memory_entity",
+    effects=[],
     description="Look up everything the agent's memory knows about one entity (a person, project, tool, or concept): all facts mentioning it, related entities, and indexed files that reference it. Use this instead of memory_search when the subject is a specific named thing.",
     mode="ALL",
     platforms=["linux", "windows", "darwin"],

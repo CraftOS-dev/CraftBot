@@ -19,6 +19,7 @@ from app.subagent import list_subagent_names, get_subagent_definition
 
 @action(
     name="spawn_subagent",
+    effects=[],
     description="\n".join(
         [
             "Spawn a sub-agent in an isolated context for ONE FOCUSED job; "

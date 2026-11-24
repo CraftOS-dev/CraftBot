@@ -14,6 +14,7 @@ from agent_core import action
 
 @action(
     name="schedule_task",
+    effects=["change_agent"],
     description=(
         "Schedule a task for execution. Supports immediate, one-time, and recurring schedules. "
         "One-time tasks are auto-removed after firing. Every fire runs in this chat, the one "

@@ -3,6 +3,7 @@ from agent_core import action
 
 @action(
     name="render_ui",
+    effects=[],
     description=(
         "Show an interactive HTML page in the output panel. Use it when "
         "manipulating inputs, comparing alternatives, inspecting changing data or tracking "

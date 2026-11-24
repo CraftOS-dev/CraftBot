@@ -3,6 +3,7 @@ from agent_core import action
 
 @action(
     name="run_powershell",
+    effects=["execute"],
     description="Runs a PowerShell script with Windows PowerShell, capturing stdout, stderr, and exit code. Stdin is closed (EOF) by default. IMPORTANT: For long-running scripts that don't terminate (e.g., dev servers, watch processes), you MUST set background=true. Otherwise, the script will block the entire task until timeout and may not capture any output. Keep helper processes hidden: use -WindowStyle Hidden with Start-Process. Open a visible interactive window only when the user explicitly requests it.",
     platforms=["windows"],
     default=True,

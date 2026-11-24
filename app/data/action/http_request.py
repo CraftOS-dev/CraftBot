@@ -3,6 +3,8 @@ from agent_core import action
 
 @action(
     name="http_request",
+    effects=["send_external"],
+    result_source="network",
     description=(
         "Sends HTTP requests (GET, POST, PUT, PATCH, DELETE) with optional headers, "
         "params, and body. To DOWNLOAD A FILE (zip, exe, pdf, image, any binary), set "

@@ -3,6 +3,7 @@ from agent_core import action
 
 @action(
     name="convert_from_pdf",
+    effects=["write_files"],
     description=(
         "Universal PDF-to-source converter. Reads `source_path` (.pdf) and writes to "
         "`output_path` in a format inferred from the output extension; pass `target_format` to "

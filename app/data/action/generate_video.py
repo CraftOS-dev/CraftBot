@@ -3,6 +3,7 @@ from agent_core import action
 
 @action(
     name="generate_video",
+    effects=["write_files"],
     description="""Generates a video from a text prompt using the configured video generation provider (BytePlus Seedance; Google Veo and OpenAI Sora have been retired upstream).
 - The provider is determined by 'video_gen_provider' in settings.json; a provider without a video model falls back to one that has a model and a configured key. Supported: byteplus.
 - The action BLOCKS while the long-running generation completes (typically 60-300s; up to ~25 min hard cap).

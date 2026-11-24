@@ -3,6 +3,7 @@ from agent_core import action
 
 @action(
     name="stream_edit",
+    effects=["write_files"],
     description="Performs string replacement in a file. You MUST use read_file first to read the file before editing. The old_string must be unique in the file - if it appears multiple times, use replace_all=True or provide more context to make it unique. Supports regex patterns with regex=True and case-insensitive matching with ignore_case=True.",
     mode="CLI",
     action_sets=["core"],

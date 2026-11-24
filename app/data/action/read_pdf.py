@@ -3,6 +3,7 @@ from agent_core import action
 
 @action(
     name="read_pdf",
+    effects=[],
     description=(
         "Reads a PDF and returns its content. "
         "mode='text' (default): returns plain text and tables — use for summarising, "

@@ -3,6 +3,7 @@ from agent_core import action
 
 @action(
     name="generate_image",
+    effects=["write_files"],
     description="""Generates an image from a text prompt using the configured image generation provider (OpenAI gpt-image-2 or Google Gemini).
 - The provider is determined by 'image_gen_provider' in settings.json (default: openai). Supported: openai, gemini.
 - Saves the result as a PNG file to output_path, or a timestamped temp file if omitted.
