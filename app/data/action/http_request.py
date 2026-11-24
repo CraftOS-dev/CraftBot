@@ -412,7 +412,28 @@ def send_http_requests(input_data: dict) -> dict:
         t0 = time.time()
         # stream=True lets us inspect headers before pulling the body, and keeps
         # large downloads out of memory (we write them straight to disk).
-        resp = requests.request(method, url, stream=True, **kwargs)
+        from app.security.net import NetworkBlocked, guard_active, guarded_request
+
+        if guard_active():
+            # Settings > Security > Network: every hop must be a public
+            # address (redirects are followed and checked one at a time).
+            redirects = kwargs.pop("allow_redirects", True)
+            try:
+                resp = guarded_request(
+                    method, url, allow_redirects=redirects, stream=True, **kwargs
+                )
+            except NetworkBlocked as blocked:
+                return {
+                    "status": "error",
+                    "status_code": 0,
+                    "response_headers": {},
+                    "body": "",
+                    "final_url": "",
+                    "elapsed_ms": 0,
+                    "message": str(blocked),
+                }
+        else:
+            resp = requests.request(method, url, stream=True, **kwargs)
         resp_headers = {k: v for k, v in resp.headers.items()}
         if not include_headers:
             _useful = {
