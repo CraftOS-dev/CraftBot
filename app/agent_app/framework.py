@@ -18,6 +18,13 @@ from weakref import WeakValueDictionary
 from app import agent_app_package
 from app.agent_app.framework_cli import AgentAppCLI
 
+try:
+    from loguru import logger
+except ImportError:  # pragma: no cover
+    import logging
+
+    logger = logging.getLogger(__name__)
+
 # Only coordinates commands issued by this CraftBot process. The unchanged CLI
 # retains its own filesystem locks; independent harnesses are outside this lock.
 _lifecycle_locks: WeakValueDictionary = WeakValueDictionary()
@@ -285,7 +292,9 @@ def lifecycle_lock(path: str):
     return _lifecycle_locks.setdefault(key, asyncio.Lock())
 
 
-async def change_app_state(path: str, app_id: str, operation: str) -> dict:
+async def change_app_state(
+    path: str, app_id: str, operation: str, *, reason: str = "requested"
+) -> dict:
     if not isinstance(path, str) or not path:
         return {
             "status": "error",
@@ -293,13 +302,38 @@ async def change_app_state(path: str, app_id: str, operation: str) -> dict:
             "message": "Select a local registry app.",
         }
     async with lifecycle_lock(path):
-        return await change_app_state_locked(path, app_id, operation)
+        return await change_app_state_locked(path, app_id, operation, reason=reason)
 
 
 async def change_app_state_locked(
-    path: str, app_id: str, operation: str, *, preserve_shares=False
+    path: str,
+    app_id: str,
+    operation: str,
+    *,
+    preserve_shares=False,
+    reason: str = "requested",
 ) -> dict:
-    """Start/stop a registered live app, then read its actual framework state."""
+    """Start/stop a registered live app, then read its actual framework state.
+
+    Every call is logged with its reason, so an app that seems to restart by
+    itself can be traced to the code path that stopped or started it.
+    """
+    logger.info(f"[AGENT_APP] {operation} {app_id} ({reason}): {path}")
+    outcome = await _change_app_state_locked(path, app_id, operation, preserve_shares)
+    detail = (
+        ""
+        if outcome.get("status") == "success"
+        else f" [{outcome.get('code')}] {outcome.get('message')}"
+    )
+    logger.info(
+        f"[AGENT_APP] {operation} {app_id} ({reason}) -> {outcome.get('status')}{detail}"
+    )
+    return outcome
+
+
+async def _change_app_state_locked(
+    path: str, app_id: str, operation: str, preserve_shares: bool
+) -> dict:
 
     def failure(code: str, message: str, **extra) -> dict:
         return {"status": "error", "code": code, "message": message, **extra}
@@ -336,7 +370,7 @@ async def change_app_state_locked(
     if host and operation == "start" and app["status"] == "stopped":
         await host.maintenance.before_start(cli, path, app_id)
     if host and operation == "stop" and not preserve_shares:
-        await host.sharing.close_app(path, app_id)
+        await host.sharing.close_app(path, app_id, reason="app stopped")
 
     # No install, browser opener, dev-stop or bridge commands are implied.
     # The serve budget includes upstream's 600s build and 20s health wait.

@@ -16,7 +16,7 @@ from urllib.parse import urlsplit
 from aiohttp import web
 
 from app.agent_app import framework
-from app.agent_app.sharing import lan_ip, LanRelay, TunnelChannel
+from app.agent_app.sharing import lan_ip, LanRelay, TunnelChannel, logger
 from app.process_ledger import kill_tree
 
 
@@ -167,7 +167,9 @@ class FrameworkSharing:
             raise ValueError("Choose LAN or public sharing.")
         row = await self.host.selected(path, app_id)
         if row["status"] == "stopped":
-            started = await framework.change_app_state_locked(path, app_id, "start")
+            started = await framework.change_app_state_locked(
+                path, app_id, "start", reason=f"to share over {channel}"
+            )
             if started["status"] != "success":
                 raise ValueError(
                     started.get("message", "The app could not be started for sharing.")
@@ -178,7 +180,7 @@ class FrameworkSharing:
                 selected.get("message", "Start the app before sharing it.")
             )
         port = urlsplit(selected["data"]["url"]).port
-        await self.close(path, app_id, channel)
+        await self.close(path, app_id, channel, reason="replaced by a new link")
         address = lan_ip() if channel == "lan" else "127.0.0.1"
         if not address:
             raise ValueError("This computer is not connected to a local network.")
@@ -210,20 +212,23 @@ class FrameworkSharing:
                 await self.tunnel._disconnect(project)
             raise
 
-    async def close(self, path, app_id, channel):
+    async def close(self, path, app_id, channel, reason="owner closed it"):
         if channel not in {"lan", "tunnel"}:
             raise ValueError("Choose LAN or public sharing.")
         state = self.active.pop((path, app_id, channel), None)
         if state:
+            logger.info(
+                f"[AGENT_APP:SHARE] Closing {channel} share of {app_id} ({reason}): {path}"
+            )
             await state["gateway"].stop()
             if channel == "tunnel":
                 await self.tunnel._disconnect(state["project"])
         return self.links(path, app_id)
 
-    async def close_app(self, path, app_id):
+    async def close_app(self, path, app_id, reason):
         for channel in self.channels(path, app_id):
-            await self.close(path, app_id, channel)
+            await self.close(path, app_id, channel, reason=reason)
 
     async def shutdown(self):
         for path, app_id, channel in list(self.active):
-            await self.close(path, app_id, channel)
+            await self.close(path, app_id, channel, reason="CraftBot shutting down")

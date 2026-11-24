@@ -258,7 +258,7 @@ class FrameworkHost:
                 row = await self.selected(attachment["path"], attachment["appId"])
                 if row["status"] != "running":
                     result = await framework.change_app_state(
-                        row["path"], row["id"], "start"
+                        row["path"], row["id"], "start", reason="auto-start"
                     )
                     if result["status"] != "success":
                         raise RuntimeError(
@@ -1229,7 +1229,7 @@ class FrameworkHost:
                     # The sidebar confirmation covers stopping the live app.
                     # Upstream still owns removal and its data/archive guards.
                     stopped = await framework.change_app_state(
-                        data["path"], data["appId"], "stop"
+                        data["path"], data["appId"], "stop", reason=f"before {verb}"
                     )
                     await self.changed()
                     if stopped["status"] != "success":

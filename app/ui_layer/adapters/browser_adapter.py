@@ -3133,7 +3133,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         try:
             try:
                 result = await change_app_state(
-                    path, fields["appId"], fields["operation"]
+                    path, fields["appId"], fields["operation"], reason="owner, from the UI"
                 )
             except Exception as exc:
                 result = {"status": "error", "code": "uncertain", "message": str(exc)}

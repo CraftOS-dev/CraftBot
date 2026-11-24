@@ -232,6 +232,13 @@ async def command(
         app_path = installed.get("dir") if isinstance(installed, dict) else None
         if not app_path and args and Path(args[0]).is_absolute():
             app_path = args[0]
+        if surface == "agent-app" and len(args) > 1 and args[1] in {"serve", "stop"}:
+            # The sidebar logs its own lifecycle calls (framework.py); this is
+            # the agent restarting an app, which a share keeps pointing at.
+            framework.logger.info(
+                f"[AGENT_APP] {' '.join(args[1:])} (agent command) -> "
+                f"{'success' if result.ok else 'error'}: {args[0]}"
+            )
         # Newly scaffolded/imported apps acquire the same conversation link as
         # marketplace installs once the upstream registry knows their identity.
         if (
