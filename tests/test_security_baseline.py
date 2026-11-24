@@ -142,3 +142,17 @@ def test_retention_prunes_old_logs_and_llm_calls_only(tmp_path, monkeypatch):
     removed = retention.prune(30, logs_dir=logs)
     assert removed == {"log_files": 1, "llm_calls": 1}
     assert new_log.exists() and not old_log.exists() and store.count() == 1
+
+
+def test_tracebacks_stop_printing_variables_when_logs_are_redacted(tmp_path):
+    from agent_core.utils.logger import _diagnose
+    from app.security.policy import SecurityLevel, SecurityStore, set_store_for_tests
+
+    store = SecurityStore(tmp_path / "security.json")
+    set_store_for_tests(store)
+    try:
+        assert _diagnose() is True
+        store.set_level(SecurityLevel.ENHANCED)
+        assert _diagnose() is False
+    finally:
+        set_store_for_tests(None)

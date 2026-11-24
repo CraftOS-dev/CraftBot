@@ -42,6 +42,18 @@ def set_redactor(redactor) -> None:
     _redactor = redactor
 
 
+def _diagnose() -> bool:
+    """Loguru's ``diagnose`` prints local variables in tracebacks, which can
+    hold keys. Off when Settings > Security redacts logs (read when logging
+    is set up, so a change applies from the next start)."""
+    try:
+        from app.security.policy import get_policy
+
+        return not get_policy().redact_logs
+    except Exception:
+        return True
+
+
 def _patch_record(record) -> None:
     redactor = _redactor
     if redactor is not None:
@@ -98,7 +110,7 @@ def configure_logging(
             sys.stderr,
             level=log_level,
             backtrace=True,
-            diagnose=True,
+            diagnose=_diagnose(),
             enqueue=True,
         )
 
@@ -107,7 +119,7 @@ def configure_logging(
         log_path,
         level=log_level,
         backtrace=True,
-        diagnose=True,
+        diagnose=_diagnose(),
         enqueue=True,
         rotation=rotation,
         retention=retention,
@@ -159,7 +171,7 @@ def define_log_level(
         log_path,
         level=_log_level,
         backtrace=True,
-        diagnose=True,
+        diagnose=_diagnose(),
         enqueue=True,
         rotation="50 MB",
         retention="14 days",

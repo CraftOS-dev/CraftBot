@@ -45,7 +45,7 @@ How an action is classified comes from what the action declares about itself (it
 | Web tools reach public internet only, every redirect checked | First request only (as before) | On | On |
 | Third-party page reader (r.jina.ai) | On | On | Off |
 | MCP servers get only basic system variables plus their own | Off | On | On |
-| Mask CraftBot's own secrets in logs | Off | On | On |
+| Mask CraftBot's own secrets in logs (and stop printing variables in error tracebacks, from the next start) | Off | On | On |
 | Write full prompts to logs | On | Off | Off |
 | Delete old logs and recorded AI calls | Never | After 90 days | After 30 days |
 | Discord owners by unique username, mention required | Off | On | On |
