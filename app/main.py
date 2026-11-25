@@ -171,6 +171,8 @@ from app.config import (
     get_image_gen_model,
 )
 from app.agent_base import AgentBase
+from app.logger import logger
+from app.startup_diagnostics import format_exception_details, log_runtime_info
 
 
 def _parse_cli_args() -> dict:
@@ -237,6 +239,10 @@ def _initial_settings() -> tuple:
 
 
 async def main_async() -> None:
+    # Once per process, before anything can fail: the Python version and
+    # asyncio shim state are what an environment mismatch needs (#224).
+    log_runtime_info(logger)
+
     # Parse command-line arguments
     cli_args = _parse_cli_args()
 
@@ -267,19 +273,29 @@ async def main_async() -> None:
 
     # Use deferred initialization if no valid API key is configured yet.
     # This lets the interface start so first-time users can configure settings.
-    agent = AgentBase(
-        data_dir="app/data",
-        chroma_path="./chroma_db",
-        llm_provider=provider,
-        llm_api_key=api_key,
-        llm_base_url=base_url,
-        llm_model=model,
-        vlm_provider=vlm_prov,
-        vlm_model=vlm_mod,
-        image_gen_provider=img_prov,
-        image_gen_model=img_mod,
-        deferred_init=not has_valid_key,
-    )
+    try:
+        agent = AgentBase(
+            data_dir="app/data",
+            chroma_path="./chroma_db",
+            llm_provider=provider,
+            llm_api_key=api_key,
+            llm_base_url=base_url,
+            llm_model=model,
+            vlm_provider=vlm_prov,
+            vlm_model=vlm_mod,
+            image_gen_provider=img_prov,
+            image_gen_model=img_mod,
+            deferred_init=not has_valid_key,
+        )
+    except Exception as e:
+        # The traceback otherwise reaches stderr only, never the log files.
+        # Rendered without locals: this frame holds the API key, and the
+        # loguru sinks' diagnose=True would print it.
+        logger.error(
+            f"[STARTUP] Agent construction failed: {type(e).__name__}: {e}\n"
+            f"{format_exception_details(e)}"
+        )
+        raise
 
     # Initialize onboarding manager with agent reference
     from app.onboarding import onboarding_manager
