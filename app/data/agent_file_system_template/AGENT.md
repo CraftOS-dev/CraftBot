@@ -1523,14 +1523,16 @@ Run `/help` for the live list. If you need to verify a specific command, read it
 ```
 /mcp list                          list configured MCP servers + enabled state
 /mcp add <name> --transport stdio -- <command> [args]   register a new MCP server (stdio)
+/mcp add <name> --transport http <url> [--timeout N]   register a remote Streamable HTTP server
 /mcp add-json <name> '<json>'      register from a full JSON entry
 /mcp remove <name>                 remove a server
 /mcp enable <name>                 enable a server (next reload picks it up)
 /mcp disable <name>                disable a server
 /mcp env <name> <KEY> <value>      set an env variable on a server entry
+/mcp header <name> <Header> <value>   set an HTTP header on an http server (--remove deletes it)
 ```
 
-Edits go to [app/config/mcp_config.json](app/config/mcp_config.json) and are hot-reloaded. See `## MCP` and `## Configs`. `--transport http` is refused: only stdio, sse and websocket are valid.
+Edits go to [app/config/mcp_config.json](app/config/mcp_config.json) and are hot-reloaded. See `## MCP` and `## Configs`. Valid transports: stdio, http (Streamable HTTP; `streamable_http` is accepted and saved as `http`), sse (legacy HTTP+SSE) and websocket.
 
 ### Skill management
 
@@ -1838,11 +1840,15 @@ mcp_servers: [
   {
     name: string                                   required, unique within file
     description: string                            human-readable, shown to the LLM
-    transport: "stdio" | "sse" | "websocket"       default "stdio"
+    transport: "stdio" | "http" | "sse" | "websocket"   default "stdio"; "http" = Streamable HTTP
     command: string                                required for stdio (e.g. "npx", "uv", "python")
     args: [string]                                 stdio command arguments
-    url: string                                    required for sse / websocket
+    url: string                                    required for http / sse / websocket (http: http:// or https://,
+                                                   no user:password@ and no #fragment)
     env: { KEY: VALUE }                            environment variables passed to the server process
+    headers: { Name: VALUE }                       (http only) extra request headers; a VALUE may reference
+                                                   ${KEY} from this server's env, and only from it
+    timeout: number                                (http only) seconds per request, 1-300, default 30
     cwd: string                                    (stdio only) working directory for the subprocess;
                                                    default = the agent workspace (see ## MCP)
     enabled: bool                                  controls whether the server connects on load/reload
@@ -1854,6 +1860,7 @@ Patterns by transport:
   NPX (Node):     transport="stdio"  command="npx"     args=["-y", "@org/server-name", ...optional-args]
   Python (uv):    transport="stdio"  command="uv"      args=["run", "--directory", "<path>", "main.py"]
   Python (pip):   transport="stdio"  command="python"  args=["-m", "<module>", ...args]
+  Remote HTTP:    transport="http"   url="https://<host>/mcp"  headers={"Authorization": "Bearer ${TOKEN}"}  env={"TOKEN": ""}
   Remote SSE:     transport="sse"    url="http://localhost:3000/mcp"
   Remote WS:      transport="websocket" url="ws://..."
 
@@ -2099,6 +2106,20 @@ stdio (subprocess, most common)
     Python uv:  command="uv",     args=["run", "--directory", "C:/path/to/server", "main.py"]
     Python pip: command="python", args=["-m", "<module_name>"]
     Node:       command="node",   args=["<path-to-script.js>"]
+
+http (Streamable HTTP, remote; the current MCP standard for remote servers)
+  transport: "http"
+  url:       "https://<host>/mcp"
+  headers:   { "Authorization": "Bearer ${TOKEN}" }   sent only to this server
+  env:       { "TOKEN": "" }   ${TOKEN} is read from here, never from the process environment
+  timeout:   30                  seconds per request (raise it for slow tools, max 300)
+  command:   (omit)
+
+  A header that references a missing or empty env value fails that server with
+  "set TOKEN in this server's env" instead of sending an empty credential.
+  Redirects are not followed (credentials stay with the configured URL).
+  Headers Accept, Content-Type, Host, Mcp-Session-Id, MCP-Protocol-Version are
+  set by the transport and cannot be configured.
 
 sse (server-sent events, remote)
   transport: "sse"

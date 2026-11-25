@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import List
+from typing import List, Optional
 
 from app.ui_layer.commands.base import Command, CommandResult
 from app.ui_layer.settings import (
@@ -13,7 +13,10 @@ from app.ui_layer.settings import (
     enable_mcp_server,
     disable_mcp_server,
     update_mcp_server_env,
+    set_mcp_server_header,
 )
+
+HTTP_TRANSPORTS = ("http", "streamable_http", "streamable-http")
 
 
 class MCPCommand(Command):
@@ -36,14 +39,23 @@ class MCPCommand(Command):
         return """Manage Model Context Protocol (MCP) servers.
 
 Subcommands:
-  list                           - List configured servers
-  add <name> --transport stdio -- <cmd>  - Add stdio server
-  add <name> --transport http <url>      - Add HTTP server
+  list [--all]                   - List configured servers
+  add <name> --transport stdio -- <cmd> [args]   - Add stdio server
+  add <name> --transport http <url> [--timeout N] - Add Streamable HTTP server
   add-json <name> '<json>'       - Add from JSON config
   remove <name>                  - Remove server
   enable <name>                  - Enable server
   disable <name>                 - Disable server
   env <name> <key> <value>       - Set environment variable
+  header <name> <Header> <value> - Set an HTTP header (http servers)
+  header <name> <Header> --remove - Remove an HTTP header
+
+Header values can reference the server's env as ${NAME}, so the secret
+itself lives in env and is never sent anywhere but that server:
+
+  /mcp add stitch --transport http https://example.com/mcp
+  /mcp header stitch X-Api-Key ${STITCH_API_KEY}
+  /mcp env stitch STITCH_API_KEY <your key>
 
 Examples:
   /mcp list
@@ -73,6 +85,7 @@ Examples:
             "enable": lambda: self._enable_server(sub_args),
             "disable": lambda: self._disable_server(sub_args),
             "env": lambda: self._set_env(sub_args),
+            "header": lambda: self._set_header(sub_args),
         }
 
         handler = handlers.get(subcommand)
@@ -109,9 +122,16 @@ Examples:
             name = server.get("name", "unknown")
             if show_all:
                 status = "enabled" if server.get("enabled", True) else "disabled"
-                lines.append(f"  {name} [{status}]")
+                line = f"  {name} [{status}]"
             else:
-                lines.append(f"  {name}")
+                line = f"  {name}"
+            if server.get("transport") and server["transport"] != "stdio":
+                line += f" ({server['transport']})"
+            if server.get("invalid"):
+                line += f" - invalid: {server.get('error')}"
+            elif server.get("missing_env"):
+                line += f" - needs env: {', '.join(server['missing_env'])}"
+            lines.append(line)
 
         if not show_all:
             lines.append("")
@@ -136,6 +156,7 @@ Examples:
         name = args[0]
         transport_idx = args.index("--transport")
         transport = args[transport_idx + 1] if len(args) > transport_idx + 1 else ""
+        transport = transport.lower()
 
         if transport == "stdio":
             # Find command after --
@@ -146,18 +167,36 @@ Examples:
                     success, message = add_mcp_server(
                         name=name,
                         transport="stdio",
-                        command=cmd,
+                        command=cmd[0],
+                        args=cmd[1:],
                     )
                     return CommandResult(success=success, message=message)
 
-        elif transport == "http":
-            url = args[transport_idx + 2] if len(args) > transport_idx + 2 else ""
-            if url:
+        elif transport in HTTP_TRANSPORTS:
+            rest = args[transport_idx + 2 :]
+            timeout: Optional[float] = None
+            if "--timeout" in rest:
+                t_idx = rest.index("--timeout")
+                try:
+                    timeout = float(rest[t_idx + 1])
+                except (IndexError, ValueError):
+                    return CommandResult(
+                        success=False, message="--timeout needs a number of seconds"
+                    )
+                rest = rest[:t_idx] + rest[t_idx + 2 :]
+            if len(rest) == 1:
                 success, message = add_mcp_server(
                     name=name,
                     transport="http",
-                    url=url,
+                    url=rest[0],
+                    timeout=timeout,
                 )
+                if success:
+                    message += (
+                        "\nAdd headers with /mcp header "
+                        f"{name} <Header> <value>; reference secrets as ${{NAME}} "
+                        f"and set them with /mcp env {name} NAME <value>."
+                    )
                 return CommandResult(success=success, message=message)
 
         return CommandResult(
@@ -225,4 +264,21 @@ Examples:
 
         name, key, value = args[0], args[1], " ".join(args[2:])
         success, message = update_mcp_server_env(name, key, value)
+        return CommandResult(success=success, message=message)
+
+    async def _set_header(self, args: List[str]) -> CommandResult:
+        """Set or remove one HTTP header of an http server."""
+        if len(args) < 3:
+            return CommandResult(
+                success=False,
+                message=(
+                    "Usage: /mcp header <server_name> <Header-Name> <value>\n"
+                    "       /mcp header <server_name> <Header-Name> --remove"
+                ),
+            )
+        name, header = args[0], args[1]
+        if args[2:] == ["--remove"]:
+            success, message = set_mcp_server_header(name, header, None)
+        else:
+            success, message = set_mcp_server_header(name, header, " ".join(args[2:]))
         return CommandResult(success=success, message=message)
