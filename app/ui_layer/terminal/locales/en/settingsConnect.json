@@ -49,6 +49,7 @@
     "envTitle": "Environment of {{name}}",
     "envDesc": "Values the server needs, such as API keys. Secret values stay hidden.",
     "envPlaceholder": "not set",
+    "envKeep": "saved; leave empty to keep",
     "envSaved": "Variables saved",
     "envFailed": "Could not save the variables",
     "envUnchanged": "Nothing changed",

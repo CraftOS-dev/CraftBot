@@ -4,15 +4,23 @@ MCP Client Module
 
 Singleton manager for all MCP server connections. Handles initialization,
 connection management, tool discovery, and action registration.
+
+Servers are independent: each has its own connection, headers and error, and
+a reload only touches the servers whose configuration changed.
 """
 
 import asyncio
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Set
 
 from agent_core.utils.logger import logger
-from agent_core.core.impl.mcp.config import MCPConfig
+from agent_core.core.impl.mcp.config import MCPConfig, MCPServerConfig
 from agent_core.core.impl.mcp.server import MCPServerConnection, MCPTool
+
+# How long a tool handler waits for a call when the server sets no longer
+# timeout; http servers get their own timeout plus HANDLER_MARGIN.
+DEFAULT_HANDLER_TIMEOUT = 60.0
+HANDLER_MARGIN = 10.0
 
 
 def _default_config_path() -> Path:
@@ -63,6 +71,12 @@ class MCPClient:
         self._servers: Dict[str, MCPServerConnection] = {}
         self._config: Optional[MCPConfig] = None
         self._event_loop: Optional[asyncio.AbstractEventLoop] = None
+        # Why each enabled server that is not connected failed (safe text).
+        self._last_errors: Dict[str, str] = {}
+        # Exact action names registered for each server.
+        self._registered_actions: Dict[str, Set[str]] = {}
+        # Serialises initialize/reload so two config writes cannot interleave.
+        self._lifecycle_lock: Optional[asyncio.Lock] = None
         self._initialized = True
 
     @property
@@ -79,6 +93,29 @@ class MCPClient:
     def event_loop(self) -> Optional[asyncio.AbstractEventLoop]:
         """Get the event loop used by this client for MCP connections."""
         return self._event_loop
+
+    @property
+    def last_errors(self) -> Dict[str, str]:
+        """Why each enabled server that is not connected failed."""
+        return dict(self._last_errors)
+
+    def _lock(self) -> asyncio.Lock:
+        if self._lifecycle_lock is None:
+            self._lifecycle_lock = asyncio.Lock()
+        return self._lifecycle_lock
+
+    def handler_timeout(self, server_name: str) -> float:
+        """Seconds a tool handler waits for a call on this server: long
+        enough for the server's own request timeout to fire first."""
+        connection = self._servers.get(server_name)
+        config = connection.config if connection else None
+        if config is None and self._config is not None:
+            config = self._config.get_server_by_name(server_name)
+        if config is not None and config.transport == "http":
+            return max(
+                DEFAULT_HANDLER_TIMEOUT, config.effective_timeout + HANDLER_MARGIN
+            )
+        return DEFAULT_HANDLER_TIMEOUT
 
     async def initialize(self, config_path: Optional[Path] = None) -> None:
         """
@@ -111,7 +148,8 @@ class MCPClient:
 
         # Auto-connect to enabled servers if configured
         if self._config.auto_connect:
-            await self._connect_enabled_servers()
+            async with self._lock():
+                await self._connect_enabled_servers()
 
     async def _connect_enabled_servers(self) -> None:
         """Connect to all enabled servers in parallel for faster startup."""
@@ -127,35 +165,40 @@ class MCPClient:
         logger.info(
             f"Connecting to {len(enabled_servers)} MCP server(s) in parallel..."
         )
+        await self._connect_many([s.name for s in enabled_servers])
 
-        async def connect_with_logging(server):
-            """Connect to a single server with logging."""
-            try:
+    async def _connect_many(self, names: Iterable[str]) -> Dict[str, bool]:
+        """Connect several servers concurrently; one failing (or raising)
+        never stops the others."""
+
+        async def connect_with_logging(name: str) -> bool:
+            server = self._config.get_server_by_name(name) if self._config else None
+            if server is not None:
                 logger.info(
-                    f"[MCP] Connecting to '{server.name}' ({server.transport}): {server.command} {server.args}"
+                    f"[MCP] Connecting to '{name}' ({server.transport}): {_describe(server)}"
                 )
-                result = await self.connect_server(server.name)
-                if result:
-                    tools = self._servers[server.name].tools
-                    logger.info(
-                        f"[MCP] Successfully connected to '{server.name}' with {len(tools)} tools"
-                    )
-                else:
-                    logger.warning(
-                        f"[MCP] Failed to connect to '{server.name}' - check server configuration"
-                    )
-                return result
-            except Exception as e:
-                import traceback
-
+            try:
+                result = await self.connect_server(name)
+            except Exception as e:  # connect_server reports its own failures
+                self._last_errors[name] = f"connect failed: {type(e).__name__}"
                 logger.error(
-                    f"[MCP] Exception connecting to '{server.name}': {type(e).__name__}: {e}"
+                    f"[MCP] Exception connecting to '{name}': {type(e).__name__}: {e}"
                 )
-                logger.debug(f"[MCP] Traceback: {traceback.format_exc()}")
                 return False
+            if result:
+                tools = self._servers[name].tools
+                logger.info(
+                    f"[MCP] Successfully connected to '{name}' with {len(tools)} tools"
+                )
+            else:
+                logger.warning(
+                    f"[MCP] Failed to connect to '{name}' - check server configuration"
+                )
+            return result
 
-        # Connect to all servers in parallel
-        await asyncio.gather(*[connect_with_logging(s) for s in enabled_servers])
+        names = list(names)
+        results = await asyncio.gather(*[connect_with_logging(n) for n in names])
+        return dict(zip(names, results))
 
     async def connect_server(self, server_name: str) -> bool:
         """
@@ -178,7 +221,7 @@ class MCPClient:
                 return True
             else:
                 # Remove stale connection
-                del self._servers[server_name]
+                await self.disconnect_server(server_name)
 
         # Get server config
         server_config = self._config.get_server_by_name(server_name)
@@ -190,26 +233,37 @@ class MCPClient:
         connection = MCPServerConnection(server_config)
         if await connection.connect():
             self._servers[server_name] = connection
+            self._last_errors.pop(server_name, None)
             return True
-        else:
-            return False
+        self._last_errors[server_name] = connection.last_error or "connection failed"
+        return False
 
     async def disconnect_server(self, server_name: str) -> None:
         """
-        Disconnect from a specific MCP server.
+        Disconnect from a specific MCP server and remove its actions.
 
         Args:
             server_name: Name of the server to disconnect
         """
-        if server_name in self._servers:
-            await self._servers[server_name].disconnect()
-            del self._servers[server_name]
+        connection = self._servers.pop(server_name, None)
+        self._unregister_server_actions(server_name)
+        if connection is not None:
+            await connection.disconnect()
             logger.info(f"Disconnected from server '{server_name}'")
 
     async def disconnect_all(self) -> None:
-        """Disconnect from all MCP servers."""
-        for server_name in list(self._servers.keys()):
-            await self.disconnect_server(server_name)
+        """Disconnect from all MCP servers (concurrently, so one slow
+        server does not delay the others at shutdown)."""
+        names = list(self._servers.keys())
+        results = await asyncio.gather(
+            *[self.disconnect_server(name) for name in names],
+            return_exceptions=True,
+        )
+        for name, result in zip(names, results):
+            if isinstance(result, BaseException):
+                logger.warning(
+                    f"[MCP] Error disconnecting '{name}': {type(result).__name__}"
+                )
         logger.info("Disconnected from all MCP servers")
 
     def get_all_tools(self) -> Dict[str, List[MCPTool]]:
@@ -296,9 +350,19 @@ class MCPClient:
                 if server.is_connected:
                     await server.list_tools()
 
+    def _unregister_server_actions(self, server_name: str) -> int:
+        from agent_core.core.impl.mcp.adapter import MCPActionAdapter
+
+        names = self._registered_actions.pop(server_name, set())
+        return MCPActionAdapter.unregister_actions(names)
+
     def register_tools_as_actions(self) -> int:
         """
         Register all MCP tools as actions in the ActionRegistry.
+
+        Actions of servers that are gone, and tools a server no longer
+        offers, are unregistered by exact name (never by prefix: server
+        "foo" must not remove "foo_bar"'s actions).
 
         Returns:
             Number of tools registered
@@ -306,6 +370,11 @@ class MCPClient:
         from agent_core.core.impl.mcp.adapter import MCPActionAdapter
 
         total_registered = 0
+
+        for server_name in list(self._registered_actions):
+            server = self._servers.get(server_name)
+            if server is None or not server.is_connected:
+                self._unregister_server_actions(server_name)
 
         if not self._servers:
             logger.warning("[MCP] No servers connected, cannot register tools")
@@ -318,8 +387,11 @@ class MCPClient:
                 )
                 continue
 
+            previous = self._registered_actions.get(server_name, set())
             if not server.tools:
                 logger.warning(f"[MCP] Server '{server_name}' has no tools to register")
+                MCPActionAdapter.unregister_actions(previous)
+                self._registered_actions.pop(server_name, None)
                 continue
 
             action_set_name = server.config.resolved_action_set_name
@@ -330,6 +402,12 @@ class MCPClient:
                 action_set_name=action_set_name,
                 server_description=server.config.description,
             )
+            current = {
+                MCPActionAdapter.action_name(server_name, tool.name)
+                for tool in server.tools
+            }
+            MCPActionAdapter.unregister_actions(previous - current)
+            self._registered_actions[server_name] = current
             total_registered += count
 
             logger.info(
@@ -343,10 +421,13 @@ class MCPClient:
         """
         Get current status of all MCP connections.
 
+        Servers that are enabled but failed to connect are included with
+        ``connected: False`` and a safe ``error``.
+
         Returns:
             Status information for each server
         """
-        status = {
+        status: Dict[str, Any] = {
             "initialized": self._config is not None,
             "servers": {},
         }
@@ -358,6 +439,20 @@ class MCPClient:
                 "tool_count": len(server.tools),
                 "tools": [t.name for t in server.tools],
                 "action_set": server.config.resolved_action_set_name,
+                "error": None if server.is_connected else self._last_errors.get(name),
+            }
+
+        for name, error in self._last_errors.items():
+            if name in status["servers"]:
+                continue
+            config = self._config.get_server_by_name(name) if self._config else None
+            status["servers"][name] = {
+                "connected": False,
+                "transport": config.transport if config else None,
+                "tool_count": 0,
+                "tools": [],
+                "action_set": config.resolved_action_set_name if config else None,
+                "error": error,
             }
 
         return status
@@ -368,9 +463,14 @@ class MCPClient:
 
         This method:
         1. Reloads the config file from disk
-        2. Disconnects servers that are no longer enabled or removed
-        3. Connects new servers that are now enabled
-        4. Re-registers all tools as actions
+        2. Disconnects servers that were removed or disabled
+        3. Reconnects only servers whose connection settings changed
+        4. Keeps a running server on its last good settings when its entry
+           became invalid, and reports the error
+        5. Connects servers that are new, or that failed before
+        6. Re-registers all tools as actions
+
+        Servers whose settings did not change are left connected.
 
         Args:
             config_path: Path to the configuration file. If None, uses the
@@ -379,11 +479,14 @@ class MCPClient:
         Returns:
             Dictionary with reload results including connected/disconnected servers
         """
-        result = {
+        result: Dict[str, Any] = {
             "success": True,
             "disconnected": [],
+            "reconnected": [],
             "connected": [],
             "failed": [],
+            "kept": [],
+            "invalid": [],
             "total_tools": 0,
             "message": "",
         }
@@ -391,63 +494,113 @@ class MCPClient:
         # Use provided path, stored path, or default
         config_path = Path(config_path) if config_path else DEFAULT_CONFIG_PATH
 
-        # Reload configuration
-        try:
-            new_config = MCPConfig.load(config_path)
-            logger.info(
-                f"[MCP] Reloaded config with {len(new_config.mcp_servers)} server(s)"
-            )
-        except Exception as e:
-            logger.error(f"[MCP] Failed to reload config: {e}")
-            result["success"] = False
-            result["message"] = f"Failed to reload config: {e}"
-            return result
-
-        # Get list of currently enabled servers from new config
-        enabled_server_names = {s.name for s in new_config.get_enabled_servers()}
-        current_server_names = set(self._servers.keys())
-
-        # Disconnect servers that are no longer enabled or removed
-        servers_to_disconnect = current_server_names - enabled_server_names
-        for server_name in servers_to_disconnect:
+        async with self._lock():
+            # Reload configuration
             try:
-                await self.disconnect_server(server_name)
-                result["disconnected"].append(server_name)
+                new_config = MCPConfig.load(config_path)
                 logger.info(
-                    f"[MCP] Disconnected server '{server_name}' (no longer enabled)"
+                    f"[MCP] Reloaded config with {len(new_config.mcp_servers)} server(s)"
                 )
             except Exception as e:
-                logger.warning(f"[MCP] Error disconnecting '{server_name}': {e}")
+                logger.error(f"[MCP] Failed to reload config: {e}")
+                result["success"] = False
+                result["message"] = f"Failed to reload config: {e}"
+                return result
 
-        # Update config before connecting new servers
-        self._config = new_config
+            enabled: Dict[str, MCPServerConfig] = {
+                s.name: s for s in new_config.get_enabled_servers()
+            }
+            invalid = {e.name: e.error for e in new_config.invalid_servers if e.name}
+            result["invalid"] = [
+                {"name": name, "error": error} for name, error in invalid.items()
+            ]
 
-        # Connect new servers that are now enabled
-        servers_to_connect = enabled_server_names - current_server_names
-        for server_name in servers_to_connect:
-            try:
-                success = await self.connect_server(server_name)
-                if success:
-                    result["connected"].append(server_name)
-                    logger.info(f"[MCP] Connected new server '{server_name}'")
+            to_disconnect: List[str] = []
+            to_reconnect: List[str] = []
+            for name, connection in self._servers.items():
+                new = enabled.get(name)
+                if new is not None:
+                    if (
+                        new.connection_fingerprint()
+                        != connection.config.connection_fingerprint()
+                        # A connection that died (e.g. its session could not
+                        # be renewed) is retried even if nothing changed.
+                        or not connection.is_connected
+                    ):
+                        to_reconnect.append(name)
+                    else:
+                        # Same connection; pick up description/action set.
+                        connection.config = new
+                elif name in invalid and new_config.get_server_by_name(name) is None:
+                    # The edit broke the entry: keep serving the last good one.
+                    result["kept"].append(name)
+                    logger.warning(
+                        f"[MCP] Keeping '{name}' connected on its previous settings: "
+                        f"{invalid[name]}"
+                    )
                 else:
-                    result["failed"].append(server_name)
-            except Exception as e:
-                logger.error(f"[MCP] Failed to connect '{server_name}': {e}")
-                result["failed"].append(server_name)
+                    to_disconnect.append(name)
 
-        # Re-register all tools as actions
-        result["total_tools"] = self.register_tools_as_actions()
+            # Update config before connecting new servers
+            self._config = new_config
+            # Errors are kept only for servers that are still enabled.
+            self._last_errors = {
+                n: e for n, e in self._last_errors.items() if n in enabled
+            }
+
+            for name in to_disconnect + to_reconnect:
+                try:
+                    await self.disconnect_server(name)
+                    if name in to_disconnect:
+                        result["disconnected"].append(name)
+                        logger.info(
+                            f"[MCP] Disconnected server '{name}' (no longer enabled)"
+                        )
+                except Exception as e:
+                    logger.warning(
+                        f"[MCP] Error disconnecting '{name}': {type(e).__name__}"
+                    )
+
+            to_connect = to_reconnect + [
+                name
+                for name in enabled
+                if name not in self._servers and name not in to_reconnect
+            ]
+            outcomes = await self._connect_many(to_connect)
+            for name, ok in outcomes.items():
+                if not ok:
+                    result["failed"].append(name)
+                elif name in to_reconnect:
+                    result["reconnected"].append(name)
+                else:
+                    result["connected"].append(name)
+                    logger.info(f"[MCP] Connected new server '{name}'")
+
+            # Re-register all tools as actions
+            result["total_tools"] = self.register_tools_as_actions()
 
         result["message"] = (
             f"Reload complete. Connected: {len(result['connected'])}, "
+            f"Reconnected: {len(result['reconnected'])}, "
             f"Disconnected: {len(result['disconnected'])}, "
             f"Failed: {len(result['failed'])}, "
+            f"Kept on previous settings: {len(result['kept'])}, "
             f"Total tools: {result['total_tools']}"
         )
 
         logger.info(f"[MCP] {result['message']}")
         return result
+
+
+def _describe(server: MCPServerConfig) -> str:
+    """How a server is reached, for logs. Never includes env or header
+    values; URLs lose their user info and query."""
+    from agent_core.core.impl.mcp.config import redact_url
+
+    if server.transport == "stdio":
+        return f"{server.command} {server.args}"
+    headers = f", headers: {sorted(server.headers)}" if server.headers else ""
+    return f"{redact_url(server.url)}{headers}"
 
 
 # Global singleton instance

@@ -2209,6 +2209,19 @@ input[type="time"].plannerInput {
   line-height: 1.4;
 }
 
+/* MCP server editor: one header / env entry per row (name, value, remove). */
+.mcpKvRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) auto;
+  gap: var(--space-2);
+  align-items: center;
+  margin-bottom: var(--space-2);
+}
+
+.mcpKvRow > span {
+  grid-column: 1 / -1;
+}
+
 .mcpItemActions {
   display: flex;
   align-items: center;

@@ -13,6 +13,10 @@ from app.ui_layer.settings.mcp_settings import (
     disable_mcp_server,
     get_server_env_vars,
     update_mcp_server_env,
+    get_server_env_status,
+    save_mcp_server,
+    set_mcp_server_header,
+    describe_server,
 )
 
 from app.ui_layer.settings.skill_settings import (
@@ -153,6 +157,10 @@ __all__ = [
     "disable_mcp_server",
     "get_server_env_vars",
     "update_mcp_server_env",
+    "get_server_env_status",
+    "save_mcp_server",
+    "set_mcp_server_header",
+    "describe_server",
     # Skill settings
     "list_skills",
     "get_skill_info",

@@ -6,10 +6,13 @@ Manages connections to individual MCP servers with support for multiple transpor
 - stdio: Subprocess-based communication
 - sse: HTTP Server-Sent Events
 - websocket: WebSocket bidirectional communication
+- http: Streamable HTTP (one endpoint, POST + JSON or SSE responses)
 """
 
 import asyncio
+import json
 import os
+import re
 import shutil
 import sys
 from abc import ABC, abstractmethod
@@ -19,7 +22,7 @@ from urllib.parse import urljoin, urlparse
 
 from agent_core.utils.logger import logger
 from agent_core.utils.windows_process import hidden_console_kwargs
-from agent_core.core.impl.mcp.config import MCPServerConfig
+from agent_core.core.impl.mcp.config import MCPConfigError, MCPServerConfig, redact_url
 
 # Default client info - can be overridden
 DEFAULT_CLIENT_NAME = "Agent"
@@ -113,6 +116,10 @@ class MCPTool:
 
 class MCPTransport(ABC):
     """Abstract base class for MCP transports."""
+
+    # Why the last connect() failed, when the transport can say so safely
+    # (no header or env values). None means "see the log".
+    last_error: Optional[str] = None
 
     @abstractmethod
     async def connect(self) -> bool:
@@ -581,7 +588,7 @@ class SSETransport(MCPTransport):
         data_lines: List[str] = []
         try:
             async with self._client.stream("GET", self.url) as response:
-                async for line in response.aiter_lines():
+                async for line in _sse_lines(response.aiter_bytes()):
                     if line:
                         field_name, _, value = line.partition(":")
                         value = value[1:] if value.startswith(" ") else value
@@ -828,6 +835,660 @@ class WebSocketTransport(MCPTransport):
             logger.warning(f"Failed to send WebSocket notification: {e}")
 
 
+class _HTTPTransportError(Exception):
+    """A Streamable HTTP failure whose message is safe to log and show: it
+    never contains header values, and URLs in it are redacted."""
+
+
+class _SessionExpired(_HTTPTransportError):
+    """HTTP 404 on a request that carried a session id: the session ended."""
+
+
+def _clean_server_text(text: Any, limit: int = 300) -> str:
+    """Server-supplied text for a log line or error: printable, bounded."""
+    text = "".join(c if c.isprintable() else " " for c in str(text))
+    return text if len(text) <= limit else text[: limit - 3] + "..."
+
+
+_SSE_LINE_END_RE = re.compile(rb"\r\n|\r|\n")
+_MAX_SSE_LINE_BYTES = 16 * 1024 * 1024
+
+
+async def _sse_lines(chunks, max_line_bytes: int = _MAX_SSE_LINE_BYTES):
+    """The lines of an SSE byte stream, split on CR, LF or CRLF only, as SSE
+    requires. (httpx's ``aiter_lines`` also splits on U+2028, U+0085 and the
+    other ``str.splitlines`` separators, which servers send unescaped inside
+    JSON data.) A line longer than ``max_line_bytes`` raises as soon as it
+    passes the limit, so it is never held in memory in full."""
+    buffer = bytearray()
+    skip_lf = False  # the previous chunk ended in CR: a leading LF ends nothing
+    async for chunk in chunks:
+        if not chunk:
+            continue
+        start = 0
+        if skip_lf:
+            skip_lf = False
+            if chunk[:1] == b"\n":
+                start = 1
+        for match in _SSE_LINE_END_RE.finditer(chunk, start):
+            buffer += chunk[start : match.start()]
+            if len(buffer) > max_line_bytes:
+                raise _HTTPTransportError(
+                    "stream event exceeds the 16 MB message limit"
+                )
+            if match.group() == b"\r" and match.end() == len(chunk):
+                skip_lf = True
+            # Splitting bytes on CR/LF never cuts a UTF-8 sequence.
+            yield buffer.decode("utf-8", errors="replace")
+            buffer = bytearray()
+            start = match.end()
+        buffer += chunk[start:]
+        if len(buffer) > max_line_bytes:
+            raise _HTTPTransportError("stream event exceeds the 16 MB message limit")
+    if buffer:
+        yield buffer.decode("utf-8", errors="replace")
+
+
+class StreamableHTTPTransport(MCPTransport):
+    """Streamable HTTP transport (MCP 2025-03-26 and later).
+
+    Every client message is a POST to one endpoint. A request is answered
+    either with one JSON body or with an SSE stream that may carry server
+    requests and notifications before the response; notifications and
+    responses are accepted with 202. The server may issue an
+    ``Mcp-Session-Id`` on the initialize response; it is sent back on every
+    later request, together with ``MCP-Protocol-Version``.
+
+    Each instance owns one ``httpx.AsyncClient`` with this server's headers
+    only. Redirects are never followed, so configured credentials cannot be
+    sent to another URL. Requests run concurrently (no transport lock);
+    each is bounded by ``timeout`` from start to response.
+
+    Not implemented (optional in the spec): the standalone GET stream for
+    unsolicited server messages, and sampling/elicitation/roots, which this
+    client does not advertise. A server request on a response stream is
+    answered (``ping``) or refused with "method not found".
+    """
+
+    # Requested in initialize; the server may answer with any version below.
+    PROTOCOL_VERSION = "2025-11-25"
+    SUPPORTED_PROTOCOL_VERSIONS = ("2025-03-26", "2025-06-18", "2025-11-25")
+    MAX_MESSAGE_BYTES = 16 * 1024 * 1024
+    MAX_ERROR_BODY_BYTES = 64 * 1024
+    # Streams a 2025-11-25 server closes before answering are resumed with
+    # GET + Last-Event-ID this many times, within the request deadline.
+    MAX_RESUME_ATTEMPTS = 2
+    DEFAULT_RETRY_MS = 1000
+    MAX_RETRY_MS = 5000
+    DELETE_TIMEOUT = 5.0
+    # How long to keep reading a stream after its response (see _drain).
+    DRAIN_TIMEOUT = 1.0
+
+    def __init__(
+        self,
+        url: str,
+        headers: Optional[Dict[str, str]] = None,
+        timeout: float = 30.0,
+        server_name: str = "",
+        *,
+        _http_transport: Any = None,
+    ):
+        self.url = url
+        self.timeout = float(timeout)
+        self.server_name = server_name or redact_url(url)
+        # Copied: this transport never shares a header dict with another.
+        self._headers: Dict[str, str] = dict(headers or {})
+        self._http_transport = _http_transport  # test seam (httpx.MockTransport)
+        self._client: Any = None  # httpx.AsyncClient while connected
+        self._connected = False
+        self._session_id: Optional[str] = None
+        self._protocol_version: Optional[str] = None
+        self._renew_lock = asyncio.Lock()
+        self._request_id = 0
+        self.server_info: Dict[str, Any] = {}
+        self.last_error: Optional[str] = None
+
+    @property
+    def is_connected(self) -> bool:
+        return self._connected and self._client is not None
+
+    @property
+    def session_id(self) -> Optional[str]:
+        return self._session_id
+
+    @property
+    def protocol_version(self) -> Optional[str]:
+        return self._protocol_version
+
+    def _log_prefix(self) -> str:
+        return f"[MCP:{self.server_name}]"
+
+    # ─────────────────────── Lifecycle ──────────────────────────────────────
+
+    async def connect(self) -> bool:
+        """Run the initialize handshake. False (with ``last_error`` set) when
+        the server cannot be reached, rejects the client, or negotiates a
+        protocol version this client does not speak."""
+        import httpx
+
+        self.last_error = None
+        self._client = httpx.AsyncClient(
+            timeout=httpx.Timeout(self.timeout),
+            follow_redirects=False,
+            transport=self._http_transport,
+        )
+        try:
+            await asyncio.wait_for(self._initialize(), timeout=self.timeout)
+        except asyncio.CancelledError:
+            await self._close(send_delete=False)
+            raise
+        except asyncio.TimeoutError:
+            self.last_error = f"initialize timed out after {self.timeout:g}s"
+        except _HTTPTransportError as e:
+            self.last_error = str(e)
+        except Exception as e:  # noqa: BLE001 — reported, never swallowed
+            self.last_error = f"initialize failed: {type(e).__name__}"
+        else:
+            self._connected = True
+            logger.info(
+                f"{self._log_prefix()} Connected to {redact_url(self.url)} "
+                f"(protocol {self._protocol_version}"
+                f"{', session' if self._session_id else ''})"
+            )
+            return True
+        logger.error(f"{self._log_prefix()} {self.last_error}")
+        await self._close(send_delete=True)
+        return False
+
+    async def _initialize(self) -> None:
+        response = await self._exchange(
+            "initialize",
+            {
+                "protocolVersion": self.PROTOCOL_VERSION,
+                "capabilities": {},
+                "clientInfo": get_client_info(),
+            },
+            initializing=True,
+        )
+        if "error" in response:
+            raise _HTTPTransportError(
+                f"initialize rejected: {self._error_text(response['error'])}"
+            )
+        result = response.get("result")
+        if not isinstance(result, dict):
+            raise _HTTPTransportError("initialize returned no result")
+        version = result.get("protocolVersion")
+        if version not in self.SUPPORTED_PROTOCOL_VERSIONS:
+            raise _HTTPTransportError(
+                f"server negotiated protocol version {_clean_server_text(version, 40)!r}, "
+                f"supported: {', '.join(self.SUPPORTED_PROTOCOL_VERSIONS)}"
+            )
+        self._protocol_version = version
+        info = result.get("serverInfo")
+        self.server_info = info if isinstance(info, dict) else {}
+        await self._post({"jsonrpc": "2.0", "method": "notifications/initialized"})
+
+    async def disconnect(self) -> None:
+        """End the session (DELETE, best effort) and close the client."""
+        await self._close(send_delete=True)
+
+    async def _close(self, *, send_delete: bool) -> None:
+        self._connected = False
+        client, self._client = self._client, None
+        session_id, self._session_id = self._session_id, None
+        if client is None:
+            return
+        try:
+            if send_delete and session_id:
+                headers = {**self._headers, "Mcp-Session-Id": session_id}
+                if self._protocol_version:
+                    headers["MCP-Protocol-Version"] = self._protocol_version
+                try:
+                    response = await asyncio.wait_for(
+                        client.delete(self.url, headers=headers),
+                        timeout=min(self.DELETE_TIMEOUT, self.timeout),
+                    )
+                    if response.status_code not in (200, 202, 204, 404, 405):
+                        logger.debug(
+                            f"{self._log_prefix()} Session DELETE returned "
+                            f"HTTP {response.status_code}"
+                        )
+                except Exception as e:  # noqa: BLE001 — best effort
+                    logger.debug(
+                        f"{self._log_prefix()} Session DELETE failed: {type(e).__name__}"
+                    )
+        finally:
+            await client.aclose()
+
+    # ─────────────────────── Requests ───────────────────────────────────────
+
+    async def send_request(
+        self, method: str, params: Optional[Dict] = None
+    ) -> Dict[str, Any]:
+        """Send a JSON-RPC request; returns the response, or an error dict."""
+        if not self.is_connected:
+            return {"error": {"code": -1, "message": "Not connected"}}
+        try:
+            return await asyncio.wait_for(
+                self._exchange_renewing(method, params), timeout=self.timeout
+            )
+        except asyncio.TimeoutError:
+            message = f"'{method}' timed out after {self.timeout:g}s"
+        except _HTTPTransportError as e:
+            message = str(e)
+        except Exception as e:  # noqa: BLE001 — reported to the caller
+            message = f"'{method}' failed: {type(e).__name__}"
+        logger.warning(f"{self._log_prefix()} {message}")
+        return {"error": {"code": -1, "message": message}}
+
+    async def _exchange_renewing(
+        self, method: str, params: Optional[Dict]
+    ) -> Dict[str, Any]:
+        """``_exchange``, and if the server says the session ended (404 with
+        a session id) start a new session and retry once, as the spec
+        requires. The server rejected the original request without running
+        it, so the retry cannot run it twice."""
+        expired = self._session_id
+        try:
+            return await self._exchange(method, params)
+        except _SessionExpired:
+            pass
+        try:
+            await self._renew_session(expired)
+        except _HTTPTransportError as e:
+            self._connected = False
+            raise _HTTPTransportError(
+                f"the server ended the MCP session and a new one could not be started: {e}"
+            ) from None
+        return await self._exchange(method, params)
+
+    async def _renew_session(self, expired: Optional[str]) -> None:
+        """Run a fresh initialize, once for all requests that saw ``expired``
+        end (concurrent requests share one renewal)."""
+        async with self._renew_lock:
+            if self._session_id != expired:
+                return  # another request already renewed it
+            logger.info(f"{self._log_prefix()} Session ended; starting a new one")
+            # The old id stays in place until the new initialize replaces it:
+            # requests running meanwhile keep a session header, get their own
+            # 404, and then wait here for this renewal.
+            await self._initialize()
+
+    async def _exchange(
+        self, method: str, params: Optional[Dict], *, initializing: bool = False
+    ) -> Dict[str, Any]:
+        self._request_id += 1
+        request: Dict[str, Any] = {
+            "jsonrpc": "2.0",
+            "id": self._request_id,
+            "method": method,
+        }
+        if params is not None:
+            request["params"] = params
+        response = await self._post(request, initializing=initializing)
+        if response is None:
+            raise _HTTPTransportError(f"server answered '{method}' with no response")
+        return response
+
+    def _request_headers(
+        self, *, accept: str, with_session: bool = True
+    ) -> Dict[str, str]:
+        headers = dict(self._headers)
+        headers["Accept"] = accept
+        # initialize never carries a session or version: it starts a session.
+        if with_session and self._session_id:
+            headers["Mcp-Session-Id"] = self._session_id
+        if with_session and self._protocol_version:
+            headers["MCP-Protocol-Version"] = self._protocol_version
+        return headers
+
+    async def _post(
+        self, message: Dict[str, Any], *, initializing: bool = False
+    ) -> Optional[Dict[str, Any]]:
+        """POST one message. For a request, returns its response; for a
+        notification or response, returns None once the server accepted it."""
+        import httpx
+
+        if self._client is None:
+            raise _HTTPTransportError("not connected")
+        is_request = "method" in message and "id" in message
+        # The session this very request carries: a 404 means *that* session
+        # ended, whatever another request has done to the shared state since.
+        sent_session = None if initializing else self._session_id
+        headers = self._request_headers(
+            accept="application/json, text/event-stream",
+            with_session=not initializing,
+        )
+        headers["Content-Type"] = "application/json"
+        body = json.dumps(message).encode("utf-8")
+        try:
+            async with self._client.stream(
+                "POST", self.url, content=body, headers=headers
+            ) as response:
+                if initializing:
+                    self._capture_session_id(response)
+                return await self._handle_post_response(
+                    response, message, is_request, sent_session
+                )
+        except _HTTPTransportError:
+            raise
+        except httpx.TimeoutException:
+            raise _HTTPTransportError(
+                f"timed out after {self.timeout:g}s waiting for {redact_url(self.url)}"
+            ) from None
+        except httpx.ConnectError:
+            raise _HTTPTransportError(
+                f"could not connect to {redact_url(self.url)}"
+            ) from None
+        except (httpx.RemoteProtocolError, httpx.ReadError, httpx.WriteError):
+            raise _HTTPTransportError(
+                f"connection to {redact_url(self.url)} was interrupted"
+            ) from None
+        except httpx.HTTPError as e:
+            raise _HTTPTransportError(
+                f"HTTP error talking to {redact_url(self.url)}: {type(e).__name__}"
+            ) from None
+
+    def _capture_session_id(self, response) -> None:
+        session_id = response.headers.get("mcp-session-id")
+        if session_id is None:
+            # A successful initialize without an id starts a session without
+            # one (e.g. the server restarted stateless): stop sending the old.
+            if 200 <= response.status_code < 300:
+                self._session_id = None
+            return
+        if not session_id or any(not 0x21 <= ord(c) <= 0x7E for c in session_id):
+            raise _HTTPTransportError(
+                "server sent an invalid Mcp-Session-Id (visible ASCII only)"
+            )
+        self._session_id = session_id
+
+    async def _handle_post_response(
+        self,
+        response,
+        message: Dict[str, Any],
+        is_request: bool,
+        sent_session: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        status = response.status_code
+        method = message.get("method", "response")
+        if 300 <= status < 400:
+            location = response.headers.get("location", "")
+            raise _HTTPTransportError(
+                f"server redirected to {redact_url(location) or 'another URL'} "
+                f"(HTTP {status}); redirects are not followed so headers are not "
+                "sent elsewhere; configure the final URL if you trust it"
+            )
+        if status >= 400:
+            await self._raise_for_status(response, message, is_request, sent_session)
+        if not is_request:
+            return None  # 202 (or any 2xx) for a notification/response
+        if status == 202:
+            raise _HTTPTransportError(
+                f"server accepted '{method}' but sent no response"
+            )
+        content_type = response.headers.get("content-type", "").lower()
+        if content_type.startswith("application/json"):
+            return self._match_response(await self._read_json(response), message)
+        if content_type.startswith("text/event-stream"):
+            return await self._read_event_stream(response, message)
+        raise _HTTPTransportError(
+            f"unexpected Content-Type {_clean_server_text(content_type, 60)!r} "
+            f"for '{method}'"
+        )
+
+    async def _raise_for_status(
+        self,
+        response,
+        message: Dict[str, Any],
+        is_request: bool,
+        sent_session: Optional[str] = None,
+    ) -> None:
+        status = response.status_code
+        method = message.get("method", "response")
+        detail = ""
+        body = await self._read_limited(response, self.MAX_ERROR_BODY_BYTES)
+        if body and "json" in response.headers.get("content-type", "").lower():
+            try:
+                parsed = json.loads(body)
+            except ValueError:
+                parsed = None
+            # A JSON-RPC error carried by an HTTP error status.
+            if (
+                is_request
+                and isinstance(parsed, dict)
+                and isinstance(parsed.get("error"), dict)
+            ):
+                detail = self._error_text(parsed["error"])
+        if status in (401, 403):
+            raise _HTTPTransportError(
+                f"'{method}' was refused with HTTP {status} (authentication "
+                "failed or not permitted); check this server's headers"
+                + (f": {detail}" if detail else "")
+            )
+        if status == 404 and sent_session:
+            # The session ended on the server; send_request starts a new one.
+            raise _SessionExpired("the server ended the MCP session (HTTP 404)")
+        raise _HTTPTransportError(
+            f"'{method}' failed with HTTP {status}" + (f": {detail}" if detail else "")
+        )
+
+    async def _read_limited(self, response, limit: int) -> Optional[bytes]:
+        """The body, or None if it is longer than ``limit`` (reading stops
+        there, so an oversized body is never held in memory)."""
+        chunks: List[bytes] = []
+        size = 0
+        body = response.aiter_bytes()
+        async for chunk in body:
+            size += len(chunk)
+            if size > limit:
+                await self._drain(body)
+                return None
+            chunks.append(chunk)
+        return b"".join(chunks)
+
+    async def _drain(self, iterator) -> None:
+        """Read an httpx stream iterator to its end, discarding the data,
+        for at most DRAIN_TIMEOUT seconds.
+
+        Stopping half way leaves httpx's chain of async generators (lines →
+        text → bytes → httpcore's connection stream) suspended; the garbage
+        collector then finalises httpcore's generator in another task, which
+        it rejects ("exit cancel scope in a different task"). Reading to the
+        end — or being cancelled at a socket read by the timeout — unwinds the
+        whole chain here instead. Servers close a response stream after the
+        response, so this normally returns at once."""
+
+        async def exhaust() -> None:
+            async for _ in iterator:
+                pass
+
+        try:
+            await asyncio.wait_for(exhaust(), timeout=self.DRAIN_TIMEOUT)
+        except asyncio.TimeoutError:
+            logger.debug(
+                f"{self._log_prefix()} Server kept a response stream open; closing it"
+            )
+        except Exception:  # noqa: BLE001 — the stream is being discarded
+            pass
+
+    async def _read_json(self, response) -> Any:
+        body = await self._read_limited(response, self.MAX_MESSAGE_BYTES)
+        if body is None:
+            raise _HTTPTransportError("response exceeds the 16 MB message limit")
+        try:
+            return json.loads(body)
+        except ValueError:
+            raise _HTTPTransportError("server sent malformed JSON") from None
+
+    def _match_response(self, payload: Any, request: Dict[str, Any]) -> Dict[str, Any]:
+        if not isinstance(payload, dict) or (
+            "result" not in payload and "error" not in payload
+        ):
+            raise _HTTPTransportError(
+                f"server sent a non-response body for '{request['method']}'"
+            )
+        if payload.get("id") != request["id"]:
+            if "error" in payload and payload.get("id") is None:
+                return {**payload, "id": request["id"]}
+            raise _HTTPTransportError(
+                f"server answered '{request['method']}' with the wrong id"
+            )
+        return payload
+
+    @staticmethod
+    def _error_text(error: Any) -> str:
+        if isinstance(error, dict):
+            message = error.get("message", "")
+            code = error.get("code")
+            text = _clean_server_text(message) or "error"
+            return f"{text} (code {code})" if code is not None else text
+        return _clean_server_text(error)
+
+    # ─────────────────────── SSE response streams ───────────────────────────
+
+    async def _read_event_stream(
+        self, response, request: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Read SSE events until this request's response. A stream that ends
+        early after carrying an event id is resumed with GET + Last-Event-ID
+        (2025-11-25 servers may close it on purpose), up to
+        MAX_RESUME_ATTEMPTS times."""
+        outcome = await self._consume_events(response, request)
+        attempts = 0
+        while outcome.response is None:
+            if outcome.last_event_id is None or attempts >= self.MAX_RESUME_ATTEMPTS:
+                raise _HTTPTransportError(
+                    f"the response stream for '{request['method']}' ended "
+                    "before the response arrived"
+                )
+            attempts += 1
+            retry_ms = outcome.retry_ms or self.DEFAULT_RETRY_MS
+            await asyncio.sleep(min(retry_ms, self.MAX_RETRY_MS) / 1000)
+            stream = await self._resume(outcome.last_event_id)
+            try:
+                content_type = stream.headers.get("content-type", "").lower()
+                if stream.status_code >= 400 or not content_type.startswith(
+                    "text/event-stream"
+                ):
+                    raise _HTTPTransportError(
+                        f"could not resume the stream for '{request['method']}' "
+                        f"(HTTP {stream.status_code})"
+                    )
+                resumed = await self._consume_events(stream, request)
+            finally:
+                await stream.aclose()
+            resumed.last_event_id = resumed.last_event_id or outcome.last_event_id
+            if resumed.retry_ms is None:
+                resumed.retry_ms = outcome.retry_ms
+            outcome = resumed
+        return outcome.response
+
+    async def _resume(self, last_event_id: str):
+        headers = self._request_headers(accept="text/event-stream")
+        headers["Last-Event-ID"] = last_event_id
+        request = self._client.build_request("GET", self.url, headers=headers)
+        return await self._client.send(request, stream=True)
+
+    async def _consume_events(
+        self, stream, request: Dict[str, Any]
+    ) -> "_StreamOutcome":
+        outcome = _StreamOutcome()
+        chunks = stream.aiter_bytes()
+        lines = _sse_lines(chunks, self.MAX_MESSAGE_BYTES)
+        messages = self._sse_messages(lines, outcome)
+        cancelled = False
+        try:
+            async for message in messages:
+                if "method" in message:
+                    if "id" in message:
+                        await self._answer_server_request(message)
+                    continue  # notification
+                if message.get("id") == request["id"] and (
+                    "result" in message or "error" in message
+                ):
+                    outcome.response = message
+                    break
+        except asyncio.CancelledError:
+            cancelled = True
+            raise
+        finally:
+            # Our parser and line splitter: no I/O, they close at their yield.
+            await messages.aclose()
+            await lines.aclose()
+            # Whatever ended the loop (the response, an oversized line or
+            # event), read on to the end of this same stream instead of
+            # abandoning httpx's generator mid-iteration (see _drain). A
+            # finished stream makes this a no-op; a cancellation already
+            # unwound it.
+            if not cancelled:
+                await self._drain(chunks)
+        return outcome
+
+    async def _sse_messages(self, lines, outcome: "_StreamOutcome"):
+        """JSON-RPC objects from an SSE line stream; records event ids and
+        retry hints on ``outcome`` for resumption."""
+        event = "message"
+        data: List[str] = []
+        size = 0
+        async for line in lines:
+            if line:
+                if line.startswith(":"):
+                    continue
+                field_name, _, value = line.partition(":")
+                value = value[1:] if value.startswith(" ") else value
+                if field_name == "event":
+                    event = value or "message"
+                elif field_name == "data":
+                    size += len(value)
+                    if size > self.MAX_MESSAGE_BYTES:
+                        raise _HTTPTransportError(
+                            "stream event exceeds the 16 MB message limit"
+                        )
+                    data.append(value)
+                elif field_name == "id":
+                    if "\x00" not in value:
+                        outcome.last_event_id = value
+                elif field_name == "retry" and value.isdigit():
+                    outcome.retry_ms = int(value)
+                continue
+            payload, kind, data, size, event = "\n".join(data), event, [], 0, "message"
+            if kind != "message" or not payload.strip():
+                continue
+            try:
+                message = json.loads(payload)
+            except ValueError:
+                logger.debug(f"{self._log_prefix()} Ignoring malformed stream event")
+                continue
+            if isinstance(message, dict):
+                yield message
+
+    async def _answer_server_request(self, message: Dict[str, Any]) -> None:
+        if message.get("method") == "ping":
+            reply: Dict[str, Any] = {
+                "jsonrpc": "2.0",
+                "id": message["id"],
+                "result": {},
+            }
+        else:
+            reply = {
+                "jsonrpc": "2.0",
+                "id": message["id"],
+                "error": {"code": -32601, "message": "Method not found"},
+            }
+        try:
+            await self._post(reply)
+        except _HTTPTransportError as e:
+            logger.debug(f"{self._log_prefix()} Could not answer server request: {e}")
+
+
+@dataclass
+class _StreamOutcome:
+    response: Optional[Dict[str, Any]] = None
+    last_event_id: Optional[str] = None
+    retry_ms: Optional[int] = None
+
+
 class MCPServerConnection:
     """
     Manages connection to a single MCP server.
@@ -835,10 +1496,15 @@ class MCPServerConnection:
     Handles transport selection, connection lifecycle, tool discovery, and tool execution.
     """
 
+    # tools/list pages followed via nextCursor before giving up.
+    MAX_TOOL_PAGES = 50
+
     def __init__(self, config: MCPServerConfig):
         self.config = config
         self._transport: Optional[MCPTransport] = None
         self._tools: List[MCPTool] = []
+        # Why the last connect() failed; safe to show (no credentials).
+        self.last_error: Optional[str] = None
 
     @property
     def is_connected(self) -> bool:
@@ -869,6 +1535,15 @@ class MCPServerConnection:
                 url=self.config.url,
                 env=self.config.env,
             )
+        elif self.config.transport == "http":
+            # Resolved per connect from this server's env; raises
+            # MCPConfigError naming any missing variable.
+            return StreamableHTTPTransport(
+                url=self.config.url or "",
+                headers=self.config.resolve_headers(),
+                timeout=self.config.effective_timeout,
+                server_name=self.config.name,
+            )
         else:
             raise ValueError(f"Unknown transport: {self.config.transport}")
 
@@ -883,15 +1558,22 @@ class MCPServerConnection:
             logger.warning(f"Server '{self.config.name}' is already connected")
             return True
 
+        self.last_error = None
         try:
             # Create and connect transport
             logger.debug(
                 f"[MCPServer:{self.config.name}] Creating {self.config.transport} transport..."
             )
-            self._transport = self._create_transport()
+            try:
+                self._transport = self._create_transport()
+            except MCPConfigError as e:
+                self.last_error = str(e)
+                logger.error(f"[MCPServer:{self.config.name}] {self.last_error}")
+                return False
 
             logger.debug(f"[MCPServer:{self.config.name}] Connecting transport...")
             if not await self._transport.connect():
+                self.last_error = self._transport.last_error or "connection failed"
                 logger.error(
                     f"[MCPServer:{self.config.name}] Transport connection failed"
                 )
@@ -915,10 +1597,15 @@ class MCPServerConnection:
 
             return True
 
+        except asyncio.CancelledError:
+            # Never leave a half-open transport (or a spawned process) behind.
+            await self.disconnect()
+            raise
         except Exception as e:
             logger.error(
                 f"[MCPServer:{self.config.name}] Failed to connect: {type(e).__name__}: {e}"
             )
+            self.last_error = f"connect failed: {type(e).__name__}"
             await self.disconnect()
             return False
 
@@ -943,25 +1630,46 @@ class MCPServerConnection:
             )
             return
 
-        response = await self._transport.send_request("tools/list", {})
+        tools_data: List[Dict[str, Any]] = []
+        cursor: Optional[str] = None
+        for _ in range(self.MAX_TOOL_PAGES):
+            params: Dict[str, Any] = {"cursor": cursor} if cursor else {}
+            response = await self._transport.send_request("tools/list", params)
 
-        if "error" in response:
-            error_info = response.get("error", {})
-            if isinstance(error_info, dict):
-                error_msg = error_info.get("message", str(error_info))
-            else:
-                error_msg = str(error_info)
+            if "error" in response:
+                error_info = response.get("error", {})
+                if isinstance(error_info, dict):
+                    error_msg = error_info.get("message", str(error_info))
+                else:
+                    error_msg = str(error_info)
+                logger.warning(
+                    f"[MCPServer:{self.config.name}] Failed to list tools: {error_msg}"
+                )
+                if not tools_data:
+                    return
+                break
+
+            result = response.get("result", {}) or {}
+            page = result.get("tools", [])
+            if isinstance(page, list):
+                tools_data.extend(t for t in page if isinstance(t, dict))
+            next_cursor = result.get("nextCursor")
+            if (
+                not isinstance(next_cursor, str)
+                or not next_cursor
+                or next_cursor == cursor
+            ):
+                break
+            cursor = next_cursor
+        else:
             logger.warning(
-                f"[MCPServer:{self.config.name}] Failed to list tools: {error_msg}"
+                f"[MCPServer:{self.config.name}] Stopped listing tools after "
+                f"{self.MAX_TOOL_PAGES} pages"
             )
-            return
-
-        result = response.get("result", {})
-        tools_data = result.get("tools", [])
 
         if not tools_data:
             logger.debug(
-                f"[MCPServer:{self.config.name}] Server returned empty tools list. Response: {response}"
+                f"[MCPServer:{self.config.name}] Server returned empty tools list."
             )
 
         self._tools = [MCPTool.from_dict(t) for t in tools_data]

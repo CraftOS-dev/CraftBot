@@ -22,6 +22,7 @@ class _MockSSEServer:
         self.announce = announce  # data of the `endpoint` event; None = send none
         self.data_first = False  # emit `data:` before `event:` in the announcement
         self.posts = []  # (path, method name)
+        self.result_text = None  # tools/call answers with this text
         self._queue: asyncio.Queue = asyncio.Queue()
 
     async def _sse(self, request):
@@ -36,9 +37,9 @@ class _MockSSEServer:
                 msg = await self._queue.get()
                 if msg is None:  # stop() sentinel: end the stream
                     break
-                await resp.write(
-                    f"event: message\ndata: {json.dumps(msg)}\n\n".encode()
-                )
+                # Unescaped non-ASCII, as the official SDKs write it.
+                data = json.dumps(msg, ensure_ascii=False)
+                await resp.write(f"event: message\ndata: {data}\n\n".encode())
         except (asyncio.CancelledError, ConnectionResetError):
             pass
         return resp
@@ -47,8 +48,11 @@ class _MockSSEServer:
         body = await request.json()
         self.posts.append((request.path, body.get("method")))
         if "id" in body:
+            result = INIT_RESULT
+            if body.get("method") == "tools/call" and self.result_text is not None:
+                result = {"content": [{"type": "text", "text": self.result_text}]}
             await self._queue.put(
-                {"jsonrpc": "2.0", "id": body["id"], "result": INIT_RESULT}
+                {"jsonrpc": "2.0", "id": body["id"], "result": result}
             )
         return web.Response(status=202)
 
@@ -148,3 +152,26 @@ def test_origin_ignores_default_port_and_hostname_case():
     assert origin("http://example.com/sse") == origin("http://example.com:80/m/")
     assert origin("https://example.com/sse") != origin("https://example.com:8443/m/")
     assert origin("https://example.com/sse") != origin("http://example.com/m/")
+
+
+def test_a_result_with_unicode_line_separators_is_received_whole():
+    # Only CR and LF end an SSE line; servers write U+2028 and U+0085
+    # unescaped inside a data: line.
+    text = "scraped\u2028web\u2029text\u0085end"
+    server = _MockSSEServer("/messages/", announce="/messages/?session_id=abc")
+    server.result_text = text
+
+    async def run():
+        url = await server.start()
+        transport = SSETransport(url, {})
+        try:
+            assert await transport.connect()
+            return await asyncio.wait_for(
+                transport.send_request("tools/call", {"name": "x"}), timeout=10
+            )
+        finally:
+            await transport.disconnect()
+            await server.stop()
+
+    result = asyncio.run(run())
+    assert result["result"]["content"][0]["text"] == text

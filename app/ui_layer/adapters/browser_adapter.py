@@ -104,8 +104,9 @@ from app.ui_layer.settings import (
     remove_mcp_server,
     enable_mcp_server,
     disable_mcp_server,
-    get_server_env_vars,
+    get_server_env_status,
     update_mcp_server_env,
+    save_mcp_server,
     # Skill settings
     list_skills,
     get_skill_info,
@@ -2109,6 +2110,11 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             env_key = data.get("key", "")
             env_value = data.get("value", "")
             await self._handle_mcp_update_env(name, env_key, env_value)
+
+        elif msg_type == "mcp_save_server":
+            await self._handle_mcp_save_server(
+                data.get("server") or {}, bool(data.get("create"))
+            )
 
         # Slash command list (for autocomplete)
         elif msg_type == "command_list":
@@ -6449,9 +6455,27 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
     # ─────────────────────────────────────────────────────────────────────
 
     async def _handle_mcp_list(self) -> None:
-        """Get list of configured MCP servers."""
+        """Get list of configured MCP servers, with their live connection
+        status. Carries no env or header values (see mcp_settings)."""
         try:
             servers = list_mcp_servers()
+            try:
+                from app.mcp import mcp_client
+
+                live = mcp_client.get_status().get("servers", {})
+            except Exception:
+                live = {}
+            for server in servers:
+                state = live.get(server.get("name"))
+                server["status"] = (
+                    {
+                        "connected": bool(state.get("connected")),
+                        "error": state.get("error"),
+                        "tool_count": state.get("tool_count", 0),
+                    }
+                    if state
+                    else None
+                )
             await self._broadcast(
                 {
                     "type": "mcp_list",
@@ -6589,16 +6613,29 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             )
 
     async def _handle_mcp_get_env(self, name: str) -> None:
-        """Get environment variables for an MCP server."""
+        """Which env keys of an MCP server are set. Values are never sent
+        to the browser; the editor is write-only."""
         try:
-            env_vars = get_server_env_vars(name)
+            env_status = get_server_env_status(name)
+            if env_status is None:
+                await self._broadcast(
+                    {
+                        "type": "mcp_get_env",
+                        "data": {
+                            "success": False,
+                            "error": f"Server '{name}' not found",
+                            "name": name,
+                        },
+                    }
+                )
+                return
             await self._broadcast(
                 {
                     "type": "mcp_get_env",
                     "data": {
                         "success": True,
                         "name": name,
-                        "env": env_vars,
+                        "env": env_status,
                     },
                 }
             )
@@ -6646,6 +6683,61 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     },
                 }
             )
+
+    async def _handle_mcp_save_server(self, form: Any, create: bool) -> None:
+        """Add or edit a server from the settings form. Uses the same
+        validation as the JSON file; secrets are write-only (see
+        mcp_settings.save_mcp_server)."""
+        name = form.get("name", "") if isinstance(form, dict) else ""
+        if not isinstance(form, dict):
+            success, message = False, "Invalid server form"
+        else:
+            try:
+                success, message = save_mcp_server(form, create=bool(create))
+            except Exception as e:
+                logger.error(f"[MCP] Saving server '{name}' failed: {type(e).__name__}")
+                success, message = False, "Could not save the server"
+        await self._broadcast(
+            {
+                "type": "mcp_save_server",
+                "data": {"success": success, "message": message, "name": name},
+            }
+        )
+        if success:
+            await self._handle_mcp_list()
+            self._schedule_mcp_refresh()
+
+    def _schedule_mcp_refresh(self) -> None:
+        """Apply a saved change now (instead of waiting for the file watcher)
+        and push the list again once the connection result is known. The
+        watcher's own reload then finds nothing to change."""
+        try:
+            from app.mcp import mcp_client
+        except Exception:
+            return
+        if mcp_client.config is None:
+            return  # MCP is not running in this process
+
+        async def refresh() -> None:
+            try:
+                await mcp_client.reload()
+            except Exception as e:
+                logger.warning(
+                    f"[MCP] Reload after settings change failed: {type(e).__name__}"
+                )
+            await self._handle_mcp_list()
+
+        mcp_loop = mcp_client.event_loop
+        if mcp_loop is not None and mcp_loop is not asyncio.get_running_loop():
+            # MCP connections belong to the client's loop; never touch
+            # them from another one.
+            asyncio.run_coroutine_threadsafe(mcp_client.reload(), mcp_loop)
+            return
+        task = asyncio.create_task(refresh())
+        # Held until done so the task is not garbage collected mid-run.
+        tasks: Set[asyncio.Task] = self.__dict__.setdefault("_mcp_refresh_tasks", set())
+        tasks.add(task)
+        task.add_done_callback(tasks.discard)
 
     # ─────────────────────────────────────────────────────────────────────
     # Skill Settings Handlers

@@ -609,10 +609,11 @@ export interface MCPServerConfig {
   name: string
   description: string
   enabled: boolean
-  transport: 'stdio' | 'sse' | 'websocket'
-  command?: string
-  action_set: string
-  env: Record<string, string>
+  transport: 'stdio' | 'sse' | 'websocket' | 'http'
+  command?: string | null
+  action_set: string | null
+  /** Env key -> whether a value is set (values are never sent). */
+  env: Record<string, boolean>
 }
 
 export interface MCPListResponse {
