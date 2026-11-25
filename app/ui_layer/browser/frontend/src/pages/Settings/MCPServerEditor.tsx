@@ -45,6 +45,19 @@ const row = (name = '', stored = false, uses?: string[]): Row => ({
   uses,
 })
 
+/** The first name used by two rows, or null. */
+const duplicateName = (rows: Row[], caseInsensitive: boolean): string | null => {
+  const seen = new Set<string>()
+  for (const r of rows) {
+    const name = r.name.trim()
+    if (!name) continue
+    const key = caseInsensitive ? name.toLowerCase() : name
+    if (seen.has(key)) return name
+    seen.add(key)
+  }
+  return null
+}
+
 export function MCPServerEditor({ mode, server, onClose }: Props) {
   const { t } = useTranslation(['settings', 'common'])
   const { send, onMessage } = useSettingsWebSocket()
@@ -87,6 +100,7 @@ export function MCPServerEditor({ mode, server, onClose }: Props) {
   }), [onMessage, showToast, onClose, t])
 
   const isUrlTransport = transport !== 'stdio'
+  const keptHeaders = transport !== 'http' ? headers.filter(r => r.stored).length : 0
   const urlKept = mode === 'edit' && isUrlTransport && !url && !!server?.url
 
   const update = (setter: typeof setHeaders, id: number, patch: Partial<Row>) =>
@@ -101,6 +115,13 @@ export function MCPServerEditor({ mode, server, onClose }: Props) {
     }
     if (isUrlTransport && !url.trim() && !urlKept) {
       setError(t('settings:mcp.editor.urlRequired'))
+      return
+    }
+    // A second row for a key would replace the first one's (stored) value.
+    const duplicate =
+      duplicateName(env, false) ?? (transport === 'http' ? duplicateName(headers, true) : null)
+    if (duplicate) {
+      setError(t('settings:mcp.editor.duplicate', { name: duplicate }))
       return
     }
     const form: Record<string, unknown> = {
@@ -295,6 +316,12 @@ export function MCPServerEditor({ mode, server, onClose }: Props) {
                 )}
               </div>
             </>
+          )}
+
+          {keptHeaders > 0 && (
+            <span className={styles.labelHint}>
+              {t('settings:mcp.editor.headersKept', { count: keptHeaders })}
+            </span>
           )}
 
           <div className={styles.formGroup}>

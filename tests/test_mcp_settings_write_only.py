@@ -236,3 +236,88 @@ def test_stdio_arguments_are_never_listed_and_kept_on_edit(config_path):
         {"name": "local", "args": ["--port", "1"]}, create=False
     )[0]
     assert read(config_path)["mcp_servers"][0]["args"] == ["--port", "1"]
+
+
+# ── Review fixes (#542) ──
+
+
+def test_the_form_never_replaces_an_unreadable_config(config_path):
+    broken = '{"mcp_servers": [%s,]}' % json.dumps(stitch())
+    config_path.write_text(broken, encoding="utf-8")
+    ok, message = mcp_settings.save_mcp_server(
+        {"name": "new", "transport": "http", "url": "https://h/mcp", "env": []},
+        create=True,
+    )
+    assert ok is False and "nothing was saved" in message
+    assert SECRET not in message
+    assert config_path.read_text(encoding="utf-8") == broken
+
+
+def test_a_duplicate_env_key_is_refused_and_the_stored_value_kept(config_path):
+    write(config_path, [stitch()])
+    ok, message = mcp_settings.save_mcp_server(
+        {
+            "name": "stitch",
+            "transport": "http",
+            "env": [
+                {"key": "STITCH_KEY", "value": None},
+                {"key": "STITCH_KEY", "value": ""},
+            ],
+        },
+        create=False,
+    )
+    assert ok is False and "listed twice" in message
+    assert read(config_path)["mcp_servers"][0]["env"]["STITCH_KEY"] == SECRET
+
+
+def test_a_header_listed_twice_in_any_case_is_refused(config_path):
+    write(config_path, [stitch()])
+    ok, message = mcp_settings.save_mcp_server(
+        {
+            "name": "stitch",
+            "transport": "http",
+            "headers": [
+                {"name": "X-Literal", "value": None},
+                {"name": "x-literal", "value": "other"},
+            ],
+        },
+        create=False,
+    )
+    assert ok is False and "listed twice" in message
+    assert read(config_path)["mcp_servers"][0]["headers"]["X-Literal"] == SECRET
+
+
+def test_switching_away_from_http_keeps_the_saved_headers(config_path):
+    write(config_path, [stitch()])
+    ok, _ = mcp_settings.save_mcp_server(
+        {
+            "name": "stitch",
+            "transport": "sse",
+            "url": None,
+            "env": [{"key": "STITCH_KEY", "value": None}],
+        },
+        create=False,
+    )
+    assert ok
+    saved = read(config_path)["mcp_servers"][0]
+    assert saved["transport"] == "sse"
+    assert saved["headers"] == stitch()["headers"]  # kept, not applied
+    (listed,) = mcp_settings.list_mcp_servers()
+    assert [h["name"] for h in listed["headers"]] == ["X-Api-Key", "X-Literal"]
+    assert SECRET not in json.dumps(listed)
+    # Switching back with the rows left as they are restores them.
+    ok, _ = mcp_settings.save_mcp_server(
+        {
+            "name": "stitch",
+            "transport": "http",
+            "url": None,
+            "headers": [
+                {"name": "X-Api-Key", "value": None},
+                {"name": "X-Literal", "value": None},
+            ],
+            "env": [{"key": "STITCH_KEY", "value": None}],
+        },
+        create=False,
+    )
+    assert ok
+    assert read(config_path)["mcp_servers"][0]["headers"] == stitch()["headers"]

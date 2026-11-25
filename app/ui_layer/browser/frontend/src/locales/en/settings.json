@@ -591,7 +591,9 @@
       "envValue": "Value",
       "addEnv": "Add variable",
       "keepValue": "Saved; leave empty to keep",
-      "uses": "Uses {{keys}}"
+      "uses": "Uses {{keys}}",
+      "duplicate": "\"{{name}}\" is listed twice; remove one of the rows",
+      "headersKept": "{{count}} saved HTTP headers are kept, but only sent with Streamable HTTP"
     }
   },
   "integrations": {

@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from app.config import APP_CONFIG_PATH
 from app.logger import logger
 from app.mcp import MCPConfig, MCPServerConfig
-from agent_core.core.impl.mcp.config import MCPConfigError, redact_url
+from agent_core.core.impl.mcp.config import ENV_REF_RE, MCPConfigError, redact_url
 
 # Default MCP config path
 MCP_CONFIG_PATH = APP_CONFIG_PATH / "mcp_config.json"
@@ -97,6 +97,19 @@ def _missing_config(server: MCPServerConfig) -> List[str]:
     return missing
 
 
+def _stored_headers(server: MCPServerConfig) -> Dict[str, str]:
+    """The headers saved for a server. On a non-http server they are kept
+    aside, unused, and apply again if it is switched back to http."""
+    if server.transport == "http":
+        return server.headers
+    kept = server.extra.get("headers")
+    if isinstance(kept, dict) and all(
+        isinstance(k, str) and isinstance(v, str) for k, v in kept.items()
+    ):
+        return kept
+    return {}
+
+
 def describe_server(server: MCPServerConfig) -> Dict[str, Any]:
     """A server as the UI and /mcp see it: no env or header values."""
     platform_blocked = not _path_usable_on_current_platform(
@@ -124,13 +137,11 @@ def describe_server(server: MCPServerConfig) -> Dict[str, Any]:
         "action_set": server.resolved_action_set_name,
         # Key -> whether a value is set (values are never sent).
         "env": _env_status(server.env),
-        # Header names and the env keys each references; no values.
+        # Header names and the env keys each references; no values. For a
+        # non-http server these are the saved, currently unused headers.
         "headers": [
-            {
-                "name": name,
-                "uses": [r for r in server.header_env_refs() if f"${{{r}}}" in value],
-            }
-            for name, value in server.headers.items()
+            {"name": name, "uses": list(dict.fromkeys(ENV_REF_RE.findall(value)))}
+            for name, value in _stored_headers(server).items()
         ],
         "missing_env": missing,
         "needs_config": bool(missing),
@@ -310,7 +321,9 @@ def save_mcp_server(form: Dict[str, Any], *, create: bool) -> Tuple[bool, str]:
     name = form.get("name")
     if not isinstance(name, str) or not name.strip():
         return False, "Server name is required"
-    config = load_mcp_config()
+    config, load_error = _load_for_update()
+    if config is None:
+        return False, load_error
     existing = config.get_server_by_name(name)
     if create and (existing or config.get_invalid_entries(name)):
         return False, f"Server '{name}' already exists"
@@ -335,7 +348,7 @@ def save_mcp_server(form: Dict[str, Any], *, create: bool) -> Tuple[bool, str]:
     if form.get("args") is not None:  # None keeps the stored arguments
         data["args"] = list(form["args"])
 
-    old_headers = existing.headers if existing else {}
+    old_headers = _stored_headers(existing) if existing else {}
     old_env = existing.env if existing else {}
     try:
         if "headers" in form:
@@ -346,8 +359,8 @@ def save_mcp_server(form: Dict[str, Any], *, create: bool) -> Tuple[bool, str]:
             data["env"] = _merge_write_only(form["env"], old_env, "key", "env key")
     except MCPConfigError as e:
         return False, str(e)
-    if data.get("transport") not in ("http", "streamable_http", "streamable-http"):
-        data.pop("headers", None)
+    # Saved headers stay when the transport changes away from http: the
+    # config keeps them aside, unused, until it is switched back.
 
     server, error = _build_server(data)
     if server is None:
@@ -373,12 +386,19 @@ def _merge_write_only(
         raise MCPConfigError(f"'{label}s' must be a list")
     lookup = {(k.lower() if case_insensitive else k): v for k, v in old.items()}
     merged: Dict[str, str] = {}
+    seen = set()
     for item in items:
         if not isinstance(item, dict) or not isinstance(item.get(key_field), str):
             raise MCPConfigError(f"Each {label} needs a {key_field}")
         key = item[key_field].strip()
         if not key:
             raise MCPConfigError(f"A {label} name cannot be empty")
+        # A second row for the same key would silently replace the first
+        # (e.g. an empty new TOKEN row overwriting the stored TOKEN).
+        folded = key.lower() if case_insensitive else key
+        if folded in seen:
+            raise MCPConfigError(f"{label.capitalize()} '{key}' is listed twice")
+        seen.add(folded)
         value = item.get("value")
         if value is None:
             lookup_key = key.lower() if case_insensitive else key
