@@ -49,6 +49,27 @@ def load_mcp_config() -> MCPConfig:
         return MCPConfig()
 
 
+def _load_for_update() -> Tuple[Optional[MCPConfig], str]:
+    """The config to change and save back, or why it cannot be changed.
+
+    ``load_mcp_config`` falls back to an empty config when the file cannot
+    be read; saving that would replace every server in the file (and its
+    credentials) with just the change. So a file that exists but cannot be
+    read is never written: the user is told to fix it first."""
+    try:
+        return MCPConfig.load(MCP_CONFIG_PATH), ""
+    except Exception as e:  # noqa: BLE001 - reported; nothing is saved
+        logger.error(f"Failed to load MCP config: {e}")
+        if isinstance(e, json.JSONDecodeError):
+            reason = f"invalid JSON at line {e.lineno}, column {e.colno}"
+        else:
+            reason = type(e).__name__
+        return None, (
+            f"Could not read {MCP_CONFIG_PATH.name} ({reason}). Fix the file "
+            "first; nothing was saved."
+        )
+
+
 def save_mcp_config(config: MCPConfig) -> bool:
     """Save MCP configuration to file."""
     try:
@@ -210,7 +231,9 @@ def add_mcp_server(
 
 
 def _add_entry(data: Dict[str, Any]) -> Tuple[bool, str]:
-    config = load_mcp_config()
+    config, error = _load_for_update()
+    if config is None:
+        return False, error
     name = data.get("name")
     if isinstance(name, str) and (
         config.get_server_by_name(name) or config.get_invalid_entries(name)
@@ -330,6 +353,12 @@ def set_mcp_server_header(
     server = config.get_server_by_name(name)
     if not server:
         return False, f"Server '{name}' not found"
+    if server.transport != "http":
+        return (
+            False,
+            f"Server '{name}' uses {server.transport}: headers are only "
+            "supported by the http transport",
+        )
     headers = {k: v for k, v in server.headers.items() if k.lower() != header.lower()}
     if value is not None:
         headers[header] = value

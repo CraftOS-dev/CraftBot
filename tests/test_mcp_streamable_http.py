@@ -24,6 +24,8 @@ from agent_core.core.impl.mcp.config import MCPServerConfig
 from agent_core.core.impl.mcp.server import (
     MCPServerConnection,
     StreamableHTTPTransport,
+    _HTTPTransportError,
+    _sse_lines,
 )
 from tests.mcp_http_mock import serve
 
@@ -737,3 +739,150 @@ def test_connection_reports_the_transport_failure_reason():
     assert "HTTP 401" in connection.last_error
     assert SECRET not in connection.last_error
     assert not connection.is_connected
+
+
+# ── SSE framing: CR/LF/CRLF only, bounded lines ──
+
+
+async def _chunks(*parts: bytes):
+    for part in parts:
+        yield part
+
+
+def _lines(chunks, limit: int = 1024) -> List[str]:
+    async def collect():
+        return [line async for line in _sse_lines(chunks, limit)]
+
+    return run(collect())
+
+
+def test_sse_lines_split_only_on_cr_lf_and_crlf():
+    # str.splitlines() would also split on every one of these.
+    text = "a\u2028b\u2029c\u0085d\x0be\x0cf\x1cg\x1dh\x1ei"
+    lines = _lines(_chunks(f"data: {text}\r\n".encode(), b"x\ry\n", b"\n"))
+    assert lines == [f"data: {text}", "x", "y", ""]
+
+
+def test_sse_lines_handle_line_ends_and_characters_split_across_chunks():
+    lines = _lines(
+        _chunks(b"one\r", b"\ntwo\r", b"three\n", b"\xe2\x80", b"\xa8four\n", b"tail")
+    )
+    assert lines == ["one", "two", "three", "\u2028four", "tail"]
+
+
+def test_sse_lines_refuse_an_endless_line_without_buffering_it():
+    pulled = 0
+
+    async def endless():
+        nonlocal pulled
+        while True:
+            pulled += 1
+            yield b"x" * 1000
+
+    with pytest.raises(_HTTPTransportError, match="16 MB message limit"):
+        _lines(endless(), limit=10_000)
+    assert pulled <= 11  # stopped just past the limit, not at the end
+
+
+def test_a_result_with_unicode_line_separators_survives_an_sse_response():
+    text = "scraped\u2028web\u2029text\u0085end"
+
+    def handler(request):
+        body = json.loads(request.content) if request.content else {}
+        response = {
+            "jsonrpc": "2.0",
+            "id": body.get("id"),
+            "result": {"content": [{"type": "text", "text": text}]},
+        }
+        event = (
+            "event: message\ndata: " + json.dumps(response, ensure_ascii=False) + "\n\n"
+        )
+        return init_ok(request) or httpx.Response(
+            200, headers={"content-type": "text/event-stream"}, content=event.encode()
+        )
+
+    async def scenario():
+        transport = mock_transport(handler)
+        assert await transport.connect()
+        result = await transport.send_request("tools/call", {"name": "x"})
+        await transport.disconnect()
+        return result
+
+    assert run(scenario())["result"]["content"][0]["text"] == text
+
+
+def test_an_sse_line_that_never_ends_is_refused_at_the_message_limit(monkeypatch):
+    monkeypatch.setattr(StreamableHTTPTransport, "MAX_MESSAGE_BYTES", 4096)
+
+    async def body():
+        yield b"event: message\ndata: "
+        for _ in range(64):
+            yield b"a" * 1024
+
+    def handler(request):
+        return init_ok(request) or httpx.Response(
+            200, headers={"content-type": "text/event-stream"}, content=body()
+        )
+
+    async def scenario():
+        transport = mock_transport(handler)
+        assert await transport.connect()
+        result = await transport.send_request("tools/list", {})
+        await transport.disconnect()
+        return result
+
+    assert "16 MB message limit" in run(scenario())["error"]["message"]
+
+
+# ── Session renewal: a new session without an id ──
+
+
+def test_a_renewed_session_without_an_id_stops_sending_the_old_one():
+    # The server restarts stateless: the old session gets 404, the new
+    # initialize returns no Mcp-Session-Id, so nothing may carry the old id.
+    seen = []
+    state = {"inits": 0, "restarted": False}
+
+    def handler(request):
+        body = json.loads(request.content) if request.content else {}
+        method = body.get("method", request.method)
+        sid = request.headers.get("mcp-session-id")
+        seen.append((method, sid))
+        if request.method == "DELETE":
+            return httpx.Response(405)
+        if method == "initialize":
+            state["inits"] += 1
+            headers = {"mcp-session-id": "s1"} if state["inits"] == 1 else {}
+            return httpx.Response(
+                200,
+                headers=headers,
+                json={
+                    "jsonrpc": "2.0",
+                    "id": body["id"],
+                    "result": {"protocolVersion": "2025-06-18", "capabilities": {}},
+                },
+            )
+        if state["restarted"] and sid == "s1":
+            return httpx.Response(404)
+        if "id" not in body:
+            return httpx.Response(202)
+        return httpx.Response(
+            200, json={"jsonrpc": "2.0", "id": body["id"], "result": {"tools": []}}
+        )
+
+    async def scenario():
+        transport = mock_transport(handler)
+        assert await transport.connect()
+        assert transport.session_id == "s1"
+        state["restarted"] = True
+        first = await transport.send_request("tools/list", {})
+        second = await transport.send_request("tools/list", {})
+        status = (transport.session_id, transport.is_connected)
+        await transport.disconnect()
+        return first, second, status
+
+    first, second, (session_id, connected) = run(scenario())
+    assert "result" in first and "result" in second
+    assert session_id is None and connected
+    renewal = seen.index(("initialize", None), 1)
+    assert all(sid is None for _, sid in seen[renewal:])

@@ -183,16 +183,85 @@ def test_header_errors_never_echo_the_value():
     assert SECRET not in str(excinfo.value)
 
 
-def test_headers_are_only_accepted_on_the_http_transport():
-    with pytest.raises(MCPConfigError, match="only supported by the http"):
-        MCPServerConfig.from_dict(
+@pytest.mark.parametrize(
+    "entry, kept",
+    [
+        (
             {
-                "name": "s",
+                "name": "a",
+                "transport": "stdio",
+                "command": "npx",
+                "args": ["x"],
+                "timeout": 60000,
+            },
+            {"timeout": 60000},
+        ),
+        (
+            {
+                "name": "b",
                 "transport": "sse",
-                "url": "http://h/sse",
-                "headers": {"A": "b"},
-            }
-        )
+                "url": "https://h/sse",
+                "headers": {"Authorization": "Bearer t"},
+            },
+            {"headers": {"Authorization": "Bearer t"}},
+        ),
+        (
+            {
+                "name": "c",
+                "transport": "websocket",
+                "url": "wss://h/ws",
+                "headers": {"bad name": "x"},
+                "timeout": "soon",
+            },
+            {"headers": {"bad name": "x"}, "timeout": "soon"},
+        ),
+    ],
+)
+def test_http_only_keys_on_other_transports_still_load_and_are_ignored(entry, kept):
+    # Earlier versions ignored these keys outside http, so such entries must
+    # keep loading after an upgrade: not applied, not validated, kept as-is.
+    config = MCPConfig.from_dict({"mcp_servers": [entry]})
+    assert config.invalid_servers == []
+    (server,) = config.mcp_servers
+    assert server.headers == {} and server.timeout is None
+    saved = server.to_dict()
+    for key, value in kept.items():
+        assert saved[key] == value
+
+
+def test_http_only_keys_kept_on_sse_apply_again_after_switching_to_http():
+    entry = {
+        "name": "b",
+        "transport": "sse",
+        "url": "https://h/mcp",
+        "headers": {"Authorization": "Bearer t"},
+        "timeout": 45,
+    }
+    saved = MCPServerConfig.from_dict(entry).to_dict()
+    switched = MCPServerConfig.from_dict({**saved, "transport": "http"})
+    assert switched.headers == {"Authorization": "Bearer t"}
+    assert switched.timeout == 45
+
+
+def test_ignoring_http_only_keys_warns_once_without_header_values():
+    from loguru import logger
+
+    entry = {
+        "name": "warned-once",
+        "transport": "sse",
+        "url": "https://h/sse",
+        "headers": {"Authorization": f"Bearer {SECRET}"},
+    }
+    lines = []
+    sink = logger.add(lambda m: lines.append(str(m)), level="WARNING")
+    try:
+        MCPServerConfig.from_dict(entry)
+        MCPServerConfig.from_dict(entry)  # a reload: no second warning
+    finally:
+        logger.remove(sink)
+    warnings = [line for line in lines if "only apply to the http transport" in line]
+    assert len(warnings) == 1
+    assert SECRET not in "".join(lines)
 
 
 def test_a_tab_is_allowed_in_a_header_value():

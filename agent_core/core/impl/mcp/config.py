@@ -190,6 +190,11 @@ def _validate_url(server: str, transport: str, url: Any) -> None:
         raise MCPConfigError(f"Server '{server}': 'url' must not have a #fragment")
 
 
+# (server, transport, keys) already warned about: the config is re-read on
+# every reload and settings refresh, and one warning per entry is enough.
+_WARNED_IGNORED_KEYS: set = set()
+
+
 def _validate_timeout(server: str, timeout: Any) -> Optional[float]:
     if timeout is None:
         return None
@@ -253,12 +258,33 @@ class MCPServerConfig:
         if not isinstance(self.env, dict):
             raise MCPConfigError(f"Server '{self.name}': 'env' must be an object")
 
+        if transport != "http":
+            self._set_aside_http_only_fields(transport)
         self.headers = _validate_headers(self.name, self.headers)
-        if self.headers and transport != "http":
-            raise MCPConfigError(
-                f"Server '{self.name}': 'headers' are only supported by the http transport"
-            )
         self.timeout = _validate_timeout(self.name, self.timeout)
+
+    def _set_aside_http_only_fields(self, transport: str) -> None:
+        """``headers`` and ``timeout`` only apply to http. Earlier versions
+        ignored them on the other transports, so an entry that has them
+        still loads: they are not applied, but kept unchanged (written back
+        on save, and used again if the entry is switched to http)."""
+        ignored: Dict[str, Any] = {}
+        if self.headers:
+            ignored["headers"] = self.headers
+        if self.timeout is not None:
+            ignored["timeout"] = self.timeout
+        self.headers = {}
+        self.timeout = None
+        if not ignored:
+            return
+        self.extra = {**self.extra, **ignored}
+        warned = (self.name, transport, tuple(ignored))
+        if warned not in _WARNED_IGNORED_KEYS:
+            _WARNED_IGNORED_KEYS.add(warned)
+            logger.warning(
+                f"MCP server '{self.name}': {' and '.join(ignored)} only apply "
+                f"to the http transport; ignored for {transport}"
+            )
 
     @property
     def resolved_action_set_name(self) -> str:
