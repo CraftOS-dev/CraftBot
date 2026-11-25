@@ -389,6 +389,10 @@ def _write_memory_file(header: str, items_content: str) -> bool:
     try:
         full_content = header + "\n\n" + items_content + "\n"
         memory_path.write_text(full_content, encoding="utf-8")
+        from app.security.memory_guard import record_owner_write
+
+        # An item edit: the user did not see the whole file.
+        record_owner_write(memory_path, whole_file=False)
         return True
     except Exception:
         return False
@@ -584,6 +588,9 @@ def reset_memory() -> Dict[str, Any]:
 
         # Copy template to target
         shutil.copy(template_path, target_path)
+        from app.security.memory_guard import record_owner_write
+
+        record_owner_write(target_path, whole_file=True)
 
         # Read restored content
         content = target_path.read_text(encoding="utf-8")

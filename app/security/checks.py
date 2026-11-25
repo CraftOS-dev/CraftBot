@@ -198,6 +198,29 @@ def _check_mcp_pins() -> CheckResult:
     )
 
 
+def _check_memory_files() -> CheckResult:
+    from app.security import memory_guard
+    from app.security.policy import get_policy
+
+    if not get_policy().guard_memory:
+        return CheckResult(
+            "memory_files_trusted", "info", "Memory files aren't guarded", "",
+        )
+    untrusted = memory_guard.untrusted_files()
+    if not untrusted:
+        return CheckResult(
+            "memory_files_trusted", "ok", "Memory files are trusted", "",
+        )
+    names = ", ".join(entry["name"] for entry in untrusted)
+    return CheckResult(
+        "memory_files_trusted",
+        "warn",
+        "Memory files changed from outside content",
+        f"Kept out of the prompt: {names}. Review them in Settings > Memory, then Fix.",
+        fix_id="memory_files_trusted",
+    )
+
+
 def runtime_secret_files() -> List[Path]:
     """Files CraftBot writes at run time that must stay private: the session
     token files, the audit log and the MCP trust ledger."""
@@ -313,6 +336,7 @@ CHECKS: List[Callable[[], CheckResult]] = [
     _check_auto_mode,
     _check_mcp_changes,
     _check_mcp_pins,
+    _check_memory_files,
     _check_runtime_files,
     _check_prompt_logging,
     _check_web_guard,
@@ -350,6 +374,12 @@ def _fix_mcp_changes() -> int:
     return mcp_trust.trust_current()
 
 
+def _fix_memory_files() -> int:
+    from app.security import memory_guard
+
+    return sum(1 for entry in memory_guard.untrusted_files() if memory_guard.trust(entry["name"]))
+
+
 def _fix_runtime_files() -> int:
     return sum(1 for p in runtime_secret_files() if restrict_to_owner(p))
 
@@ -358,6 +388,7 @@ FIXES: Dict[str, Callable[[], int]] = {
     "runtime_files_private": _fix_runtime_files,
     "secret_files_private": _fix_secret_files,
     "mcp_servers_unchanged": _fix_mcp_changes,
+    "memory_files_trusted": _fix_memory_files,
 }
 
 

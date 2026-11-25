@@ -2610,6 +2610,8 @@ class AgentBase:
                 return
             entries = [{"label": "user message", "content": msg, "display": msg}]
 
+        from app.security import memory_guard
+
         for entry in entries:
             content = (entry.get("content") or "").strip()
             if not content:
@@ -2621,6 +2623,9 @@ class AgentBase:
                 display_message=entry.get("display") or content,
                 platform=payload.get("platform") or None,
                 task_id=session_id,
+                # Settings > Security > Guard memory files: a third party's
+                # message stays out of what memory is distilled from.
+                to_memory=memory_guard.admits_user_message(entry),
             )
 
         try:
@@ -2725,6 +2730,11 @@ class AgentBase:
                 queued_entry["platform"] = platform
                 queued_entry["contact_name"] = payload.get("contact_name", "")
                 queued_entry["message_body"] = payload.get("message_body", "")
+                # The owner rule of RunRegistry.turn_started.
+                queued_entry["third_party"] = not (
+                    payload.get("is_self_message")
+                    or payload.get("owner_authenticated") is True
+                )
             trigger_payload = {
                 "platform": platform,
                 "user_message": stream_content,

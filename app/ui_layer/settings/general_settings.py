@@ -252,6 +252,9 @@ def write_agent_file(filename: str, content: str) -> Dict[str, Any]:
         file_path.parent.mkdir(parents=True, exist_ok=True)
 
         file_path.write_text(content, encoding="utf-8")
+        from app.security.memory_guard import record_owner_write
+
+        record_owner_write(file_path, whole_file=True)
         return {"success": True}
     except Exception as e:
         return {"success": False, "error": f"Failed to write {filename}: {str(e)}"}
@@ -288,6 +291,9 @@ def restore_agent_file(filename: str) -> Dict[str, Any]:
 
         # Copy template to target
         shutil.copy(template_path, target_path)
+        from app.security.memory_guard import record_owner_write
+
+        record_owner_write(target_path, whole_file=True)
 
         # Read and return the restored content
         content = target_path.read_text(encoding="utf-8")

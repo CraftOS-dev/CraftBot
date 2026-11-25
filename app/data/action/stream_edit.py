@@ -279,8 +279,11 @@ def stream_edit_action(input_data: dict) -> dict:
             # to a CRLF file stays CRLF instead of being converted to LF.
             if uses_crlf:
                 new_content = new_content.replace("\n", "\r\n")
-            with open(file_path, "w", encoding="utf-8", newline="") as f:
-                f.write(new_content)
+            from app.security import memory_guard
+
+            with memory_guard.tracking(file_path):
+                with open(file_path, "w", encoding="utf-8", newline="") as f:
+                    f.write(new_content)
 
             return {
                 "status": "success",

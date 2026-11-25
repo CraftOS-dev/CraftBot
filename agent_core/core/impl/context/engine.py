@@ -35,6 +35,16 @@ from agent_core.core.state import get_state, get_session_or_none
 from agent_core.utils.logger import logger
 
 
+def _memory_file_excluded(name: str) -> bool:
+    """Whether the host's memory guard keeps this file out of the prompt
+    (app/security/memory_guard.py; off unless the user turned it on)."""
+    try:
+        from app.security.memory_guard import is_excluded
+    except ImportError:
+        return False
+    return is_excluded(name)
+
+
 class EventStreamContext:
     """The event-stream half of a context engine: renders a session's stream
     for a prompt and tracks how far its LLM session history has been sent.
@@ -442,6 +452,8 @@ class ContextEngine(EventStreamContext):
 
             user_md_path = AGENT_FILE_SYSTEM_PATH / "USER.md"
 
+            if _memory_file_excluded("USER.md"):
+                return ""
             if user_md_path.exists():
                 content = user_md_path.read_text(encoding="utf-8").strip()
                 if content:
@@ -458,6 +470,8 @@ class ContextEngine(EventStreamContext):
 
             soul_md_path = AGENT_FILE_SYSTEM_PATH / "SOUL.md"
 
+            if _memory_file_excluded("SOUL.md"):
+                return ""
             if soul_md_path.exists():
                 content = soul_md_path.read_text(encoding="utf-8").strip()
                 if content:

@@ -110,9 +110,12 @@ def write_file(input_data: dict) -> dict:
             if parent_dir:
                 os.makedirs(parent_dir, exist_ok=True)
 
+            from app.security import memory_guard
+
             file_mode = "w" if write_mode == "overwrite" else "a"
-            with open(file_path, file_mode, encoding=encoding) as f:
-                bytes_written = f.write(content)
+            with memory_guard.tracking(file_path):
+                with open(file_path, file_mode, encoding=encoding) as f:
+                    bytes_written = f.write(content)
 
             return {
                 "status": "success",

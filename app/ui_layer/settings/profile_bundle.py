@@ -525,6 +525,11 @@ def _apply_md_files(src_profile: Path, mode: str) -> List[str]:
                 if tmpl.is_file():
                     shutil.copy2(tmpl, target)
                     applied.append(fname)
+            if fname in applied:
+                from app.security.memory_guard import record_owner_write
+
+                # The user chose to import this profile over the file.
+                record_owner_write(target, whole_file=True)
         except OSError as exc:
             logger.error(f"[PROFILE_BUNDLE] Failed to apply {fname}: {exc}")
     return applied

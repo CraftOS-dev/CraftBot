@@ -8339,6 +8339,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             target.parent.mkdir(parents=True, exist_ok=True)
 
             target.write_text(content, encoding="utf-8")
+            from app.security.memory_guard import record_owner_write
+
+            # The file editor shows and saves the whole file.
+            record_owner_write(target, whole_file=True)
 
             file_info = self._get_file_info(target)
 
