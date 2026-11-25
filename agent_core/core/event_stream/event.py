@@ -169,6 +169,14 @@ class Event:
             kept tail. None for every other event.
         skill_name: For SKILL_INSTRUCTIONS and SKILL_UNLOADED events only:
             the skill they concern. None for every other event.
+        externalized: Set when ``message`` is a pointer to content saved to a
+            file because it was too long to keep in the stream, or when the
+            event is one part of such content read back. Shape:
+            ``{"content": "user_message" | "output", "path": str,
+            "chars": int, "sha256": str}`` on a pointer (a user-message
+            pointer also gets ``"retrieved": True`` once its text is read
+            back), ``{"part_of": str, "part": int, "parts": int}`` on a part.
+            None for every other event.
     """
 
     message: str
@@ -188,6 +196,7 @@ class Event:
     ui_artifact: Optional[Dict[str, Any]] = None
     schema_actions: Optional[List[str]] = None
     skill_name: Optional[str] = None
+    externalized: Optional[Dict[str, Any]] = None
 
     def display_text(self) -> Optional[str]:
         """
@@ -224,6 +233,7 @@ class Event:
             "ui_artifact": self.ui_artifact,
             "schema_actions": self.schema_actions,
             "skill_name": self.skill_name,
+            "externalized": self.externalized,
         }
 
     @classmethod
@@ -267,6 +277,7 @@ class Event:
             ui_artifact=data.get("ui_artifact"),
             schema_actions=data.get("schema_actions"),
             skill_name=data.get("skill_name"),
+            externalized=data.get("externalized"),
         )
 
     @property
