@@ -46,6 +46,7 @@ KEY = "sk-proj-" + "Zx9Yw8Vu7Ts6Rq5Po4Nm3Lk2Ji1Hg0Fe"
     description="Test-only: returns a page from outside.",
     effects=[],
     result_source="network",
+    icon="Globe",
     input_schema={},
     output_schema={},
 )
