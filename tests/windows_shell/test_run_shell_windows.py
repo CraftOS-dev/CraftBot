@@ -151,6 +151,11 @@ class WindowsShellTests(unittest.TestCase):
         )
         modules.start()
         self.addCleanup(modules.stop)
+        # Import app.security afresh under the stub: an earlier test may have
+        # loaded the real package, whose cached submodules would otherwise
+        # differ from the ones the action imports. Restored with the patch.
+        for name in [m for m in sys.modules if m.startswith("app.")]:
+            del sys.modules[name]
         # Default security settings and audit log in a temporary folder.
         from app.security import audit, policy
 
