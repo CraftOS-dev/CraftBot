@@ -81,6 +81,7 @@ from app.mini_browser import (
     config,
     favicons,
     lifecycle,
+    netguard,
     resume,
     urls,
 )
@@ -402,6 +403,15 @@ class BrowserCore:
         self._pointer_sent: Dict[str, float] = {}
         self._blocked_patterns: List[str] = []
         self._fetch_patterns: List[str] = []
+        # Whether the interception applies Settings > Security > Network
+        # (netguard), as last installed.
+        self._netguard_applied = False
+        # Documents netguard refused, by frame id (a tab's main frame id is
+        # its target id): (url, reason), so a navigation that ends on one can
+        # say why.
+        self._netguard_blocks: "collections.OrderedDict[str, Tuple[str, str]]" = (
+            collections.OrderedDict()
+        )
         self._guard_script_origins: frozenset = frozenset()
         self._state_handle: Optional[asyncio.TimerHandle] = None
         self._last_activity = time.monotonic()
@@ -716,6 +726,7 @@ class BrowserCore:
         context.on("page", _safely(self._on_context_page))
         self._check_abort()
         self._compute_patterns()
+        netguard.watch_policy()
         await self._apply_ui_guard()
         for page in list(context.pages):
             if page not in self._page_tabs and not page.is_closed():
@@ -1831,6 +1842,7 @@ class BrowserCore:
         try:
             if self._is_revoked(owner):
                 return action_error("MINI_BROWSER_STOPPED")
+            await self._sync_netguard()
             if op == "tabs":
                 result, tab = await self._op_tabs(owner, params)
                 if tab is not None and tab.closed:
@@ -3364,6 +3376,8 @@ class BrowserCore:
 
     async def _goto(self, tab: Tab, url: str) -> None:
         """Navigate and wait for the DOM. Raises MiniBrowserError."""
+        await self._sync_netguard()
+        await netguard.ensure_allowed(url)
         try:
             await asyncio.wait_for(
                 tab.page.goto(
@@ -3549,6 +3563,19 @@ class BrowserCore:
             allow_file=self.settings.allow_file_urls,
             ui_origins=self.ui_origins(),
         )
+        if not reason and tab.url != "about:blank" and netguard.active():
+            # Settings > Security > Network: the document was refused before
+            # it was sent (the tab shows the address that failed), or loaded
+            # without the browser-wide check (it is left, as above).
+            checked = tab.url
+            reason = await netguard.check(checked)
+            if (
+                tab.page is not page
+                or self.tabs.get(tab.id) is not tab
+                or self._nav_seq.get(tab.id, 0) != seq
+                or tab.url != checked
+            ):
+                return  # a newer navigation happened meanwhile: its refresh decides
         if reason and tab.url != "about:blank":
             self._report_block(tab, tab.url, reason)
             # Blocked requests never load (an error page shows instead); only a
@@ -3810,20 +3837,40 @@ class BrowserCore:
                     logger.warning(
                         f"[MiniBrowser] Browser-wide UI guard unavailable: {type(exc).__name__}"
                     )
+        guard = netguard.active()
+        self._netguard_applied = guard
         if self._browser_cdp is not None:
-            if self._fetch_patterns:
-                params = {
-                    "patterns": [
-                        {"urlPattern": pattern, "requestStage": "Request"}
-                        for pattern in self._fetch_patterns
-                    ]
-                }
-                done = await self._cdp_send(self._browser_cdp, "Fetch.enable", params)
+            patterns = [
+                {"urlPattern": pattern, "requestStage": "Request"}
+                for pattern in self._fetch_patterns
+            ]
+            if guard:
+                patterns.append(dict(netguard.DOCUMENT_PATTERN))
+            if patterns:
+                done = await self._cdp_send(
+                    self._browser_cdp, "Fetch.enable", {"patterns": patterns}
+                )
             else:
                 done = await self._cdp_send(self._browser_cdp, "Fetch.disable")
             if done is not None:
                 return
+        # Without the browser-wide session, a page that loads in spite of
+        # Settings > Security > Network is still left after it commits
+        # (_refresh_nav), and the agent's own navigations are checked first.
         await self._install_guard_script()
+
+    def take_netguard_block(self, tab: Tab) -> Optional[Tuple[str, str]]:
+        """The (url, reason) of the last document netguard refused in the
+        tab's main frame, once; None if there is none."""
+        if not tab.target_id:
+            return None
+        return self._netguard_blocks.pop(tab.target_id, None)
+
+    async def _sync_netguard(self) -> None:
+        """Start or stop checking documents when the setting changed and the
+        change notice has not arrived yet (one attribute read otherwise)."""
+        if self._netguard_applied != netguard.active() and self._context is not None:
+            await self._apply_ui_guard()
 
     def _on_fetch_paused(self, session: Any, params: Any) -> None:
         self._spawn_safe(self._answer_paused(session, params))
@@ -3832,7 +3879,19 @@ class BrowserCore:
         if not isinstance(params, dict) or not params.get("requestId"):
             return
         url = str((params.get("request") or {}).get("url") or "")
-        if urls.is_ui_origin(url, self.ui_origins()):
+        blocked = urls.is_ui_origin(url, self.ui_origins())
+        if not blocked and params.get("resourceType") == "Document":
+            # Settings > Security > Network (netguard): a document, top-level
+            # or a frame, whoever asked for it; each redirect hop pauses again.
+            reason = await netguard.check(url)
+            blocked = bool(reason)
+            frame = params.get("frameId")
+            if reason and isinstance(frame, str):
+                self._netguard_blocks[frame] = (url, reason)
+                self._netguard_blocks.move_to_end(frame)
+                while len(self._netguard_blocks) > 64:
+                    self._netguard_blocks.popitem(last=False)
+        if blocked:
             await self._cdp_send(
                 session,
                 "Fetch.failRequest",

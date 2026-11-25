@@ -21,7 +21,9 @@ OpenClaw's pinned lookup): the request is sent to that IP while TLS still
 verifies the certificate for the host name, so a name that changes its
 address after the check (DNS rebinding) cannot redirect it. Through a
 configured proxy the proxy connects, so only the checks apply there.
-The guard covers the web tools, not commands the agent runs in a shell.
+The Mini Browser applies the same rules to every page it loads
+(app/mini_browser/netguard.py). The guard covers the web tools and the
+browser, not commands the agent runs in a shell.
 """
 
 from __future__ import annotations
@@ -82,35 +84,94 @@ def check_url(
     return refusal, addresses
 
 
-def _check_url(url: str, policy: SecurityPolicy) -> Tuple[Optional[str], Tuple[str, ...]]:
+def _assess(url: str, policy: SecurityPolicy) -> Tuple[Optional[Tuple[str, str]], Tuple[str, ...]]:
+    """((what is wrong, detail) or None, the checked addresses).
+
+    What is wrong: scheme, host, domain, port, unresolved, empty, address.
+    """
     parts = urlsplit(url)
     if parts.scheme not in ("http", "https"):
-        return f"Only http and https URLs can be fetched, not {parts.scheme or 'this'}.", ()
+        return ("scheme", parts.scheme), ()
     host = parts.hostname
     if not host:
-        return "The URL has no host.", ()
+        return ("host", ""), ()
     if policy.allowed_domains and not _domain_allowed(host, policy.allowed_domains):
-        return (
-            f"{host} is not in the allowed domains (Settings > Security > Network)."
-        ), ()
+        return ("domain", host), ()
     try:
         port = parts.port or (443 if parts.scheme == "https" else 80)
     except ValueError:
-        return "The URL has an invalid port.", ()
+        return ("port", ""), ()
     try:
         addresses = _resolve(host, port)
     except (socket.gaierror, UnicodeError, OSError) as exc:
-        return f"{host} could not be resolved ({exc}); not fetched.", ()
+        return ("unresolved", str(exc)), ()
     if not addresses:
-        return f"{host} has no address; not fetched.", ()
+        return ("empty", ""), ()
     for address in addresses:
-        why = address_refusal(address)
-        if why:
-            return (
-                f"Blocked: {host} resolves to {why}. The agent's web tools only "
-                f"reach the public internet (Settings > Security > Network)."
-            ), ()
+        if address_refusal(address):
+            return ("address", address), ()
     return None, addresses
+
+
+def _check_url(url: str, policy: SecurityPolicy) -> Tuple[Optional[str], Tuple[str, ...]]:
+    problem, addresses = _assess(url, policy)
+    if problem is None:
+        return None, addresses
+    kind, detail = problem
+    host = urlsplit(url).hostname or ""
+    if kind == "scheme":
+        return f"Only http and https URLs can be fetched, not {detail or 'this'}.", ()
+    if kind == "host":
+        return "The URL has no host.", ()
+    if kind == "domain":
+        return (
+            f"{host} is not in the allowed domains (Settings > Security > Network)."
+        ), ()
+    if kind == "port":
+        return "The URL has an invalid port.", ()
+    if kind == "unresolved":
+        return f"{host} could not be resolved ({detail}); not fetched.", ()
+    if kind == "empty":
+        return f"{host} has no address; not fetched.", ()
+    return (
+        f"Blocked: {host} resolves to {address_refusal(detail)}. The agent's web tools only "
+        f"reach the public internet (Settings > Security > Network)."
+    ), ()
+
+
+def navigation_refusal(url: str, policy: Optional[SecurityPolicy] = None) -> Optional[str]:
+    """Why the Mini Browser must not load ``url``, as a short clause, or None.
+
+    The same rules as the web tools, for http and https; other schemes are
+    the browser's own rules (app/mini_browser/urls.py). Does a DNS lookup.
+    """
+    problem, _ = _assess(url, policy or get_policy())
+    if problem is None:
+        return None
+    kind, detail = problem
+    host = urlsplit(url).hostname or ""
+    if kind == "scheme":
+        return None
+    if kind == "host":
+        return "the address has no host"
+    if kind == "port":
+        return "the address has an invalid port"
+    if kind == "domain":
+        return f"{host} is not in the allowed domains (Settings > Security > Network)"
+    if kind in ("unresolved", "empty"):
+        return (
+            f"{host} could not be resolved, and Settings > Security > Network only "
+            f"allows public addresses"
+        )
+    try:
+        ip = ipaddress.ip_address(detail.split("%", 1)[0])
+    except ValueError:
+        ip = None
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+        ip = ip.ipv4_mapped
+    where = "this computer" if ip is not None and ip.is_loopback else "the local network"
+    subject = host if host.strip("[]") == detail else f"{host} ({detail})"
+    return f"{subject} is on {where}, which Settings > Security > Network blocks"
 
 
 def guard_active() -> bool:
