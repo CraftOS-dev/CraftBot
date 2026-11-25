@@ -613,6 +613,36 @@
       },
       "verify_mcp_servers": {
         "label": "Hanya jalankan server MCP yang disimpan di Pengaturan"
+      },
+      "protect_os_credentials": {
+        "label": "Lindungi kredensial sistem"
+      },
+      "guard_memory": {
+        "label": "Jaga berkas memori"
+      },
+      "check_commands": {
+        "label": "Tinjau perintah berisiko"
+      },
+      "check_mcp_packages": {
+        "label": "Periksa paket MCP dari malware"
+      },
+      "scan_skills": {
+        "label": "Pindai keahlian sebelum dipasang"
+      },
+      "verify_downloads": {
+        "label": "Verifikasi unduhan"
+      },
+      "redact_tool_output": {
+        "label": "Sembunyikan rahasia di hasil alat"
+      },
+      "strip_chat_tokens": {
+        "label": "Hapus token chat dari konten luar"
+      },
+      "limit_third_party_runs": {
+        "label": "Batasi yang bisa dilakukan pesan orang lain"
+      },
+      "limit_scheduled_runs": {
+        "label": "Batasi yang bisa dilakukan tugas terjadwal"
       }
     },
     "keepForever": "Selamanya",

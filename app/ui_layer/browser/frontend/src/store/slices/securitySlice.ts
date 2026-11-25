@@ -27,8 +27,18 @@ export interface SecurityPolicy {
   ask_after_untrusted: boolean
   approval_timeout_s: number
   /** Start MCP servers only as saved through Settings. */
+  limit_third_party_runs: boolean
+  limit_scheduled_runs: boolean
+  check_commands: boolean
   verify_mcp_servers: boolean
+  check_mcp_packages: boolean
+  scan_skills: boolean
+  verify_downloads: boolean
+  redact_tool_output: boolean
+  strip_chat_tokens: boolean
   protect_secret_files: boolean
+  protect_os_credentials: boolean
+  guard_memory: boolean
   extra_protected_paths: string[]
   confine_writes: boolean
   workspace_paths: string[]
@@ -52,8 +62,10 @@ export interface ApprovalRequest {
   action_display_name: string
   effects: SecurityEffect[]
   /** 'high_risk': the action's effects need approval. 'untrusted_content': the run read outside content. */
-  reason: 'high_risk' | 'untrusted_content'
+  reason: 'high_risk' | 'untrusted_content' | 'risky_command'
   reason_detail: string
+  /** What "allow for this session" covers: the action, or this exact command. */
+  grant_scope?: 'action' | 'command'
   /** The action's inputs, long values shortened. */
   inputs: Record<string, unknown>
   /** Unix seconds. */

@@ -613,6 +613,36 @@
       },
       "verify_mcp_servers": {
         "label": "僅啟動在設定中儲存的 MCP 伺服器"
+      },
+      "protect_os_credentials": {
+        "label": "保護系統憑證"
+      },
+      "guard_memory": {
+        "label": "保護記憶檔案"
+      },
+      "check_commands": {
+        "label": "審查高風險指令"
+      },
+      "check_mcp_packages": {
+        "label": "檢查 MCP 套件是否含惡意軟體"
+      },
+      "scan_skills": {
+        "label": "安裝前掃描技能"
+      },
+      "verify_downloads": {
+        "label": "驗證下載檔案"
+      },
+      "redact_tool_output": {
+        "label": "隱藏工具結果中的金鑰"
+      },
+      "strip_chat_tokens": {
+        "label": "移除外部內容中的聊天標記"
+      },
+      "limit_third_party_runs": {
+        "label": "限制他人訊息可執行的操作"
+      },
+      "limit_scheduled_runs": {
+        "label": "限制排程工作可執行的操作"
       }
     },
     "keepForever": "永久",

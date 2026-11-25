@@ -101,6 +101,7 @@
     "reasonHighRisk": "自动模式已关闭，且此操作可能会{{effects}}。",
     "reasonGeneric": "自动模式已关闭，此操作需要你的批准。",
     "reasonUntrusted": "智能体先读取了外部内容（{{detail}}），因此在操作前先询问。",
+    "reasonRisky": "此命令看起来有风险：{{detail}}。",
     "outsideContent": "网页、邮件或他人的文件",
     "effects": {
       "execute": "运行命令或代码",

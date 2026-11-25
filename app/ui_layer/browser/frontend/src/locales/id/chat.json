@@ -173,6 +173,7 @@
     "highRisk": "Tindakan ini dapat {{effects}}.",
     "untrusted": "Agen membaca konten luar ({{detail}}) sebelum meminta untuk melakukan ini.",
     "untrustedNoDetail": "Agen membaca konten luar sebelum meminta untuk melakukan ini.",
+    "risky": "Perintah ini tampak berisiko: {{detail}}.",
     "effects": {
       "execute": "menjalankan perintah atau kode",
       "write_files": "membuat atau mengubah berkas",
@@ -189,6 +190,7 @@
     "allowOnce": "Izinkan sekali",
     "allowSession": "Izinkan untuk sesi ini",
     "allowSessionHint": "Jangan tanya lagi untuk {{action}} di chat ini sampai CraftBot dimulai ulang",
+    "allowSessionHintCommand": "Jangan tanya lagi untuk perintah persis ini di chat ini sampai CraftBot dimulai ulang",
     "deny": "Tolak",
     "notConnected": "Tidak tersambung, jadi jawaban Anda tidak terkirim. Coba lagi setelah CraftBot kembali.",
     "waitingIn_one": "Sebuah tindakan di {{session}} menunggu persetujuan Anda",

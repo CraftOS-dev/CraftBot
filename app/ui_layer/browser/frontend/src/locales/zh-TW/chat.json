@@ -173,6 +173,7 @@
     "highRisk": "此操作可能會{{effects}}。",
     "untrusted": "代理在請求執行此操作前讀取了外部內容（{{detail}}）。",
     "untrustedNoDetail": "代理在請求執行此操作前讀取了外部內容。",
+    "risky": "此指令看起來有風險：{{detail}}。",
     "effects": {
       "execute": "執行指令或程式碼",
       "write_files": "建立或變更檔案",
@@ -189,6 +190,7 @@
     "allowOnce": "允許一次",
     "allowSession": "在此工作階段中允許",
     "allowSessionHint": "在 CraftBot 重新啟動前，此聊天中不再就 {{action}} 詢問",
+    "allowSessionHintCommand": "在 CraftBot 重新啟動前，此聊天中不再詢問這條指令",
     "deny": "拒絕",
     "notConnected": "未連線，因此你的回覆沒有送出。請在 CraftBot 恢復後再試一次。",
     "waitingIn_one": "{{session}} 中有一個操作正在等待你核准",

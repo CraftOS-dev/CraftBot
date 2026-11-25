@@ -613,6 +613,36 @@
       },
       "verify_mcp_servers": {
         "label": "設定で保存した MCP サーバーのみ起動"
+      },
+      "protect_os_credentials": {
+        "label": "システムの認証情報を保護"
+      },
+      "guard_memory": {
+        "label": "メモリファイルを保護"
+      },
+      "check_commands": {
+        "label": "危険なコマンドを審査"
+      },
+      "check_mcp_packages": {
+        "label": "MCP パッケージのマルウェアを確認"
+      },
+      "scan_skills": {
+        "label": "インストール前にスキルをスキャン"
+      },
+      "verify_downloads": {
+        "label": "ダウンロードを検証"
+      },
+      "redact_tool_output": {
+        "label": "ツール結果の秘密情報を隠す"
+      },
+      "strip_chat_tokens": {
+        "label": "外部コンテンツからチャットトークンを除去"
+      },
+      "limit_third_party_runs": {
+        "label": "他人のメッセージでできることを制限"
+      },
+      "limit_scheduled_runs": {
+        "label": "スケジュールタスクでできることを制限"
       }
     },
     "keepForever": "無期限",

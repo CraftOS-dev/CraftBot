@@ -101,6 +101,7 @@
     "reasonHighRisk": "Mode otomatis nonaktif, dan tindakan ini dapat {{effects}}.",
     "reasonGeneric": "Mode otomatis nonaktif, dan tindakan ini memerlukan persetujuan Anda.",
     "reasonUntrusted": "Agen membaca konten luar lebih dulu ({{detail}}), jadi agen bertanya sebelum bertindak.",
+    "reasonRisky": "Perintah ini tampak berisiko: {{detail}}.",
     "outsideContent": "halaman web, email, atau berkas dari orang lain",
     "effects": {
       "execute": "menjalankan perintah atau kode",

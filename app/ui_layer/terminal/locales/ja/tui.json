@@ -101,6 +101,7 @@
     "reasonHighRisk": "自動モードがオフで、この操作は {{effects}} を行う可能性があります。",
     "reasonGeneric": "自動モードがオフのため、この操作にはあなたの承認が必要です。",
     "reasonUntrusted": "エージェントが先に外部コンテンツ（{{detail}}）を読んだため、操作の前に確認しています。",
+    "reasonRisky": "このコマンドは危険な可能性があります: {{detail}}。",
     "outsideContent": "ウェブページ、メール、他の人からのファイル",
     "effects": {
       "execute": "コマンドやコードの実行",

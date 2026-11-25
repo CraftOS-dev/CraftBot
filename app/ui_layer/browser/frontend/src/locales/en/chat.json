@@ -207,6 +207,7 @@
     "highRisk": "This action can {{effects}}.",
     "untrusted": "The agent read outside content ({{detail}}) before asking to do this.",
     "untrustedNoDetail": "The agent read outside content before asking to do this.",
+    "risky": "This command looks risky: {{detail}}.",
     "effects": {
       "execute": "run commands or code",
       "write_files": "create or change files",
@@ -223,6 +224,7 @@
     "allowOnce": "Allow once",
     "allowSession": "Allow for this session",
     "allowSessionHint": "Don't ask again for {{action}} in this chat until CraftBot restarts",
+    "allowSessionHintCommand": "Don't ask again for this exact command in this chat until CraftBot restarts",
     "deny": "Deny",
     "notConnected": "Not connected, so your answer was not sent. Try again once CraftBot is back.",
     "waitingIn_one": "An action in {{session}} is waiting for your approval",

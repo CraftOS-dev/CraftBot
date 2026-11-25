@@ -173,6 +173,7 @@
     "highRisk": "此操作可能会{{effects}}。",
     "untrusted": "智能体在请求执行此操作前读取了外部内容（{{detail}}）。",
     "untrustedNoDetail": "智能体在请求执行此操作前读取了外部内容。",
+    "risky": "此命令看起来有风险：{{detail}}。",
     "effects": {
       "execute": "运行命令或代码",
       "write_files": "创建或更改文件",
@@ -189,6 +190,7 @@
     "allowOnce": "允许一次",
     "allowSession": "在此会话中允许",
     "allowSessionHint": "在 CraftBot 重启前，此聊天中不再就 {{action}} 询问",
+    "allowSessionHintCommand": "在 CraftBot 重启前，此聊天中不再询问这条命令",
     "deny": "拒绝",
     "notConnected": "未连接，因此你的回复没有发送。请在 CraftBot 恢复后重试。",
     "waitingIn_one": "{{session}} 中有一个操作正在等待你的批准",

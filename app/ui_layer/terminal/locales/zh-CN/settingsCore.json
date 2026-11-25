@@ -613,6 +613,36 @@
       },
       "verify_mcp_servers": {
         "label": "仅启动在设置中保存的 MCP 服务器"
+      },
+      "protect_os_credentials": {
+        "label": "保护系统凭据"
+      },
+      "guard_memory": {
+        "label": "保护记忆文件"
+      },
+      "check_commands": {
+        "label": "审查高风险命令"
+      },
+      "check_mcp_packages": {
+        "label": "检查 MCP 包是否含恶意软件"
+      },
+      "scan_skills": {
+        "label": "安装前扫描技能"
+      },
+      "verify_downloads": {
+        "label": "校验下载文件"
+      },
+      "redact_tool_output": {
+        "label": "隐藏工具结果中的密钥"
+      },
+      "strip_chat_tokens": {
+        "label": "移除外部内容中的聊天标记"
+      },
+      "limit_third_party_runs": {
+        "label": "限制他人消息可执行的操作"
+      },
+      "limit_scheduled_runs": {
+        "label": "限制定时任务可执行的操作"
       }
     },
     "keepForever": "永久",

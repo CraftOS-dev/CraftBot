@@ -101,6 +101,7 @@
     "reasonHighRisk": "자동 모드가 꺼져 있으며, 이 작업은 다음을 수행할 수 있습니다: {{effects}}.",
     "reasonGeneric": "자동 모드가 꺼져 있어 이 작업에는 승인이 필요합니다.",
     "reasonUntrusted": "에이전트가 먼저 외부 콘텐츠({{detail}})를 읽었으므로 작업 전에 확인합니다.",
+    "reasonRisky": "이 명령은 위험해 보입니다: {{detail}}.",
     "outsideContent": "웹 페이지, 이메일 또는 다른 사람의 파일",
     "effects": {
       "execute": "명령 또는 코드 실행",

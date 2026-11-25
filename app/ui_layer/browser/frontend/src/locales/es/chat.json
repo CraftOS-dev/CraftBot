@@ -173,6 +173,7 @@
     "highRisk": "Esta acción puede {{effects}}.",
     "untrusted": "El agente leyó contenido externo ({{detail}}) antes de pedir hacer esto.",
     "untrustedNoDetail": "El agente leyó contenido externo antes de pedir hacer esto.",
+    "risky": "Este comando parece arriesgado: {{detail}}.",
     "effects": {
       "execute": "ejecutar comandos o código",
       "write_files": "crear o cambiar archivos",
@@ -189,6 +190,7 @@
     "allowOnce": "Permitir una vez",
     "allowSession": "Permitir en esta sesión",
     "allowSessionHint": "No volver a preguntar por {{action}} en este chat hasta que CraftBot se reinicie",
+    "allowSessionHintCommand": "No volver a preguntar por este comando exacto en este chat hasta que CraftBot se reinicie",
     "deny": "Denegar",
     "notConnected": "Sin conexión, así que tu respuesta no se envió. Inténtalo de nuevo cuando CraftBot vuelva a estar disponible.",
     "waitingIn_one": "Una acción en {{session}} está esperando tu aprobación",

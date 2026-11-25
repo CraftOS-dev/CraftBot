@@ -101,6 +101,7 @@
     "reasonHighRisk": "El modo automático está desactivado y esta acción puede {{effects}}.",
     "reasonGeneric": "El modo automático está desactivado y esta acción necesita tu aprobación.",
     "reasonUntrusted": "El agente leyó antes contenido externo ({{detail}}), así que pregunta antes de actuar.",
+    "reasonRisky": "Este comando parece arriesgado: {{detail}}.",
     "outsideContent": "páginas web, correos o archivos de otras personas",
     "effects": {
       "execute": "ejecutar comandos o código",

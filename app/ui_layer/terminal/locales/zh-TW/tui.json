@@ -101,6 +101,7 @@
     "reasonHighRisk": "自動模式已關閉，且此操作可能會{{effects}}。",
     "reasonGeneric": "自動模式已關閉，此操作需要你的核准。",
     "reasonUntrusted": "代理先讀取了外部內容（{{detail}}），因此在操作前先詢問。",
+    "reasonRisky": "此指令看起來有風險：{{detail}}。",
     "outsideContent": "網頁、電子郵件或他人的檔案",
     "effects": {
       "execute": "執行指令或程式碼",

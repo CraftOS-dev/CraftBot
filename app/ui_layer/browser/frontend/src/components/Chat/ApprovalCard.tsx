@@ -122,7 +122,9 @@ function ApprovalCard({ request, sessionLabel }: ApprovalCardProps) {
   const hasInputs = Object.keys(request.inputs ?? {}).length > 0
 
   let reason: string | null
-  if (request.reason === 'untrusted_content') {
+  if (request.reason === 'risky_command') {
+    reason = t('chat:approval.risky', { detail: request.reason_detail })
+  } else if (request.reason === 'untrusted_content') {
     reason = request.reason_detail
       ? t('chat:approval.untrusted', { detail: request.reason_detail })
       : t('chat:approval.untrustedNoDetail')
@@ -196,7 +198,7 @@ function ApprovalCard({ request, sessionLabel }: ApprovalCardProps) {
           {t('chat:approval.allowOnce')}
         </Button>
         <Button variant="secondary" size="sm" onClick={() => answer('allow_session')} disabled={disabled}
-          loading={answered === 'allow_session'} title={t('chat:approval.allowSessionHint', { action })}>
+          loading={answered === 'allow_session'} title={request.grant_scope === 'command' ? t('chat:approval.allowSessionHintCommand') : t('chat:approval.allowSessionHint', { action })}>
           {t('chat:approval.allowSession')}
         </Button>
         <Button variant="secondary" size="sm" className={styles.deny} onClick={() => answer('deny')} disabled={disabled}

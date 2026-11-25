@@ -816,10 +816,11 @@
       "toggle": "Advanced",
       "groups": {
         "files": "Files",
+        "content": "Content",
         "network": "Network",
+        "messages": "Messages and schedules",
         "tools": "Tools",
-        "logs": "Logs",
-        "email": "Email"
+        "logs": "Logs"
       }
     },
     "fields": {
@@ -867,6 +868,36 @@
         "label": "Allowed email senders",
         "placeholder": "name@example.com",
         "empty": "All senders"
+      },
+      "protect_os_credentials": {
+        "label": "Protect system credentials"
+      },
+      "guard_memory": {
+        "label": "Guard memory files"
+      },
+      "check_commands": {
+        "label": "Review risky commands"
+      },
+      "check_mcp_packages": {
+        "label": "Check MCP packages for malware"
+      },
+      "scan_skills": {
+        "label": "Scan skills before installing"
+      },
+      "verify_downloads": {
+        "label": "Verify downloads"
+      },
+      "redact_tool_output": {
+        "label": "Hide secrets in tool results"
+      },
+      "strip_chat_tokens": {
+        "label": "Strip chat tokens from outside content"
+      },
+      "limit_third_party_runs": {
+        "label": "Limit what others' messages can do"
+      },
+      "limit_scheduled_runs": {
+        "label": "Limit what scheduled tasks can do"
       }
     },
     "list": {

@@ -613,6 +613,36 @@
       },
       "verify_mcp_servers": {
         "label": "Only start MCP servers saved in Settings"
+      },
+      "protect_os_credentials": {
+        "label": "Protect system credentials"
+      },
+      "guard_memory": {
+        "label": "Guard memory files"
+      },
+      "check_commands": {
+        "label": "Review risky commands"
+      },
+      "check_mcp_packages": {
+        "label": "Check MCP packages for malware"
+      },
+      "scan_skills": {
+        "label": "Scan skills before installing"
+      },
+      "verify_downloads": {
+        "label": "Verify downloads"
+      },
+      "redact_tool_output": {
+        "label": "Hide secrets in tool results"
+      },
+      "strip_chat_tokens": {
+        "label": "Strip chat tokens from outside content"
+      },
+      "limit_third_party_runs": {
+        "label": "Limit what others' messages can do"
+      },
+      "limit_scheduled_runs": {
+        "label": "Limit what scheduled tasks can do"
       }
     },
     "keepForever": "Forever",

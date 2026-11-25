@@ -50,8 +50,18 @@ const TIMEOUT_OPTIONS = [30, 60, 120, 300, 600, 900, 1800, 3600]
 const RETENTION_OPTIONS = [0, 7, 14, 30, 90, 180, 365]
 
 type ToggleKey =
+  | 'limit_third_party_runs'
+  | 'limit_scheduled_runs'
+  | 'check_commands'
   | 'verify_mcp_servers'
+  | 'check_mcp_packages'
+  | 'scan_skills'
+  | 'verify_downloads'
+  | 'redact_tool_output'
+  | 'strip_chat_tokens'
   | 'protect_secret_files'
+  | 'protect_os_credentials'
+  | 'guard_memory'
   | 'confine_writes'
   | 'network_guard'
   | 'third_party_reader'
@@ -217,7 +227,7 @@ export function SecuritySettings() {
     />
   )
 
-  const group = (id: 'files' | 'network' | 'tools' | 'logs' | 'email', rows: ReactNode) => (
+  const group = (id: 'files' | 'content' | 'network' | 'messages' | 'tools' | 'logs', rows: ReactNode) => (
     <div className={sec.group}>
       <div className={sec.groupTitle}>{t(`settings:security.advanced.groups.${id}`)}</div>
       <div className={sec.panel}>{rows}</div>
@@ -355,15 +365,30 @@ export function SecuritySettings() {
           <div className={styles.advancedContent}>
             {group('files', <>
               {toggleRow('protect_secret_files', 'extra_protected_paths')}
+              {toggleRow('protect_os_credentials')}
               {toggleRow('confine_writes', 'workspace_paths')}
+            </>)}
+            {group('content', <>
+              {toggleRow('redact_tool_output')}
+              {toggleRow('strip_chat_tokens')}
+              {toggleRow('guard_memory')}
             </>)}
             {group('network', <>
               {toggleRow('network_guard', 'allowed_domains')}
               {toggleRow('third_party_reader')}
             </>)}
+            {group('messages', <>
+              {toggleRow('limit_third_party_runs')}
+              {toggleRow('limit_scheduled_runs')}
+              <div className={sec.item}>{listField('email_allowed_senders')}</div>
+            </>)}
             {group('tools', <>
+              {toggleRow('check_commands')}
               {toggleRow('scrub_child_env')}
               {toggleRow('verify_mcp_servers')}
+              {toggleRow('check_mcp_packages')}
+              {toggleRow('scan_skills')}
+              {toggleRow('verify_downloads')}
             </>)}
             {group('logs', <>
               {toggleRow('log_prompts')}
@@ -383,7 +408,6 @@ export function SecuritySettings() {
                 </div>
               </div>
             </>)}
-            {group('email', <div className={sec.item}>{listField('email_allowed_senders')}</div>)}
           </div>
         )}
       </div>

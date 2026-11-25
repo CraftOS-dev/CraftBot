@@ -816,10 +816,11 @@
       "toggle": "Avanzado",
       "groups": {
         "files": "Archivos",
+        "content": "Contenido",
         "network": "Red",
+        "messages": "Mensajes y tareas programadas",
         "tools": "Herramientas",
-        "logs": "Registros",
-        "email": "Correo"
+        "logs": "Registros"
       }
     },
     "fields": {
@@ -867,6 +868,36 @@
         "label": "Remitentes de correo permitidos",
         "placeholder": "nombre@ejemplo.com",
         "empty": "Todos los remitentes"
+      },
+      "protect_os_credentials": {
+        "label": "Proteger credenciales del sistema"
+      },
+      "guard_memory": {
+        "label": "Proteger archivos de memoria"
+      },
+      "check_commands": {
+        "label": "Revisar comandos de riesgo"
+      },
+      "check_mcp_packages": {
+        "label": "Buscar malware en paquetes MCP"
+      },
+      "scan_skills": {
+        "label": "Analizar habilidades antes de instalarlas"
+      },
+      "verify_downloads": {
+        "label": "Verificar descargas"
+      },
+      "redact_tool_output": {
+        "label": "Ocultar secretos en los resultados"
+      },
+      "strip_chat_tokens": {
+        "label": "Quitar tokens de chat del contenido externo"
+      },
+      "limit_third_party_runs": {
+        "label": "Limitar lo que pueden hacer los mensajes de otros"
+      },
+      "limit_scheduled_runs": {
+        "label": "Limitar lo que pueden hacer las tareas programadas"
       }
     },
     "list": {

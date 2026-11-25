@@ -44,6 +44,7 @@ export function approvalQueue(
 
 /** Why it asks, as one sentence. */
 export function approvalReason(request: ApprovalRequest, t: Translate, language = 'en'): string {
+  if (request.reason === 'risky_command') return t('approval.reasonRisky', { detail: request.reason_detail })
   if (request.reason === 'untrusted_content') {
     return t('approval.reasonUntrusted', { detail: request.reason_detail || t('approval.outsideContent') })
   }

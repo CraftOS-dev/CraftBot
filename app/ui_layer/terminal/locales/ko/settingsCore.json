@@ -613,6 +613,36 @@
       },
       "verify_mcp_servers": {
         "label": "설정에서 저장한 MCP 서버만 시작"
+      },
+      "protect_os_credentials": {
+        "label": "시스템 자격 증명 보호"
+      },
+      "guard_memory": {
+        "label": "메모리 파일 보호"
+      },
+      "check_commands": {
+        "label": "위험한 명령 검토"
+      },
+      "check_mcp_packages": {
+        "label": "MCP 패키지 악성코드 확인"
+      },
+      "scan_skills": {
+        "label": "설치 전에 스킬 검사"
+      },
+      "verify_downloads": {
+        "label": "다운로드 검증"
+      },
+      "redact_tool_output": {
+        "label": "도구 결과의 비밀 숨기기"
+      },
+      "strip_chat_tokens": {
+        "label": "외부 콘텐츠의 채팅 토큰 제거"
+      },
+      "limit_third_party_runs": {
+        "label": "다른 사람 메시지로 할 수 있는 일 제한"
+      },
+      "limit_scheduled_runs": {
+        "label": "예약 작업으로 할 수 있는 일 제한"
       }
     },
     "keepForever": "영구",

@@ -173,6 +173,7 @@
     "highRisk": "이 작업은 다음을 수행할 수 있습니다: {{effects}}.",
     "untrusted": "에이전트가 이 작업을 요청하기 전에 외부 콘텐츠({{detail}})를 읽었습니다.",
     "untrustedNoDetail": "에이전트가 이 작업을 요청하기 전에 외부 콘텐츠를 읽었습니다.",
+    "risky": "이 명령은 위험해 보입니다: {{detail}}.",
     "effects": {
       "execute": "명령 또는 코드 실행",
       "write_files": "파일 생성 또는 변경",
@@ -189,6 +190,7 @@
     "allowOnce": "한 번 허용",
     "allowSession": "이 세션에서 허용",
     "allowSessionHint": "CraftBot이 다시 시작될 때까지 이 채팅에서 {{action}}에 대해 다시 묻지 않습니다",
+    "allowSessionHintCommand": "CraftBot이 다시 시작될 때까지 이 채팅에서 이 명령은 다시 묻지 않기",
     "deny": "거부",
     "notConnected": "연결되어 있지 않아 응답이 전송되지 않았습니다. CraftBot이 다시 연결되면 다시 시도하세요.",
     "waitingIn_one": "{{session}}의 작업이 승인을 기다리고 있습니다",
