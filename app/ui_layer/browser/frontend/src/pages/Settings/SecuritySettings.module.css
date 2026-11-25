@@ -5,66 +5,124 @@
   margin-bottom: var(--space-4);
 }
 
-/* ── Auto mode: the "Ask before…" options under the switch ── */
-.askPanel {
+/* ── Panels: rows in one box, split by hairlines ── */
+.panel {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
-  padding: var(--space-3);
   background: var(--bg-tertiary);
+  border: 1px solid var(--border-primary);
   border-radius: var(--radius-md);
 }
 
-.askTitle {
+.item {
+  padding: var(--space-3);
+  border-bottom: 1px solid var(--border-primary);
+}
+
+.item:last-child {
+  border-bottom: none;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-height: 24px;
+}
+
+.rowText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.rowLabel {
   font-size: var(--text-sm);
   font-weight: var(--font-medium);
   color: var(--text-primary);
 }
 
-.askDivider {
-  height: 1px;
-  background: var(--border-primary);
-  margin: var(--space-1) 0;
+.rowDesc {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  line-height: var(--leading-normal);
+  overflow-wrap: anywhere;
 }
 
-.inlineField {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  flex-wrap: wrap;
-}
-
-.inlineField select,
-.inlineField input {
+.select {
   padding: var(--space-1) var(--space-2);
   background: var(--bg-primary);
   border: 1px solid var(--border-primary);
   border-radius: var(--radius-md);
   font-size: var(--text-sm);
   color: var(--text-primary);
+  flex-shrink: 0;
 }
 
-.inlineField select:focus,
-.inlineField input:focus {
+.select:focus {
   outline: none;
   border-color: var(--border-hover);
 }
 
-.numberInput {
-  width: 80px;
-}
-
-.unit {
-  font-size: var(--text-sm);
-  color: var(--text-secondary);
-}
-
-.inlineControl {
-  display: inline-flex;
+.titleRow {
+  display: flex;
   align-items: center;
   gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.titleRow h4 {
+  margin-bottom: 0;
+  margin-right: auto;
+}
+
+.titleRow:has(.titleSpacer) h4 {
+  margin-right: 0;
+}
+
+.titleSpacer {
+  flex: 1;
+}
+
+/* ── Auto mode: what to ask before ── */
+.askTitle {
+  font-size: var(--text-xs);
+  font-weight: var(--font-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin-bottom: var(--space-2);
+}
+
+.askGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2) var(--space-4);
+}
+
+@media (max-width: 640px) {
+  .askGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.check input {
+  width: 16px;
+  height: 16px;
   flex-shrink: 0;
+  accent-color: var(--color-primary);
+  cursor: pointer;
 }
 
 /* ── Level picker ── */
@@ -83,7 +141,7 @@
 .levelCard {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
+  gap: var(--space-1);
   padding: var(--space-3);
   background: var(--bg-tertiary);
   border: 1px solid var(--border-primary);
@@ -95,16 +153,12 @@
   transition: border-color var(--transition-fast), background var(--transition-fast);
 }
 
-.levelCard:hover:not(:disabled) {
+.levelCard:hover {
   border-color: var(--border-hover);
 }
 
-.levelCard:disabled {
-  cursor: default;
-}
-
 .levelCardActive,
-.levelCardActive:hover:not(:disabled) {
+.levelCardActive:hover {
   border-color: var(--color-primary);
   background: var(--color-primary-subtle);
 }
@@ -113,7 +167,6 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  flex-wrap: wrap;
 }
 
 .levelIcon {
@@ -132,39 +185,15 @@
 
 .levelDesc {
   font-size: var(--text-xs);
-  color: var(--text-secondary);
-  line-height: var(--leading-normal);
-}
-
-.levelNotice {
-  margin-top: auto;
-  font-size: var(--text-xs);
   color: var(--text-muted);
-  line-height: var(--leading-normal);
-}
-
-.levelNoticeLabel {
-  font-weight: var(--font-medium);
-  color: var(--text-secondary);
-}
-
-.customRow {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  margin-top: var(--space-3);
-  flex-wrap: wrap;
-}
-
-.customText {
-  flex: 1;
-  min-width: 200px;
-  font-size: var(--text-xs);
-  color: var(--text-secondary);
 }
 
 /* ── Advanced ── */
+.group {
+  display: flex;
+  flex-direction: column;
+}
+
 .groupTitle {
   font-size: var(--text-xs);
   font-weight: var(--font-semibold);
@@ -174,57 +203,47 @@
   margin-bottom: var(--space-2);
 }
 
-.group {
+/* A list setting: label, entries as chips, an add box. */
+.list {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
 }
 
-.fieldRow {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  padding: var(--space-3);
-  background: var(--bg-tertiary);
-  border-radius: var(--radius-md);
+.listNested {
+  margin-top: var(--space-3);
+  padding-left: var(--space-3);
+  border-left: 2px solid var(--border-primary);
 }
 
-.fieldText {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
+.listLabel {
+  font-size: var(--text-xs);
+  font-weight: var(--font-medium);
+  color: var(--text-secondary);
 }
 
-/* A list setting: label, help, the items, then an add row. */
-.listField {
+.chips {
   display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  padding: var(--space-3);
-  background: var(--bg-tertiary);
-  border-radius: var(--radius-md);
-}
-
-.listItems {
-  display: flex;
-  flex-direction: column;
+  flex-wrap: wrap;
   gap: var(--space-1);
 }
 
-.listItem {
-  display: flex;
+.chips:empty {
+  display: none;
+}
+
+.chip {
+  display: inline-flex;
   align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-1) var(--space-1) var(--space-1) var(--space-2);
+  gap: 2px;
+  max-width: 100%;
+  padding: 2px 2px 2px var(--space-2);
   background: var(--bg-primary);
   border: 1px solid var(--border-primary);
   border-radius: var(--radius-sm);
 }
 
-.listValue {
-  flex: 1;
+.chipValue {
   min-width: 0;
   font-family: var(--font-mono);
   font-size: var(--text-xs);
@@ -234,7 +253,7 @@
   white-space: nowrap;
 }
 
-.listRemove {
+.chipRemove {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -246,21 +265,22 @@
   flex-shrink: 0;
 }
 
-.listRemove:hover:not(:disabled) {
+.chipRemove:hover {
   color: var(--color-error);
 }
 
-.listEmpty {
+.chipEmpty {
   font-size: var(--text-xs);
   color: var(--text-muted);
+  flex-shrink: 0;
 }
 
-.listAddRow {
+.addRow {
   display: flex;
   gap: var(--space-2);
 }
 
-.listAddRow input {
+.addRow input {
   flex: 1;
   min-width: 0;
   padding: var(--space-1) var(--space-2);
@@ -272,31 +292,21 @@
   color: var(--text-primary);
 }
 
-.listAddRow input:focus {
+.addRow input:focus {
   outline: none;
   border-color: var(--border-hover);
 }
 
 /* ── Security check ── */
-.checkList {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-
 .checkItem {
   display: flex;
   align-items: flex-start;
   gap: var(--space-3);
-  padding: var(--space-3);
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-md);
 }
 
 .checkIcon {
   flex-shrink: 0;
-  margin-top: 1px;
+  margin-top: 2px;
 }
 
 .status_ok {
@@ -323,40 +333,12 @@
   gap: 2px;
 }
 
-.checkTitle {
-  font-size: var(--text-sm);
-  font-weight: var(--font-medium);
-  color: var(--text-primary);
-}
-
-.checkDetail {
-  font-size: var(--text-xs);
-  color: var(--text-secondary);
-  line-height: var(--leading-normal);
-  overflow-wrap: anywhere;
-}
-
 /* ── Audit log ── */
-.auditSummary {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  flex-wrap: wrap;
-  margin-bottom: var(--space-2);
-}
-
 .auditCount {
+  display: block;
+  margin-top: var(--space-2);
   font-size: var(--text-xs);
   color: var(--text-muted);
-}
-
-.auditNote {
-  font-size: var(--text-xs);
-  color: var(--text-secondary);
-  padding: var(--space-2) var(--space-3);
-  background: var(--bg-tertiary);
-  border-radius: var(--radius-md);
-  margin-bottom: var(--space-2);
 }
 
 .auditList {
@@ -418,4 +400,9 @@
   .auditFields {
     grid-column: 1;
   }
+}
+
+.auditChanged {
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
 }

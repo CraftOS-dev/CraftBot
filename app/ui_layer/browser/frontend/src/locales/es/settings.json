@@ -770,17 +770,14 @@
   },
   "security": {
     "title": "Seguridad",
-    "subtitle": "Elige con cuánto cuidado protege CraftBot tu equipo, tus claves y tus datos",
+    "subtitle": "Protege tu equipo, tus claves y tus datos",
     "loading": "Cargando los ajustes de seguridad...",
     "autoMode": {
       "label": "Modo automático",
-      "on": "El agente actúa sin preguntar, igual que antes.",
-      "off": "Las acciones de alto riesgo esperan tu aprobación en una tarjeta del chat.",
-      "askTitle": "Preguntar antes de…",
-      "askAfterUntrusted": "Preguntar también antes de cualquier acción después de que el agente lea contenido externo",
-      "askAfterUntrustedHint": "Las páginas web, los correos y los mensajes de otras personas pueden contener instrucciones dirigidas al agente.",
-      "timeout": "Denegar automáticamente después de",
-      "timeoutHint": "Una tarjeta de aprobación que nadie responde a tiempo cuenta como Denegar.",
+      "desc": "Ejecuta acciones sin preguntar",
+      "askTitle": "Preguntar antes de",
+      "askAfterUntrusted": "Actuar sobre contenido externo",
+      "timeout": "Denegar si no hay respuesta en",
       "seconds_one": "{{count}} segundo",
       "seconds_other": "{{count}} segundos",
       "minutes_one": "{{count}} minuto",
@@ -789,148 +786,112 @@
       "hours_other": "{{count}} horas"
     },
     "effects": {
-      "execute": "Ejecutar comandos o código",
-      "write_files": "Crear o cambiar archivos",
-      "send_external": "Enviar mensajes o cambiar servicios externos",
-      "change_agent": "Cambiar la configuración, las programaciones o las herramientas de CraftBot",
+      "execute": "Ejecutar comandos",
+      "write_files": "Cambiar archivos",
+      "send_external": "Enviar mensajes",
+      "change_agent": "Cambiar la configuración de CraftBot",
       "use_credentials": "Usar credenciales guardadas"
     },
     "level": {
       "title": "Nivel de seguridad",
-      "desc": "Cada nivel activa un conjunto de protecciones. Ajústalas en Avanzado.",
-      "aria": "Nivel de seguridad",
       "custom": "Personalizado",
-      "noticeLabel": "Lo que notarás:",
-      "changed": "Cambios sobre {{level}}: {{settings}}",
-      "reset": "Restablecer a {{level}}",
+      "reset": "Restablecer",
       "lowerTitle": "¿Bajar la seguridad a {{level}}?",
-      "lowerMessage": "{{level}} desactiva protecciones que {{from}} mantiene activadas, y los ajustes que cambiaste vuelven a los valores predeterminados de {{level}}. El modo automático y tus listas de carpetas y dominios se quedan como están.",
+      "lowerMessage": "Se desactivarán las protecciones que {{from}} mantiene activas.",
       "lowerConfirm": "Cambiar a {{level}}",
       "standard": {
         "name": "Estándar",
-        "desc": "Funciona exactamente igual que antes.",
-        "notice": "Nada nuevo: sin avisos y sin bloqueos."
+        "desc": "Sin límites adicionales"
       },
       "enhanced": {
         "name": "Reforzado",
-        "desc": "Mantiene al agente lejos de tus claves, revisa cada solicitud web, marca el contenido externo y guarda un registro de auditoría. Rara vez pregunta.",
-        "notice": "El agente no puede abrir tus archivos de claves, las solicitudes web inseguras se rechazan y en Discord solo responde cuando lo mencionan. Los registros de más de 90 días se eliminan."
+        "desc": "Protege claves, web y comandos"
       },
       "strict": {
         "name": "Estricto",
-        "desc": "Todo lo de Reforzado y, además, los archivos solo se escriben en tu espacio de trabajo, sin lector de terceros y con una retención de datos más corta.",
-        "notice": "Guardar archivos fuera de tu espacio de trabajo falla, algunas páginas pueden no cargarse sin el lector y los registros de más de 30 días se eliminan. Con el modo automático desactivado, los cambios en archivos también piden permiso antes."
+        "desc": "Además, mantiene los archivos en el espacio de trabajo"
       }
     },
     "advanced": {
       "toggle": "Avanzado",
-      "desc": "Cada protección por separado. Cambiar una marca el nivel como Personalizado.",
       "groups": {
-        "untrusted": "Contenido no confiable",
+        "commands": "Comandos",
+        "untrusted": "Contenido externo",
         "files": "Archivos",
         "network": "Red",
-        "secrets": "Secretos y datos",
-        "channels": "Canales",
-        "audit": "Auditoría",
-        "commands": "Comandos"
+        "secrets": "Secretos y registros",
+        "channels": "Canales"
       }
     },
     "fields": {
-      "auto_mode": {
-        "label": "Modo automático"
-      },
-      "approval_effects": {
-        "label": "Preguntar antes de…"
-      },
-      "ask_after_untrusted": {
-        "label": "Preguntar tras contenido externo"
-      },
-      "approval_timeout_s": {
-        "label": "Tiempo límite de aprobación"
+      "block_destructive_commands": {
+        "label": "Bloquear comandos destructivos"
       },
       "mark_untrusted_content": {
-        "label": "Marcar contenido externo",
-        "help": "Las páginas web, los correos y los mensajes de otras personas se marcan para que el agente los trate como información, no como instrucciones."
+        "label": "Marcar el contenido externo como no confiable"
+      },
+      "verify_mcp_servers": {
+        "label": "Iniciar solo servidores MCP guardados en Ajustes"
       },
       "protect_secret_files": {
-        "label": "Proteger archivos de claves",
-        "help": "Las herramientas de archivos del agente no pueden leer ni cambiar claves de API, credenciales ni los ajustes de seguridad de CraftBot. Esto no limita los comandos que ejecuta."
+        "label": "Proteger archivos de claves"
       },
       "extra_protected_paths": {
         "label": "Proteger también",
-        "help": "Más archivos o carpetas que el agente no puede leer ni cambiar.",
         "placeholder": "/ruta/al/archivo-o-carpeta"
       },
       "confine_writes": {
-        "label": "Mantener los cambios de archivos en el espacio de trabajo",
-        "help": "Las herramientas de archivos del agente solo pueden crear o cambiar archivos en su espacio de trabajo y en las carpetas de abajo. Esto no limita los comandos que ejecuta."
+        "label": "Mantener los cambios de archivos en el espacio de trabajo"
       },
       "workspace_paths": {
-        "label": "Carpetas del espacio de trabajo",
-        "help": "Carpetas adicionales en las que el agente puede escribir mientras los cambios de archivos se mantienen en el espacio de trabajo.",
+        "label": "Carpetas de trabajo adicionales",
         "placeholder": "/ruta/a/la/carpeta"
       },
       "network_guard": {
-        "label": "Revisar solicitudes web",
-        "help": "Las solicitudes web del agente solo pueden llegar a sitios públicos de internet. Este equipo, tu red local y los servicios de metadatos de la nube se rechazan, y cada redirección se vuelve a revisar."
+        "label": "Bloquear solicitudes a redes locales"
       },
       "allowed_domains": {
-        "label": "Permitir solo estos dominios",
-        "help": "Si añades dominios, las solicitudes web del agente solo pueden llegar a esos dominios y sus subdominios. Déjalo vacío para permitir cualquier sitio público.",
-        "placeholder": "example.com"
+        "label": "Dominios permitidos",
+        "placeholder": "example.com",
+        "empty": "Todos los sitios públicos"
       },
       "third_party_reader": {
-        "label": "Lector de páginas de terceros",
-        "help": "Si una página no carga directamente, el agente puede obtenerla a través de un servicio lector externo, que entonces ve la dirección de la página."
+        "label": "Usar un lector de páginas externo"
       },
       "scrub_child_env": {
-        "label": "Mantener las claves fuera de las herramientas",
-        "help": "Los servidores MCP reciben solo la configuración básica del sistema y los valores que les diste, y los comandos que ejecuta el agente reciben tu entorno sin las claves y tokens propios de CraftBot."
+        "label": "Ocultar las claves API a las herramientas"
       },
       "redact_logs": {
-        "label": "Ocultar secretos en los registros",
-        "help": "Las claves de API, las credenciales y las claves de servidores MCP propias de CraftBot se borran antes de escribir las líneas del registro."
+        "label": "Ocultar secretos en los registros"
       },
       "log_prompts": {
-        "label": "Registrar los prompts completos",
-        "help": "Escribe en los registros todo lo que se envía al modelo de IA. Es útil para depurar, pero entonces los registros contienen tus conversaciones."
+        "label": "Registrar los prompts completos"
       },
       "retention_days": {
-        "label": "Conservar los datos durante",
-        "help": "Los archivos de registro y las llamadas a la IA grabadas con más antigüedad se eliminan. Tus chats, tu memoria y el registro de auditoría se conservan. 0 lo conserva todo.",
-        "unit": "días"
+        "label": "Conservar registros durante",
+        "forever": "Siempre",
+        "days_one": "{{count}} día",
+        "days_other": "{{count}} días"
       },
       "strict_channel_identity": {
-        "label": "Identidad estricta en los canales",
-        "help": "Los propietarios en Discord se reconocen por su ID de usuario. Mientras no haya uno guardado, se registra el ID del primer propietario que coincida por nombre de usuario único; los nombres visibles y de rol nunca cuentan. En los servidores hay que mencionar al bot."
-      },
-      "audit_log": {
-        "label": "Registro de auditoría",
-        "help": "Guarda un registro a prueba de manipulaciones de las aprobaciones y los cambios de seguridad."
+        "label": "Identidad estricta en Discord"
       },
       "email_allowed_senders": {
-        "label": "Solo correo de",
-        "help": "Solo los correos de estas direcciones llegan al agente. Déjalo vacío para que pase todo el correo de la bandeja de entrada. Una dirección de remitente se puede falsificar, así que esto reduce lo que llega, pero no demuestra quién lo envió.",
-        "placeholder": "nombre@ejemplo.com"
+        "label": "Remitentes de correo permitidos",
+        "placeholder": "nombre@ejemplo.com",
+        "empty": "Todos los remitentes"
       },
-      "verify_mcp_servers": {
-        "label": "Iniciar solo servidores MCP guardados en Ajustes",
-        "help": "Un servidor MCP cuyo comando se cambió de otra forma, por ejemplo con un comando que ejecutó el agente, no se inicia hasta que lo confirmes en la Comprobación de seguridad."
-      },
-      "block_destructive_commands": {
-        "label": "Bloquear comandos destructivos",
-        "help": "Rechaza comandos cuyo daño ninguna aprobación puede deshacer, como borrar una carpeta de nivel superior o tu carpeta personal, escribir directamente en un disco o pasar una descarga a un shell de administrador. Se aplica incluso con el Modo automático activado."
+      "audit_log": {
+        "label": "Registro de auditoría"
       }
     },
     "list": {
       "add": "Añadir",
       "remove": "Quitar {{item}}",
-      "empty": "Ninguno",
-      "duplicate": "Ya está en la lista."
+      "duplicate": "Ya está añadido"
     },
     "check": {
       "title": "Comprobación de seguridad",
-      "desc": "Revisa esta instalación: quién puede leer tus archivos secretos, quién puede acceder a la ventana de CraftBot, el registro de auditoría y tu nivel.",
       "runAgain": "Volver a ejecutar",
       "running": "Comprobando...",
       "fix": "Corregir",
@@ -944,10 +905,8 @@
     },
     "audit": {
       "title": "Registro de auditoría",
-      "desc": "Aprobaciones y cambios de seguridad, de más reciente a más antiguo. Cada entrada sella la anterior, así que se nota si una entrada se edita o se elimina.",
-      "off": "El registro de auditoría está desactivado. Actívalo en Avanzado → Auditoría o elige Reforzado o Estricto.",
-      "intact_one": "Cadena intacta, {{count}} entrada",
-      "intact_other": "Cadena intacta, {{count}} entradas",
+      "intact_one": "Íntegro · {{count}} registro",
+      "intact_other": "Íntegro · {{count}} registros",
       "broken": "Cambiado en la línea {{line}}",
       "empty": "Todavía no hay nada registrado.",
       "loading": "Cargando el registro de auditoría...",

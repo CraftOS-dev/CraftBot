@@ -18,9 +18,9 @@ import {
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Badge, Button, ConfirmModal } from '../../components/ui'
-import { useConfirmModal, usePersistedState, useServerDraft } from '../../hooks'
+import { useConfirmModal, usePersistedState } from '../../hooks'
 import i18n from '../../i18n/config'
-import { formatDateTime, formatList, formatNumber } from '../../i18n/format'
+import { formatDateTime, formatNumber } from '../../i18n/format'
 import { RESOURCES, useResource } from '../../store/resources'
 import { useAppSelector } from '../../store/hooks'
 import { UI_STATE } from '../../store/uiState'
@@ -40,38 +40,15 @@ const LEVELS: SecurityLevel[] = ['standard', 'enhanced', 'strict']
 const LEVEL_RANK: Record<SecurityLevel, number> = { standard: 0, enhanced: 1, strict: 2 }
 const LEVEL_ICONS = { standard: Shield, enhanced: ShieldCheck, strict: ShieldPlus } as const
 
-/** "Ask before…" options, in the order the page lists them. */
+/** "Ask before" options, in the order the page lists them. */
 const EFFECTS: SecurityEffect[] = ['execute', 'write_files', 'send_external', 'change_agent', 'use_credentials']
 
 /** Approval timeout choices in seconds (the backend accepts 10–3600). */
 const TIMEOUT_OPTIONS = [30, 60, 120, 300, 600, 900, 1800, 3600]
 
-/** Settings a level can set, by the name the backend reports in `overrides`. */
-const SETTING_KEYS: SecuritySettingKey[] = [
-  'auto_mode',
-  'block_destructive_commands',
-  'approval_effects',
-  'ask_after_untrusted',
-  'approval_timeout_s',
-  'mark_untrusted_content',
-  'verify_mcp_servers',
-  'protect_secret_files',
-  'extra_protected_paths',
-  'confine_writes',
-  'workspace_paths',
-  'network_guard',
-  'allowed_domains',
-  'third_party_reader',
-  'scrub_child_env',
-  'redact_logs',
-  'log_prompts',
-  'retention_days',
-  'strict_channel_identity',
-  'email_allowed_senders',
-  'audit_log',
-]
+/** Retention choices in days; 0 keeps everything. */
+const RETENTION_OPTIONS = [0, 7, 14, 30, 90, 180, 365]
 
-/** On/off protections under Advanced (each has a label and one-line help). */
 type ToggleKey =
   | 'block_destructive_commands'
   | 'mark_untrusted_content'
@@ -86,16 +63,17 @@ type ToggleKey =
   | 'strict_channel_identity'
   | 'audit_log'
 
-/** List settings under Advanced (label, help and an input placeholder). */
 type ListKey = 'extra_protected_paths' | 'workspace_paths' | 'allowed_domains' | 'email_allowed_senders'
+
+/** Allow-lists: empty means everything is allowed, so the page says so. */
+type AllowListKey = 'allowed_domains' | 'email_allowed_senders'
+const isAllowList = (key: ListKey): key is AllowListKey =>
+  key === 'allowed_domains' || key === 'email_allowed_senders'
 
 const AUDIT_EVENTS = ['action_approval', 'security_settings_changed', 'security_check_fixed'] as const
 type KnownAuditEvent = (typeof AUDIT_EVENTS)[number]
 const AUDIT_SHOWN = 50
 const AUDIT_HIDDEN_FIELDS = new Set(['ts', 'event', 'prev'])
-
-const isSettingKey = (name: string): name is SecuritySettingKey =>
-  (SETTING_KEYS as string[]).includes(name)
 
 const isKnownAuditEvent = (event: string): event is KnownAuditEvent =>
   (AUDIT_EVENTS as readonly string[]).includes(event)
@@ -111,10 +89,34 @@ function formatTimeout(seconds: number): string {
   return i18n.t('settings:security.autoMode.seconds', { count: seconds })
 }
 
+function formatRetention(days: number): string {
+  return days === 0
+    ? i18n.t('settings:security.fields.retention_days.forever')
+    : i18n.t('settings:security.fields.retention_days.days', { count: days })
+}
+
+function withCurrent(options: number[], current: number): number[] {
+  return options.includes(current) ? options : [...options, current].sort((a, b) => a - b)
+}
+
 function auditEventLabel(event: string): string {
   if (isKnownAuditEvent(event)) return i18n.t(`settings:security.audit.events.${event}`)
   const text = event.replace(/_/g, ' ')
   return text.charAt(0).toUpperCase() + text.slice(1)
+}
+
+/** Setting names as the page shows them, for "changed" in the audit log. */
+const SETTING_LABELS: Record<string, string> = {
+  level: 'settings:security.level.title',
+  auto_mode: 'settings:security.autoMode.label',
+  approval_effects: 'settings:security.autoMode.askTitle',
+  ask_after_untrusted: 'settings:security.autoMode.askAfterUntrusted',
+  approval_timeout_s: 'settings:security.autoMode.timeout',
+}
+
+function settingLabel(key: string): string {
+  const id = SETTING_LABELS[key] ?? `settings:security.fields.${key}.label`
+  return i18n.exists(id) ? String(i18n.t(id as never)) : key
 }
 
 function auditValue(value: unknown): string {
@@ -137,7 +139,6 @@ export function SecuritySettings() {
   useResource(RESOURCES.securityState)
   const policy = useAppSelector(state => state.security.policy)
   const hasLoaded = useAppSelector(state => state.security.hasLoaded)
-  const overrides = useAppSelector(state => state.security.overrides)
   const error = useAppSelector(state => state.security.error)
 
   // Each change sends just that setting; the reply updates every window.
@@ -157,19 +158,23 @@ export function SecuritySettings() {
     }
     confirm({
       title: t('settings:security.level.lowerTitle', { level: levelName(level) }),
-      message: t('settings:security.level.lowerMessage', { level: levelName(level), from: levelName(policy.level) }),
+      message: t('settings:security.level.lowerMessage', { from: levelName(policy.level) }),
       confirmText: t('settings:security.level.lowerConfirm', { level: levelName(level) }),
       variant: 'danger',
     }, apply)
   }
 
+  const header = (
+    <div className={styles.sectionHeader}>
+      <h3>{t('settings:security.title')}</h3>
+      <p>{t('settings:security.subtitle')}</p>
+    </div>
+  )
+
   if (!hasLoaded || !policy) {
     return (
       <div className={styles.settingsSection}>
-        <div className={styles.sectionHeader}>
-          <h3>{t('settings:security.title')}</h3>
-          <p>{t('settings:security.subtitle')}</p>
-        </div>
+        {header}
         <div className={styles.loadingState}>
           <Loader2 size={20} className={styles.spinning} />
           <span>{t('settings:security.loading')}</span>
@@ -183,54 +188,51 @@ export function SecuritySettings() {
     update('approval_effects', (on ? [...current, effect] : current).sort())
   }
 
-  const timeoutOptions = TIMEOUT_OPTIONS.includes(policy.approval_timeout_s)
-    ? TIMEOUT_OPTIONS
-    : [...TIMEOUT_OPTIONS, policy.approval_timeout_s].sort((a, b) => a - b)
+  const label = (key: ToggleKey | ListKey | 'retention_days') => t(`settings:security.fields.${key}.label`)
 
-  const changedSettings = overrides
-    .filter(isSettingKey)
-    .map(key => t(`settings:security.fields.${key}.label`))
+  const switchFor = (key: ToggleKey) => (
+    <input
+      type="checkbox"
+      className={styles.toggle}
+      aria-label={label(key)}
+      checked={policy[key]}
+      onChange={e => update(key, e.target.checked)}
+    />
+  )
 
-  const toggleRow = (key: ToggleKey) => (
-    <div className={sec.fieldRow} key={key}>
-      <div className={sec.fieldText}>
-        <span className={styles.toggleLabel}>{t(`settings:security.fields.${key}.label`)}</span>
-        <span className={styles.toggleDesc}>{t(`settings:security.fields.${key}.help`)}</span>
+  // A protection; a list that only applies while it is on shows under it.
+  const toggleRow = (key: ToggleKey, list?: ListKey) => (
+    <div className={sec.item} key={key}>
+      <div className={sec.row}>
+        <span className={sec.rowLabel}>{label(key)}</span>
+        {switchFor(key)}
       </div>
-      <input
-        type="checkbox"
-        className={styles.toggle}
-        aria-label={t(`settings:security.fields.${key}.label`)}
-        checked={policy[key]}
-        onChange={e => update(key, e.target.checked)}
-      />
+      {list && policy[key] && listField(list, true)}
     </div>
   )
 
-  const listRow = (key: ListKey) => (
+  const listField = (key: ListKey, nested = false) => (
     <ListField
       key={key}
-      label={t(`settings:security.fields.${key}.label`)}
-      help={t(`settings:security.fields.${key}.help`)}
+      label={label(key)}
+      nested={nested}
       placeholder={t(`settings:security.fields.${key}.placeholder`)}
+      emptyText={isAllowList(key) ? t(`settings:security.fields.${key}.empty`) : undefined}
       items={policy[key]}
       onChange={items => update(key, items)}
     />
   )
 
-  const group = (id: 'commands' | 'untrusted' | 'files' | 'network' | 'secrets' | 'channels' | 'audit', rows: ReactNode) => (
+  const group = (id: 'commands' | 'untrusted' | 'files' | 'network' | 'secrets' | 'channels', rows: ReactNode) => (
     <div className={sec.group}>
       <div className={sec.groupTitle}>{t(`settings:security.advanced.groups.${id}`)}</div>
-      {rows}
+      <div className={sec.panel}>{rows}</div>
     </div>
   )
 
   return (
     <div className={styles.settingsSection}>
-      <div className={styles.sectionHeader}>
-        <h3>{t('settings:security.title')}</h3>
-        <p>{t('settings:security.subtitle')}</p>
-      </div>
+      {header}
 
       {error && (
         <div className={`${styles.errorText} ${sec.error}`} role="alert">
@@ -238,78 +240,85 @@ export function SecuritySettings() {
         </div>
       )}
 
-      {/* Auto mode: off makes high-risk actions wait for an approval card */}
-      <div className={styles.settingsForm}>
-        <div className={styles.toggleGroup}>
-          <div className={styles.toggleInfo}>
-            <span className={styles.toggleLabel}>{t('settings:security.autoMode.label')}</span>
-            <span className={`${styles.toggleDesc} ${styles.readableDesc}`}>
-              {policy.auto_mode ? t('settings:security.autoMode.on') : t('settings:security.autoMode.off')}
+      {/* Auto mode; off, chosen actions wait for an approval card */}
+      <div className={sec.panel}>
+        <div className={sec.item}>
+          <div className={sec.row}>
+            <span className={sec.rowText}>
+              <span className={sec.rowLabel}>{t('settings:security.autoMode.label')}</span>
+              <span className={sec.rowDesc}>{t('settings:security.autoMode.desc')}</span>
             </span>
+            <input
+              type="checkbox"
+              className={styles.toggle}
+              aria-label={t('settings:security.autoMode.label')}
+              checked={policy.auto_mode}
+              onChange={e => update('auto_mode', e.target.checked)}
+            />
           </div>
-          <input
-            type="checkbox"
-            className={styles.toggle}
-            aria-label={t('settings:security.autoMode.label')}
-            checked={policy.auto_mode}
-            onChange={e => update('auto_mode', e.target.checked)}
-          />
         </div>
-
         {!policy.auto_mode && (
-          <div className={sec.askPanel}>
-            <span className={sec.askTitle}>{t('settings:security.autoMode.askTitle')}</span>
-            {EFFECTS.map(effect => (
-              <label key={effect} className={styles.checkboxRow}>
-                <input
-                  type="checkbox"
-                  checked={policy.approval_effects.includes(effect)}
-                  onChange={e => toggleEffect(effect, e.target.checked)}
-                />
-                <span className={styles.checkboxText}>
-                  <span className={styles.checkboxLabel}>{t(`settings:security.effects.${effect}`)}</span>
-                </span>
-              </label>
-            ))}
-            <div className={sec.askDivider} />
-            <label className={styles.checkboxRow}>
-              <input
-                type="checkbox"
-                checked={policy.ask_after_untrusted}
-                onChange={e => update('ask_after_untrusted', e.target.checked)}
-              />
-              <span className={styles.checkboxText}>
-                <span className={styles.checkboxLabel}>{t('settings:security.autoMode.askAfterUntrusted')}</span>
-                <span className={styles.checkboxHint}>{t('settings:security.autoMode.askAfterUntrustedHint')}</span>
-              </span>
-            </label>
-            <div className={sec.askDivider} />
-            <div className={sec.inlineField}>
-              <span className={styles.checkboxText}>
-                <label htmlFor="security-approval-timeout" className={styles.checkboxLabel}>
+          <>
+            <div className={sec.item}>
+              <div className={sec.askTitle}>{t('settings:security.autoMode.askTitle')}</div>
+              <div className={sec.askGrid}>
+                {EFFECTS.map(effect => (
+                  <label key={effect} className={sec.check}>
+                    <input
+                      type="checkbox"
+                      checked={policy.approval_effects.includes(effect)}
+                      onChange={e => toggleEffect(effect, e.target.checked)}
+                    />
+                    <span>{t(`settings:security.effects.${effect}`)}</span>
+                  </label>
+                ))}
+                <label className={sec.check}>
+                  <input
+                    type="checkbox"
+                    checked={policy.ask_after_untrusted}
+                    onChange={e => update('ask_after_untrusted', e.target.checked)}
+                  />
+                  <span>{t('settings:security.autoMode.askAfterUntrusted')}</span>
+                </label>
+              </div>
+            </div>
+            <div className={sec.item}>
+              <div className={sec.row}>
+                <label htmlFor="security-approval-timeout" className={sec.rowLabel}>
                   {t('settings:security.autoMode.timeout')}
                 </label>
-                <span className={styles.checkboxHint}>{t('settings:security.autoMode.timeoutHint')}</span>
-              </span>
-              <select
-                id="security-approval-timeout"
-                value={policy.approval_timeout_s}
-                onChange={e => update('approval_timeout_s', Number(e.target.value))}
-              >
-                {timeoutOptions.map(seconds => (
-                  <option key={seconds} value={seconds}>{formatTimeout(seconds)}</option>
-                ))}
-              </select>
+                <select
+                  id="security-approval-timeout"
+                  className={sec.select}
+                  value={policy.approval_timeout_s}
+                  onChange={e => update('approval_timeout_s', Number(e.target.value))}
+                >
+                  {withCurrent(TIMEOUT_OPTIONS, policy.approval_timeout_s).map(seconds => (
+                    <option key={seconds} value={seconds}>{formatTimeout(seconds)}</option>
+                  ))}
+                </select>
+              </div>
             </div>
-          </div>
+          </>
         )}
       </div>
 
-      {/* Level: presets over the protections below */}
+      {/* Level: presets over the protections under Advanced */}
       <div className={styles.subsection}>
-        <h4 className={styles.subsectionTitle}>{t('settings:security.level.title')}</h4>
-        <p className={styles.subsectionDesc}>{t('settings:security.level.desc')}</p>
-        <div className={sec.levelGrid} role="radiogroup" aria-label={t('settings:security.level.aria')}>
+        <div className={sec.titleRow}>
+          <h4 className={styles.subsectionTitle}>{t('settings:security.level.title')}</h4>
+          {policy.customized && (
+            <Button
+              variant="ghost"
+              size="sm"
+              icon={<RotateCcw size={14} />}
+              onClick={() => send('security_set_level', { level: policy.level })}
+            >
+              {t('settings:security.level.reset')}
+            </Button>
+          )}
+        </div>
+        <div className={sec.levelGrid} role="radiogroup" aria-label={t('settings:security.level.title')}>
           {LEVELS.map(level => {
             const active = policy.level === level
             const Icon = LEVEL_ICONS[level]
@@ -330,36 +339,13 @@ export function SecuritySettings() {
                   )}
                 </span>
                 <span className={sec.levelDesc}>{t(`settings:security.level.${level}.desc`)}</span>
-                <span className={sec.levelNotice}>
-                  <span className={sec.levelNoticeLabel}>{t('settings:security.level.noticeLabel')}</span>{' '}
-                  {t(`settings:security.level.${level}.notice`)}
-                </span>
               </button>
             )
           })}
         </div>
-        {policy.customized && (
-          <div className={sec.customRow}>
-            <span className={sec.customText}>
-              {changedSettings.length > 0 &&
-                t('settings:security.level.changed', {
-                  level: levelName(policy.level),
-                  settings: formatList(changedSettings),
-                })}
-            </span>
-            <Button
-              variant="secondary"
-              size="sm"
-              icon={<RotateCcw size={14} />}
-              onClick={() => send('security_set_level', { level: policy.level })}
-            >
-              {t('settings:security.level.reset', { level: levelName(policy.level) })}
-            </Button>
-          </div>
-        )}
       </div>
 
-      {/* Advanced: every protection on its own */}
+      {/* Advanced: each protection on its own */}
       <div className={styles.advancedSection}>
         <button
           type="button"
@@ -373,40 +359,49 @@ export function SecuritySettings() {
         </button>
         {showAdvanced && (
           <div className={styles.advancedContent}>
-            <p className={styles.hint}>{t('settings:security.advanced.desc')}</p>
             {group('commands', toggleRow('block_destructive_commands'))}
             {group('untrusted', <>
               {toggleRow('mark_untrusted_content')}
               {toggleRow('verify_mcp_servers')}
             </>)}
             {group('files', <>
-              {toggleRow('protect_secret_files')}
-              {listRow('extra_protected_paths')}
-              {toggleRow('confine_writes')}
-              {listRow('workspace_paths')}
+              {toggleRow('protect_secret_files', 'extra_protected_paths')}
+              {toggleRow('confine_writes', 'workspace_paths')}
             </>)}
             {group('network', <>
-              {toggleRow('network_guard')}
-              {listRow('allowed_domains')}
+              {toggleRow('network_guard', 'allowed_domains')}
               {toggleRow('third_party_reader')}
             </>)}
             {group('secrets', <>
               {toggleRow('scrub_child_env')}
               {toggleRow('redact_logs')}
               {toggleRow('log_prompts')}
-              <RetentionField days={policy.retention_days} onSave={days => update('retention_days', days)} />
+              <div className={sec.item}>
+                <div className={sec.row}>
+                  <label htmlFor="security-retention" className={sec.rowLabel}>{label('retention_days')}</label>
+                  <select
+                    id="security-retention"
+                    className={sec.select}
+                    value={policy.retention_days}
+                    onChange={e => update('retention_days', Number(e.target.value))}
+                  >
+                    {withCurrent(RETENTION_OPTIONS, policy.retention_days).map(days => (
+                      <option key={days} value={days}>{formatRetention(days)}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
             </>)}
             {group('channels', <>
               {toggleRow('strict_channel_identity')}
-              {listRow('email_allowed_senders')}
+              <div className={sec.item}>{listField('email_allowed_senders')}</div>
             </>)}
-            {group('audit', toggleRow('audit_log'))}
           </div>
         )}
       </div>
 
       <SecurityCheckSection send={send} onMessage={onMessage} />
-      <AuditLogSection send={send} onMessage={onMessage} auditOn={policy.audit_log} />
+      <AuditLogSection send={send} onMessage={onMessage} toggle={switchFor('audit_log')} />
 
       <ConfirmModal {...confirmModalProps} />
     </div>
@@ -417,14 +412,15 @@ export function SecuritySettings() {
 
 interface ListFieldProps {
   label: string
-  help: string
+  nested: boolean
   placeholder: string
+  emptyText?: string
   items: string[]
   onChange: (items: string[]) => void
 }
 
-/** Paths or domains: remove any entry, add one at a time. */
-function ListField({ label, help, placeholder, items, onChange }: ListFieldProps) {
+/** Paths, domains or addresses: entries as chips, then an add box. */
+function ListField({ label, nested, placeholder, emptyText, items, onChange }: ListFieldProps) {
   const { t } = useTranslation(['settings'])
   const [draft, setDraft] = useState('')
   const [duplicate, setDuplicate] = useState(false)
@@ -448,32 +444,27 @@ function ListField({ label, help, placeholder, items, onChange }: ListFieldProps
   }
 
   return (
-    <div className={sec.listField}>
-      <div className={sec.fieldText}>
-        <span className={styles.toggleLabel}>{label}</span>
-        <span className={styles.toggleDesc}>{help}</span>
+    <div className={`${sec.list} ${nested ? sec.listNested : ''}`}>
+      <div className={sec.row}>
+        <span className={nested ? sec.listLabel : sec.rowLabel}>{label}</span>
+        {items.length === 0 && emptyText && <span className={sec.chipEmpty}>{emptyText}</span>}
       </div>
-      {items.length > 0 ? (
-        <div className={sec.listItems}>
-          {items.map(item => (
-            <div key={item} className={sec.listItem}>
-              <span className={sec.listValue} title={item}>{item}</span>
-              <button
-                type="button"
-                className={sec.listRemove}
-                aria-label={t('settings:security.list.remove', { item })}
-                title={t('settings:security.list.remove', { item })}
-                onClick={() => onChange(items.filter(i => i !== item))}
-              >
-                <X size={14} />
-              </button>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <span className={sec.listEmpty}>{t('settings:security.list.empty')}</span>
-      )}
-      <div className={sec.listAddRow}>
+      <div className={sec.chips}>
+        {items.map(item => (
+          <span key={item} className={sec.chip} title={item}>
+            <span className={sec.chipValue}>{item}</span>
+            <button
+              type="button"
+              className={sec.chipRemove}
+              aria-label={t('settings:security.list.remove', { item })}
+              onClick={() => onChange(items.filter(i => i !== item))}
+            >
+              <X size={12} />
+            </button>
+          </span>
+        ))}
+      </div>
+      <div className={sec.addRow}>
         <input
           type="text"
           value={draft}
@@ -485,61 +476,16 @@ function ListField({ label, help, placeholder, items, onChange }: ListFieldProps
           }}
           onKeyDown={onKeyDown}
         />
-        <Button variant="secondary" size="sm" icon={<Plus size={14} />} onClick={add} disabled={!draft.trim()}>
-          {t('settings:security.list.add')}
-        </Button>
+        <Button
+          variant="secondary"
+          size="sm"
+          icon={<Plus size={14} />}
+          onClick={add}
+          disabled={!draft.trim()}
+          aria-label={t('settings:security.list.add')}
+        />
       </div>
       {duplicate && <span className={styles.formError}>{t('settings:security.list.duplicate')}</span>}
-    </div>
-  )
-}
-
-// ── Data retention ─────────────────────────────────────────────────
-
-/** Days to keep data (0 keeps everything); saved on Enter or leaving the box. */
-function RetentionField({ days, onSave }: { days: number; onSave: (days: number) => void }) {
-  const { t } = useTranslation(['settings'])
-  const draft = useServerDraft(String(days))
-
-  const commit = () => {
-    if (!draft.isDirty) return
-    const value = Number(draft.value.trim())
-    if (draft.value.trim() === '' || !Number.isInteger(value) || value < 0) {
-      draft.acceptRemote()
-      return
-    }
-    onSave(value)
-    draft.reset()
-  }
-
-  return (
-    <div className={sec.fieldRow}>
-      <div className={sec.fieldText}>
-        <label htmlFor="security-retention-days" className={styles.toggleLabel}>
-          {t('settings:security.fields.retention_days.label')}
-        </label>
-        <span className={styles.toggleDesc}>{t('settings:security.fields.retention_days.help')}</span>
-      </div>
-      <span className={`${sec.inlineField} ${sec.inlineControl}`}>
-        <input
-          id="security-retention-days"
-          type="number"
-          min={0}
-          step={1}
-          inputMode="numeric"
-          className={sec.numberInput}
-          value={draft.value}
-          onChange={e => draft.set(e.target.value)}
-          onBlur={commit}
-          onKeyDown={e => {
-            if (e.key === 'Enter') {
-              e.preventDefault()
-              commit()
-            }
-          }}
-        />
-        <span className={sec.unit}>{t('settings:security.fields.retention_days.unit')}</span>
-      </span>
     </div>
   )
 }
@@ -577,13 +523,10 @@ function SecurityCheckSection({ send, onMessage }: { send: Send; onMessage: OnMe
 
   return (
     <div className={styles.subsection}>
-      <div className={styles.subsectionHeader}>
-        <div>
-          <h4 className={styles.subsectionTitle}>{t('settings:security.check.title')}</h4>
-          <p className={styles.subsectionDesc}>{t('settings:security.check.desc')}</p>
-        </div>
+      <div className={sec.titleRow}>
+        <h4 className={styles.subsectionTitle}>{t('settings:security.check.title')}</h4>
         <Button
-          variant="secondary"
+          variant="ghost"
           size="sm"
           onClick={runAgain}
           disabled={busy !== null}
@@ -603,20 +546,22 @@ function SecurityCheckSection({ send, onMessage }: { send: Send; onMessage: OnMe
           <p>{t('settings:security.check.empty')}</p>
         </div>
       ) : (
-        <div className={sec.checkList}>
+        <div className={sec.panel}>
           {checks.map(check => {
             const status = check.status in CHECK_ICONS ? check.status : 'info'
             const Icon = CHECK_ICONS[status]
+            // Passing checks speak for themselves; only problems say more.
+            const showDetail = (status === 'warn' || status === 'fail') && check.detail
             return (
-              <div key={check.id} className={sec.checkItem}>
+              <div key={check.id} className={`${sec.item} ${sec.checkItem}`}>
                 <Icon
                   size={16}
                   className={`${sec.checkIcon} ${sec[`status_${status}`]}`}
                   aria-label={t(`settings:security.check.status.${status}`)}
                 />
                 <div className={sec.checkText}>
-                  <span className={sec.checkTitle}>{check.title}</span>
-                  <span className={sec.checkDetail}>{check.detail}</span>
+                  <span className={sec.rowLabel}>{check.title}</span>
+                  {showDetail && <span className={sec.rowDesc}>{check.detail}</span>}
                 </div>
                 {check.fix_id && (
                   <Button
@@ -642,7 +587,7 @@ function SecurityCheckSection({ send, onMessage }: { send: Send; onMessage: OnMe
 
 // ── Audit log ──────────────────────────────────────────────────────
 
-function AuditLogSection({ send, onMessage, auditOn }: { send: Send; onMessage: OnMessage; auditOn: boolean }) {
+function AuditLogSection({ send, onMessage, toggle }: { send: Send; onMessage: OnMessage; toggle: ReactNode }) {
   const { t } = useTranslation(['settings'])
   useResource(RESOURCES.securityAudit)
   const audit = useAppSelector(state => state.security.audit)
@@ -659,84 +604,80 @@ function AuditLogSection({ send, onMessage, auditOn }: { send: Send; onMessage: 
 
   return (
     <div className={styles.subsection}>
-      <div className={styles.subsectionHeader}>
-        <div>
-          <h4 className={styles.subsectionTitle}>{t('settings:security.audit.title')}</h4>
-          <p className={styles.subsectionDesc}>{t('settings:security.audit.desc')}</p>
-        </div>
+      <div className={sec.titleRow}>
+        <h4 className={styles.subsectionTitle}>{t('settings:security.audit.title')}</h4>
+        {audit && audit.count > 0 && (
+          audit.intact ? (
+            <Badge variant="success">{t('settings:security.audit.intact', { count: audit.count })}</Badge>
+          ) : (
+            <Badge variant="error">
+              {t('settings:security.audit.broken', { line: formatNumber(audit.brokenAt ?? 0) })}
+            </Badge>
+          )
+        )}
+        <span className={sec.titleSpacer} />
         <Button
-          variant="secondary"
+          variant="ghost"
           size="sm"
           onClick={refresh}
           disabled={refreshing}
+          aria-label={t('settings:security.audit.refresh')}
           icon={<RefreshCw size={14} className={refreshing ? styles.spinning : undefined} />}
-        >
-          {t('settings:security.audit.refresh')}
-        </Button>
+        />
+        {toggle}
       </div>
-
-      {!auditOn && <div className={sec.auditNote}>{t('settings:security.audit.off')}</div>}
 
       {!audit ? (
         <div className={styles.loadingState}>
           <Loader2 size={20} className={styles.spinning} />
           <span>{t('settings:security.audit.loading')}</span>
         </div>
+      ) : entries.length === 0 ? (
+        <div className={styles.emptyState}>
+          <p>{t('settings:security.audit.empty')}</p>
+        </div>
       ) : (
         <>
-          {(audit.count > 0 || !audit.intact) && (
-            <div className={sec.auditSummary}>
-              {audit.intact ? (
-                <Badge variant="success">{t('settings:security.audit.intact', { count: audit.count })}</Badge>
-              ) : (
-                <Badge variant="error">
-                  {t('settings:security.audit.broken', { line: formatNumber(audit.brokenAt ?? 0) })}
-                </Badge>
-              )}
-              {audit.entries.length > entries.length && (
-                <span className={sec.auditCount}>
-                  {t('settings:security.audit.showing', {
-                    shown: formatNumber(entries.length),
-                    total: formatNumber(audit.count),
-                  })}
-                </span>
-              )}
-            </div>
-          )}
-          {entries.length === 0 ? (
-            <div className={styles.emptyState}>
-              <p>{t('settings:security.audit.empty')}</p>
-            </div>
-          ) : (
-            <div className={sec.auditList}>
-              {entries.map((entry, index) => {
-                const fields = Object.entries(entry).filter(([key]) => !AUDIT_HIDDEN_FIELDS.has(key))
-                return (
-                  <div key={`${entry.ts}-${index}`} className={sec.auditEntry}>
-                    <span className={sec.auditTime}>
-                      {formatDateTime(new Date(entry.ts * 1000), {
-                        month: 'short',
-                        day: 'numeric',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                        second: '2-digit',
-                        hourCycle: 'h23',
-                      })}
-                    </span>
-                    <span className={sec.auditEvent}>{auditEventLabel(entry.event)}</span>
-                    {fields.length > 0 && (
-                      <span className={sec.auditFields}>
-                        {fields.map(([key, value]) => (
+          <div className={sec.auditList}>
+            {entries.map((entry, index) => {
+              const fields = Object.entries(entry).filter(([key]) => !AUDIT_HIDDEN_FIELDS.has(key))
+              return (
+                <div key={`${entry.ts}-${index}`} className={sec.auditEntry}>
+                  <span className={sec.auditTime}>
+                    {formatDateTime(new Date(entry.ts * 1000), {
+                      month: 'short',
+                      day: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                      second: '2-digit',
+                      hourCycle: 'h23',
+                    })}
+                  </span>
+                  <span className={sec.auditEvent}>{auditEventLabel(entry.event)}</span>
+                  {fields.length > 0 && (
+                    <span className={sec.auditFields}>
+                      {fields.map(([key, value]) =>
+                        key === 'changed' && Array.isArray(value) ? (
+                          <span key={key} className={sec.auditChanged}>{value.map(v => settingLabel(String(v))).join(', ')}</span>
+                        ) : (
                           <span key={key}>
                             <span className={sec.auditFieldKey}>{key}:</span> {auditValue(value)}
                           </span>
-                        ))}
-                      </span>
-                    )}
-                  </div>
-                )
+                        ),
+                      )}
+                    </span>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+          {audit.entries.length > entries.length && (
+            <span className={sec.auditCount}>
+              {t('settings:security.audit.showing', {
+                shown: formatNumber(entries.length),
+                total: formatNumber(audit.count),
               })}
-            </div>
+            </span>
           )}
         </>
       )}

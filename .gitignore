@@ -151,6 +151,7 @@ agent_file_system/*.local-backup
 /app/config/mcp_config.json
 /app/config/scheduler_config.json
 /app/config/skills_config.json
+/app/config/security.json
 /agent_file_system/MEMORY.md
 /agent_file_system/ENTITIES.md
 /agent_file_system/PROACTIVE.md

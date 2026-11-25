@@ -48,24 +48,23 @@ def _check_secret_files() -> CheckResult:
         return CheckResult(
             "secret_files_private",
             "ok",
-            "Secret files are private",
-            "Windows keeps them in your user profile, which other users cannot read.",
+            "Key files are private",
+            "",
         )
     exposed = [p for p in secret_files() if not is_private(p)]
     if not exposed:
         return CheckResult(
             "secret_files_private",
             "ok",
-            "Secret files are private",
-            "API keys, credentials and security settings are readable by your user only.",
+            "Key files are private",
+            "",
         )
     names = ", ".join(p.name for p in exposed[:5])
     return CheckResult(
         "secret_files_private",
         "fail",
-        "Secret files are readable by other users",
-        f"{len(exposed)} file(s) holding keys or credentials can be read by other "
-        f"accounts on this computer: {names}.",
+        "Key files are readable by other users",
+        names,
         fix_id="secret_files_private",
     )
 
@@ -84,15 +83,14 @@ def _check_bind_address() -> CheckResult:
         return CheckResult(
             "ui_local_only",
             "ok",
-            "The CraftBot window is only reachable from this computer",
-            f"The interface listens on {host}.",
+            "Interface is local only",
+            "",
         )
     return CheckResult(
         "ui_local_only",
         "warn",
-        "The CraftBot window is reachable from the network",
-        f"The interface listens on {host}, and CraftBot has no login of its own. "
-        f"Publish its ports on 127.0.0.1 only, or put a login proxy in front of it.",
+        "Interface is open to the network",
+        f"Listening on {host} with no login. Bind it to 127.0.0.1 or add a login proxy.",
     )
 
 
@@ -106,24 +104,22 @@ def _check_audit_chain() -> CheckResult:
         return CheckResult(
             "audit_log_intact",
             "ok" if enabled else "info",
-            "Security audit log",
-            "Enabled; nothing recorded yet."
-            if enabled
-            else "Off. The Enhanced and Strict levels turn it on.",
+            "Audit log is on" if enabled else "Audit log is off",
+            "",
         )
     intact, count, broken = log.verify()
     if intact:
         return CheckResult(
             "audit_log_intact",
             "ok",
-            "Security audit log is intact",
-            f"{count} record(s), none changed or removed.",
+            "Audit log is intact",
+            "",
         )
     return CheckResult(
         "audit_log_intact",
         "fail",
-        "Security audit log was changed",
-        f"The record chain breaks at line {broken}: a record was edited or removed.",
+        "Audit log was changed",
+        f"A record was edited or removed at line {broken}.",
     )
 
 
@@ -136,16 +132,14 @@ def _check_level() -> CheckResult:
             "security_level",
             "info",
             "Security level: Standard",
-            "CraftBot works as it always has. Enhanced keeps the agent away from "
-            "your keys, checks every web request and marks outside content, with "
-            "few prompts.",
+            "",
         )
     return CheckResult(
         "security_level",
         "ok",
         f"Security level: {policy.level.value.title()}"
-        + (" (customized)" if policy.customized else ""),
-        "Protections beyond Standard are on.",
+        + (" (custom)" if policy.customized else ""),
+        "",
     )
 
 
@@ -157,14 +151,13 @@ def _check_auto_mode() -> CheckResult:
             "auto_mode",
             "info",
             "Auto mode is on",
-            "The agent acts without asking. Turn it off to approve high-risk "
-            "actions, such as running commands or sending messages, before they run.",
+            "",
         )
     return CheckResult(
         "auto_mode",
         "ok",
         "Auto mode is off",
-        "High-risk actions wait for your approval.",
+        "",
     )
 
 
@@ -176,24 +169,22 @@ def _check_mcp_changes() -> CheckResult:
         return CheckResult(
             "mcp_servers_unchanged",
             "info",
-            "MCP servers start as configured",
-            "Any change to an MCP server's command takes effect on the next start. "
-            "Enhanced and Strict start only servers saved in Settings.",
+            "MCP servers aren't verified",
+            "",
         )
     changed = mcp_trust.changed_servers()
     if not changed:
         return CheckResult(
             "mcp_servers_unchanged",
             "ok",
-            "MCP servers match what was saved in Settings",
-            "No server's command was changed outside CraftBot's settings.",
+            "MCP servers are unchanged",
+            "",
         )
     return CheckResult(
         "mcp_servers_unchanged",
         "warn",
-        "MCP servers were changed outside Settings",
-        f"Not started until you confirm them: {', '.join(changed)}. Fix trusts them "
-        f"as they are now; review their commands in Settings > MCP first.",
+        "MCP servers changed outside Settings",
+        f"Paused until you confirm: {', '.join(changed)}. Review them in Settings > MCP, then Fix.",
         fix_id="mcp_servers_unchanged",
     )
 
@@ -204,16 +195,13 @@ def _check_mcp_pins() -> CheckResult:
     unpinned = mcp_pins.unpinned_servers(mcp_trust._configured_servers())
     if not unpinned:
         return CheckResult(
-            "mcp_packages_pinned", "ok", "MCP packages have fixed versions",
-            "No enabled MCP server downloads a different package version on its own.",
+            "mcp_packages_pinned", "ok", "MCP packages are pinned", "",
         )
     shown = ", ".join(f"{name} ({spec})" for name, spec in unpinned[:5])
     more = f" and {len(unpinned) - 5} more" if len(unpinned) > 5 else ""
     return CheckResult(
-        "mcp_packages_pinned", "warn", "Some MCP servers run the newest package version",
-        f"These download whatever version is newest at each start, so a change by the "
-        f"package's publisher runs here without review: {shown}{more}. Add a version "
-        f"in Settings > MCP, for example package@1.2.3 or package==1.2.3.",
+        "mcp_packages_pinned", "warn", "MCP packages aren't pinned",
+        f"{shown}{more}. Add a version in Settings > MCP.",
     )
 
 
@@ -233,18 +221,16 @@ def runtime_secret_files() -> List[Path]:
 def _check_runtime_files() -> CheckResult:
     if os.name == "nt":
         return CheckResult(
-            "runtime_files_private", "ok", "Session and audit files are private",
-            "Windows keeps them in your user profile.",
+            "runtime_files_private", "ok", "Session and audit files are private", "",
         )
     exposed = [p for p in runtime_secret_files() if not is_private(p)]
     if not exposed:
         return CheckResult(
-            "runtime_files_private", "ok", "Session and audit files are private",
-            "The session token, audit log and MCP trust records are readable by your user only.",
+            "runtime_files_private", "ok", "Session and audit files are private", "",
         )
     return CheckResult(
         "runtime_files_private", "fail", "Session or audit files are readable by other users",
-        f"{len(exposed)} file(s): {', '.join(p.name for p in exposed[:5])}.",
+        ", ".join(p.name for p in exposed[:5]),
         fix_id="runtime_files_private",
     )
 
@@ -254,13 +240,10 @@ def _check_prompt_logging() -> CheckResult:
 
     if get_policy().log_prompts:
         return CheckResult(
-            "prompts_not_logged", "info", "Full prompts are written to the logs",
-            "Useful for debugging, but the logs then hold your conversations and "
-            "anything the agent read. Enhanced and Strict turn this off.",
+            "prompts_not_logged", "info", "Full prompts are logged", "",
         )
     return CheckResult(
-        "prompts_not_logged", "ok", "Prompts stay out of the logs",
-        "Only metadata about AI calls is recorded.",
+        "prompts_not_logged", "ok", "Prompts aren't logged", "",
     )
 
 
@@ -269,13 +252,10 @@ def _check_web_guard() -> CheckResult:
 
     if get_policy().network_guard:
         return CheckResult(
-            "web_requests_public_only", "ok", "Web requests reach public sites only",
-            "This computer, the local network and cloud metadata services are refused.",
+            "web_requests_public_only", "ok", "Local network is blocked", "",
         )
     return CheckResult(
-        "web_requests_public_only", "info", "Web requests are checked on the first request only",
-        "A redirect can still lead the agent's web tools into your local network. "
-        "Enhanced and Strict check every redirect.",
+        "web_requests_public_only", "info", "Local network isn't blocked", "",
     )
 
 
@@ -287,27 +267,23 @@ def _check_inbox() -> CheckResult:
 
     policy = get_policy()
     if not has_credential(gmail.GmailClient.spec.cred_file):
-        return CheckResult("inbox_reaches_agent", "ok", "No inbox connected", "Gmail is not connected.")
+        return CheckResult("inbox_reaches_agent", "ok", "No inbox connected", "")
     cfg = load_config(gmail._gmail_config_file(), gmail.GmailConfig) or gmail.GmailConfig()
     if not cfg.process_incoming:
         return CheckResult(
-            "inbox_reaches_agent", "ok", "Incoming email does not reach the agent",
-            "Gmail is connected with incoming processing off.",
+            "inbox_reaches_agent", "ok", "Email doesn't reach the agent", "",
         )
     if policy.email_allowed_senders:
         return CheckResult(
-            "inbox_reaches_agent", "ok", "Only listed senders' email reaches the agent",
-            f"{len(policy.email_allowed_senders)} sender(s) allowed.",
+            "inbox_reaches_agent", "ok", "Only allowed senders reach the agent", "",
         )
     if policy.auto_mode:
         return CheckResult(
-            "inbox_reaches_agent", "warn", "Every email in your inbox reaches the agent",
-            "Anyone can send you an email, and with Auto mode on the agent can act on "
-            "what it asks. Turn Auto mode off, or list the senders under Channels.",
+            "inbox_reaches_agent", "warn", "Every email reaches the agent",
+            "Anyone can email you while Auto mode is on. Turn it off or add allowed senders.",
         )
     return CheckResult(
-        "inbox_reaches_agent", "info", "Every email in your inbox reaches the agent",
-        "Auto mode is off, so actions after reading an email wait for your approval.",
+        "inbox_reaches_agent", "info", "Every email reaches the agent", "",
     )
 
 
@@ -318,7 +294,7 @@ def _check_discord() -> CheckResult:
     from app.security.policy import get_policy
 
     if not has_credential(discord.DiscordClient.spec.cred_file):
-        return CheckResult("discord_senders_limited", "ok", "Discord is not connected", "")
+        return CheckResult("discord_senders_limited", "ok", "Discord isn't connected", "")
     cfg = load_config(discord._discord_config_file(), discord.DiscordConfig) or discord.DiscordConfig()
     lists = (
         cfg.self_usernames,
@@ -330,13 +306,11 @@ def _check_discord() -> CheckResult:
     )
     if cfg.mention_only or any(lists) or get_policy().strict_channel_identity:
         return CheckResult(
-            "discord_senders_limited", "ok", "Discord messages are limited",
-            "The bot needs a mention, or only listed people reach the agent.",
+            "discord_senders_limited", "ok", "Discord messages are limited", "",
         )
     return CheckResult(
-        "discord_senders_limited", "warn", "Every Discord message the bot sees reaches the agent",
-        "Anyone in any server or channel the bot is in can write to the agent. Require a "
-        "mention or list who may, in Settings > Integrations > Discord.",
+        "discord_senders_limited", "warn", "Every Discord message reaches the agent",
+        "Require a mention or list who may write, in Settings > Integrations > Discord.",
     )
 
 

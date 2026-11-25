@@ -125,39 +125,49 @@ export function SecurityTab() {
       id: 'auto_mode',
       label: t('security.autoMode'),
       value: policy.auto_mode,
-      detail: policy.auto_mode ? t('security.autoModeOn') : t('security.autoModeOff'),
       onChange: on => update({ auto_mode: on }),
     })
     if (!policy.auto_mode) {
       rows.push({ kind: 'note', text: t('security.askFirst') })
-      for (const effect of APPROVAL_EFFECTS) {
-        const on = policy.approval_effects.includes(effect)
-        const toggle = () => update({ approval_effects: withEffect(policy.approval_effects, effect, !on) })
+      const choices = [
+        ...APPROVAL_EFFECTS.map(effect => {
+          const on = policy.approval_effects.includes(effect)
+          return {
+            id: `effect:${effect}`,
+            on,
+            text: t(`security.effects.${effect}`),
+            toggle: () => update({ approval_effects: withEffect(policy.approval_effects, effect, !on) }),
+          }
+        }),
+        {
+          id: 'ask_after_untrusted',
+          on: policy.ask_after_untrusted,
+          text: t('security.askAfterUntrusted'),
+          toggle: () => update({ ask_after_untrusted: !policy.ask_after_untrusted }),
+        },
+      ]
+      for (const choice of choices) {
         rows.push({
           kind: 'item',
-          id: `effect:${effect}`,
+          id: choice.id,
           cells: [
             { text: '  ', width: 2 },
-            { text: box(on), width: boxWidth, tone: on ? 'success' : 'muted' },
-            { text: t(`security.effects.${effect}`) },
+            { text: box(choice.on), width: boxWidth, tone: choice.on ? 'success' : 'muted' },
+            { text: choice.text },
           ],
           onKey: (input, key) => {
             if (!isSpaceOrEnter(input, key)) return false
-            toggle()
+            choice.toggle()
             return true
           },
           hints: [{ keys: 'Space', label: t('hint.toggle') }],
         })
       }
       rows.push({
-        kind: 'toggle',
-        id: 'ask_after_untrusted',
-        label: t('security.askAfterUntrusted'),
-        value: policy.ask_after_untrusted,
-        detail: t('security.askAfterUntrustedDetail'),
-        onChange: on => update({ ask_after_untrusted: on }),
+        kind: 'info',
+        label: t('security.timeout'),
+        value: t('security.minutes', { count: Math.max(1, Math.round(policy.approval_timeout_s / 60)) }),
       })
-      rows.push({ kind: 'note', text: t('security.approvalsNote', { minutes: Math.max(1, Math.round(policy.approval_timeout_s / 60)) }) })
     }
 
     // ── Level ──
@@ -166,6 +176,9 @@ export function SecurityTab() {
       text: t('security.levelTitle'),
       aside: policy.customized ? t('security.customAside', { level: levelName(policy.level) }) : levelName(policy.level),
     })
+    const levelLabel = (level: SecurityLevel) =>
+      level === policy.level && policy.customized ? `${levelName(level)} (${t('security.custom')})` : levelName(level)
+    const levelWidth = Math.max(...SECURITY_LEVELS.map(level => cells(levelLabel(level)))) + 3
     for (const level of SECURITY_LEVELS) {
       const current = level === policy.level
       rows.push({
@@ -173,7 +186,8 @@ export function SecurityTab() {
         id: `level:${level}`,
         cells: [
           { text: `${current ? g.radioOn : g.radioOff} `, width: radioWidth, tone: current ? 'brand' : 'muted' },
-          { text: current && policy.customized ? `${levelName(level)} (${t('security.custom')})` : levelName(level), bold: current },
+          { text: levelLabel(level), bold: current, width: levelWidth },
+          { text: t(`security.levels.${level}.description`), tone: 'muted' },
         ],
         onKey: (input, key) => {
           if (!isSpaceOrEnter(input, key)) return false
@@ -182,14 +196,8 @@ export function SecurityTab() {
         },
         hints: current && !policy.customized ? [] : [{ keys: 'Enter', label: t('security.hintChoose') }],
       })
-      rows.push({ kind: 'note', text: t(`security.levels.${level}.description`), indent: 2 + radioWidth })
     }
     if (policy.customized) {
-      rows.push({
-        kind: 'note',
-        text: t('security.customNote', { count: overrides.length, level: levelName(policy.level) }),
-        tone: 'warn',
-      })
       rows.push({
         kind: 'action',
         id: 'useDefaults',
@@ -204,7 +212,6 @@ export function SecurityTab() {
       kind: 'action',
       id: 'advanced',
       label: `${advanced ? g.expanded : g.chunk} ${advanced ? t('security.hideAdvanced') : t('security.showAdvanced')}`,
-      detail: advanced ? undefined : t('security.advancedDetail'),
       onRun: () => setAdvanced(v => !v),
     })
     if (advanced) {
@@ -215,8 +222,8 @@ export function SecurityTab() {
           id: name,
           label: t(`security.settings.${name}.label`),
           value: policy[name],
-          detail: changed ? `${t('security.changed')} ${g.sep} ${t(`security.settings.${name}.help`)}` : t(`security.settings.${name}.help`),
-          detailTone: changed ? 'warn' : 'muted',
+          detail: changed ? t('security.changed') : undefined,
+          detailTone: 'warn',
           onChange: on => update({ [name]: on }),
         })
       }
@@ -228,10 +235,8 @@ export function SecurityTab() {
         label: t('security.settings.retention_days.label'),
         value: String(days),
         display: days === 0 ? t('security.keepForever') : t('security.days', { count: days }),
-        detail: changed
-          ? `${t('security.changed')} ${g.sep} ${t('security.settings.retention_days.help')}`
-          : t('security.settings.retention_days.help'),
-        detailTone: changed ? 'warn' : 'muted',
+        detail: changed ? t('security.changed') : undefined,
+        detailTone: 'warn',
         onSubmit: v => {
           const next = parseRetentionDays(v)
           if (next === null) say(t('security.badDays'), 'warn')
@@ -283,7 +288,7 @@ export function SecurityTab() {
           : undefined,
         hints: fixId ? [{ keys: 'Enter', label: t('security.hintFix') }] : [],
       })
-      if (check.detail) rows.push({ kind: 'note', text: check.detail, indent: 2 + STATUS_WIDTH, maxLines: 3 })
+      if (check.detail && (check.status === 'warn' || check.status === 'fail')) rows.push({ kind: 'note', text: check.detail, indent: 2 + STATUS_WIDTH, maxLines: 3 })
     }
     rows.push({
       kind: 'action',
@@ -327,7 +332,6 @@ export function SecurityTab() {
 
     // ── Reset ──
     rows.push({ kind: 'heading', text: t('security.resetTitle') })
-    rows.push({ kind: 'note', text: t('security.resetDesc') })
     rows.push({
       kind: 'action',
       id: 'reset',

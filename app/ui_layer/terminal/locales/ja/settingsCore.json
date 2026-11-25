@@ -551,100 +551,83 @@
     "saveFailed": "セキュリティ設定を保存できませんでした",
     "approvalsTitle": "承認",
     "autoMode": "自動モード",
-    "autoModeOn": "エージェントは従来どおり確認せずに操作します",
-    "autoModeOff": "リスクの高い操作はあなたの承認を待ちます",
-    "askFirst": "次の操作の前に確認:",
+    "askFirst": "実行前に確認：",
     "effects": {
-      "execute": "コマンドやコードの実行",
-      "write_files": "ファイルの作成・変更",
-      "send_external": "メッセージの送信や外部サービスの変更",
-      "change_agent": "CraftBot 自体の設定・スケジュール・ツールの変更",
-      "use_credentials": "保存済みの認証情報の使用"
+      "execute": "コマンドの実行",
+      "write_files": "ファイルの変更",
+      "send_external": "メッセージの送信",
+      "change_agent": "CraftBot の設定変更",
+      "use_credentials": "保存済み認証情報の使用"
     },
-    "askAfterUntrusted": "外部コンテンツ",
-    "askAfterUntrustedDetail": "エージェントがウェブページ、メールなどの外部コンテンツを読んだ後は、どの操作の前にも確認します",
-    "approvalsNote": "承認はチャットに表示されます。{{minutes}} 分以内に応答がない場合は拒否として扱われます。",
+    "askAfterUntrusted": "外部コンテンツを読んだ後の操作",
+    "timeout": "未回答で自動拒否するまで",
+    "minutes_one": "{{count}} 分",
+    "minutes_other": "{{count}} 分",
     "levelTitle": "セキュリティレベル",
     "custom": "カスタム",
     "customAside": "カスタム（{{level}}）",
     "levels": {
       "standard": {
         "name": "標準",
-        "description": "従来どおりに動作します。"
+        "description": "追加の制限なし"
       },
       "enhanced": {
         "name": "強化",
-        "description": "エージェントをキーから遠ざけ、ウェブリクエストを確認し、外部コンテンツに印を付け、監査ログを記録します。確認はほとんどありません。"
+        "description": "キー、Web、コマンドを保護"
       },
       "strict": {
         "name": "厳格",
-        "description": "強化に加え、ファイルの書き込みはワークスペース内に限定、サードパーティのリーダーなし、保持期間を短縮します。"
+        "description": "ファイルもワークスペース内に制限"
       }
     },
     "hintChoose": "選択",
     "lowerConfirm": "セキュリティを {{level}} に下げますか？含まれない保護はオフになります。",
     "switchConfirm": "{{level}} に切り替えますか？カスタム設定はそのレベルのデフォルトに戻ります。",
     "useDefaultsConfirm": "カスタム設定を破棄して {{level}} のデフォルトを使用しますか？",
-    "customNote_one": "カスタム: {{level}} から {{count}} 件の設定を変更しています。",
-    "customNote_other": "カスタム: {{level}} から {{count}} 件の設定を変更しています。",
     "useDefaults": "{{level}} のデフォルトを使用",
     "advancedTitle": "詳細",
     "showAdvanced": "詳細設定を表示",
     "hideAdvanced": "詳細設定を隠す",
-    "advancedDetail": "各保護を個別に設定",
     "changed": "変更済み",
     "settings": {
       "mark_untrusted_content": {
-        "label": "外部コンテンツに印を付ける",
-        "help": "ウェブページ、メールなどの外部コンテンツは、指示ではなくデータとして印を付けてエージェントに渡されます"
+        "label": "外部コンテンツを信頼できないものとして扱う"
       },
       "protect_secret_files": {
-        "label": "機密ファイルを保護",
-        "help": "エージェントのファイルツールはキー、認証情報、セキュリティ設定を読み取りも変更もできません（コマンドは制限されません）"
+        "label": "キーファイルを保護"
       },
       "confine_writes": {
-        "label": "ファイルの書き込みを制限",
-        "help": "エージェントはワークスペースのフォルダー内でのみファイルを作成・変更します"
+        "label": "ファイルの変更をワークスペース内に限定"
       },
       "network_guard": {
-        "label": "ウェブリクエストを確認",
-        "help": "エージェントのウェブリクエストは公開サイトにのみ届きます。ローカルネットワークとすべてのリダイレクトを確認します"
+        "label": "ローカルネットワークへのリクエストをブロック"
       },
       "third_party_reader": {
-        "label": "サードパーティのリーダー",
-        "help": "ウェブページを外部の読み取りサービス経由で読み込むことがあります"
+        "label": "サードパーティのページリーダーを使用"
       },
       "scrub_child_env": {
-        "label": "ツールからキーを遠ざける",
-        "help": "MCP サーバーには基本設定のみ、コマンドには CraftBot のキーを除いた環境"
+        "label": "ツールから API キーを隠す"
       },
       "redact_logs": {
-        "label": "ログを伏せ字にする",
-        "help": "CraftBot 自身のキーと認証情報はログ内で伏せ字になります"
+        "label": "ログ内のシークレットを隠す"
       },
       "log_prompts": {
-        "label": "プロンプトを記録",
-        "help": "モデルに送信したプロンプト全文をログに書き込みます"
+        "label": "プロンプト全文を記録"
       },
       "strict_channel_identity": {
-        "label": "厳格な送信者確認",
-        "help": "Discord のオーナーはユーザー ID で識別（最初の一致で記録）、サーバーではメンションが必要"
+        "label": "Discord の厳格な本人確認"
       },
       "audit_log": {
-        "label": "監査ログ",
-        "help": "セキュリティ上の判断を改ざん検出可能な形で記録します"
+        "label": "監査ログ"
       },
       "retention_days": {
-        "label": "履歴の保持期間",
-        "help": "古いログファイルと記録された AI 呼び出しは削除され、チャットは保持されます。0 にするとすべて保持します"
+        "label": "ログの保存期間"
       },
       "verify_mcp_servers": {
-        "label": "保存どおりの MCP サーバーのみ",
-        "help": "設定以外で変更された MCP サーバーは確認を待ちます"
+        "label": "設定で保存した MCP サーバーのみ起動"
       },
       "block_destructive_commands": {
-        "label": "破壊的なコマンドをブロック",
-        "help": "取り消せないコマンド（最上位フォルダーの削除、ディスクへの書き込み）を拒否します"
+        "label": "破壊的なコマンドをブロック"
       }
     },
     "keepForever": "無期限",
@@ -652,13 +635,13 @@
     "days_other": "{{count}} 日",
     "badDays": "日数は 0 以上の整数で入力してください",
     "lists": {
-      "extra_protected_paths": "保護するパス",
-      "workspace_paths": "ワークスペースのフォルダー",
-      "allowed_domains": "これらのドメインのみ（空: すべての公開サイト）",
-      "email_allowed_senders": "メールの送信者を限定"
+      "extra_protected_paths": "追加で保護",
+      "workspace_paths": "追加のワークスペースフォルダー",
+      "allowed_domains": "許可するドメイン",
+      "email_allowed_senders": "許可するメール送信者"
     },
     "none": "なし",
-    "listsNote": "これらのリストはブラウザの 設定 > セキュリティ で編集します。",
+    "listsNote": "リストはブラウザーで編集します。",
     "checkTitle": "セキュリティチェック",
     "checkIssues_one": "確認が必要な項目 {{count}} 件",
     "checkIssues_other": "確認が必要な項目 {{count}} 件",
@@ -677,17 +660,16 @@
     "fixed": "修正しました",
     "fixFailed": "修正を適用できませんでした",
     "auditTitle": "監査ログ",
-    "auditOff": "オフです。詳細でオンにするか、強化または厳格を選択してください。",
+    "auditOff": "オフ",
     "auditLoading": "監査ログを読み込み中...",
     "auditRecords": "記録",
     "records_one": "{{count}} 件の記録",
     "records_other": "{{count}} 件の記録",
-    "auditIntact": "正常: 変更や削除はありません",
-    "auditBroken": "変更あり: {{line}} 行目でチェーンが途切れています",
+    "auditIntact": "改ざんなし",
+    "auditBroken": "{{line}} 行目で変更あり",
     "auditFile": "ファイル",
     "auditRefresh": "監査ログを更新",
     "resetTitle": "リセット",
-    "resetDesc": "自動モードをオンにした標準に戻し、パスとドメインのリストを空にします。",
     "reset": "セキュリティ設定をリセット",
     "resetConfirm": "すべてのセキュリティ設定を標準にリセットしますか？"
   }

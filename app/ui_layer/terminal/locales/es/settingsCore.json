@@ -551,100 +551,83 @@
     "saveFailed": "No se pudieron guardar los ajustes de seguridad",
     "approvalsTitle": "Aprobaciones",
     "autoMode": "Modo automático",
-    "autoModeOn": "el agente actúa sin preguntar, como antes",
-    "autoModeOff": "las acciones de alto riesgo esperan tu aprobación",
     "askFirst": "Preguntar antes de:",
     "effects": {
-      "execute": "Ejecutar comandos o código",
-      "write_files": "Crear o cambiar archivos",
-      "send_external": "Enviar mensajes o cambiar servicios externos",
-      "change_agent": "Cambiar la configuración, las programaciones o las herramientas de CraftBot",
+      "execute": "Ejecutar comandos",
+      "write_files": "Cambiar archivos",
+      "send_external": "Enviar mensajes",
+      "change_agent": "Cambiar la configuración de CraftBot",
       "use_credentials": "Usar credenciales guardadas"
     },
-    "askAfterUntrusted": "Contenido externo",
-    "askAfterUntrustedDetail": "preguntar antes de cualquier acción una vez que el agente haya leído páginas web, correos u otro contenido externo",
-    "approvalsNote": "Las aprobaciones aparecen en el chat. Si no respondes en {{minutes}} min, cuenta como Denegar.",
+    "askAfterUntrusted": "Actuar sobre contenido externo",
+    "timeout": "Denegar si no hay respuesta en",
+    "minutes_one": "{{count}} minuto",
+    "minutes_other": "{{count}} minutos",
     "levelTitle": "Nivel de seguridad",
     "custom": "Personalizado",
     "customAside": "Personalizado ({{level}})",
     "levels": {
       "standard": {
         "name": "Estándar",
-        "description": "Funciona exactamente igual que antes."
+        "description": "Sin límites adicionales"
       },
       "enhanced": {
         "name": "Reforzado",
-        "description": "Mantiene al agente lejos de tus claves, revisa las solicitudes web, marca el contenido externo y guarda un registro de auditoría. Rara vez pregunta."
+        "description": "Protege claves, web y comandos"
       },
       "strict": {
         "name": "Estricto",
-        "description": "Reforzado y, además, los archivos solo se escriben en el espacio de trabajo, sin lector de terceros y con una retención más corta."
+        "description": "Además, mantiene los archivos en el espacio de trabajo"
       }
     },
     "hintChoose": "elegir",
     "lowerConfirm": "¿Bajar la seguridad a {{level}}? Las protecciones que no incluye se desactivan.",
     "switchConfirm": "¿Cambiar a {{level}}? Tus ajustes personalizados vuelven a sus valores predeterminados.",
     "useDefaultsConfirm": "¿Descartar tus ajustes personalizados y usar los valores predeterminados de {{level}}?",
-    "customNote_one": "Personalizado: {{count}} ajuste cambiado sobre {{level}}.",
-    "customNote_other": "Personalizado: {{count}} ajustes cambiados sobre {{level}}.",
     "useDefaults": "Usar los valores predeterminados de {{level}}",
     "advancedTitle": "Avanzado",
     "showAdvanced": "Mostrar ajustes avanzados",
     "hideAdvanced": "Ocultar ajustes avanzados",
-    "advancedDetail": "cada protección por separado",
     "changed": "cambiado",
     "settings": {
       "mark_untrusted_content": {
-        "label": "Marcar contenido externo",
-        "help": "las páginas web, los correos y otro contenido externo llegan al agente marcados como datos, no como instrucciones"
+        "label": "Marcar el contenido externo como no confiable"
       },
       "protect_secret_files": {
-        "label": "Proteger archivos secretos",
-        "help": "las herramientas de archivos del agente no pueden leer ni cambiar claves, credenciales ni ajustes de seguridad (los comandos no se limitan)"
+        "label": "Proteger archivos de claves"
       },
       "confine_writes": {
-        "label": "Limitar la escritura de archivos",
-        "help": "el agente crea y cambia archivos solo dentro de las carpetas del espacio de trabajo"
+        "label": "Mantener los cambios de archivos en el espacio de trabajo"
       },
       "network_guard": {
-        "label": "Revisar solicitudes web",
-        "help": "las solicitudes web del agente solo llegan a sitios públicos; se revisan la red local y cada redirección"
+        "label": "Bloquear solicitudes a redes locales"
       },
       "third_party_reader": {
-        "label": "Lector de terceros",
-        "help": "las páginas web pueden leerse a través de un servicio lector externo"
+        "label": "Usar un lector de páginas externo"
       },
       "scrub_child_env": {
-        "label": "Mantener las claves fuera de las herramientas",
-        "help": "los servidores MCP reciben solo lo básico; los comandos, tu entorno sin las claves de CraftBot"
+        "label": "Ocultar las claves API a las herramientas"
       },
       "redact_logs": {
-        "label": "Ocultar datos en los registros",
-        "help": "las claves y credenciales propias de CraftBot se borran en los registros"
+        "label": "Ocultar secretos en los registros"
       },
       "log_prompts": {
-        "label": "Registrar prompts",
-        "help": "los prompts completos enviados al modelo se escriben en los registros"
+        "label": "Registrar los prompts completos"
       },
       "strict_channel_identity": {
-        "label": "Comprobación estricta del remitente",
-        "help": "los propietarios de Discord se reconocen por ID de usuario (se registra en la primera coincidencia); en servidores hay que mencionarlo"
+        "label": "Identidad estricta en Discord"
       },
       "audit_log": {
-        "label": "Registro de auditoría",
-        "help": "un registro a prueba de manipulaciones de las decisiones de seguridad"
+        "label": "Registro de auditoría"
       },
       "retention_days": {
-        "label": "Conservar el historial durante",
-        "help": "los archivos de registro y las llamadas a la IA grabadas más antiguos se eliminan; los chats se conservan; 0 lo conserva todo"
+        "label": "Conservar registros durante"
       },
       "verify_mcp_servers": {
-        "label": "Servidores MCP solo como se guardaron",
-        "help": "un servidor MCP cambiado fuera de Ajustes espera tu confirmación"
+        "label": "Iniciar solo servidores MCP guardados en Ajustes"
       },
       "block_destructive_commands": {
-        "label": "Bloquear comandos destructivos",
-        "help": "rechaza comandos que ninguna aprobación puede deshacer (borrar carpetas principales, escribir en discos)"
+        "label": "Bloquear comandos destructivos"
       }
     },
     "keepForever": "Para siempre",
@@ -652,13 +635,13 @@
     "days_other": "{{count}} días",
     "badDays": "Usa un número entero de días, 0 o más",
     "lists": {
-      "extra_protected_paths": "Rutas protegidas",
-      "workspace_paths": "Carpetas del espacio de trabajo",
-      "allowed_domains": "Solo estos dominios (vacío: cualquier sitio público)",
-      "email_allowed_senders": "Correo solo de"
+      "extra_protected_paths": "Proteger también",
+      "workspace_paths": "Carpetas de trabajo adicionales",
+      "allowed_domains": "Dominios permitidos",
+      "email_allowed_senders": "Remitentes de correo permitidos"
     },
     "none": "ninguno",
-    "listsNote": "Estas listas se editan en el navegador: Ajustes > Seguridad.",
+    "listsNote": "Edita las listas en el navegador.",
     "checkTitle": "Comprobación de seguridad",
     "checkIssues_one": "{{count}} para revisar",
     "checkIssues_other": "{{count}} para revisar",
@@ -677,17 +660,16 @@
     "fixed": "Corregido",
     "fixFailed": "No se aplicó la corrección",
     "auditTitle": "Registro de auditoría",
-    "auditOff": "Desactivado. Actívalo en Avanzado o elige Reforzado o Estricto.",
+    "auditOff": "Desactivado",
     "auditLoading": "Cargando el registro de auditoría...",
     "auditRecords": "Entradas",
     "records_one": "{{count}} entrada",
     "records_other": "{{count}} entradas",
-    "auditIntact": "intacto: ninguna entrada cambiada ni eliminada",
-    "auditBroken": "cambiado: la cadena se rompe en la línea {{line}}",
+    "auditIntact": "íntegro",
+    "auditBroken": "cambiado en la línea {{line}}",
     "auditFile": "Archivo",
     "auditRefresh": "Actualizar el registro de auditoría",
     "resetTitle": "Restablecer",
-    "resetDesc": "Vuelve a Estándar con el modo automático activado y las listas de rutas y dominios vacías.",
     "reset": "Restablecer los ajustes de seguridad",
     "resetConfirm": "¿Restablecer todos los ajustes de seguridad a Estándar?"
   }

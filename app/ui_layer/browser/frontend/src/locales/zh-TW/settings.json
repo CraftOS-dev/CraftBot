@@ -770,17 +770,14 @@
   },
   "security": {
     "title": "安全性",
-    "subtitle": "選擇 CraftBot 保護你的電腦、金鑰和資料的嚴謹程度",
+    "subtitle": "保護你的電腦、金鑰和資料",
     "loading": "正在載入安全性設定…",
     "autoMode": {
       "label": "自動模式",
-      "on": "代理不經詢問即可執行操作，與先前相同。",
-      "off": "高風險操作會在聊天中的卡片上等待你核准。",
-      "askTitle": "在以下操作前詢問…",
-      "askAfterUntrusted": "代理讀取外部內容後，執行任何操作前也先詢問",
-      "askAfterUntrustedHint": "網頁、電子郵件和他人傳來的訊息可能含有針對代理的指示。",
-      "timeout": "自動拒絕前等待",
-      "timeoutHint": "無人及時回應的核准卡片將視為拒絕。",
+      "desc": "無需詢問即可執行動作",
+      "askTitle": "執行前詢問",
+      "askAfterUntrusted": "讀取外部內容後的動作",
+      "timeout": "無人回應時自動拒絕",
       "seconds_one": "{{count}} 秒",
       "seconds_other": "{{count}} 秒",
       "minutes_one": "{{count}} 分鐘",
@@ -789,148 +786,112 @@
       "hours_other": "{{count}} 小時"
     },
     "effects": {
-      "execute": "執行指令或程式碼",
-      "write_files": "建立或變更檔案",
-      "send_external": "傳送訊息或變更外部服務",
-      "change_agent": "變更 CraftBot 本身的設定、排程或工具",
+      "execute": "執行命令",
+      "write_files": "變更檔案",
+      "send_external": "傳送訊息",
+      "change_agent": "變更 CraftBot 設定",
       "use_credentials": "使用已儲存的憑證"
     },
     "level": {
       "title": "安全性等級",
-      "desc": "每個等級會開啟一組保護措施。可在「進階」中微調。",
-      "aria": "安全性等級",
       "custom": "自訂",
-      "noticeLabel": "你會注意到：",
-      "changed": "在 {{level}} 基礎上的變更：{{settings}}",
-      "reset": "重設為 {{level}}",
+      "reset": "重設",
       "lowerTitle": "要將安全性降低到 {{level}} 嗎？",
-      "lowerMessage": "{{level}} 會關閉 {{from}} 保持開啟的保護措施，你變更過的設定也會回到 {{level}} 的預設值。自動模式以及你的資料夾和網域清單會維持不變。",
+      "lowerMessage": "{{from}} 開啟的保護將會關閉。",
       "lowerConfirm": "切換到 {{level}}",
       "standard": {
         "name": "標準",
-        "desc": "運作方式與先前完全相同。",
-        "notice": "沒有任何變化：不會詢問，也不會封鎖任何內容。"
+        "desc": "無額外限制"
       },
       "enhanced": {
         "name": "增強",
-        "desc": "讓代理遠離你的金鑰、檢查每個網路請求、標記外部內容，並保留稽核記錄。很少詢問。",
-        "notice": "代理無法開啟你的金鑰檔案，不安全的網路請求會被拒絕，在 Discord 上只有被提及時才會回覆。超過 90 天的記錄會被刪除。"
+        "desc": "保護金鑰、網路和命令"
       },
       "strict": {
         "name": "嚴格",
-        "desc": "包含增強等級的所有保護，此外檔案寫入僅限於工作區、不使用第三方閱讀服務，且資料保留時間更短。",
-        "notice": "在工作區外儲存檔案會失敗，沒有閱讀服務時部分頁面可能無法載入，超過 30 天的記錄會被刪除。關閉自動模式時，變更檔案前也會先詢問。"
+        "desc": "並將檔案限制在工作區內"
       }
     },
     "advanced": {
       "toggle": "進階",
-      "desc": "個別設定每項保護。變更任何一項都會將等級標示為自訂。",
       "groups": {
-        "untrusted": "不受信任的內容",
+        "commands": "命令",
+        "untrusted": "外部內容",
         "files": "檔案",
         "network": "網路",
-        "secrets": "機密與資料",
-        "channels": "訊息管道",
-        "audit": "稽核",
-        "commands": "命令"
+        "secrets": "機密與日誌",
+        "channels": "訊息管道"
       }
     },
     "fields": {
-      "auto_mode": {
-        "label": "自動模式"
-      },
-      "approval_effects": {
-        "label": "在以下操作前詢問…"
-      },
-      "ask_after_untrusted": {
-        "label": "讀取外部內容後詢問"
-      },
-      "approval_timeout_s": {
-        "label": "核准逾時"
+      "block_destructive_commands": {
+        "label": "封鎖破壞性命令"
       },
       "mark_untrusted_content": {
-        "label": "標記外部內容",
-        "help": "網頁、電子郵件和他人的訊息會被標記，讓代理將其視為資訊而非指示。"
+        "label": "將外部內容標記為不可信"
+      },
+      "verify_mcp_servers": {
+        "label": "僅啟動在設定中儲存的 MCP 伺服器"
       },
       "protect_secret_files": {
-        "label": "保護金鑰檔案",
-        "help": "代理的檔案工具無法讀取或變更 API 金鑰、憑證或 CraftBot 的安全性設定。它執行的指令不受此限制。"
+        "label": "保護金鑰檔案"
       },
       "extra_protected_paths": {
         "label": "額外保護",
-        "help": "代理無法讀取或變更的其他檔案或資料夾。",
         "placeholder": "/path/to/file-or-folder"
       },
       "confine_writes": {
-        "label": "將檔案變更限制在工作區內",
-        "help": "代理的檔案工具只能在其工作區和下方的資料夾中建立或變更檔案。它執行的指令不受此限制。"
+        "label": "將檔案變更限制在工作區內"
       },
       "workspace_paths": {
-        "label": "工作區資料夾",
-        "help": "檔案變更限制在工作區內時，代理仍可寫入的額外資料夾。",
+        "label": "額外的工作區資料夾",
         "placeholder": "/path/to/folder"
       },
       "network_guard": {
-        "label": "檢查網路請求",
-        "help": "代理的網路請求只能連到公開的網際網路網站。對這台電腦、你的區域網路和雲端中繼資料服務的請求會被拒絕，每次重新導向也會再次檢查。"
+        "label": "封鎖對本機網路的請求"
       },
       "allowed_domains": {
-        "label": "只允許這些網域",
-        "help": "新增網域後，代理的網路請求只能連到這些網域及其子網域。留空則允許任何公開網站。",
-        "placeholder": "example.com"
+        "label": "允許的網域",
+        "placeholder": "example.com",
+        "empty": "所有公開網站"
       },
       "third_party_reader": {
-        "label": "第三方網頁閱讀服務",
-        "help": "網頁無法直接載入時，代理可能會透過外部閱讀服務取得該網頁，該服務因此會看到網頁位址。"
+        "label": "使用第三方網頁讀取服務"
       },
       "scrub_child_env": {
-        "label": "不讓工具拿到金鑰",
-        "help": "MCP 伺服器只取得基本系統設定和你提供的值；代理執行的命令取得你的環境，但不含 CraftBot 自己的 API 金鑰和權杖。"
+        "label": "對工具隱藏 API 金鑰"
       },
       "redact_logs": {
-        "label": "在記錄中隱藏機密",
-        "help": "CraftBot 本身的 API 金鑰、憑證和 MCP 伺服器金鑰會在寫入記錄前被遮蔽。"
+        "label": "在記錄中隱藏機密"
       },
       "log_prompts": {
-        "label": "記錄完整提示",
-        "help": "將傳送給 AI 模型的所有內容寫入記錄。有助於除錯，但記錄中會因此包含你的對話。"
+        "label": "記錄完整提示"
       },
       "retention_days": {
-        "label": "資料保留時間",
-        "help": "超過此時間的記錄檔和已記錄的 AI 呼叫會被刪除。你的聊天、記憶和稽核記錄會保留。設為 0 則全部保留。",
-        "unit": "天"
+        "label": "日誌保留時間",
+        "forever": "永久",
+        "days_one": "{{count}} 天",
+        "days_other": "{{count}} 天"
       },
       "strict_channel_identity": {
-        "label": "嚴格的管道身分驗證",
-        "help": "Discord 擁有者依使用者 ID 辨識。在儲存 ID 之前，依唯一使用者名稱首次比對到的擁有者會被記錄其 ID；顯示名稱和身分組名稱一律不算。在伺服器中必須提及機器人。"
-      },
-      "audit_log": {
-        "label": "稽核記錄",
-        "help": "保留可偵測竄改的核准與安全性變更記錄。"
+        "label": "嚴格的 Discord 身分驗證"
       },
       "email_allowed_senders": {
-        "label": "僅接收這些地址的郵件",
-        "help": "只有來自這些地址的郵件會交給代理。留空則收件匣中的所有郵件都會交給它。寄件人地址可以偽造，所以這只能縮小範圍，無法證明寄件人是誰。",
-        "placeholder": "name@example.com"
+        "label": "允許的郵件寄件者",
+        "placeholder": "name@example.com",
+        "empty": "所有寄件者"
       },
-      "verify_mcp_servers": {
-        "label": "僅啟動在設定中儲存的 MCP 伺服器",
-        "help": "命令以其他方式被更改的 MCP 伺服器（例如被代理執行的命令修改）在你於安全檢查中確認之前不會啟動。"
-      },
-      "block_destructive_commands": {
-        "label": "封鎖破壞性命令",
-        "help": "拒絕任何核准都無法挽回的命令，例如刪除頂層資料夾或你的主資料夾、直接寫入磁碟，或把下載內容交給 root shell 執行。即使開啟自動模式也會生效。"
+      "audit_log": {
+        "label": "稽核記錄"
       }
     },
     "list": {
       "add": "新增",
       "remove": "移除 {{item}}",
-      "empty": "無",
-      "duplicate": "已在清單中。"
+      "duplicate": "已新增"
     },
     "check": {
       "title": "安全性檢查",
-      "desc": "檢查此安裝：誰能讀取你的機密檔案、誰能連到 CraftBot 視窗、稽核記錄，以及你的安全性等級。",
       "runAgain": "重新執行",
       "running": "檢查中…",
       "fix": "修正",
@@ -944,10 +905,8 @@
     },
     "audit": {
       "title": "稽核記錄",
-      "desc": "核准與安全性變更，依時間由新到舊排列。每筆記錄都會封存前一筆記錄，因此被編輯或移除的記錄會顯現出來。",
-      "off": "稽核記錄已關閉。可在「進階 → 稽核」中開啟，或選擇增強或嚴格。",
-      "intact_one": "鏈結完整，共 {{count}} 筆記錄",
-      "intact_other": "鏈結完整，共 {{count}} 筆記錄",
+      "intact_one": "完整 · {{count}} 筆紀錄",
+      "intact_other": "完整 · {{count}} 筆紀錄",
       "broken": "在第 {{line}} 行遭到變更",
       "empty": "尚無任何記錄。",
       "loading": "正在載入稽核記錄…",

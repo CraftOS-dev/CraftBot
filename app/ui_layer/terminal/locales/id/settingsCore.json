@@ -551,100 +551,83 @@
     "saveFailed": "Tidak dapat menyimpan pengaturan keamanan",
     "approvalsTitle": "Persetujuan",
     "autoMode": "Mode otomatis",
-    "autoModeOn": "agen bertindak tanpa bertanya, seperti sebelumnya",
-    "autoModeOff": "tindakan berisiko tinggi menunggu persetujuan Anda",
-    "askFirst": "Tanya dulu sebelum:",
+    "askFirst": "Tanya sebelum:",
     "effects": {
-      "execute": "Menjalankan perintah atau kode",
-      "write_files": "Membuat atau mengubah berkas",
-      "send_external": "Mengirim pesan atau mengubah layanan luar",
-      "change_agent": "Mengubah pengaturan, jadwal, atau alat CraftBot sendiri",
+      "execute": "Menjalankan perintah",
+      "write_files": "Mengubah file",
+      "send_external": "Mengirim pesan",
+      "change_agent": "Mengubah pengaturan CraftBot",
       "use_credentials": "Menggunakan kredensial tersimpan"
     },
-    "askAfterUntrusted": "Konten luar",
-    "askAfterUntrustedDetail": "tanya sebelum tindakan apa pun setelah agen membaca halaman web, email, atau konten luar lainnya",
-    "approvalsNote": "Persetujuan muncul di obrolan. Tidak ada jawaban dalam {{minutes}} menit dianggap Tolak.",
+    "askAfterUntrusted": "Bertindak atas konten luar",
+    "timeout": "Tolak jika tidak dijawab dalam",
+    "minutes_one": "{{count}} menit",
+    "minutes_other": "{{count}} menit",
     "levelTitle": "Tingkat keamanan",
     "custom": "Kustom",
     "customAside": "Kustom ({{level}})",
     "levels": {
       "standard": {
         "name": "Standar",
-        "description": "Berfungsi persis seperti sebelumnya."
+        "description": "Tanpa batasan tambahan"
       },
       "enhanced": {
         "name": "Ditingkatkan",
-        "description": "Menjauhkan agen dari kunci Anda, memeriksa permintaan web, menandai konten luar, dan menyimpan log audit. Jarang bertanya."
+        "description": "Menjaga kunci, web, dan perintah"
       },
       "strict": {
         "name": "Ketat",
-        "description": "Ditingkatkan, ditambah penulisan berkas tetap di ruang kerja, tanpa pembaca pihak ketiga, dan masa simpan lebih singkat."
+        "description": "Juga menjaga file di ruang kerja"
       }
     },
     "hintChoose": "pilih",
     "lowerConfirm": "Turunkan keamanan ke {{level}}? Perlindungan yang tidak termasuk di dalamnya akan dinonaktifkan.",
     "switchConfirm": "Beralih ke {{level}}? Pengaturan kustom Anda kembali ke default-nya.",
     "useDefaultsConfirm": "Buang pengaturan kustom Anda dan gunakan default {{level}}?",
-    "customNote_one": "Kustom: {{count}} pengaturan diubah dari {{level}}.",
-    "customNote_other": "Kustom: {{count}} pengaturan diubah dari {{level}}.",
     "useDefaults": "Gunakan default {{level}}",
     "advancedTitle": "Lanjutan",
     "showAdvanced": "Tampilkan pengaturan lanjutan",
     "hideAdvanced": "Sembunyikan pengaturan lanjutan",
-    "advancedDetail": "setiap perlindungan secara terpisah",
     "changed": "diubah",
     "settings": {
       "mark_untrusted_content": {
-        "label": "Tandai konten luar",
-        "help": "halaman web, email, dan konten luar lainnya sampai ke agen dengan tanda sebagai data, bukan instruksi"
+        "label": "Tandai konten luar sebagai tidak tepercaya"
       },
       "protect_secret_files": {
-        "label": "Lindungi berkas rahasia",
-        "help": "alat berkas agen tidak dapat membaca atau mengubah kunci, kredensial, atau pengaturan keamanan (perintah tidak dibatasi)"
+        "label": "Lindungi berkas kunci"
       },
       "confine_writes": {
-        "label": "Batasi penulisan berkas",
-        "help": "agen hanya membuat dan mengubah berkas di dalam folder ruang kerja"
+        "label": "Batasi perubahan berkas di ruang kerja"
       },
       "network_guard": {
-        "label": "Periksa permintaan web",
-        "help": "permintaan web agen hanya menjangkau situs publik; jaringan lokal dan setiap pengalihan diperiksa"
+        "label": "Blokir permintaan ke jaringan lokal"
       },
       "third_party_reader": {
-        "label": "Pembaca pihak ketiga",
-        "help": "halaman web dapat dibaca melalui layanan pembaca luar"
+        "label": "Gunakan pembaca halaman pihak ketiga"
       },
       "scrub_child_env": {
-        "label": "Jauhkan kunci dari alat",
-        "help": "server MCP hanya mendapat dasar; perintah mendapat lingkungan Anda tanpa kunci CraftBot"
+        "label": "Sembunyikan kunci API dari alat"
       },
       "redact_logs": {
-        "label": "Sembunyikan rahasia di log",
-        "help": "kunci dan kredensial milik CraftBot dikosongkan di log"
+        "label": "Sembunyikan rahasia di log"
       },
       "log_prompts": {
-        "label": "Catat prompt",
-        "help": "prompt lengkap yang dikirim ke model ditulis ke log"
+        "label": "Catat prompt lengkap"
       },
       "strict_channel_identity": {
-        "label": "Pemeriksaan pengirim ketat",
-        "help": "pemilik Discord dicocokkan dengan ID pengguna (dicatat saat pertama cocok); di server bot harus disebut"
+        "label": "Identitas Discord ketat"
       },
       "audit_log": {
-        "label": "Log audit",
-        "help": "catatan keputusan keamanan yang memperlihatkan setiap utak-atik"
+        "label": "Log audit"
       },
       "retention_days": {
-        "label": "Simpan riwayat selama",
-        "help": "berkas log dan panggilan AI terekam yang lebih lama dihapus; obrolan tetap disimpan; 0 menyimpan semuanya"
+        "label": "Simpan log selama"
       },
       "verify_mcp_servers": {
-        "label": "Server MCP hanya sesuai yang disimpan",
-        "help": "server MCP yang diubah di luar Pengaturan menunggu persetujuan Anda"
+        "label": "Hanya jalankan server MCP yang disimpan di Pengaturan"
       },
       "block_destructive_commands": {
-        "label": "Blokir perintah yang merusak",
-        "help": "menolak perintah yang tidak bisa dibatalkan (menghapus folder utama, menulis ke disk)"
+        "label": "Blokir perintah yang merusak"
       }
     },
     "keepForever": "Selamanya",
@@ -652,13 +635,13 @@
     "days_other": "{{count}} hari",
     "badDays": "Gunakan jumlah hari berupa bilangan bulat, 0 atau lebih",
     "lists": {
-      "extra_protected_paths": "Path yang dilindungi",
-      "workspace_paths": "Folder ruang kerja",
-      "allowed_domains": "Hanya domain ini (kosong: situs publik mana pun)",
-      "email_allowed_senders": "Email hanya dari"
+      "extra_protected_paths": "Lindungi juga",
+      "workspace_paths": "Folder ruang kerja tambahan",
+      "allowed_domains": "Domain yang diizinkan",
+      "email_allowed_senders": "Pengirim email yang diizinkan"
     },
     "none": "tidak ada",
-    "listsNote": "Daftar ini disunting di peramban: Pengaturan > Keamanan.",
+    "listsNote": "Ubah daftar di browser.",
     "checkTitle": "Pemeriksaan keamanan",
     "checkIssues_one": "{{count}} perlu dilihat",
     "checkIssues_other": "{{count}} perlu dilihat",
@@ -677,17 +660,16 @@
     "fixed": "Diperbaiki",
     "fixFailed": "Perbaikan tidak diterapkan",
     "auditTitle": "Log audit",
-    "auditOff": "Nonaktif. Aktifkan di Lanjutan, atau pilih Ditingkatkan atau Ketat.",
+    "auditOff": "Nonaktif",
     "auditLoading": "Memuat log audit...",
     "auditRecords": "Catatan",
     "records_one": "{{count}} catatan",
     "records_other": "{{count}} catatan",
-    "auditIntact": "utuh: tidak ada yang diubah atau dihapus",
-    "auditBroken": "diubah: rantai terputus di baris {{line}}",
+    "auditIntact": "utuh",
+    "auditBroken": "berubah di baris {{line}}",
     "auditFile": "Berkas",
     "auditRefresh": "Segarkan log audit",
     "resetTitle": "Atur ulang",
-    "resetDesc": "Kembali ke Standar dengan mode otomatis aktif, serta daftar path dan domain dikosongkan.",
     "reset": "Atur ulang pengaturan keamanan",
     "resetConfirm": "Atur ulang semua pengaturan keamanan ke Standar?"
   }

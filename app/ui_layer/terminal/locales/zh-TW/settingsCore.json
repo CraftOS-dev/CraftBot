@@ -551,100 +551,83 @@
     "saveFailed": "無法儲存安全性設定",
     "approvalsTitle": "核准",
     "autoMode": "自動模式",
-    "autoModeOn": "代理不經詢問即可操作，與先前相同",
-    "autoModeOff": "高風險操作會等待你核准",
-    "askFirst": "以下操作前先詢問：",
+    "askFirst": "執行前詢問：",
     "effects": {
-      "execute": "執行指令或程式碼",
-      "write_files": "建立或變更檔案",
-      "send_external": "傳送訊息或變更外部服務",
-      "change_agent": "變更 CraftBot 本身的設定、排程或工具",
+      "execute": "執行命令",
+      "write_files": "變更檔案",
+      "send_external": "傳送訊息",
+      "change_agent": "變更 CraftBot 設定",
       "use_credentials": "使用已儲存的憑證"
     },
-    "askAfterUntrusted": "外部內容",
-    "askAfterUntrustedDetail": "代理讀取網頁、電子郵件或其他外部內容後，任何操作前都先詢問",
-    "approvalsNote": "核准請求會顯示在聊天中。{{minutes}} 分鐘內未回覆將視為拒絕。",
+    "askAfterUntrusted": "讀取外部內容後的動作",
+    "timeout": "無人回應時自動拒絕",
+    "minutes_one": "{{count}} 分鐘",
+    "minutes_other": "{{count}} 分鐘",
     "levelTitle": "安全性等級",
     "custom": "自訂",
     "customAside": "自訂（{{level}}）",
     "levels": {
       "standard": {
         "name": "標準",
-        "description": "運作方式與先前完全相同。"
+        "description": "無額外限制"
       },
       "enhanced": {
         "name": "增強",
-        "description": "讓代理遠離你的金鑰、檢查網路請求、標記外部內容並保留稽核記錄。很少詢問。"
+        "description": "保護金鑰、網路和命令"
       },
       "strict": {
         "name": "嚴格",
-        "description": "在增強的基礎上，檔案寫入僅限工作區、不使用第三方閱讀服務，保留時間更短。"
+        "description": "並將檔案限制在工作區內"
       }
     },
     "hintChoose": "選擇",
     "lowerConfirm": "要將安全性降低到 {{level}} 嗎？它不包含的保護措施將會關閉。",
     "switchConfirm": "要切換到 {{level}} 嗎？你的自訂設定將回到該等級的預設值。",
     "useDefaultsConfirm": "要捨棄你的自訂設定並使用 {{level}} 的預設值嗎？",
-    "customNote_one": "自訂：在 {{level}} 基礎上變更了 {{count}} 項設定。",
-    "customNote_other": "自訂：在 {{level}} 基礎上變更了 {{count}} 項設定。",
     "useDefaults": "使用 {{level}} 的預設值",
     "advancedTitle": "進階",
     "showAdvanced": "顯示進階設定",
     "hideAdvanced": "隱藏進階設定",
-    "advancedDetail": "個別設定每項保護",
     "changed": "已變更",
     "settings": {
       "mark_untrusted_content": {
-        "label": "標記外部內容",
-        "help": "網頁、電子郵件和其他外部內容送達代理時會被標記為資料，而非指示"
+        "label": "將外部內容標記為不可信"
       },
       "protect_secret_files": {
-        "label": "保護機密檔案",
-        "help": "代理的檔案工具無法讀取或變更金鑰、憑證或安全性設定（指令不受限制）"
+        "label": "保護金鑰檔案"
       },
       "confine_writes": {
-        "label": "限制檔案寫入",
-        "help": "代理只在工作區資料夾內建立和變更檔案"
+        "label": "將檔案變更限制在工作區內"
       },
       "network_guard": {
-        "label": "檢查網路請求",
-        "help": "代理的網路請求只能連到公開網站；會檢查區域網路和每次重新導向"
+        "label": "封鎖對本機網路的請求"
       },
       "third_party_reader": {
-        "label": "第三方閱讀服務",
-        "help": "網頁可能會透過外部閱讀服務讀取"
+        "label": "使用第三方網頁讀取服務"
       },
       "scrub_child_env": {
-        "label": "不讓工具拿到金鑰",
-        "help": "MCP 伺服器只取得基本設定；命令取得不含 CraftBot 金鑰的環境"
+        "label": "對工具隱藏 API 金鑰"
       },
       "redact_logs": {
-        "label": "記錄遮蔽",
-        "help": "CraftBot 本身的金鑰和憑證會在記錄中被遮蔽"
+        "label": "在記錄中隱藏機密"
       },
       "log_prompts": {
-        "label": "記錄提示",
-        "help": "傳送給模型的完整提示會寫入記錄"
+        "label": "記錄完整提示"
       },
       "strict_channel_identity": {
-        "label": "嚴格的傳送者檢查",
-        "help": "Discord 擁有者依使用者 ID 辨識（首次比對時記錄）；伺服器中需提及機器人"
+        "label": "嚴格的 Discord 身分驗證"
       },
       "audit_log": {
-        "label": "稽核記錄",
-        "help": "可偵測竄改的安全性決策記錄"
+        "label": "稽核記錄"
       },
       "retention_days": {
-        "label": "歷史記錄保留時間",
-        "help": "較舊的記錄檔和已記錄的 AI 呼叫會被刪除；聊天會保留；0 表示全部保留"
+        "label": "日誌保留時間"
       },
       "verify_mcp_servers": {
-        "label": "僅依儲存內容啟動 MCP 伺服器",
-        "help": "在設定之外被更改的 MCP 伺服器需等待你確認"
+        "label": "僅啟動在設定中儲存的 MCP 伺服器"
       },
       "block_destructive_commands": {
-        "label": "封鎖破壞性命令",
-        "help": "拒絕無法挽回的命令（刪除頂層資料夾、寫入磁碟）"
+        "label": "封鎖破壞性命令"
       }
     },
     "keepForever": "永久",
@@ -652,13 +635,13 @@
     "days_other": "{{count}} 天",
     "badDays": "請輸入 0 或以上的整數天數",
     "lists": {
-      "extra_protected_paths": "受保護的路徑",
-      "workspace_paths": "工作區資料夾",
-      "allowed_domains": "只限這些網域（留空：任何公開網站）",
-      "email_allowed_senders": "僅限這些寄件人的郵件"
+      "extra_protected_paths": "額外保護",
+      "workspace_paths": "額外的工作區資料夾",
+      "allowed_domains": "允許的網域",
+      "email_allowed_senders": "允許的郵件寄件者"
     },
     "none": "無",
-    "listsNote": "這些清單需在瀏覽器中編輯：設定 > 安全性。",
+    "listsNote": "請在瀏覽器中編輯清單。",
     "checkTitle": "安全性檢查",
     "checkIssues_one": "{{count}} 項需要查看",
     "checkIssues_other": "{{count}} 項需要查看",
@@ -677,17 +660,16 @@
     "fixed": "已修正",
     "fixFailed": "修正未能套用",
     "auditTitle": "稽核記錄",
-    "auditOff": "已關閉。可在「進階」中開啟，或選擇增強或嚴格。",
+    "auditOff": "已關閉",
     "auditLoading": "正在載入稽核記錄...",
     "auditRecords": "記錄",
     "records_one": "{{count}} 筆記錄",
     "records_other": "{{count}} 筆記錄",
-    "auditIntact": "完整：沒有記錄遭到變更或移除",
-    "auditBroken": "已變更：鏈結在第 {{line}} 行中斷",
+    "auditIntact": "完整",
+    "auditBroken": "第 {{line}} 行遭變更",
     "auditFile": "檔案",
     "auditRefresh": "重新整理稽核記錄",
     "resetTitle": "重設",
-    "resetDesc": "回到開啟自動模式的標準等級，並清空路徑和網域清單。",
     "reset": "重設安全性設定",
     "resetConfirm": "要將所有安全性設定重設為標準嗎？"
   }

@@ -770,17 +770,14 @@
   },
   "security": {
     "title": "安全",
-    "subtitle": "选择 CraftBot 保护你的电脑、密钥和数据的严格程度",
+    "subtitle": "保护你的电脑、密钥和数据",
     "loading": "正在加载安全设置…",
     "autoMode": {
       "label": "自动模式",
-      "on": "智能体无需询问即可执行操作，与之前相同。",
-      "off": "高风险操作会在聊天中的卡片上等待你批准。",
-      "askTitle": "在以下操作前询问…",
-      "askAfterUntrusted": "智能体读取外部内容后，执行任何操作前也先询问",
-      "askAfterUntrustedHint": "网页、邮件和他人发来的消息可能包含针对智能体的指令。",
-      "timeout": "自动拒绝前等待",
-      "timeoutHint": "无人及时回应的批准卡片将视为拒绝。",
+      "desc": "无需询问即可执行操作",
+      "askTitle": "执行前询问",
+      "askAfterUntrusted": "读取外部内容后的操作",
+      "timeout": "无人响应时自动拒绝",
       "seconds_one": "{{count}} 秒",
       "seconds_other": "{{count}} 秒",
       "minutes_one": "{{count}} 分钟",
@@ -789,148 +786,112 @@
       "hours_other": "{{count}} 小时"
     },
     "effects": {
-      "execute": "运行命令或代码",
-      "write_files": "创建或更改文件",
-      "send_external": "发送消息或更改外部服务",
-      "change_agent": "更改 CraftBot 自身的设置、计划或工具",
+      "execute": "运行命令",
+      "write_files": "更改文件",
+      "send_external": "发送消息",
+      "change_agent": "更改 CraftBot 设置",
       "use_credentials": "使用已保存的凭据"
     },
     "level": {
       "title": "安全级别",
-      "desc": "每个级别会开启一组保护措施。可在“高级”中微调。",
-      "aria": "安全级别",
       "custom": "自定义",
-      "noticeLabel": "你会注意到：",
-      "changed": "在 {{level}} 基础上的更改：{{settings}}",
-      "reset": "重置为 {{level}}",
+      "reset": "重置",
       "lowerTitle": "将安全级别降低到 {{level}}？",
-      "lowerMessage": "{{level}} 会关闭 {{from}} 保持开启的保护措施，你更改过的设置也会恢复为 {{level}} 的默认值。自动模式以及你的文件夹和域名列表保持不变。",
+      "lowerMessage": "{{from}} 开启的保护将被关闭。",
       "lowerConfirm": "切换到 {{level}}",
       "standard": {
         "name": "标准",
-        "desc": "与之前完全相同。",
-        "notice": "没有任何变化：不会询问，也不会拦截任何内容。"
+        "desc": "无额外限制"
       },
       "enhanced": {
         "name": "增强",
-        "desc": "让智能体远离你的密钥，检查每个网络请求，标记外部内容，并保留审计日志。很少询问。",
-        "notice": "智能体无法打开你的密钥文件，不安全的网络请求会被拒绝，在 Discord 上只有被提及时才会回复。超过 90 天的记录会被删除。"
+        "desc": "保护密钥、网络和命令"
       },
       "strict": {
         "name": "严格",
-        "desc": "包含增强级别的全部保护，此外文件写入仅限于工作区，不使用第三方阅读服务，数据保留时间更短。",
-        "notice": "在工作区外保存文件会失败，没有阅读服务时部分页面可能无法加载，超过 30 天的记录会被删除。关闭自动模式时，更改文件前也会先询问。"
+        "desc": "并将文件限制在工作区内"
       }
     },
     "advanced": {
       "toggle": "高级",
-      "desc": "单独设置每项保护。更改任意一项都会将级别标记为自定义。",
       "groups": {
-        "untrusted": "不受信任的内容",
+        "commands": "命令",
+        "untrusted": "外部内容",
         "files": "文件",
         "network": "网络",
-        "secrets": "机密与数据",
-        "channels": "消息渠道",
-        "audit": "审计",
-        "commands": "命令"
+        "secrets": "机密与日志",
+        "channels": "消息渠道"
       }
     },
     "fields": {
-      "auto_mode": {
-        "label": "自动模式"
-      },
-      "approval_effects": {
-        "label": "在以下操作前询问…"
-      },
-      "ask_after_untrusted": {
-        "label": "读取外部内容后询问"
-      },
-      "approval_timeout_s": {
-        "label": "批准超时"
+      "block_destructive_commands": {
+        "label": "阻止破坏性命令"
       },
       "mark_untrusted_content": {
-        "label": "标记外部内容",
-        "help": "网页、邮件和他人的消息会被标记，让智能体将其视为信息而非指令。"
+        "label": "将外部内容标记为不可信"
+      },
+      "verify_mcp_servers": {
+        "label": "仅启动在设置中保存的 MCP 服务器"
       },
       "protect_secret_files": {
-        "label": "保护密钥文件",
-        "help": "智能体的文件工具无法读取或更改 API 密钥、凭据或 CraftBot 的安全设置。它运行的命令不受此限制。"
+        "label": "保护密钥文件"
       },
       "extra_protected_paths": {
         "label": "额外保护",
-        "help": "智能体无法读取或更改的其他文件或文件夹。",
         "placeholder": "/path/to/file-or-folder"
       },
       "confine_writes": {
-        "label": "将文件更改限制在工作区内",
-        "help": "智能体的文件工具只能在其工作区和下方的文件夹中创建或更改文件。它运行的命令不受此限制。"
+        "label": "将文件更改限制在工作区内"
       },
       "workspace_paths": {
-        "label": "工作区文件夹",
-        "help": "文件更改限制在工作区内时，智能体仍可写入的额外文件夹。",
+        "label": "额外的工作区文件夹",
         "placeholder": "/path/to/folder"
       },
       "network_guard": {
-        "label": "检查网络请求",
-        "help": "智能体的网络请求只能访问公共互联网站点。对这台电脑、你的局域网和云元数据服务的请求会被拒绝，每次重定向也会重新检查。"
+        "label": "阻止访问本地网络"
       },
       "allowed_domains": {
-        "label": "仅允许这些域名",
-        "help": "添加域名后，智能体的网络请求只能访问这些域名及其子域名。留空则允许访问任何公共网站。",
-        "placeholder": "example.com"
+        "label": "允许的域名",
+        "placeholder": "example.com",
+        "empty": "所有公开网站"
       },
       "third_party_reader": {
-        "label": "第三方网页阅读服务",
-        "help": "当网页无法直接加载时，智能体可能会通过外部阅读服务获取该网页，该服务因此会看到网页地址。"
+        "label": "使用第三方网页读取服务"
       },
       "scrub_child_env": {
-        "label": "不让工具拿到密钥",
-        "help": "MCP 服务器只获得基本系统设置和你提供的值；智能体运行的命令获得你的环境，但不含 CraftBot 自己的 API 密钥和令牌。"
+        "label": "向工具隐藏 API 密钥"
       },
       "redact_logs": {
-        "label": "在日志中隐藏机密",
-        "help": "CraftBot 自身的 API 密钥、凭据和 MCP 服务器密钥会在写入日志前被遮盖。"
+        "label": "在日志中隐藏机密"
       },
       "log_prompts": {
-        "label": "记录完整提示词",
-        "help": "将发送给 AI 模型的所有内容写入日志。便于调试，但日志中会因此包含你的对话。"
+        "label": "记录完整提示词"
       },
       "retention_days": {
-        "label": "数据保留时长",
-        "help": "超过此时长的日志文件和已记录的 AI 调用会被删除。你的聊天、记忆和审计日志会保留。设为 0 则全部保留。",
-        "unit": "天"
+        "label": "日志保留时间",
+        "forever": "永久",
+        "days_one": "{{count}} 天",
+        "days_other": "{{count}} 天"
       },
       "strict_channel_identity": {
-        "label": "严格的渠道身份验证",
-        "help": "Discord 主人按用户 ID 识别。在保存 ID 之前，按唯一用户名首次匹配的主人会被记录其 ID；显示名称和角色名称一律不算。在服务器中必须提及机器人。"
-      },
-      "audit_log": {
-        "label": "审计日志",
-        "help": "保留可检测篡改的批准和安全更改记录。"
+        "label": "严格的 Discord 身份验证"
       },
       "email_allowed_senders": {
-        "label": "仅接收这些地址的邮件",
-        "help": "只有来自这些地址的邮件会交给智能体。留空则收件箱中的所有邮件都会交给它。发件人地址可以伪造，所以这只能缩小范围，不能证明发件人是谁。",
-        "placeholder": "name@example.com"
+        "label": "允许的邮件发件人",
+        "placeholder": "name@example.com",
+        "empty": "所有发件人"
       },
-      "verify_mcp_servers": {
-        "label": "仅启动在设置中保存的 MCP 服务器",
-        "help": "命令被以其他方式更改的 MCP 服务器（例如被智能体运行的命令修改）在你于安全检查中确认之前不会启动。"
-      },
-      "block_destructive_commands": {
-        "label": "阻止破坏性命令",
-        "help": "拒绝任何批准都无法挽回的命令，例如删除顶层文件夹或你的主文件夹、直接写入磁盘，或把下载内容交给 root shell 执行。即使开启自动模式也会生效。"
+      "audit_log": {
+        "label": "审计日志"
       }
     },
     "list": {
       "add": "添加",
       "remove": "移除 {{item}}",
-      "empty": "无",
-      "duplicate": "已在列表中。"
+      "duplicate": "已添加"
     },
     "check": {
       "title": "安全检查",
-      "desc": "检查此安装：谁能读取你的机密文件、谁能访问 CraftBot 窗口、审计日志以及你的安全级别。",
       "runAgain": "重新运行",
       "running": "检查中…",
       "fix": "修复",
@@ -944,10 +905,8 @@
     },
     "audit": {
       "title": "审计日志",
-      "desc": "批准和安全更改，按时间从新到旧排列。每条记录都会封存前一条记录，因此被编辑或删除的记录会显露出来。",
-      "off": "审计日志已关闭。可在“高级 → 审计”中开启，或选择增强或严格。",
-      "intact_one": "链完整，共 {{count}} 条记录",
-      "intact_other": "链完整，共 {{count}} 条记录",
+      "intact_one": "完整 · {{count}} 条记录",
+      "intact_other": "完整 · {{count}} 条记录",
       "broken": "在第 {{line}} 行被更改",
       "empty": "暂无记录。",
       "loading": "正在加载审计日志…",
