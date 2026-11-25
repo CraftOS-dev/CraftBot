@@ -53,6 +53,10 @@ class RunState:
     # The platform the owner is talking on, when not the local interface.
     remote_platform: str = ""
     source: str = ""
+    # Started by a third party's message, not the owner.
+    third_party: bool = False
+    # The owner allowed conversational replies to that third party.
+    auto_reply: bool = False
 
 
 @dataclass
@@ -88,6 +92,8 @@ class RunRegistry:
                 self._runs[session_id] = state
                 state.interactive = source not in UNATTENDED_SOURCES
                 state.remote_platform = "" if platform == LOCAL_INTERFACE else platform
+                state.third_party = not owner
+                state.auto_reply = not owner and origin.get("auto_reply_allowed") is True
             if not owner:
                 state.tainted = True
                 state.taint_reason = f"a message from a third party on {platform}"

@@ -4,7 +4,12 @@ Modelled on OpenClaw's exec approvals and Hermes' gateway approvals:
 
 - Each request has an id; the card answers it with ``allow_once``,
   ``allow_session`` or ``deny``. ``allow_session`` covers the same action
-  for the rest of the session (Hermes' session grant).
+  for the rest of the session (Hermes' session grant); for a command it
+  covers that exact command in that folder only (OpenClaw's allow-always
+  binding), so one approval never lets every later command through.
+- Hidden characters in inputs (invisible, bidi, odd spaces) are shown as
+  ``\\u{XXXX}`` on the card, so a command cannot look like another one
+  (OpenClaw's exec-approval-text-sanitize.ts).
 - No answer within the timeout, or no window to show the card in, counts as
   a denial (OpenClaw's ``askFallback: deny``).
 - Consecutive denials in a session are counted, so the agent can be told to
@@ -17,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+import unicodedata
 import uuid
 from dataclasses import asdict, dataclass, field
 from enum import Enum
@@ -44,31 +50,69 @@ class ApprovalRequest:
     action_name: str
     action_display_name: str
     effects: List[str]
-    reason: str  # "high_risk" or "untrusted_content"
+    reason: str  # "high_risk", "untrusted_content" or "risky_command"
     reason_detail: str
     inputs: Dict[str, Any]
     created_at: float
     expires_at: float
+    # What "allow for this session" grants; not shown on the card.
+    grant_key: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
-        return asdict(self)
+        data = asdict(self)
+        data.pop("grant_key", None)
+        return data
 
 
 Notifier = Callable[[Dict[str, Any]], Awaitable[None]]
 
 # Inputs larger than this are shortened on the card; the action still gets
-# the full value. The card must show what will run, not all of it.
+# the full value. A command is shown up to OpenClaw's display cap, so what
+# runs is what the user reads.
 _PREVIEW_CHARS = 2000
+_COMMAND_PREVIEW_CHARS = 16 * 1024
+
+# Characters that can hide or disguise text (OpenClaw: Cc, Cf, Cs, Zl, Zp and
+# odd spaces); line breaks and tabs stay as they are.
+_HIDDEN_CATEGORIES = frozenset({"Cc", "Cf", "Cs", "Zl", "Zp"})
+_ODD_SPACES = frozenset(
+    "\u00a0\u1680\u202f\u205f\u3000\u115f\u1160\u3164\uffa0"
+    + "".join(chr(c) for c in range(0x2000, 0x200B))
+)
 
 
-def _preview(inputs: Dict[str, Any]) -> Dict[str, Any]:
+def show_hidden(text: str) -> str:
+    if text.isascii() and text.isprintable():
+        return text
+    return "".join(
+        f"\\u{{{ord(ch):X}}}"
+        if ch not in "\n\t"
+        and (ch in _ODD_SPACES or unicodedata.category(ch) in _HIDDEN_CATEGORIES)
+        else ch
+        for ch in text
+    )
+
+
+def _shown(value: Any, limit: int) -> Any:
+    if isinstance(value, str):
+        value = show_hidden(value)
+        if len(value) > limit:
+            value = value[:limit] + f"… ({len(value)} characters)"
+        return value
+    if isinstance(value, dict):
+        return {k: _shown(v, limit) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_shown(v, limit) for v in value]
+    return value
+
+
+def _preview(inputs: Dict[str, Any], command_keys=()) -> Dict[str, Any]:
     shown: Dict[str, Any] = {}
     for key, value in inputs.items():
         if key.startswith("_"):
             continue  # internal routing keys, not chosen by the agent
-        if isinstance(value, str) and len(value) > _PREVIEW_CHARS:
-            value = value[:_PREVIEW_CHARS] + f"… ({len(value)} characters)"
-        shown[key] = value
+        limit = _COMMAND_PREVIEW_CHARS if key in command_keys else _PREVIEW_CHARS
+        shown[key] = _shown(value, limit)
     return shown
 
 
@@ -96,8 +140,8 @@ class ApprovalBroker:
 
     # ── grants and denials ──
 
-    def is_granted(self, session_id: str, action_name: str) -> bool:
-        return action_name in self._grants.get(session_id, ())
+    def is_granted(self, session_id: str, grant_key: str) -> bool:
+        return grant_key in self._grants.get(session_id, ())
 
     def consecutive_denials(self, session_id: str) -> int:
         return self._denials.get(session_id, 0)
@@ -122,6 +166,8 @@ class ApprovalBroker:
         reason_detail: str,
         inputs: Dict[str, Any],
         timeout_s: float,
+        grant_key: str = "",
+        command_keys: Tuple[str, ...] = (),
     ) -> Decision:
         now = time.time()
         request = ApprovalRequest(
@@ -132,9 +178,10 @@ class ApprovalBroker:
             effects=effects,
             reason=reason,
             reason_detail=reason_detail,
-            inputs=_preview(inputs),
+            inputs=_preview(inputs, command_keys),
             created_at=now,
             expires_at=now + timeout_s,
+            grant_key=grant_key or action_name,
         )
         future: asyncio.Future = asyncio.get_running_loop().create_future()
         self._pending[request.id] = (request, future)
@@ -176,7 +223,7 @@ class ApprovalBroker:
     def _finish(self, request: ApprovalRequest, decision: Decision) -> None:
         self._pending.pop(request.id, None)
         if decision == Decision.ALLOW_SESSION:
-            self._grants.setdefault(request.session_id, set()).add(request.action_name)
+            self._grants.setdefault(request.session_id, set()).add(request.grant_key)
         if decision.allowed:
             self._denials.pop(request.session_id, None)
         elif decision in (Decision.DENY, Decision.TIMEOUT):

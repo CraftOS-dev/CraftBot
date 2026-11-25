@@ -23,12 +23,16 @@ An action that declares nothing is treated by what it is:
 
 from __future__ import annotations
 
+import hashlib
+import json
+import os
 from typing import Any, Dict, FrozenSet, Optional
 
 from agent_core.utils.logger import logger
 from app.security import audit
 from app.security.approvals import ApprovalBroker, Decision, broker as default_broker
 from app.security.content import RunRegistry, runs as default_runs, wrap_untrusted
+from app.triggers.sources import TriggerSource
 from app.security.policy import (
     ContentSource,
     Effect,
@@ -37,6 +41,43 @@ from app.security.policy import (
 )
 
 _DENIAL_LIMIT = 3
+
+# Inputs that hold the command an EXECUTE action runs.
+COMMAND_KEYS = ("command",)
+
+# Runs the scheduler starts (Hermes: cron runs get no scheduling tools).
+SCHEDULED_SOURCES = frozenset(
+    s.value
+    for s in (
+        TriggerSource.SCHEDULED,
+        TriggerSource.SCHEDULED_ONCE,
+        TriggerSource.SCHEDULED_IMMEDIATE,
+        TriggerSource.CRON_JOB,
+    )
+)
+
+# What a third party's run may still do when the owner allowed replies to
+# that contact; the integration limits it to replying (telegram_feedback.py).
+_AUTO_REPLY_EFFECTS = frozenset({Effect.SEND_EXTERNAL})
+
+
+def command_of(input_data: Dict[str, Any]) -> Optional[str]:
+    for key in COMMAND_KEYS:
+        value = input_data.get(key)
+        if isinstance(value, str) and value.strip():
+            return value
+    return None
+
+
+def grant_key(action: Any, input_data: Dict[str, Any]) -> str:
+    """What "allow for this session" covers: the action, or for a command
+    that exact command in that folder (OpenClaw's allow-always binding)."""
+    command = command_of(input_data)
+    if command is None:
+        return action.name
+    cwd = input_data.get("cwd") or input_data.get("working_directory") or ""
+    digest = hashlib.sha256(json.dumps([command, str(cwd)]).encode("utf-8")).hexdigest()
+    return f"{action.name}:{digest}"
 
 
 def effects_of(action: Any) -> FrozenSet[Effect]:
@@ -93,22 +134,48 @@ class SecurityGate:
         self, action: Any, input_data: Dict[str, Any], *, session_id: Optional[str]
     ) -> Optional[Dict[str, Any]]:
         policy = get_policy()
-        if not policy.gate_active:
+        if not policy.gate_needed:
             return None
 
         effects = effects_of(action)
         if not effects:
             return None
         run = self.runs.get(session_id)
-        if effects & policy.approval_effects:
+        session = session_id or ""
+
+        limited = self._run_limit(policy, run, effects)
+        if limited:
+            self._audit(policy, action, effects, "refused_run_limit", session)
+            return _blocked(
+                f"Not run: {action.display_name}. {limited} (Settings > "
+                f"Security). If the user should know, tell them with send_message.",
+                "run_limited",
+            )
+
+        command, risk = None, None
+        if policy.check_commands and Effect.EXECUTE in effects:
+            command = command_of(input_data)
+            if command:
+                from app.security.command_review import find_risk
+
+                risk = find_risk(command, windows=os.name == "nt")
+
+        if not policy.gate_active:
+            if risk:
+                return await self._review_by_model(policy, action, effects, input_data, command, risk, session)
+            return None
+
+        if risk:
+            reason, detail = "risky_command", risk
+        elif effects & policy.approval_effects:
             reason, detail = "high_risk", ""
         elif policy.ask_after_untrusted and run.tainted:
             reason, detail = "untrusted_content", run.taint_reason
         else:
             return None
 
-        session = session_id or ""
-        if self.approvals.is_granted(session, action.name):
+        grant = grant_key(action, input_data)
+        if self.approvals.is_granted(session, grant):
             self._audit(policy, action, effects, "allowed_by_session_grant", session)
             return None
 
@@ -133,6 +200,8 @@ class SecurityGate:
             reason_detail=detail,
             inputs=input_data,
             timeout_s=policy.approval_timeout_s,
+            grant_key=grant,
+            command_keys=COMMAND_KEYS,
         )
         self._audit(policy, action, effects, f"user_{decision.value}", session)
         if decision.allowed:
@@ -153,6 +222,45 @@ class SecurityGate:
         else:
             message += " Do not retry it; ask the user if unsure."
         return _blocked(message, "approval_denied")
+
+    @staticmethod
+    def _run_limit(policy: SecurityPolicy, run, effects: FrozenSet[Effect]) -> str:
+        """Why this run may not take an action with these effects, or ""."""
+        if policy.limit_third_party_runs and run.third_party:
+            allowed = _AUTO_REPLY_EFFECTS if run.auto_reply else frozenset()
+            if effects - allowed:
+                return (
+                    "This run was started by a message from a third party, so "
+                    "it may only read and notify the user"
+                )
+        if (
+            policy.limit_scheduled_runs
+            and run.source in SCHEDULED_SOURCES
+            and Effect.CHANGE_AGENT in effects
+        ):
+            return "A scheduled task cannot change schedules or CraftBot's setup"
+        return ""
+
+    async def _review_by_model(
+        self, policy, action, effects, input_data, command: str, risk: str, session: str
+    ) -> Optional[Dict[str, Any]]:
+        """Auto mode on: a reviewer model decides on a risky command
+        (OpenClaw's exec auto reviewer, Hermes' smart approvals)."""
+        from app.security.command_review import review_with_model
+
+        verdict, why = await review_with_model(
+            command, risk, cwd=input_data.get("cwd") or input_data.get("working_directory")
+        )
+        if verdict == "allow":
+            self._audit(policy, action, effects, "allowed_by_reviewer", session)
+            return None
+        self._audit(policy, action, effects, "refused_by_reviewer", session)
+        return _blocked(
+            f"Not run: {risk}, and the command reviewer refused it ({why}). "
+            f"Do not try another way; ask the user to run it themselves if it "
+            f"is really needed.",
+            "command_refused",
+        )
 
     def _why_unanswerable(self, run) -> str:
         if not run.interactive:

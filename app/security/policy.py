@@ -85,14 +85,46 @@ class SecurityPolicy:
     ask_after_untrusted: bool = False
     approval_timeout_s: int = 300
 
+    # ── Messages and schedules ──
+    # A run a third party's message started may only read and notify the
+    # user (OpenClaw's owner-only tools, applied by effect).
+    limit_third_party_runs: bool = False
+    # A scheduled run cannot change schedules or CraftBot's setup, and a
+    # schedule's prompt is scanned for injection (Hermes cron safety).
+    limit_scheduled_runs: bool = False
+
+    # ── Commands ──
+    # Commands matching Hermes' dangerous-command list, hidden characters or
+    # risky environment overrides go to the user (Auto mode off) or a
+    # reviewer model (Auto mode on).
+    check_commands: bool = False
+
     # ── Tools ──
     # Start an MCP server only as it was saved through CraftBot's settings
     # (app/security/mcp_trust.py).
     verify_mcp_servers: bool = False
+    # Look up an MCP server's package in the OSV malware database before
+    # starting it (Hermes osv_check).
+    check_mcp_packages: bool = False
+    # Scan a skill before installing it (OpenClaw / Hermes skill scanners).
+    scan_skills: bool = False
+    # Check downloaded programs against their publisher's checksum.
+    verify_downloads: bool = False
+    # Mask secret-shaped text (keys, tokens, private keys) in tool results
+    # before the model sees them (Hermes redact_secrets).
+    redact_tool_output: bool = False
+    # Remove chat-template control tokens from outside content (OpenClaw).
+    strip_chat_tokens: bool = False
 
     # ── Files ──
     protect_secret_files: bool = False
     extra_protected_paths: Tuple[str, ...] = ()
+    # The file tools refuse SSH/cloud credentials, .env files and system
+    # account files, and shell startup files (Hermes file_safety).
+    protect_os_credentials: bool = False
+    # Memory and profile files written from a run that read outside content
+    # are kept out of the prompt until the user trusts them (OpenClaw).
+    guard_memory: bool = False
     confine_writes: bool = False
     workspace_paths: Tuple[str, ...] = ()
 
@@ -114,9 +146,19 @@ class SecurityPolicy:
 
     @property
     def gate_active(self) -> bool:
-        """Whether the action gate has anything to decide. False at the
-        default settings, so the gate costs one attribute read per action."""
+        """Whether approvals are on (Auto mode off)."""
         return not self.auto_mode
+
+    @property
+    def gate_needed(self) -> bool:
+        """Whether the action gate has anything to decide. False at the
+        default settings, so the gate costs a few attribute reads per action."""
+        return (
+            not self.auto_mode
+            or self.limit_third_party_runs
+            or self.limit_scheduled_runs
+            or self.check_commands
+        )
 
     def to_dict(self) -> Dict[str, Any]:
         data = asdict(self)
@@ -142,6 +184,16 @@ _PRESETS: Dict[SecurityLevel, Dict[str, Any]] = {
         "protect_secret_files": True,
         "network_guard": True,
         "scrub_child_env": True,
+        "limit_third_party_runs": True,
+        "limit_scheduled_runs": True,
+        "check_commands": True,
+        "check_mcp_packages": True,
+        "scan_skills": True,
+        "verify_downloads": True,
+        "redact_tool_output": True,
+        "strip_chat_tokens": True,
+        "protect_os_credentials": True,
+        "guard_memory": True,
         "log_prompts": False,
         "retention_days": 90,
     },
@@ -154,6 +206,16 @@ _PRESETS: Dict[SecurityLevel, Dict[str, Any]] = {
         "network_guard": True,
         "third_party_reader": False,
         "scrub_child_env": True,
+        "limit_third_party_runs": True,
+        "limit_scheduled_runs": True,
+        "check_commands": True,
+        "check_mcp_packages": True,
+        "scan_skills": True,
+        "verify_downloads": True,
+        "redact_tool_output": True,
+        "strip_chat_tokens": True,
+        "protect_os_credentials": True,
+        "guard_memory": True,
         "log_prompts": False,
         "retention_days": 30,
     },
