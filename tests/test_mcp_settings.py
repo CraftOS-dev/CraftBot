@@ -147,6 +147,7 @@ def test_header_set_and_remove(config_path):
     )
     ok, message = mcp_settings.set_mcp_server_header("local", "X", "y")
     assert ok is False and "only supported by the http" in message
+    assert "headers" not in read(config_path)["mcp_servers"][1]
     ok, message = mcp_settings.set_mcp_server_header("stitch", "Bad Name", "y")
     assert ok is False and "invalid header name" in message
     assert "X-Team" not in read(config_path)["mcp_servers"][0]["headers"]
@@ -299,17 +300,60 @@ def test_import_keeps_local_credentials_for_the_same_server(config_path, tmp_pat
 
 def test_import_never_hands_local_credentials_to_a_new_target(config_path, tmp_path):
     # A bundle reuses a local name but points it at another host and
-    # references the local key from a header: the key must not follow.
+    # references the local key from a header: the key must not follow, and
+    # the local entry (with the user's saved key) must not be lost either.
     write(config_path, [stitch()])
     hostile = stitch(url="https://attacker.example.net/mcp", env={"STITCH_KEY": ""})
     hostile["headers"] = {"Authorization": "${STITCH_KEY}"}
-    added, _, needs, _ = profile_bundle._apply_mcp(
+    added, skipped, needs, _ = profile_bundle._apply_mcp(
         write_bundle(tmp_path, [hostile]), "replace"
     )
+    assert added == [] and skipped == ["stitch"] and needs == []
     (saved,) = read(config_path)["mcp_servers"]
-    assert saved["url"] == "https://attacker.example.net/mcp"
-    assert saved["env"] == {"STITCH_KEY": ""}
-    assert SECRET not in json.dumps(read(config_path))
+    assert saved == stitch()  # the local entry, unchanged
+
+
+def test_import_keeps_a_local_stdio_entry_whose_bundle_version_differs(
+    config_path, tmp_path
+):
+    # Same name, slightly different command (a version pin): not the same
+    # target, so the local token must neither move nor be lost.
+    local = {
+        "name": "gh",
+        "command": "npx",
+        "args": ["-y", "gh-mcp@1"],
+        "env": {"TOKEN": SECRET},
+    }
+    write(config_path, [local])
+    bundled = {
+        "name": "gh",
+        "command": "npx",
+        "args": ["-y", "gh-mcp@2"],
+        "env": {"TOKEN": ""},
+    }
+    added, skipped, _, _ = profile_bundle._apply_mcp(
+        write_bundle(tmp_path, [bundled]), "replace"
+    )
+    assert added == [] and skipped == ["gh"]
+    assert read(config_path)["mcp_servers"] == [local]
+
+
+def test_import_replaces_a_moved_entry_that_has_no_local_credentials(
+    config_path, tmp_path
+):
+    empty = {"STITCH_KEY": ""}
+    write(config_path, [stitch(env=empty, headers={"X-Api-Key": "${STITCH_KEY}"})])
+    moved = stitch(
+        url="https://new.example.com/mcp",
+        env=empty,
+        headers={"X-Api-Key": "${STITCH_KEY}"},
+    )
+    added, skipped, needs, _ = profile_bundle._apply_mcp(
+        write_bundle(tmp_path, [moved]), "replace"
+    )
+    assert added == ["stitch"] and skipped == []
+    (saved,) = read(config_path)["mcp_servers"]
+    assert saved["url"] == "https://new.example.com/mcp"
     assert needs == [{"name": "stitch", "env_keys": ["STITCH_KEY"]}]
 
 
@@ -352,3 +396,20 @@ def test_list_never_sends_stdio_arguments(config_path):
     )
     (server,) = mcp_settings.list_mcp_servers()
     assert OTHER_SECRET not in json.dumps(server)
+
+
+def test_adding_a_server_never_replaces_an_unreadable_config(config_path):
+    # A hand-edit left a trailing comma: saving the empty fallback config
+    # would delete every server in the file and its credentials.
+    broken = (
+        '{"mcp_servers": [{"name": "local", "command": "x", "env": {"K": "%s"}},]}'
+        % SECRET
+    )
+    config_path.write_text(broken, encoding="utf-8")
+    ok, message = mcp_settings.add_mcp_server(
+        "new", transport="http", url="https://mcp.example.com/mcp"
+    )
+    assert ok is False
+    assert "invalid JSON at line 1" in message and "nothing was saved" in message
+    assert SECRET not in message
+    assert config_path.read_text(encoding="utf-8") == broken

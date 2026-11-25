@@ -12,6 +12,7 @@ Manages connections to individual MCP servers with support for multiple transpor
 import asyncio
 import json
 import os
+import re
 import shutil
 import sys
 from abc import ABC, abstractmethod
@@ -587,7 +588,7 @@ class SSETransport(MCPTransport):
         data_lines: List[str] = []
         try:
             async with self._client.stream("GET", self.url) as response:
-                async for line in response.aiter_lines():
+                async for line in _sse_lines(response.aiter_bytes()):
                     if line:
                         field_name, _, value = line.partition(":")
                         value = value[1:] if value.startswith(" ") else value
@@ -847,6 +848,45 @@ def _clean_server_text(text: Any, limit: int = 300) -> str:
     """Server-supplied text for a log line or error: printable, bounded."""
     text = "".join(c if c.isprintable() else " " for c in str(text))
     return text if len(text) <= limit else text[: limit - 3] + "..."
+
+
+_SSE_LINE_END_RE = re.compile(rb"\r\n|\r|\n")
+_MAX_SSE_LINE_BYTES = 16 * 1024 * 1024
+
+
+async def _sse_lines(chunks, max_line_bytes: int = _MAX_SSE_LINE_BYTES):
+    """The lines of an SSE byte stream, split on CR, LF or CRLF only, as SSE
+    requires. (httpx's ``aiter_lines`` also splits on U+2028, U+0085 and the
+    other ``str.splitlines`` separators, which servers send unescaped inside
+    JSON data.) A line longer than ``max_line_bytes`` raises as soon as it
+    passes the limit, so it is never held in memory in full."""
+    buffer = bytearray()
+    skip_lf = False  # the previous chunk ended in CR: a leading LF ends nothing
+    async for chunk in chunks:
+        if not chunk:
+            continue
+        start = 0
+        if skip_lf:
+            skip_lf = False
+            if chunk[:1] == b"\n":
+                start = 1
+        for match in _SSE_LINE_END_RE.finditer(chunk, start):
+            buffer += chunk[start : match.start()]
+            if len(buffer) > max_line_bytes:
+                raise _HTTPTransportError(
+                    "stream event exceeds the 16 MB message limit"
+                )
+            if match.group() == b"\r" and match.end() == len(chunk):
+                skip_lf = True
+            # Splitting bytes on CR/LF never cuts a UTF-8 sequence.
+            yield buffer.decode("utf-8", errors="replace")
+            buffer = bytearray()
+            start = match.end()
+        buffer += chunk[start:]
+        if len(buffer) > max_line_bytes:
+            raise _HTTPTransportError("stream event exceeds the 16 MB message limit")
+    if buffer:
+        yield buffer.decode("utf-8", errors="replace")
 
 
 class StreamableHTTPTransport(MCPTransport):
@@ -1152,6 +1192,10 @@ class StreamableHTTPTransport(MCPTransport):
     def _capture_session_id(self, response) -> None:
         session_id = response.headers.get("mcp-session-id")
         if session_id is None:
+            # A successful initialize without an id starts a session without
+            # one (e.g. the server restarted stateless): stop sending the old.
+            if 200 <= response.status_code < 300:
+                self._session_id = None
             return
         if not session_id or any(not 0x21 <= ord(c) <= 0x7E for c in session_id):
             raise _HTTPTransportError(
@@ -1350,7 +1394,8 @@ class StreamableHTTPTransport(MCPTransport):
         self, stream, request: Dict[str, Any]
     ) -> "_StreamOutcome":
         outcome = _StreamOutcome()
-        lines = stream.aiter_lines()
+        chunks = stream.aiter_bytes()
+        lines = _sse_lines(chunks, self.MAX_MESSAGE_BYTES)
         messages = self._sse_messages(lines, outcome)
         cancelled = False
         try:
@@ -1368,13 +1413,16 @@ class StreamableHTTPTransport(MCPTransport):
             cancelled = True
             raise
         finally:
-            await messages.aclose()  # our parser: no I/O, closes at its yield
-            # Whatever ended the loop (the response, an oversized event),
-            # read on to the end of this same stream instead of abandoning
-            # httpx's generators mid-iteration (see _drain). A finished
-            # stream makes this a no-op; a cancellation already unwound it.
+            # Our parser and line splitter: no I/O, they close at their yield.
+            await messages.aclose()
+            await lines.aclose()
+            # Whatever ended the loop (the response, an oversized line or
+            # event), read on to the end of this same stream instead of
+            # abandoning httpx's generator mid-iteration (see _drain). A
+            # finished stream makes this a no-op; a cancellation already
+            # unwound it.
             if not cancelled:
-                await self._drain(lines)
+                await self._drain(chunks)
         return outcome
 
     async def _sse_messages(self, lines, outcome: "_StreamOutcome"):

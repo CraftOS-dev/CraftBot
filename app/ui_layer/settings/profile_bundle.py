@@ -173,6 +173,18 @@ def _mcp_needs_config(server: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     return result
 
 
+def _has_local_credentials(server: Dict[str, Any]) -> bool:
+    """Whether an entry holds values the user filled in: a non-empty env
+    value or a literal (non-template) header value."""
+    env = server.get("env") or {}
+    if isinstance(env, dict) and any(v for v in env.values()):
+        return True
+    headers = server.get("headers") or {}
+    return isinstance(headers, dict) and any(
+        v and not _header_is_template(v) for v in headers.values()
+    )
+
+
 def _same_mcp_target(a: Dict[str, Any], b: Dict[str, Any]) -> bool:
     """Whether two entries reach the same server: same transport and the
     same command+args or URL. Local credentials are only ever carried over
@@ -771,7 +783,10 @@ def _apply_mcp(
     """Install MCP server configs from the bundle.
 
     ``replace`` — bundle overwrites local on name collision (preserving any
-    env tokens the user already filled in); new servers added.
+    env tokens the user already filled in); new servers added. If the
+    bundle's entry reaches a different server and the local one has saved
+    credentials, the local entry is kept and the name reported in
+    ``skipped``.
     ``overwrite`` — local mcp_config.json is wiped and replaced entirely with
     the bundle's servers; no env values are preserved (the recipient's MCP
     state ends up exactly = bundle's).
@@ -854,11 +869,19 @@ def _apply_mcp(
                         if v and merged_headers.get(k) == "":
                             merged_headers[k] = v
                     server["headers"] = merged_headers
-            else:
+            elif _has_local_credentials(local):
+                # The bundle's entry reaches a different server (another
+                # url, command or args): carrying the local credentials over
+                # could send them there, and replacing the entry would lose
+                # them. Keep the local entry and report the bundle's as
+                # skipped.
                 logger.warning(
-                    f"[PROFILE_BUNDLE] MCP '{name}' points somewhere new; "
-                    "local credentials are not carried over"
+                    f"[PROFILE_BUNDLE] MCP '{name}' in the bundle points to a "
+                    "different server than the local entry, which has saved "
+                    "credentials; keeping the local entry"
                 )
+                skipped.append(name)
+                continue
             by_name[name] = server
             added.append(name)
         else:
