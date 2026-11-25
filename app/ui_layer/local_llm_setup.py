@@ -358,6 +358,21 @@ async def install_ollama(progress_callback: Callable) -> Dict[str, Any]:
             installer_path = os.path.join(tmp, "OllamaSetup.exe")
             installer_url = "https://ollama.com/download/OllamaSetup.exe"
 
+            # Settings > Security > Verify downloads: fetch the installer from
+            # Ollama's GitHub release and check it against GitHub's digest.
+            from app.security import download_verify
+
+            expected = None
+            if download_verify.enabled():
+                try:
+                    installer_url, expected = await asyncio.to_thread(
+                        download_verify.github_release_asset,
+                        "ollama/ollama",
+                        "OllamaSetup.exe",
+                    )
+                except download_verify.DownloadVerificationError as exc:
+                    return {"success": False, "error": str(exc)}
+
             await progress_callback("Downloading Ollama installer from ollama.com...")
             dl_proc = await asyncio.create_subprocess_exec(
                 "powershell",
@@ -384,6 +399,16 @@ async def install_ollama(progress_callback: Callable) -> Dict[str, Any]:
             await dl_proc.wait()
             if dl_proc.returncode != 0:
                 return {"success": False, "error": "Installer download failed"}
+            if expected:
+                try:
+                    await asyncio.to_thread(
+                        download_verify.check_file,
+                        installer_path,
+                        expected,
+                        "The Ollama installer",
+                    )
+                except download_verify.DownloadVerificationError as exc:
+                    return {"success": False, "error": str(exc)}
 
             await progress_callback("Running installer silently...")
             run_proc = await asyncio.create_subprocess_exec(

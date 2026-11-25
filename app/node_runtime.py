@@ -425,18 +425,30 @@ def _extract_node(archive_src, ver, suffix, ext, say, url=None):
     import zipfile
 
     from app import downloads
+    from app.security import download_verify
 
     dest_root = str(SIDECAR_DIR)
     os.makedirs(dest_root, exist_ok=True)
     archive = os.path.join(dest_root, f"_download.{ext}")
     try:
+        # Settings > Security > Verify downloads: the archive must match the
+        # SHASUMS256.txt Node publishes with the release.
+        expected = (
+            download_verify.node_sha256(ver, f"node-{ver}-{suffix}.{ext}")
+            if download_verify.enabled()
+            else None
+        )
         if archive_src:
             say(f"   Using cached {os.path.basename(archive_src)}")
             shutil.copyfile(archive_src, archive)
+            if expected:
+                download_verify.check_file(archive, expected, f"Node {ver}")
         else:
             # Streamed with progress: the archive is 30-55MB, and a single
             # silent blocking copy is indistinguishable from a hung install.
-            downloads.download(url, archive, log=say, label=f"Node {ver}")
+            downloads.download(
+                url, archive, log=say, label=f"Node {ver}", expected_sha256=expected
+            )
         say("   Extracting...")
         if ext == "zip":
             zipfile.ZipFile(archive).extractall(dest_root)

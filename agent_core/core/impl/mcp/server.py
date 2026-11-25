@@ -900,6 +900,14 @@ class MCPServerConnection:
             logger.warning(f"[MCPServer:{self.config.name}] {held_back}")
             return False
 
+        # Settings > Security > Check MCP packages: known malware in OSV.
+        from app.security.osv import malware_refusal
+
+        held_back = await malware_refusal(self.config)
+        if held_back:
+            logger.warning(f"[MCPServer:{self.config.name}] {held_back}")
+            return False
+
         try:
             # Create and connect transport
             logger.debug(

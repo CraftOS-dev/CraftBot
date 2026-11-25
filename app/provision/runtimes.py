@@ -9,6 +9,7 @@ download a private copy into STATE_ROOT/runtime/.
 
 from __future__ import annotations
 
+import json
 import os
 import platform
 import subprocess
@@ -258,6 +259,37 @@ def _pbs_download_url(log: LogFn) -> Optional[str]:
     return None
 
 
+def _pbs_expected_sha256(url: Optional[str], cached: Optional[str]) -> Optional[str]:
+    """The SHA-256 a python-build-standalone archive must have, from the
+    release's SHA256SUMS, when "Verify downloads" is on; otherwise None.
+
+    A cached archive carries its release in its name
+    (``cpython-3.10.22+20261009-<triple>-install_only.tar.gz``), which is
+    how its checksum list is found without the release index.
+    """
+    from urllib.parse import unquote
+
+    from app.security import download_verify
+
+    if not download_verify.enabled():
+        return None
+    if url:
+        base, _, name = url.rpartition("/")
+        return download_verify.checksum_list_entry(f"{base}/SHA256SUMS", unquote(name))
+    name = os.path.basename(cached or "")
+    release = name.split("+", 1)[1].split("-", 1)[0] if "+" in name else ""
+    if not release:
+        raise download_verify.DownloadVerificationError(
+            f"cannot tell which release {name} came from to check it"
+        )
+    config = json.loads(PBS_CONFIG_PATH.read_text(encoding="utf-8"))
+    sums = (
+        f"{config['download_base'].rstrip('/')}/{config['repository']}"
+        f"/releases/download/{release}/SHA256SUMS"
+    )
+    return download_verify.checksum_list_entry(sums, name)
+
+
 class PythonStage:
     """Ensure a real CPython on the locked version line exists.
 
@@ -375,15 +407,25 @@ class PythonStage:
                 )
 
         try:
+            # Settings > Security > Verify downloads: the archive must match
+            # the release's SHA256SUMS. A cached file is matched by name.
+            expected = _pbs_expected_sha256(url, cached)
             if cached:
                 log(f"    using cached {os.path.basename(cached)}")
                 _shutil.copyfile(cached, archive)
+                if expected:
+                    from app.security import download_verify
+
+                    download_verify.check_file(
+                        str(archive), expected, os.path.basename(cached)
+                    )
             else:
                 downloads.download(
                     url,
                     str(archive),
                     log=log,
                     label=f"Python {TARGET_PYTHON[0]}.{TARGET_PYTHON[1]}",
+                    expected_sha256=expected,
                 )
             log("    extracting...")
             # tar preserves the executable bit, which a zip would not — that
