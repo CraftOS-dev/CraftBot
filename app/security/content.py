@@ -123,6 +123,15 @@ runs = RunRegistry()
 
 def wrap_untrusted(text: str, source: str) -> str:
     """Wrap outside content so the model treats it as data, not instructions."""
+    from app.security.policy import get_policy
+
+    if get_policy().strip_chat_tokens:
+        # Settings > Security: a third party cannot forge a system or
+        # assistant turn on models that read these tokens (OpenClaw).
+        from app.security.chat_tokens import strip_chat_tokens, strip_chat_tokens_inline
+
+        text = strip_chat_tokens(text)
+        source = strip_chat_tokens_inline(source)
     boundary = secrets.token_hex(8)
     return (
         f"<<<UNTRUSTED_CONTENT id={boundary} from={source}>>>\n"

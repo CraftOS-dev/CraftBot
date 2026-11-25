@@ -115,6 +115,32 @@ def result_source_of(action: Any) -> ContentSource:
     return ContentSource.LOCAL
 
 
+def _redact_rendered(rendered: str) -> str:
+    """Mask secret-shaped text in an action's result before the model sees
+    it (Hermes' redact_secrets). Each string in the JSON result is masked on
+    its own, so line-based rules see real lines."""
+    from app.security.output_redact import redact_secrets
+
+    try:
+        data = json.loads(rendered)
+    except ValueError:
+        return redact_secrets(rendered)
+
+    def walk(value: Any) -> Any:
+        if isinstance(value, str):
+            return redact_secrets(value)
+        if isinstance(value, dict):
+            return {k: walk(v) for k, v in value.items()}
+        if isinstance(value, list):
+            return [walk(v) for v in value]
+        return value
+
+    cleaned = walk(data)
+    if cleaned == data:
+        return rendered
+    return json.dumps(cleaned, ensure_ascii=False, separators=(",", ":"))
+
+
 def _blocked(message: str, code: str) -> Dict[str, Any]:
     return {"status": "error", "error": message, "error_code": code}
 
@@ -201,6 +227,7 @@ class SecurityGate:
             inputs=input_data,
             timeout_s=policy.approval_timeout_s,
             grant_key=grant,
+            grant_scope="command" if command_of(input_data) else "action",
             command_keys=COMMAND_KEYS,
         )
         self._audit(policy, action, effects, f"user_{decision.value}", session)
@@ -277,6 +304,8 @@ class SecurityGate:
     # ── after an action ──
 
     def after(self, action: Any, rendered_output: str, *, session_id: Optional[str]) -> str:
+        if get_policy().redact_tool_output:
+            rendered_output = _redact_rendered(rendered_output)
         if result_source_of(action) != ContentSource.NETWORK:
             return rendered_output
         self.runs.mark_tainted(

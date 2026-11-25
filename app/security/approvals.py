@@ -57,6 +57,8 @@ class ApprovalRequest:
     expires_at: float
     # What "allow for this session" grants; not shown on the card.
     grant_key: str = ""
+    # "command" when it covers this exact command only, else "action".
+    grant_scope: str = "action"
 
     def to_dict(self) -> Dict[str, Any]:
         data = asdict(self)
@@ -167,6 +169,7 @@ class ApprovalBroker:
         inputs: Dict[str, Any],
         timeout_s: float,
         grant_key: str = "",
+        grant_scope: str = "action",
         command_keys: Tuple[str, ...] = (),
     ) -> Decision:
         now = time.time()
@@ -182,6 +185,7 @@ class ApprovalBroker:
             created_at=now,
             expires_at=now + timeout_s,
             grant_key=grant_key or action_name,
+            grant_scope=grant_scope,
         )
         future: asyncio.Future = asyncio.get_running_loop().create_future()
         self._pending[request.id] = (request, future)
