@@ -26,9 +26,6 @@ export interface SecurityPolicy {
   approval_effects: SecurityEffect[]
   ask_after_untrusted: boolean
   approval_timeout_s: number
-  /** Refuse commands that do damage no approval can undo. */
-  block_destructive_commands: boolean
-  mark_untrusted_content: boolean
   /** Start MCP servers only as saved through Settings. */
   verify_mcp_servers: boolean
   protect_secret_files: boolean
@@ -39,13 +36,10 @@ export interface SecurityPolicy {
   allowed_domains: string[]
   third_party_reader: boolean
   scrub_child_env: boolean
-  redact_logs: boolean
   log_prompts: boolean
   retention_days: number
-  strict_channel_identity: boolean
   /** Only these senders' emails reach the agent; empty: every inbox email. */
   email_allowed_senders: string[]
-  audit_log: boolean
 }
 
 /** Settings the page may change with `security_update` (everything but level/customized). */

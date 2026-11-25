@@ -174,9 +174,7 @@ class SecurityGate:
         self.runs.mark_tainted(
             session_id, f"the result of {getattr(action, 'display_name', action.name)}"
         )
-        if get_policy().mark_untrusted_content:
-            return wrap_untrusted(rendered_output, action.name)
-        return rendered_output
+        return wrap_untrusted(rendered_output, action.name)
 
     # ── audit ──
 
@@ -184,8 +182,6 @@ class SecurityGate:
     def _audit(
         policy: SecurityPolicy, action: Any, effects, outcome: str, session_id: str
     ) -> None:
-        if not policy.audit_log:
-            return
         try:
             audit.record(
                 "action_approval",

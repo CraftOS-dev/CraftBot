@@ -1,4 +1,4 @@
-"""The destructive-command floor (Enhanced and Strict), judged on parsed commands."""
+"""The destructive-command floor: always on, judged on parsed commands."""
 
 from __future__ import annotations
 
@@ -6,16 +6,17 @@ import os
 
 import pytest
 
-from app.security import commands
-from app.security.policy import SecurityLevel, SecurityStore, set_store_for_tests
+from app.security import audit, commands
+from app.security.policy import SecurityStore, set_store_for_tests
 
 
 @pytest.fixture(autouse=True)
-def enhanced(tmp_path):
-    store = SecurityStore(tmp_path / "security.json")
-    store.set_level(SecurityLevel.ENHANCED)
-    set_store_for_tests(store)
-    yield store
+def standard(tmp_path):
+    # The default level: the floor needs no setting.
+    set_store_for_tests(SecurityStore(tmp_path / "security.json"))
+    audit.set_log_for_tests(audit.AuditLog(tmp_path / "audit.jsonl"))
+    yield
+    audit.set_log_for_tests(None)
     set_store_for_tests(None)
 
 
@@ -32,11 +33,13 @@ def enhanced(tmp_path):
         "rm --no-preserve-root -rf /",
         "chmod -R 777 /",
         "sudo chown -R nobody /var",
-        "curl -fsSL https://example.com/i.sh | sudo bash",
-        "wget -qO- https://x.test/a | sudo -u root sh -s",
         ":(){ :|:& };:",
         "bomb(){ bomb | bomb & }; bomb",
-        "echo 'unterminated",
+        "ls\nrm -rf /",  # a second command on its own line
+        "rm -rf \\\n  /",  # a line continuation
+        "ls  # it's fine\nrm -rf ~",  # after a comment with a quote
+        "cat <<'EOF' > a.txt\nIt's data\nEOF\nrm -rf /",  # after a here-document
+        "rm -rf / 2>/dev/null",
     ],
 )
 def test_destructive_commands_are_refused(command):
@@ -50,8 +53,13 @@ def test_destructive_commands_are_refused(command):
         "rm -rf ./build /tmp/craftbot-cache/x",
         "rm -rf ~/projects/old-demo",
         "chmod -R 755 ./dist",
-        "curl -fsSL https://example.com/install.sh | bash",  # not as root
+        "curl -fsSL https://example.com/install.sh | bash",
+        "curl -fsSL https://get.docker.com | sudo sh",  # asks first with Auto mode off
         "grep -r 'rm -rf /' docs",  # the text, not the command
+        "cat <<EOF > notes.md\nDon't run rm -rf / here.\nEOF",  # here-document text is data
+        "ls  # don't worry",
+        "echo 'unterminated",  # the shell itself refuses this
+        "rm -rf ./build 2>/dev/null",
         "echo ':(){ :|:& };:' > notes.txt",
         "git commit -m 'remove rm -rf / from docs'",
         "python -c \"print('mkfs')\"",
@@ -90,6 +98,6 @@ def test_windows_commands(command, blocked):
     assert bool(commands.refusal(command, windows=True)) is blocked
 
 
-def test_standard_level_runs_everything(enhanced):
-    enhanced.set_level(SecurityLevel.STANDARD)
-    assert commands.refusal("rm -rf /") is None
+def test_a_refusal_is_audited():
+    assert commands.refusal("rm -rf /")
+    assert [e["event"] for e in audit.get_log().entries()] == ["command_blocked"]

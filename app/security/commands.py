@@ -1,12 +1,14 @@
-"""Commands the agent may never run (Settings > Security, Enhanced and Strict).
+"""Commands the agent may never run. Always on.
 
 Hermes Agent's "hardline floor": a few commands do damage no approval can
-undo, so they are refused outright, whatever Auto mode says. The floor is
-judged on the parsed command, not on its text: the line is split into
-commands the way a shell splits it (``shlex``), wrappers such as ``sudo``
-and leading ``VAR=value`` assignments are set aside, and each command is
-judged by its program and arguments. Where it matters, the target is
-looked up on disk (a disk device is recognized by its file type).
+undo, so they are refused outright, whatever the level or Auto mode says,
+and no setting turns this off. The floor is judged on the parsed command,
+not on its text: the line is tokenized the way a POSIX shell reads it
+(quotes, escapes, comments, line continuations, newlines between commands
+and here-document bodies), wrappers such as ``sudo`` and leading
+``VAR=value`` assignments are set aside, and each command is judged by its
+program and arguments. Where it matters, the target is looked up on disk (a
+disk device is recognized by its file type).
 
 Refused:
 
@@ -15,16 +17,14 @@ Refused:
   (``rm -rf ~``, ``chmod -R 777 /``), and any ``--no-preserve-root``;
 - writing to a disk device (``dd of=/dev/sda``, ``> /dev/nvme0n1``) or
   formatting one (``mkfs``, ``wipefs``);
-- piping a download into a shell running as root (``curl … | sudo sh``);
 - a fork bomb (a shell function that starts itself twice in the background);
 - on Windows: formatting a drive, and recursively removing a drive root or
   the user's profile folder.
 
-A command that cannot be parsed (unbalanced quotes) is refused while the
-floor is on, so an obfuscated command is not waved through.
-
-Like Hermes' floor, this is a backstop for the worst mistakes, not a
-sandbox: approving commands (Auto mode off) is what reviews everything else.
+A command whose quotes do not balance is left to the shell, which refuses
+to run it. Like Hermes' floor, this is a backstop for the worst mistakes,
+not a sandbox: approving commands (Auto mode off) is what reviews everything
+else.
 """
 
 from __future__ import annotations
@@ -35,12 +35,16 @@ import stat
 from pathlib import Path, PureWindowsPath
 from typing import List, Optional, Sequence, Tuple
 
-from app.security.policy import get_policy
-
 _SEPARATORS = {";", "&", "&&", "||", "|", "|&", "(", ")", ";;", "\n"}
-_PIPE = {"|", "|&"}
+# Longest first, so "&&" wins over "&".
+_OPERATORS = (
+    "<<-", "<<<", "&&", "||", ";;", "|&", ">>", ">|", "<<", "<&", ">&", "&>", "<>",
+    ";", "&", "|", "(", ")", "<", ">",
+)
+_HEREDOC = {"<<", "<<-"}
+_REDIRECTS = {">", ">>", ">|", "&>", "<", "<&", ">&", "<>", "<<<"}
+_WRITE_REDIRECTS = {">", ">>", ">|", "&>", "<>"}
 _WRAPPERS = {"sudo", "doas", "env", "nice", "nohup", "time", "command", "exec", "stdbuf", "ionice", "timeout"}
-_ROOT_WRAPPERS = {"sudo", "doas"}
 # Options of the wrappers that take a value (so the value is not the program).
 _WRAPPER_OPTIONS_WITH_VALUE = {
     "sudo": {"-u", "-g", "-C", "-D", "-h", "-p", "-r", "-t", "-U", "-T"},
@@ -50,8 +54,6 @@ _WRAPPER_OPTIONS_WITH_VALUE = {
     "stdbuf": {"-i", "-o", "-e"},
     "timeout": {"-s", "-k"},
 }
-_SHELLS = {"sh", "bash", "zsh", "dash", "ksh", "fish", "ash"}
-_DOWNLOADERS = {"curl", "wget", "fetch", "aria2c"}
 _FORMATTERS_PREFIX = ("mkfs",)
 _FORMATTERS = {"mke2fs", "mkswap", "wipefs", "sfdisk", "sgdisk"}
 
@@ -61,27 +63,126 @@ class _Unparseable(ValueError):
 
 
 def _tokens(command: str) -> List[str]:
-    lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
-    lexer.whitespace_split = True
-    lexer.commenters = ""
-    try:
-        return list(lexer)
-    except ValueError as exc:  # unbalanced quotes
-        raise _Unparseable(str(exc)) from None
+    """Words and operators of a POSIX shell command line; a newline between
+    commands is a "\\n" token. Here-document bodies are data and skipped."""
+    tokens: List[str] = []
+    word: Optional[List[str]] = None
+    heredocs: List[Tuple[str, bool]] = []
+    expect_delimiter: Optional[bool] = None  # set after << / <<-: strip tabs?
+    i, n = 0, len(command)
+
+    def end_word() -> None:
+        nonlocal word, expect_delimiter
+        if word is None:
+            return
+        text = "".join(word)
+        word = None
+        if expect_delimiter is not None:
+            heredocs.append((text, expect_delimiter))
+            expect_delimiter = None
+        tokens.append(text)
+
+    while i < n:
+        ch = command[i]
+        if ch == "\\":
+            if command.startswith("\\\n", i):
+                i += 2  # line continuation
+                continue
+            word = word if word is not None else []
+            word.append(command[i + 1] if i + 1 < n else "\\")
+            i += 2
+            continue
+        if ch == "'":
+            end = command.find("'", i + 1)
+            if end < 0:
+                raise _Unparseable("unbalanced quotes")
+            word = word if word is not None else []
+            word.extend(command[i + 1 : end])
+            i = end + 1
+            continue
+        if ch == '"':
+            j, text = i + 1, []
+            while j < n and command[j] != '"':
+                if command[j] == "\\" and j + 1 < n and command[j + 1] in '"\\$`\n':
+                    if command[j + 1] != "\n":
+                        text.append(command[j + 1])
+                    j += 2
+                    continue
+                text.append(command[j])
+                j += 1
+            if j >= n:
+                raise _Unparseable("unbalanced quotes")
+            word = word if word is not None else []
+            word.extend(text)
+            i = j + 1
+            continue
+        if ch == "#" and word is None:
+            end = command.find("\n", i)
+            i = n if end < 0 else end  # a comment runs to the end of the line
+            continue
+        if ch == "\n":
+            end_word()
+            tokens.append("\n")
+            i += 1
+            for delimiter, strip_tabs in heredocs:
+                while i < n:
+                    end = command.find("\n", i)
+                    line = command[i : n if end < 0 else end]
+                    i = n if end < 0 else end + 1
+                    if (line.lstrip("\t") if strip_tabs else line) == delimiter:
+                        break
+            heredocs = []
+            continue
+        if ch in " \t\r":
+            end_word()
+            i += 1
+            continue
+        operator = next((op for op in _OPERATORS if command.startswith(op, i)), None)
+        if operator:
+            end_word()
+            tokens.append(operator)
+            i += len(operator)
+            if operator in _HEREDOC:
+                expect_delimiter = operator == "<<-"
+            continue
+        word = word if word is not None else []
+        word.append(ch)
+        i += 1
+    end_word()
+    return tokens
 
 
-def _split(tokens: Sequence[str]) -> List[Tuple[List[str], str]]:
-    """Simple commands, each with the operator that ends it."""
-    commands: List[Tuple[List[str], str]] = []
+def _split(tokens: Sequence[str]) -> List[List[str]]:
+    """Simple commands."""
+    commands: List[List[str]] = []
     current: List[str] = []
     for token in tokens:
         if token in _SEPARATORS:
-            commands.append((current, token))
+            commands.append(current)
             current = []
         else:
             current.append(token)
-    commands.append((current, ""))
-    return [(argv, op) for argv, op in commands if argv]
+    commands.append(current)
+    return [argv for argv in commands if argv]
+
+
+def _without_redirections(argv: Sequence[str]) -> Tuple[List[str], List[str]]:
+    """The command's words, and the files it redirects output into."""
+    words: List[str] = []
+    written: List[str] = []
+    i = 0
+    while i < len(argv):
+        token = argv[i]
+        if token in _REDIRECTS or token in _HEREDOC:
+            if words and words[-1].isdigit():
+                words.pop()  # the file descriptor of "2>"
+            if token in _WRITE_REDIRECTS and i + 1 < len(argv):
+                written.append(argv[i + 1])
+            i += 2
+            continue
+        words.append(token)
+        i += 1
+    return words, written
 
 
 def _is_assignment(word: str) -> bool:
@@ -89,10 +190,8 @@ def _is_assignment(word: str) -> bool:
     return bool(equals) and bool(name) and (name[0].isalpha() or name[0] == "_") and name.replace("_", "").isalnum()
 
 
-def _unwrap(argv: List[str]) -> Tuple[List[str], bool]:
-    """The command under any wrappers and VAR=value prefixes; True when it
-    runs as root through sudo or doas."""
-    as_root = False
+def _unwrap(argv: List[str]) -> List[str]:
+    """The command under any wrappers and VAR=value prefixes."""
     i = 0
     while i < len(argv):
         word = argv[i]
@@ -102,7 +201,6 @@ def _unwrap(argv: List[str]) -> Tuple[List[str], bool]:
         name = os.path.basename(word)
         if name not in _WRAPPERS:
             break
-        as_root = as_root or name in _ROOT_WRAPPERS
         i += 1
         takes_value = _WRAPPER_OPTIONS_WITH_VALUE.get(name, set())
         while i < len(argv) and argv[i].startswith("-"):
@@ -114,7 +212,7 @@ def _unwrap(argv: List[str]) -> Tuple[List[str], bool]:
                 i += 1
         if name == "timeout" and i < len(argv):
             i += 1  # the duration
-    return argv[i:], as_root
+    return argv[i:]
 
 
 def _home() -> Path:
@@ -153,7 +251,11 @@ def _flags(args: Sequence[str]) -> Tuple[set, List[str]]:
     return short, operands
 
 
-def _posix_refusal(argv: List[str]) -> Optional[str]:
+def _posix_refusal(argv: List[str], written: List[str]) -> Optional[str]:
+    if any(_is_block_device(target) for target in written):
+        return "it writes directly to a disk device"
+    if not argv:
+        return None
     program = os.path.basename(argv[0])
     args = argv[1:]
     flags, operands = _flags(args)
@@ -175,28 +277,18 @@ def _posix_refusal(argv: List[str]) -> Optional[str]:
         for arg in args:
             if arg.startswith("of=") and _is_block_device(arg[3:]):
                 return "it writes directly to a disk device"
-    for i, token in enumerate(argv[:-1]):
-        if token in (">", ">>", ">|") and _is_block_device(argv[i + 1]):
-            return "it writes directly to a disk device"
     return None
 
 
 def _fork_bomb(tokens: Sequence[str]) -> bool:
     """name() { … name | name & … } — a function that starts itself twice
     in the background."""
-    for i in range(len(tokens) - 2):
+    for i in range(len(tokens) - 3):
         name = tokens[i]
-        # The tokenizer gives "()" as one token, or "(" and ")" when spaced.
-        if tokens[i + 1] == "()":
-            start = i + 2
-        elif tokens[i + 1 : i + 3] == ["(", ")"]:
-            start = i + 3
-        else:
-            continue
-        if start >= len(tokens) or not tokens[start].startswith("{"):
+        if tokens[i + 1 : i + 3] != ["(", ")"] or not tokens[i + 3].startswith("{"):
             continue
         depth, body = 0, []
-        for token in tokens[start:]:
+        for token in tokens[i + 3 :]:
             depth += token.count("{") - token.count("}")
             body.append(token)
             if depth <= 0:
@@ -211,21 +303,11 @@ def posix_refusal(command: str) -> Optional[str]:
     tokens = _tokens(command)
     if _fork_bomb(tokens):
         return "it is a fork bomb"
-    pipeline_has_download = False
-    for argv, operator in _split(tokens):
-        inner, as_root = _unwrap(argv)
-        if not inner:
-            continue
-        why = _posix_refusal(inner)
+    for argv in _split(tokens):
+        words, written = _without_redirections(argv)
+        why = _posix_refusal(_unwrap(words), written)
         if why:
             return why
-        program = os.path.basename(inner[0])
-        if pipeline_has_download and as_root and program in _SHELLS:
-            return "it pipes a download into a shell running as root"
-        if program in _DOWNLOADERS and operator in _PIPE:
-            pipeline_has_download = True
-        elif operator not in _PIPE:
-            pipeline_has_download = False
     return None
 
 
@@ -247,16 +329,17 @@ def _windows_root(target: str) -> bool:
 
 
 def windows_refusal(command: str) -> Optional[str]:
-    lexer = shlex.shlex(command, posix=False, punctuation_chars="&|;()")
+    lexer = shlex.shlex(command, posix=False, punctuation_chars="&|;()\n")
+    lexer.whitespace = " \t\r"
     lexer.whitespace_split = True
     lexer.commenters = ""
     try:
         tokens = list(lexer)
     except ValueError:
         raise _Unparseable("unbalanced quotes") from None
-    for argv, _ in _split(tokens):
+    for argv in _split(tokens):
         program = argv[0].lower().rsplit("\\", 1)[-1].removesuffix(".exe")
-        args = [a for a in argv[1:]]
+        args = list(argv[1:])
         lowered = [a.lower() for a in args]
         operands = [a for a in args if not a.startswith(("-", "/"))]
         if program == "format" and operands:
@@ -274,18 +357,18 @@ def windows_refusal(command: str) -> Optional[str]:
 
 def refusal(command: str, *, windows: bool = False) -> Optional[str]:
     """None when the command may run; otherwise the reason, for the agent."""
-    if not get_policy().block_destructive_commands or not command.strip():
+    if not command.strip():
         return None
     try:
         why = windows_refusal(command) if windows else posix_refusal(command)
     except _Unparseable:
-        why = "it could not be read safely (unbalanced quotes)"
+        return None  # the shell itself refuses a command whose quotes don't balance
     if not why:
         return None
     from app.security import audit
 
-    audit.record_if_enabled("command_blocked", reason=why)
+    audit.record("command_blocked", reason=why)
     return (
-        f"Not run: {why}. Settings > Security blocks commands that do damage no "
+        f"Not run: {why}. CraftBot never runs commands that do damage no "
         f"approval can undo. If this really is needed, ask the user to run it."
     )

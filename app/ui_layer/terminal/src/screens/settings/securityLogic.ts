@@ -15,18 +15,13 @@ export const APPROVAL_EFFECTS: readonly SecurityEffect[] = ['execute', 'write_fi
 
 /** The Advanced on/off settings, in the page's order. */
 export const ADVANCED_TOGGLES = [
-  'block_destructive_commands',
-  'mark_untrusted_content',
-  'verify_mcp_servers',
   'protect_secret_files',
   'confine_writes',
   'network_guard',
   'third_party_reader',
   'scrub_child_env',
-  'redact_logs',
+  'verify_mcp_servers',
   'log_prompts',
-  'strict_channel_identity',
-  'audit_log',
 ] as const satisfies readonly (keyof SecurityPolicy)[]
 
 export type AdvancedToggle = (typeof ADVANCED_TOGGLES)[number]

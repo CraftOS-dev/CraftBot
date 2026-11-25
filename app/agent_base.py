@@ -161,11 +161,6 @@ def _email_sender_allowed(address: str) -> bool:
     return (address or "").strip().lower() in {a.strip().lower() for a in allowed}
 
 
-def _strict_channel_identity() -> bool:
-    from app.security.policy import get_policy
-
-    return get_policy().strict_channel_identity
-
 def _message_origin(trigger_data: TriggerData) -> dict:
     """The trusted turn origin a turn's actions run with
     (current_message_origin), from the trigger, never from action inputs."""
@@ -2944,16 +2939,15 @@ class AgentBase:
                 f"(channel={channel_name or channel_id}, self={is_self_message})"
             )
 
+            # A third party's words reach the model inside markers with a
+            # random id, as data. The chat shows them as sent.
+            model_body = message_body
             if not (owner_authenticated or is_self_message):
                 from app.security.content import wrap_untrusted
-                from app.security.policy import get_policy
 
-                if get_policy().mark_untrusted_content:
-                    # Settings > Security: a third party's words reach the
-                    # model inside markers with a random id, as data.
-                    message_body = wrap_untrusted(
-                        message_body, f"{source} message from {contact_name}"
-                    )
+                model_body = wrap_untrusted(
+                    message_body, f"{source} message from {contact_name}"
+                )
 
             # Map integration type to platform for reply routing
             platform_map = {
@@ -3002,7 +2996,7 @@ class AgentBase:
                     f"From: {contact_name} ({contact_id})\n"
                     f"Chat ID: {channel_id}\n"
                     f"Message ID: {message_id}\n"
-                    f"{reply_context}{message_body}\n{truncation_note}\n"
+                    f"{reply_context}{model_body}\n{truncation_note}\n"
                     f"INSTRUCTIONS: The saved owner-control user ID authenticates "
                     f"this private message as the owner's instruction. Perform "
                     f"the requested work using your available tools. "
@@ -3014,7 +3008,7 @@ class AgentBase:
                 # Self-message = user is directly talking to the agent via their own platform.
                 event_content = (
                     f"[USER SELF-MESSAGE via {source}]\n"
-                    f"{message_body}\n"
+                    f"{model_body}\n"
                     f"{truncation_note}\n"
                     f"INSTRUCTIONS: Reply to the message to the user on {source}"
                     f"{account_note}"
@@ -3027,7 +3021,7 @@ class AgentBase:
                     f"Chat ID: {channel_id}\n"
                     f"Message ID: {message_id}\n"
                     f"{reply_context}"
-                    f'Message: "{message_body}"\n'
+                    f'Message: "{model_body}"\n'
                     f"{truncation_note}\n"
                     f"INSTRUCTIONS: The owner has saved permission to auto-reply "
                     f"to this contact. Send a conversational reply using "
@@ -3055,7 +3049,7 @@ class AgentBase:
                     f"Platform: {source}\n"
                     f"{received_on}"
                     f"{reply_context}"
-                    f'Message: "{message_body}"\n'
+                    f'Message: "{model_body}"\n'
                     f"{truncation_note}\n"
                     f"INSTRUCTIONS: Notify the user about this message on their "
                     f"preferred platform (check USER.md 'Preferred Messaging "
@@ -4280,10 +4274,6 @@ class AgentBase:
                 # runtime this app resolved. Injected rather than imported —
                 # the integrations package must stay host-blind.
                 "node_runtime": _node_runtime,
-                # Settings > Security: match chat owners by unique identity
-                # only (a callable, read per message, so a change applies
-                # at once).
-                "strict_channel_identity": _strict_channel_identity,
                 # Settings > Security: which email senders reach the agent.
                 "email_sender_allowed": _email_sender_allowed,
             },

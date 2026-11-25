@@ -96,17 +96,10 @@ def _check_bind_address() -> CheckResult:
 
 def _check_audit_chain() -> CheckResult:
     from app.security import audit
-    from app.security.policy import get_policy
 
     log = audit.get_log()
     if not log.path.exists():
-        enabled = get_policy().audit_log
-        return CheckResult(
-            "audit_log_intact",
-            "ok" if enabled else "info",
-            "Audit log is on" if enabled else "Audit log is off",
-            "",
-        )
+        return CheckResult("audit_log_intact", "ok", "Audit log is intact", "")
     intact, count, broken = log.verify()
     if intact:
         return CheckResult(
@@ -291,8 +284,6 @@ def _check_discord() -> CheckResult:
     from craftos_integrations import has_credential, load_config
     from craftos_integrations.providers.discord import client as discord
 
-    from app.security.policy import get_policy
-
     if not has_credential(discord.DiscordClient.spec.cred_file):
         return CheckResult("discord_senders_limited", "ok", "Discord isn't connected", "")
     cfg = load_config(discord._discord_config_file(), discord.DiscordConfig) or discord.DiscordConfig()
@@ -304,7 +295,7 @@ def _check_discord() -> CheckResult:
         cfg.third_party_role_names,
         cfg.third_party_user_ids,
     )
-    if cfg.mention_only or any(lists) or get_policy().strict_channel_identity:
+    if cfg.mention_only or any(lists):
         return CheckResult(
             "discord_senders_limited", "ok", "Discord messages are limited", "",
         )

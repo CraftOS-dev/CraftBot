@@ -590,9 +590,6 @@
     "hideAdvanced": "詳細設定を隠す",
     "changed": "変更済み",
     "settings": {
-      "mark_untrusted_content": {
-        "label": "外部コンテンツを信頼できないものとして扱う"
-      },
       "protect_secret_files": {
         "label": "キーファイルを保護"
       },
@@ -608,26 +605,14 @@
       "scrub_child_env": {
         "label": "ツールから API キーを隠す"
       },
-      "redact_logs": {
-        "label": "ログ内のシークレットを隠す"
-      },
       "log_prompts": {
         "label": "プロンプト全文を記録"
-      },
-      "strict_channel_identity": {
-        "label": "Discord の厳格な本人確認"
-      },
-      "audit_log": {
-        "label": "監査ログ"
       },
       "retention_days": {
         "label": "ログの保存期間"
       },
       "verify_mcp_servers": {
         "label": "設定で保存した MCP サーバーのみ起動"
-      },
-      "block_destructive_commands": {
-        "label": "破壊的なコマンドをブロック"
       }
     },
     "keepForever": "無期限",
@@ -660,7 +645,6 @@
     "fixed": "修正しました",
     "fixFailed": "修正を適用できませんでした",
     "auditTitle": "監査ログ",
-    "auditOff": "オフ",
     "auditLoading": "監査ログを読み込み中...",
     "auditRecords": "記録",
     "records_one": "{{count}} 件の記録",

@@ -84,6 +84,17 @@ def project_root_cwd():
 
 
 @pytest.fixture(autouse=True)
+def isolated_audit_log(tmp_path):
+    """The security audit log is always on; keep each test's records in its
+    own file, out of the repository's .security/audit.jsonl."""
+    from app.security import audit
+
+    audit.set_log_for_tests(audit.AuditLog(tmp_path / "security-audit.jsonl"))
+    yield
+    audit.set_log_for_tests(None)
+
+
+@pytest.fixture(autouse=True)
 def configured_context_window(monkeypatch):
     """Give every test a configured model.context_window.
 

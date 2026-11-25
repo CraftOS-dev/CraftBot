@@ -50,8 +50,9 @@ class DiscordConfig:
     * **Third-party** lists - users/roles whose messages reach the agent as
       incoming external chatter (``raw.is_self_message = False``). Use for
       letting a server's general members @-the-bot for help.
-    * **Self** lists - users/roles whose messages reach the agent as if the
-      bot owner sent them (``raw.is_self_message = True``). Use for trusted
+    * **Self** lists - users whose messages reach the agent as if the bot
+      owner sent them (``raw.is_self_message = True``), by user ID or by
+      unique username (pinned to its ID on first match). Use for trusted
       admins who can drive the bot like its owner - issue commands, change
       settings, etc.
 
@@ -60,7 +61,7 @@ class DiscordConfig:
     * If ``mention_only`` is set, the bot must be @-mentioned regardless of
       the lists below.
     * Self matches always win over third-party matches.
-    * If **all four** allow lists are empty, the filter is fully open and
+    * If every allow list is empty, the filter is fully open and
       every message is classified as third-party (current default).
     * If any list has entries, users matching neither list are dropped.
     """
@@ -71,9 +72,9 @@ class DiscordConfig:
     mention_only: bool = False
 
     # ----- Third-party allowlist (forwarded as external messages) -----
-    # Comma-separated Discord usernames / display names. Matched
-    # case-insensitively against both ``author.username`` and
-    # ``author.global_name``. Empty = skip this sub-check.
+    # Comma-separated Discord usernames, matched case-insensitively against
+    # ``author.username`` (display names are not unique and never count).
+    # Empty = skip this sub-check.
     third_party_usernames: List[str] = field(default_factory=list)
     # Comma-separated guild role names. Resolved against the guild's role
     # list (cached 10 min per guild). Empty = skip this sub-check.
@@ -81,16 +82,18 @@ class DiscordConfig:
     third_party_role_names: List[str] = field(default_factory=list)
 
     # ----- Self allowlist (forwarded as if the bot owner sent them) -----
-    # Same matching semantics as the third-party fields above.
+    # Matched like the third-party usernames, then pinned by ID (below).
     self_usernames: List[str] = field(default_factory=list)
+    # Older configs only: role names never grant owner authority (any server
+    # the bot joins can create a role of that name), so these are treated
+    # as third-party roles.
     self_role_names: List[str] = field(default_factory=list)
 
     # ----- Matching by Discord user ID (snowflake) -----
     # An ID belongs to one account forever; names can be changed or copied.
-    # A listed ID matches on its own. With the host's strict channel
-    # identity on, owner authority comes from these IDs once any is known,
-    # and the first owner matched by unique username has their ID recorded
-    # here.
+    # A listed ID matches on its own. Owner authority comes from these IDs
+    # once any is known; the first owner matched by unique username has
+    # their ID recorded here.
     self_user_ids: List[str] = field(default_factory=list)
     third_party_user_ids: List[str] = field(default_factory=list)
 
@@ -371,12 +374,7 @@ class DiscordClient(BasePlatformClient):
             or DiscordConfig()
         )
 
-        # The host's security setting (Settings > Security > Channels): in a
-        # server, the bot must be mentioned, and owner authority comes only
-        # from a unique username, never a display name or a role name that
-        # anyone can choose.
-        strict = bool(ConfigStore.extras.get("strict_channel_identity", lambda: False)())
-        if cfg.mention_only or (strict and d.get("guild_id")):
+        if cfg.mention_only:
             mentions = d.get("mentions") or []
             mentioned_ids = {str(m.get("id")) for m in mentions if isinstance(m, dict)}
             if self._bot_user_id and self._bot_user_id not in mentioned_ids:
@@ -385,14 +383,13 @@ class DiscordClient(BasePlatformClient):
         guild_id = d.get("guild_id")
         member = d.get("member") or {}
         role_ids = [str(r) for r in (member.get("roles") or [])]
+        # Usernames are unique on Discord; display names are not (anyone can
+        # set one to match), so they never count.
         author_username_candidates = {(author.get("username") or "").lower()}
-        if not strict:
-            # Display names are not unique: anyone can set one to match.
-            author_username_candidates.add((author.get("global_name") or "").lower())
         # Resolve role names lazily - only fetch if any role list is set.
         # Cached 10 min per guild, async helper takes a thread off the event loop.
         user_role_names: set = set()
-        any_role_list = cfg.self_role_names or cfg.third_party_role_names
+        any_role_list = cfg.third_party_role_names or cfg.self_role_names
         if any_role_list and guild_id and role_ids:
             role_map = await self._resolve_guild_role_names(str(guild_id))
             user_role_names = {
@@ -412,30 +409,33 @@ class DiscordClient(BasePlatformClient):
                 return True
             return False
 
-        any_self = bool(cfg.self_usernames or cfg.self_role_names or cfg.self_user_ids)
+        # Role names never grant owner authority, so "self" roles from older
+        # configs count as third-party roles: their holders still reach the
+        # agent, as external messages.
+        third_party_roles = list(cfg.third_party_role_names) + list(cfg.self_role_names)
+        any_self = bool(cfg.self_usernames or cfg.self_user_ids)
         any_tp = bool(
             cfg.third_party_usernames
-            or cfg.third_party_role_names
+            or third_party_roles
             or cfg.third_party_user_ids
         )
 
+        # Owner authority comes from the account's user ID. Role names never
+        # grant it: any server the bot joins can create a role of that name.
         is_self_message = False
-        if strict and cfg.self_user_ids:
-            # Strict identity with a known owner ID: only the ID counts.
+        if cfg.self_user_ids:
             owner = _matches([], [], cfg.self_user_ids)
-        elif strict:
+        else:
             owner = _matches(cfg.self_usernames, [])
             if owner and author_id:
                 # First match by unique username: pin the account's ID, so a
                 # later rename or a recycled username cannot take over.
                 cfg.self_user_ids = [author_id]
                 await asyncio.to_thread(save_config, _discord_config_file(), cfg)
-        else:
-            owner = _matches(cfg.self_usernames, cfg.self_role_names, cfg.self_user_ids)
         if any_self and owner:
             is_self_message = True
         elif any_tp and _matches(
-            cfg.third_party_usernames, cfg.third_party_role_names, cfg.third_party_user_ids
+            cfg.third_party_usernames, third_party_roles, cfg.third_party_user_ids
         ):
             is_self_message = False
         elif any_self or any_tp:

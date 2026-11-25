@@ -590,9 +590,6 @@
     "hideAdvanced": "隐藏高级设置",
     "changed": "已更改",
     "settings": {
-      "mark_untrusted_content": {
-        "label": "将外部内容标记为不可信"
-      },
       "protect_secret_files": {
         "label": "保护密钥文件"
       },
@@ -608,26 +605,14 @@
       "scrub_child_env": {
         "label": "向工具隐藏 API 密钥"
       },
-      "redact_logs": {
-        "label": "在日志中隐藏机密"
-      },
       "log_prompts": {
         "label": "记录完整提示词"
-      },
-      "strict_channel_identity": {
-        "label": "严格的 Discord 身份验证"
-      },
-      "audit_log": {
-        "label": "审计日志"
       },
       "retention_days": {
         "label": "日志保留时间"
       },
       "verify_mcp_servers": {
         "label": "仅启动在设置中保存的 MCP 服务器"
-      },
-      "block_destructive_commands": {
-        "label": "阻止破坏性命令"
       }
     },
     "keepForever": "永久",
@@ -660,7 +645,6 @@
     "fixed": "已修复",
     "fixFailed": "修复未能应用",
     "auditTitle": "审计日志",
-    "auditOff": "已关闭",
     "auditLoading": "正在加载审计日志...",
     "auditRecords": "记录",
     "records_one": "{{count}} 条记录",

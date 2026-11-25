@@ -815,21 +815,14 @@
     "advanced": {
       "toggle": "高级",
       "groups": {
-        "commands": "命令",
-        "untrusted": "外部内容",
         "files": "文件",
         "network": "网络",
-        "secrets": "机密与日志",
-        "channels": "消息渠道"
+        "tools": "工具",
+        "logs": "日志",
+        "email": "邮件"
       }
     },
     "fields": {
-      "block_destructive_commands": {
-        "label": "阻止破坏性命令"
-      },
-      "mark_untrusted_content": {
-        "label": "将外部内容标记为不可信"
-      },
       "verify_mcp_servers": {
         "label": "仅启动在设置中保存的 MCP 服务器"
       },
@@ -861,9 +854,6 @@
       "scrub_child_env": {
         "label": "向工具隐藏 API 密钥"
       },
-      "redact_logs": {
-        "label": "在日志中隐藏机密"
-      },
       "log_prompts": {
         "label": "记录完整提示词"
       },
@@ -873,16 +863,10 @@
         "days_one": "{{count}} 天",
         "days_other": "{{count}} 天"
       },
-      "strict_channel_identity": {
-        "label": "严格的 Discord 身份验证"
-      },
       "email_allowed_senders": {
         "label": "允许的邮件发件人",
         "placeholder": "name@example.com",
         "empty": "所有发件人"
-      },
-      "audit_log": {
-        "label": "审计日志"
       }
     },
     "list": {

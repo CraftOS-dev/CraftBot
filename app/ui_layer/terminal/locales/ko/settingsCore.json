@@ -590,9 +590,6 @@
     "hideAdvanced": "고급 설정 숨기기",
     "changed": "변경됨",
     "settings": {
-      "mark_untrusted_content": {
-        "label": "외부 콘텐츠를 신뢰하지 않음으로 표시"
-      },
       "protect_secret_files": {
         "label": "키 파일 보호"
       },
@@ -608,26 +605,14 @@
       "scrub_child_env": {
         "label": "도구에서 API 키 숨기기"
       },
-      "redact_logs": {
-        "label": "로그에서 비밀 정보 숨기기"
-      },
       "log_prompts": {
         "label": "전체 프롬프트 기록"
-      },
-      "strict_channel_identity": {
-        "label": "엄격한 Discord 신원 확인"
-      },
-      "audit_log": {
-        "label": "감사 로그"
       },
       "retention_days": {
         "label": "로그 보관 기간"
       },
       "verify_mcp_servers": {
         "label": "설정에서 저장한 MCP 서버만 시작"
-      },
-      "block_destructive_commands": {
-        "label": "파괴적인 명령 차단"
       }
     },
     "keepForever": "영구",
@@ -660,7 +645,6 @@
     "fixed": "수정됨",
     "fixFailed": "수정을 적용하지 못했습니다",
     "auditTitle": "감사 로그",
-    "auditOff": "꺼짐",
     "auditLoading": "감사 로그를 불러오는 중...",
     "auditRecords": "기록",
     "records_one": "기록 {{count}}개",

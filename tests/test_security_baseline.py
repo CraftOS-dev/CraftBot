@@ -103,18 +103,15 @@ def test_log_redaction_masks_known_secret_values_only(tmp_path):
     assert "gpt-5" not in secrets  # ordinary settings are left alone
 
 
-def test_redactor_applies_only_when_enabled(tmp_path):
-    from app.security.policy import SecurityLevel, SecurityStore, set_store_for_tests
+def test_redactor_always_hides_known_secrets(tmp_path):
+    from app.security.policy import SecurityStore, set_store_for_tests
     from app.security.redact import Redactor
 
     r = Redactor()
     r._secrets = ("sk-live-abcdef123456",)
     r._checked = 1e18  # skip the file scan
-    store = SecurityStore(tmp_path / "security.json")
-    set_store_for_tests(store)
+    set_store_for_tests(SecurityStore(tmp_path / "security.json"))  # Standard
     try:
-        assert "sk-live" in r("key sk-live-abcdef123456")
-        store.set_level(SecurityLevel.ENHANCED)
         assert r("key sk-live-abcdef123456") == "key [REDACTED]"
     finally:
         set_store_for_tests(None)
@@ -144,18 +141,25 @@ def test_retention_prunes_old_logs_and_llm_calls_only(tmp_path, monkeypatch):
     assert new_log.exists() and not old_log.exists() and store.count() == 1
 
 
-def test_tracebacks_stop_printing_variables_when_logs_are_redacted(tmp_path):
-    from agent_core.utils.logger import _diagnose
-    from app.security.policy import SecurityLevel, SecurityStore, set_store_for_tests
+def test_a_log_line_during_a_rebuild_does_not_wait(monkeypatch):
+    from app.security import redact
 
-    store = SecurityStore(tmp_path / "security.json")
-    set_store_for_tests(store)
-    try:
-        assert _diagnose() is True
-        store.set_level(SecurityLevel.ENHANCED)
-        assert _diagnose() is False
-    finally:
-        set_store_for_tests(None)
+    r = redact.Redactor()
+    seen = []
+
+    def sources():
+        seen.append(r("logged while rebuilding"))  # re-entrant call
+        return []
+
+    monkeypatch.setattr(redact, "_sources", sources)
+    assert r("x") == "x"
+    assert seen == ["logged while rebuilding"]
+
+
+def test_tracebacks_never_print_variables():
+    from agent_core.utils.logger import _diagnose
+
+    assert _diagnose() is False
 
 
 def test_email_sender_list_is_empty_by_default_and_exact_when_set(tmp_path):

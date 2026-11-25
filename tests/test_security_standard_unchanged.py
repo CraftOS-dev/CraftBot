@@ -1,9 +1,11 @@
-"""At the default settings (Standard, Auto mode on) CraftBot behaves as before.
+"""At the default settings (Standard, Auto mode on) nothing gets in the way.
 
-Upgrading to a version with security levels must change nothing a user can
-notice: no prompts, no refused files or URLs, no changed environment, logs
-or outputs. Each protection is checked at its default here, and the cost of
-the gate on every action is measured.
+No prompts, no refused files or URLs, no changed environment and no
+changed outputs, apart from the always-on protections: outside content
+marked as data, secrets hidden in logs, the audit log and the
+destructive-command floor. Each setting is checked at its default here, and
+the cost of the gate on every action and of redaction on every log line is
+measured.
 """
 
 from __future__ import annotations
@@ -39,7 +41,8 @@ def test_no_action_is_reviewed_and_no_output_changes(default_store):
     from agent_core.core.action_framework.loader import load_actions_from_directories
     from agent_core.core.action_framework.registry import registry_instance
     from app.security.content import RunRegistry
-    from app.security.gate import SecurityGate
+    from app.security.gate import SecurityGate, result_source_of
+    from app.security.policy import ContentSource
 
     load_actions_from_directories(
         base_dir=str(ROOT), paths_to_scan=[os.path.join("app", "data", "action")]
@@ -55,16 +58,19 @@ def test_no_action_is_reviewed_and_no_output_changes(default_store):
                 continue
             action = Action.from_dict(data)
             assert await gate.review(action, {"x": 1}, session_id="s") is None
-            assert gate.after(action, '{"ok": true}', session_id="s") == '{"ok": true}'
+            output = gate.after(action, '{"ok": true}', session_id="s")
+            if result_source_of(action) == ContentSource.NETWORK:
+                assert "UNTRUSTED_CONTENT" in output  # always marked as data
+            else:
+                assert output == '{"ok": true}'
 
     asyncio.run(review_all())
 
 
-def test_tools_files_network_env_and_logs_are_untouched(default_store, tmp_path):
+def test_tools_files_network_and_env_are_untouched(default_store, tmp_path):
     from app.security.env import child_environment
     from app.security.net import guard_active
     from app.security.paths import check_file_access
-    from app.security.redact import Redactor
     from agent_core.core.impl.llm.interface import _prompts_logged
 
     assert check_file_access(tmp_path / "anything", write=True) is None
@@ -72,11 +78,25 @@ def test_tools_files_network_env_and_logs_are_untouched(default_store, tmp_path)
     assert default_store.policy.third_party_reader
     env = {"PATH": "/bin", "AWS_SECRET_ACCESS_KEY": "kept"}
     assert child_environment({"A": "1"}, env) == {**env, "A": "1"}
-    redactor = Redactor()
-    redactor._secrets = ("sk-live-abcdef123456",)
-    redactor._checked = 1e18
-    assert redactor("sk-live-abcdef123456") == "sk-live-abcdef123456"
     assert _prompts_logged()
+
+
+def test_hiding_secrets_costs_microseconds_per_log_line():
+    """Redaction runs on every log line; it must stay far below the cost of
+    writing the line."""
+    from app.security.redact import Redactor
+
+    redactor = Redactor()
+    redactor._secrets = tuple(f"sk-test-{i:04d}-abcdefghijklmnop" for i in range(20))
+    redactor._checked = 1e18  # skip the file scan
+    line = "[AGENT] step finished: " + "x" * 400
+    rounds = 20_000
+    start = time.perf_counter()
+    for _ in range(rounds):
+        redactor(line)
+    per_line = (time.perf_counter() - start) / rounds
+    print(f"\nredaction: {per_line * 1e6:.2f} µs per log line")
+    assert per_line < 50e-6
 
 
 def test_the_gate_costs_microseconds_per_action(default_store):

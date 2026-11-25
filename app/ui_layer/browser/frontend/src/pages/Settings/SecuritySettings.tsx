@@ -50,18 +50,13 @@ const TIMEOUT_OPTIONS = [30, 60, 120, 300, 600, 900, 1800, 3600]
 const RETENTION_OPTIONS = [0, 7, 14, 30, 90, 180, 365]
 
 type ToggleKey =
-  | 'block_destructive_commands'
-  | 'mark_untrusted_content'
   | 'verify_mcp_servers'
   | 'protect_secret_files'
   | 'confine_writes'
   | 'network_guard'
   | 'third_party_reader'
   | 'scrub_child_env'
-  | 'redact_logs'
   | 'log_prompts'
-  | 'strict_channel_identity'
-  | 'audit_log'
 
 type ListKey = 'extra_protected_paths' | 'workspace_paths' | 'allowed_domains' | 'email_allowed_senders'
 
@@ -116,7 +111,10 @@ const SETTING_LABELS: Record<string, string> = {
 
 function settingLabel(key: string): string {
   const id = SETTING_LABELS[key] ?? `settings:security.fields.${key}.label`
-  return i18n.exists(id) ? String(i18n.t(id as never)) : key
+  if (i18n.exists(id)) return String(i18n.t(id as never))
+  // A setting older records name that is no longer on the page.
+  const text = key.replace(/_/g, ' ')
+  return text.charAt(0).toUpperCase() + text.slice(1)
 }
 
 function auditValue(value: unknown): string {
@@ -190,22 +188,18 @@ export function SecuritySettings() {
 
   const label = (key: ToggleKey | ListKey | 'retention_days') => t(`settings:security.fields.${key}.label`)
 
-  const switchFor = (key: ToggleKey) => (
-    <input
-      type="checkbox"
-      className={styles.toggle}
-      aria-label={label(key)}
-      checked={policy[key]}
-      onChange={e => update(key, e.target.checked)}
-    />
-  )
-
   // A protection; a list that only applies while it is on shows under it.
   const toggleRow = (key: ToggleKey, list?: ListKey) => (
     <div className={sec.item} key={key}>
       <div className={sec.row}>
         <span className={sec.rowLabel}>{label(key)}</span>
-        {switchFor(key)}
+        <input
+          type="checkbox"
+          className={styles.toggle}
+          aria-label={label(key)}
+          checked={policy[key]}
+          onChange={e => update(key, e.target.checked)}
+        />
       </div>
       {list && policy[key] && listField(list, true)}
     </div>
@@ -223,7 +217,7 @@ export function SecuritySettings() {
     />
   )
 
-  const group = (id: 'commands' | 'untrusted' | 'files' | 'network' | 'secrets' | 'channels', rows: ReactNode) => (
+  const group = (id: 'files' | 'network' | 'tools' | 'logs' | 'email', rows: ReactNode) => (
     <div className={sec.group}>
       <div className={sec.groupTitle}>{t(`settings:security.advanced.groups.${id}`)}</div>
       <div className={sec.panel}>{rows}</div>
@@ -359,11 +353,6 @@ export function SecuritySettings() {
         </button>
         {showAdvanced && (
           <div className={styles.advancedContent}>
-            {group('commands', toggleRow('block_destructive_commands'))}
-            {group('untrusted', <>
-              {toggleRow('mark_untrusted_content')}
-              {toggleRow('verify_mcp_servers')}
-            </>)}
             {group('files', <>
               {toggleRow('protect_secret_files', 'extra_protected_paths')}
               {toggleRow('confine_writes', 'workspace_paths')}
@@ -372,9 +361,11 @@ export function SecuritySettings() {
               {toggleRow('network_guard', 'allowed_domains')}
               {toggleRow('third_party_reader')}
             </>)}
-            {group('secrets', <>
+            {group('tools', <>
               {toggleRow('scrub_child_env')}
-              {toggleRow('redact_logs')}
+              {toggleRow('verify_mcp_servers')}
+            </>)}
+            {group('logs', <>
               {toggleRow('log_prompts')}
               <div className={sec.item}>
                 <div className={sec.row}>
@@ -392,16 +383,13 @@ export function SecuritySettings() {
                 </div>
               </div>
             </>)}
-            {group('channels', <>
-              {toggleRow('strict_channel_identity')}
-              <div className={sec.item}>{listField('email_allowed_senders')}</div>
-            </>)}
+            {group('email', <div className={sec.item}>{listField('email_allowed_senders')}</div>)}
           </div>
         )}
       </div>
 
       <SecurityCheckSection send={send} onMessage={onMessage} />
-      <AuditLogSection send={send} onMessage={onMessage} toggle={switchFor('audit_log')} />
+      <AuditLogSection send={send} onMessage={onMessage} />
 
       <ConfirmModal {...confirmModalProps} />
     </div>
@@ -587,7 +575,7 @@ function SecurityCheckSection({ send, onMessage }: { send: Send; onMessage: OnMe
 
 // ── Audit log ──────────────────────────────────────────────────────
 
-function AuditLogSection({ send, onMessage, toggle }: { send: Send; onMessage: OnMessage; toggle: ReactNode }) {
+function AuditLogSection({ send, onMessage }: { send: Send; onMessage: OnMessage }) {
   const { t } = useTranslation(['settings'])
   useResource(RESOURCES.securityAudit)
   const audit = useAppSelector(state => state.security.audit)
@@ -624,7 +612,6 @@ function AuditLogSection({ send, onMessage, toggle }: { send: Send; onMessage: O
           aria-label={t('settings:security.audit.refresh')}
           icon={<RefreshCw size={14} className={refreshing ? styles.spinning : undefined} />}
         />
-        {toggle}
       </div>
 
       {!audit ? (

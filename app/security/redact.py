@@ -1,4 +1,4 @@
-"""Redact CraftBot's own secrets from log lines (Settings > Security).
+"""Redact CraftBot's own secrets from log lines. Always on.
 
 OpenClaw's approach: redact the exact values CraftBot knows are secret,
 rather than guessing from what a string looks like. The values come from
@@ -19,8 +19,6 @@ import threading
 import time
 from pathlib import Path
 from typing import Iterable, List, Tuple
-
-from app.security.policy import get_policy
 
 MASK = "[REDACTED]"
 # Shorter values ("true", "en", ids like "1") would mangle ordinary text and
@@ -116,7 +114,12 @@ class Redactor:
         now = time.monotonic()
         if now - self._checked < _RECHECK_S:
             return
-        with self._lock:
+        # Never wait: a log call made while the set is being rebuilt, on this
+        # thread (a log line from the rebuild itself) or another, uses the
+        # current set.
+        if not self._lock.acquire(blocking=False):
+            return
+        try:
             if now - self._checked < _RECHECK_S:
                 return
             sources = _sources()
@@ -127,10 +130,10 @@ class Redactor:
                 self._secrets = collect_secrets(sources)
                 self._signature = signature
             self._checked = now
+        finally:
+            self._lock.release()
 
     def __call__(self, message: str) -> str:
-        if not get_policy().redact_logs:
-            return message
         self._refresh()
         for secret in self._secrets:
             if secret in message:

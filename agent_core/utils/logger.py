@@ -44,14 +44,8 @@ def set_redactor(redactor) -> None:
 
 def _diagnose() -> bool:
     """Loguru's ``diagnose`` prints local variables in tracebacks, which can
-    hold keys. Off when Settings > Security redacts logs (read when logging
-    is set up, so a change applies from the next start)."""
-    try:
-        from app.security.policy import get_policy
-
-        return not get_policy().redact_logs
-    except Exception:
-        return True
+    hold keys, so it stays off."""
+    return False
 
 
 def _patch_record(record) -> None:

@@ -815,21 +815,14 @@
     "advanced": {
       "toggle": "Advanced",
       "groups": {
-        "commands": "Commands",
-        "untrusted": "Outside content",
         "files": "Files",
         "network": "Network",
-        "secrets": "Secrets & logs",
-        "channels": "Channels"
+        "tools": "Tools",
+        "logs": "Logs",
+        "email": "Email"
       }
     },
     "fields": {
-      "block_destructive_commands": {
-        "label": "Block destructive commands"
-      },
-      "mark_untrusted_content": {
-        "label": "Mark outside content as untrusted"
-      },
       "verify_mcp_servers": {
         "label": "Only start MCP servers saved in Settings"
       },
@@ -861,9 +854,6 @@
       "scrub_child_env": {
         "label": "Hide API keys from tools"
       },
-      "redact_logs": {
-        "label": "Hide secrets in logs"
-      },
       "log_prompts": {
         "label": "Log full prompts"
       },
@@ -873,16 +863,10 @@
         "days_one": "{{count}} day",
         "days_other": "{{count}} days"
       },
-      "strict_channel_identity": {
-        "label": "Strict Discord identity"
-      },
       "email_allowed_senders": {
         "label": "Allowed email senders",
         "placeholder": "name@example.com",
         "empty": "All senders"
-      },
-      "audit_log": {
-        "label": "Audit log"
       }
     },
     "list": {

@@ -25,10 +25,10 @@ def get_security_state() -> Dict[str, Any]:
 
 
 def _changed(before: SecurityPolicy, after: SecurityPolicy) -> None:
-    if before.audit_log or after.audit_log:
-        changed = sorted(
-            k for k, v in after.to_dict().items() if before.to_dict().get(k) != v
-        )
+    changed = sorted(
+        k for k, v in after.to_dict().items() if before.to_dict().get(k) != v
+    )
+    if changed:
         audit.record("security_settings_changed", changed=changed)
 
 
@@ -105,5 +105,5 @@ def fix_security_check(fix_id: str) -> Dict[str, Any]:
 
     if not apply_fix(fix_id):
         return {"success": False, "error": f"No automatic fix for: {fix_id}", "checks": run_checks()}
-    audit.record_if_enabled("security_check_fixed", fix=fix_id)
+    audit.record("security_check_fixed", fix=fix_id)
     return {"success": True, "checks": run_checks()}

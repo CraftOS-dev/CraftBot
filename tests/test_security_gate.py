@@ -195,13 +195,11 @@ def test_third_party_message_taints_the_run_and_owner_run_clears_it():
     assert not runs.get("s1").tainted
 
 
-def test_network_results_are_wrapped_only_when_enabled(store):
+def test_network_results_are_always_marked_as_data(store):
     gate, runs, _ = _gate(None)
-    act = _action("web_fetch", effects=[], result_source="network")
-    assert gate.after(act, "page", session_id="s1") == "page"
-    store.set_level(SecurityLevel.ENHANCED)
-    wrapped = gate.after(act, "page", session_id="s1")
+    wrapped = gate.after(_action("web_fetch", effects=[], result_source="network"), "page", session_id="s1")
     assert "UNTRUSTED_CONTENT" in wrapped and "page" in wrapped
+    assert gate.after(_action("read_file", effects=[]), "text", session_id="s1") == "text"
 
 
 def test_decisions_are_audited_with_an_intact_chain(store):

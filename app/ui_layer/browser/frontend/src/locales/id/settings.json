@@ -815,21 +815,14 @@
     "advanced": {
       "toggle": "Lanjutan",
       "groups": {
-        "commands": "Perintah",
-        "untrusted": "Konten luar",
         "files": "Berkas",
         "network": "Jaringan",
-        "secrets": "Rahasia & log",
-        "channels": "Saluran"
+        "tools": "Alat",
+        "logs": "Log",
+        "email": "Email"
       }
     },
     "fields": {
-      "block_destructive_commands": {
-        "label": "Blokir perintah yang merusak"
-      },
-      "mark_untrusted_content": {
-        "label": "Tandai konten luar sebagai tidak tepercaya"
-      },
       "verify_mcp_servers": {
         "label": "Hanya jalankan server MCP yang disimpan di Pengaturan"
       },
@@ -861,9 +854,6 @@
       "scrub_child_env": {
         "label": "Sembunyikan kunci API dari alat"
       },
-      "redact_logs": {
-        "label": "Sembunyikan rahasia di log"
-      },
       "log_prompts": {
         "label": "Catat prompt lengkap"
       },
@@ -873,16 +863,10 @@
         "days_one": "{{count}} hari",
         "days_other": "{{count}} hari"
       },
-      "strict_channel_identity": {
-        "label": "Identitas Discord ketat"
-      },
       "email_allowed_senders": {
         "label": "Pengirim email yang diizinkan",
         "placeholder": "nama@contoh.com",
         "empty": "Semua pengirim"
-      },
-      "audit_log": {
-        "label": "Log audit"
       }
     },
     "list": {

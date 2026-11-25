@@ -1,4 +1,4 @@
-"""Discord owner authority under Settings > Security strict channel identity."""
+"""Discord owner authority: by user ID, never by display name or role name."""
 
 from __future__ import annotations
 
@@ -7,7 +7,6 @@ import asyncio
 import pytest
 
 import craftos_integrations.providers.discord.client as discord_client
-from craftos_integrations import ConfigStore
 
 
 @pytest.fixture
@@ -44,41 +43,60 @@ def _message(username, global_name, mentioned=False, guild="g1", user_id="u1"):
     }
 
 
-def _run(client, data, strict, monkeypatch):
-    monkeypatch.setitem(ConfigStore.extras, "strict_channel_identity", lambda: strict)
+def _run(client, data):
     asyncio.run(client._handle_message_create(data))
 
 
-def test_display_name_grants_owner_only_without_strict_identity(client, monkeypatch):
+def test_display_names_never_grant_owner(client):
     c, seen = client
-    _run(c, _message("attacker", "owner"), False, monkeypatch)
-    assert seen and seen[-1].raw["is_self_message"] is True  # today's behaviour
-
-
-def test_strict_identity_ignores_display_names_and_needs_a_mention(client, monkeypatch):
-    c, seen = client
-    _run(c, _message("attacker", "owner", mentioned=True), True, monkeypatch)
+    _run(c, _message("attacker", "owner"))
     assert not seen  # a look-alike display name is not the owner
-    _run(c, _message("owner", "Owner", mentioned=False), True, monkeypatch)
-    assert not seen  # in a server, the bot must be mentioned
-    _run(c, _message("owner", "Owner", mentioned=True), True, monkeypatch)
+    _run(c, _message("owner", "Owner"))
     assert seen and seen[-1].raw["is_self_message"] is True
 
 
-def test_strict_identity_pins_the_owner_id_on_first_match(client, monkeypatch):
+def test_the_owner_id_is_pinned_on_first_match(client):
     c, seen = client
-    _run(c, _message("owner", "Owner", mentioned=True, user_id="111"), True, monkeypatch)
+    _run(c, _message("owner", "Owner", user_id="111"))
     assert seen[-1].raw["is_self_message"] is True
     # The username is later taken by another account: the pinned ID decides.
-    _run(c, _message("owner", "Owner", mentioned=True, user_id="999"), True, monkeypatch)
+    _run(c, _message("owner", "Owner", user_id="999"))
     assert len(seen) == 1
-    _run(c, _message("renamed", "New name", mentioned=True, user_id="111"), True, monkeypatch)
+    _run(c, _message("renamed", "New name", user_id="111"))
     assert seen[-1].raw["is_self_message"] is True
 
 
-def test_listed_ids_match_without_strict_identity(client, monkeypatch):
+def test_listed_ids_match(client):
     c, seen = client
     cfg = discord_client.load_config()
     cfg.self_user_ids = ["222"]
-    _run(c, _message("someone", "Someone", user_id="222"), False, monkeypatch)
+    _run(c, _message("someone", "Someone", user_id="222"))
     assert seen[-1].raw["is_self_message"] is True
+
+
+def test_mention_is_required_only_when_mention_only_is_set(client):
+    c, seen = client
+    cfg = discord_client.load_config()
+    cfg.mention_only = True
+    _run(c, _message("owner", "Owner", mentioned=False))
+    assert not seen
+    _run(c, _message("owner", "Owner", mentioned=True))
+    assert seen[-1].raw["is_self_message"] is True
+
+
+def test_self_roles_from_older_configs_only_grant_third_party(client, monkeypatch):
+    c, seen = client
+    cfg = discord_client.load_config()
+    cfg.self_usernames = []
+    cfg.self_role_names = ["Admin"]
+
+    async def roles(guild_id):
+        return {"r1": "admin"}
+
+    monkeypatch.setattr(c, "_resolve_guild_role_names", roles)
+    data = _message("mod", "Mod")
+    data["member"] = {"roles": ["r1"]}
+    _run(c, data)
+    assert seen and seen[-1].raw["is_self_message"] is False
+    _run(c, _message("stranger", "Stranger"))
+    assert len(seen) == 1  # without the role, still dropped

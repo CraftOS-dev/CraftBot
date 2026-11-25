@@ -590,9 +590,6 @@
     "hideAdvanced": "Hide advanced settings",
     "changed": "changed",
     "settings": {
-      "mark_untrusted_content": {
-        "label": "Mark outside content as untrusted"
-      },
       "protect_secret_files": {
         "label": "Protect key files"
       },
@@ -608,26 +605,14 @@
       "scrub_child_env": {
         "label": "Hide API keys from tools"
       },
-      "redact_logs": {
-        "label": "Hide secrets in logs"
-      },
       "log_prompts": {
         "label": "Log full prompts"
-      },
-      "strict_channel_identity": {
-        "label": "Strict Discord identity"
-      },
-      "audit_log": {
-        "label": "Audit log"
       },
       "retention_days": {
         "label": "Keep logs for"
       },
       "verify_mcp_servers": {
         "label": "Only start MCP servers saved in Settings"
-      },
-      "block_destructive_commands": {
-        "label": "Block destructive commands"
       }
     },
     "keepForever": "Forever",
@@ -660,7 +645,6 @@
     "fixed": "Fixed",
     "fixFailed": "The fix did not apply",
     "auditTitle": "Audit log",
-    "auditOff": "Off",
     "auditLoading": "Loading the audit log...",
     "auditRecords": "Records",
     "records_one": "{{count}} record",

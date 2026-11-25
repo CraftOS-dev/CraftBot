@@ -815,21 +815,14 @@
     "advanced": {
       "toggle": "詳細",
       "groups": {
-        "commands": "コマンド",
-        "untrusted": "外部コンテンツ",
         "files": "ファイル",
         "network": "ネットワーク",
-        "secrets": "シークレットとログ",
-        "channels": "チャネル"
+        "tools": "ツール",
+        "logs": "ログ",
+        "email": "メール"
       }
     },
     "fields": {
-      "block_destructive_commands": {
-        "label": "破壊的なコマンドをブロック"
-      },
-      "mark_untrusted_content": {
-        "label": "外部コンテンツを信頼できないものとして扱う"
-      },
       "verify_mcp_servers": {
         "label": "設定で保存した MCP サーバーのみ起動"
       },
@@ -861,9 +854,6 @@
       "scrub_child_env": {
         "label": "ツールから API キーを隠す"
       },
-      "redact_logs": {
-        "label": "ログ内のシークレットを隠す"
-      },
       "log_prompts": {
         "label": "プロンプト全文を記録"
       },
@@ -873,16 +863,10 @@
         "days_one": "{{count}} 日",
         "days_other": "{{count}} 日"
       },
-      "strict_channel_identity": {
-        "label": "Discord の厳格な本人確認"
-      },
       "email_allowed_senders": {
         "label": "許可するメール送信者",
         "placeholder": "name@example.com",
         "empty": "すべての送信者"
-      },
-      "audit_log": {
-        "label": "監査ログ"
       }
     },
     "list": {

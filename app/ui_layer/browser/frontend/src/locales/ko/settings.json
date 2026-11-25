@@ -815,21 +815,14 @@
     "advanced": {
       "toggle": "고급",
       "groups": {
-        "commands": "명령",
-        "untrusted": "외부 콘텐츠",
         "files": "파일",
         "network": "네트워크",
-        "secrets": "비밀 정보 및 로그",
-        "channels": "채널"
+        "tools": "도구",
+        "logs": "로그",
+        "email": "이메일"
       }
     },
     "fields": {
-      "block_destructive_commands": {
-        "label": "파괴적인 명령 차단"
-      },
-      "mark_untrusted_content": {
-        "label": "외부 콘텐츠를 신뢰하지 않음으로 표시"
-      },
       "verify_mcp_servers": {
         "label": "설정에서 저장한 MCP 서버만 시작"
       },
@@ -861,9 +854,6 @@
       "scrub_child_env": {
         "label": "도구에서 API 키 숨기기"
       },
-      "redact_logs": {
-        "label": "로그에서 비밀 정보 숨기기"
-      },
       "log_prompts": {
         "label": "전체 프롬프트 기록"
       },
@@ -873,16 +863,10 @@
         "days_one": "{{count}}일",
         "days_other": "{{count}}일"
       },
-      "strict_channel_identity": {
-        "label": "엄격한 Discord 신원 확인"
-      },
       "email_allowed_senders": {
         "label": "허용된 이메일 발신자",
         "placeholder": "name@example.com",
         "empty": "모든 발신자"
-      },
-      "audit_log": {
-        "label": "감사 로그"
       }
     },
     "list": {

@@ -590,9 +590,6 @@
     "hideAdvanced": "Ocultar ajustes avanzados",
     "changed": "cambiado",
     "settings": {
-      "mark_untrusted_content": {
-        "label": "Marcar el contenido externo como no confiable"
-      },
       "protect_secret_files": {
         "label": "Proteger archivos de claves"
       },
@@ -608,26 +605,14 @@
       "scrub_child_env": {
         "label": "Ocultar las claves API a las herramientas"
       },
-      "redact_logs": {
-        "label": "Ocultar secretos en los registros"
-      },
       "log_prompts": {
         "label": "Registrar los prompts completos"
-      },
-      "strict_channel_identity": {
-        "label": "Identidad estricta en Discord"
-      },
-      "audit_log": {
-        "label": "Registro de auditoría"
       },
       "retention_days": {
         "label": "Conservar registros durante"
       },
       "verify_mcp_servers": {
         "label": "Iniciar solo servidores MCP guardados en Ajustes"
-      },
-      "block_destructive_commands": {
-        "label": "Bloquear comandos destructivos"
       }
     },
     "keepForever": "Para siempre",
@@ -660,7 +645,6 @@
     "fixed": "Corregido",
     "fixFailed": "No se aplicó la corrección",
     "auditTitle": "Registro de auditoría",
-    "auditOff": "Desactivado",
     "auditLoading": "Cargando el registro de auditoría...",
     "auditRecords": "Entradas",
     "records_one": "{{count}} entrada",

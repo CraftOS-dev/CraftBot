@@ -590,9 +590,6 @@
     "hideAdvanced": "Sembunyikan pengaturan lanjutan",
     "changed": "diubah",
     "settings": {
-      "mark_untrusted_content": {
-        "label": "Tandai konten luar sebagai tidak tepercaya"
-      },
       "protect_secret_files": {
         "label": "Lindungi berkas kunci"
       },
@@ -608,26 +605,14 @@
       "scrub_child_env": {
         "label": "Sembunyikan kunci API dari alat"
       },
-      "redact_logs": {
-        "label": "Sembunyikan rahasia di log"
-      },
       "log_prompts": {
         "label": "Catat prompt lengkap"
-      },
-      "strict_channel_identity": {
-        "label": "Identitas Discord ketat"
-      },
-      "audit_log": {
-        "label": "Log audit"
       },
       "retention_days": {
         "label": "Simpan log selama"
       },
       "verify_mcp_servers": {
         "label": "Hanya jalankan server MCP yang disimpan di Pengaturan"
-      },
-      "block_destructive_commands": {
-        "label": "Blokir perintah yang merusak"
       }
     },
     "keepForever": "Selamanya",
@@ -660,7 +645,6 @@
     "fixed": "Diperbaiki",
     "fixFailed": "Perbaikan tidak diterapkan",
     "auditTitle": "Log audit",
-    "auditOff": "Nonaktif",
     "auditLoading": "Memuat log audit...",
     "auditRecords": "Catatan",
     "records_one": "{{count}} catatan",

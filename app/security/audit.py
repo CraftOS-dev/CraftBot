@@ -184,9 +184,3 @@ def set_log_for_tests(log: Optional[AuditLog]) -> None:
 def record(event: str, **fields: Any) -> None:
     get_log().record(event, **fields)
 
-
-def record_if_enabled(event: str, **fields: Any) -> None:
-    from app.security.policy import get_policy
-
-    if get_policy().audit_log:
-        record(event, **fields)

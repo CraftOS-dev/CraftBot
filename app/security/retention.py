@@ -64,7 +64,7 @@ def _loop() -> None:
                     logger.info(f"[SECURITY] Retention removed {removed}")
                     from app.security import audit
 
-                    audit.record_if_enabled("retention_pruned", days=days, **removed)
+                    audit.record("retention_pruned", days=days, **removed)
         except Exception as exc:
             logger.warning(f"[SECURITY] Retention run failed: {exc}")
         time.sleep(_INTERVAL_S)

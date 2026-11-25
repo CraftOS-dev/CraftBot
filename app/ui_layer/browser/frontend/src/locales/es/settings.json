@@ -815,21 +815,14 @@
     "advanced": {
       "toggle": "Avanzado",
       "groups": {
-        "commands": "Comandos",
-        "untrusted": "Contenido externo",
         "files": "Archivos",
         "network": "Red",
-        "secrets": "Secretos y registros",
-        "channels": "Canales"
+        "tools": "Herramientas",
+        "logs": "Registros",
+        "email": "Correo"
       }
     },
     "fields": {
-      "block_destructive_commands": {
-        "label": "Bloquear comandos destructivos"
-      },
-      "mark_untrusted_content": {
-        "label": "Marcar el contenido externo como no confiable"
-      },
       "verify_mcp_servers": {
         "label": "Iniciar solo servidores MCP guardados en Ajustes"
       },
@@ -861,9 +854,6 @@
       "scrub_child_env": {
         "label": "Ocultar las claves API a las herramientas"
       },
-      "redact_logs": {
-        "label": "Ocultar secretos en los registros"
-      },
       "log_prompts": {
         "label": "Registrar los prompts completos"
       },
@@ -873,16 +863,10 @@
         "days_one": "{{count}} día",
         "days_other": "{{count}} días"
       },
-      "strict_channel_identity": {
-        "label": "Identidad estricta en Discord"
-      },
       "email_allowed_senders": {
         "label": "Remitentes de correo permitidos",
         "placeholder": "nombre@ejemplo.com",
         "empty": "Todos los remitentes"
-      },
-      "audit_log": {
-        "label": "Registro de auditoría"
       }
     },
     "list": {

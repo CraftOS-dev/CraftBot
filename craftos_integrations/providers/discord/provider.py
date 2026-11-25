@@ -126,7 +126,7 @@ class DiscordProvider:
             "label": "Third-party users",
             "type": "list",
             "placeholder": "alice, bob.s",
-            "help": "Their messages reach the agent as external incoming messages. Comma-separated Discord usernames/display names, case-insensitive. Leave empty to skip this sub-check.",
+            "help": "Their messages reach the agent as external incoming messages. Comma-separated Discord usernames, case-insensitive. Leave empty to skip this sub-check.",
         },
         {
             "key": "third_party_role_names",
@@ -140,14 +140,14 @@ class DiscordProvider:
             "label": "Self users",
             "type": "list",
             "placeholder": "ahmad",
-            "help": "Their messages are treated as if you (the bot owner) sent them - used for trusted admins who can drive the bot like its owner. Self matches win over third-party matches. Leave empty to skip.",
+            "help": "Their messages are treated as if you (the bot owner) sent them. The first match has its user ID saved under Self user IDs, and from then on only the ID counts. Leave empty to skip.",
         },
         {
             "key": "self_user_ids",
             "label": "Self user IDs",
             "type": "list",
             "placeholder": "123456789012345678",
-            "help": "Discord user IDs (Developer Mode > Copy User ID) treated as you. An ID cannot be changed or copied, unlike a name. With Settings > Security > Strict channel identity on, these IDs are the only owner check once one is set, and the first owner matched by username is added here automatically.",
+            "help": "Discord user IDs (Developer Mode > Copy User ID) treated as you. Once one is set, only these IDs count as you.",
         },
         {
             "key": "third_party_user_ids",
@@ -155,13 +155,6 @@ class DiscordProvider:
             "type": "list",
             "placeholder": "123456789012345678",
             "help": "Discord user IDs whose messages reach the agent as external messages.",
-        },
-        {
-            "key": "self_role_names",
-            "label": "Self roles",
-            "type": "list",
-            "placeholder": "Admin, Owner",
-            "help": "Same as Self users, but matched on role names. DMs ignore this list. Leave empty to skip. Note: if all four allow lists are empty, the filter is fully open and every message is treated as third-party (default).",
         },
     ]
 

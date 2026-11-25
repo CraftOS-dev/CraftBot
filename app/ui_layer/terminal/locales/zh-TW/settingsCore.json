@@ -590,9 +590,6 @@
     "hideAdvanced": "隱藏進階設定",
     "changed": "已變更",
     "settings": {
-      "mark_untrusted_content": {
-        "label": "將外部內容標記為不可信"
-      },
       "protect_secret_files": {
         "label": "保護金鑰檔案"
       },
@@ -608,26 +605,14 @@
       "scrub_child_env": {
         "label": "對工具隱藏 API 金鑰"
       },
-      "redact_logs": {
-        "label": "在記錄中隱藏機密"
-      },
       "log_prompts": {
         "label": "記錄完整提示"
-      },
-      "strict_channel_identity": {
-        "label": "嚴格的 Discord 身分驗證"
-      },
-      "audit_log": {
-        "label": "稽核記錄"
       },
       "retention_days": {
         "label": "日誌保留時間"
       },
       "verify_mcp_servers": {
         "label": "僅啟動在設定中儲存的 MCP 伺服器"
-      },
-      "block_destructive_commands": {
-        "label": "封鎖破壞性命令"
       }
     },
     "keepForever": "永久",
@@ -660,7 +645,6 @@
     "fixed": "已修正",
     "fixFailed": "修正未能套用",
     "auditTitle": "稽核記錄",
-    "auditOff": "已關閉",
     "auditLoading": "正在載入稽核記錄...",
     "auditRecords": "記錄",
     "records_one": "{{count}} 筆記錄",

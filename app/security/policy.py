@@ -4,10 +4,15 @@ The policy is read on every action, so it is resolved once into a frozen
 snapshot and swapped atomically when the user changes a setting. Reading it
 is one global lookup; nothing on the hot path touches the disk.
 
-Levels are presets over individual settings. ``standard`` is CraftBot's
-behaviour before security levels existed, so an upgrade changes nothing.
+Levels are presets over individual settings; ``standard`` is the lightest.
 A setting the user changes on top of a level is stored as an override, and
 the page then shows the level as "Custom".
+
+Protections nobody has a reason to turn off are not settings: they are on
+at every level. The destructive-command floor (commands.py), marking
+outside content as data (content.py), secret redaction in logs
+(redact.py), the audit log (audit.py) and Discord owner matching by user
+ID (craftos_integrations/providers/discord/client.py).
 
 Approval prompts are separate from levels: they appear only when the user
 turns Auto mode off (``auto_mode``), whatever the level.
@@ -80,12 +85,7 @@ class SecurityPolicy:
     ask_after_untrusted: bool = False
     approval_timeout_s: int = 300
 
-    # ── Commands ──
-    # Refuse commands that do damage no approval can undo (commands.py).
-    block_destructive_commands: bool = False
-
-    # ── Untrusted content ──
-    mark_untrusted_content: bool = False
+    # ── Tools ──
     # Start an MCP server only as it was saved through CraftBot's settings
     # (app/security/mcp_trust.py).
     verify_mcp_servers: bool = False
@@ -103,19 +103,14 @@ class SecurityPolicy:
 
     # ── Secrets and data ──
     scrub_child_env: bool = False
-    redact_logs: bool = False
     log_prompts: bool = True
     retention_days: int = 0  # 0 keeps everything
 
     # ── Channels ──
-    strict_channel_identity: bool = False
     # Only these senders' emails reach the agent (exact addresses). Empty:
     # every inbox email, as before. A From address can be forged, so this
     # narrows what arrives; it is not proof of who sent it.
     email_allowed_senders: Tuple[str, ...] = ()
-
-    # ── Audit ──
-    audit_log: bool = False
 
     @property
     def gate_active(self) -> bool:
@@ -143,34 +138,24 @@ _PRESETS: Dict[SecurityLevel, Dict[str, Any]] = {
     SecurityLevel.STANDARD: {},
     SecurityLevel.ENHANCED: {
         "ask_after_untrusted": True,
-        "mark_untrusted_content": True,
         "verify_mcp_servers": True,
-        "block_destructive_commands": True,
         "protect_secret_files": True,
         "network_guard": True,
         "scrub_child_env": True,
-        "redact_logs": True,
         "log_prompts": False,
         "retention_days": 90,
-        "strict_channel_identity": True,
-        "audit_log": True,
     },
     SecurityLevel.STRICT: {
         "approval_effects": HIGH_RISK_EFFECTS | {Effect.WRITE_FILES},
         "ask_after_untrusted": True,
-        "mark_untrusted_content": True,
         "verify_mcp_servers": True,
-        "block_destructive_commands": True,
         "protect_secret_files": True,
         "confine_writes": True,
         "network_guard": True,
         "third_party_reader": False,
         "scrub_child_env": True,
-        "redact_logs": True,
         "log_prompts": False,
         "retention_days": 30,
-        "strict_channel_identity": True,
-        "audit_log": True,
     },
 }
 

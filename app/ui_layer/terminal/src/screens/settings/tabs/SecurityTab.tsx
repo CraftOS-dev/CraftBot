@@ -62,7 +62,7 @@ export function SecurityTab() {
 
   useResource(RESOURCES.securityState)
   useResource(RESOURCES.securityChecks)
-  useResource(policy?.audit_log ? RESOURCES.securityAudit : null)
+  useResource(RESOURCES.securityAudit)
 
   // This tab's own requests in flight: their replies flash a result line.
   const saving = useRef(0)
@@ -300,9 +300,7 @@ export function SecurityTab() {
 
     // ── Audit log ──
     rows.push({ kind: 'heading', text: t('security.auditTitle') })
-    if (!policy.audit_log) {
-      rows.push({ kind: 'note', text: t('security.auditOff') })
-    } else if (!audit) {
+    if (!audit) {
       rows.push({ kind: 'note', text: t('security.auditLoading') })
     } else {
       rows.push({
