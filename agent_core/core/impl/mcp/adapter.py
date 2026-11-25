@@ -247,9 +247,35 @@ class MCPActionAdapter:
             action_sets=[action_set_name],
             display_param=MCPActionAdapter._display_param(input_schema),
             icon="Plug",
+            effects=MCPActionAdapter.effects_from_annotations(tool.annotations),
+            result_source=MCPActionAdapter.result_source_from_annotations(
+                tool.annotations
+            ),
         )
 
         return RegisteredAction(handler=handler, metadata=metadata)
+
+    @staticmethod
+    def effects_from_annotations(annotations: Dict[str, Any]) -> List[str]:
+        """What an MCP tool can do, from its standard tool annotations.
+
+        Spec defaults apply when a hint is missing: a tool is not read-only
+        and works in an open world. So an unannotated tool counts as
+        changing outside services, and only an explicit ``readOnlyHint``
+        makes it a plain read. A tool limited to a closed world (e.g. local
+        files) that is not read-only counts as writing files.
+        """
+        annotations = annotations or {}
+        if annotations.get("readOnlyHint") is True:
+            return []
+        if annotations.get("openWorldHint") is False:
+            return ["write_files"]
+        return ["send_external"]
+
+    @staticmethod
+    def result_source_from_annotations(annotations: Dict[str, Any]) -> str:
+        """An open-world tool's result is outside content (spec default: open)."""
+        return "local" if (annotations or {}).get("openWorldHint") is False else "network"
 
     @staticmethod
     def register_mcp_tools(

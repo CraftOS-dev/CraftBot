@@ -70,6 +70,8 @@ _RESULT = {
 
 @action(
     name="mini_browser_navigate",
+    effects=[],
+    result_source="network",
     description=(
         "Open a page in the Mini Browser: a real Chromium that keeps the "
         "user's cookies and saved logins, which the user can watch live and "
@@ -133,6 +135,8 @@ async def mini_browser_navigate(input_data: dict) -> dict:
 
 @action(
     name="mini_browser_read",
+    effects=[],
+    result_source="network",
     description=(
         "Read your current page in full: every visible interactive element "
         "(numbered) plus the page text, more than the compact 'page' that "
@@ -228,6 +232,8 @@ async def mini_browser_read(input_data: dict) -> dict:
 
 @action(
     name="mini_browser_click",
+    effects=["send_external"],
+    result_source="network",
     description=(
         "Click an element by its number from the latest page observation "
         "(the mouse moves there like a person's). Returns the updated page; "
@@ -286,6 +292,8 @@ async def mini_browser_click(input_data: dict) -> dict:
 
 @action(
     name="mini_browser_type",
+    effects=["send_external"],
+    result_source="network",
     description=(
         "Type text into an input, textarea or editable element (number from "
         "the latest page observation), with a human typing rhythm. The field "
@@ -358,6 +366,8 @@ async def mini_browser_type(input_data: dict) -> dict:
 
 @action(
     name="mini_browser_press_key",
+    effects=["send_external"],
+    result_source="network",
     description=(
         "Press a key or key combination in your tab, optionally after "
         "focusing an element. Useful for keyboard-driven widgets, closing "
@@ -413,6 +423,8 @@ async def mini_browser_press_key(input_data: dict) -> dict:
 
 @action(
     name="mini_browser_select_option",
+    effects=["send_external"],
+    result_source="network",
     description=(
         "Choose an option in a dropdown <select> (number from the latest page "
         "observation) by its value or visible label. For custom dropdowns "
@@ -460,6 +472,8 @@ async def mini_browser_select_option(input_data: dict) -> dict:
 
 @action(
     name="mini_browser_hover",
+    effects=[],
+    result_source="network",
     description=(
         "Move the mouse over an element (number from the latest page "
         "observation) to reveal hover menus or tooltips. Returns the updated "
@@ -501,6 +515,8 @@ async def mini_browser_hover(input_data: dict) -> dict:
 
 @action(
     name="mini_browser_scroll",
+    effects=[],
+    result_source="network",
     description=(
         "Scroll your page like a mouse wheel: 'down' / 'up' (most of a "
         "screen, or 'amount' pixels), 'top' or 'bottom'. The returned page "
@@ -559,6 +575,8 @@ async def mini_browser_scroll(input_data: dict) -> dict:
 
 @action(
     name="mini_browser_wait",
+    effects=[],
+    result_source="network",
     description=(
         "Wait in your tab, then return the fresh page: for 'seconds', until "
         "'text' appears (e.g. after a slow submit), or with for_user=true "
@@ -631,6 +649,8 @@ async def mini_browser_wait(input_data: dict) -> dict:
 
 @action(
     name="mini_browser_upload_file",
+    effects=["send_external"],
+    result_source="network",
     description=(
         "Attach files to a file-upload input (number from the latest page "
         "observation). Only files inside the agent workspace can be uploaded."
@@ -677,11 +697,19 @@ async def mini_browser_upload_file(input_data: dict) -> dict:
         }
     from app.mini_browser.actions_api import run_action
 
+    from app.security.paths import first_refusal
+
+    # Uploading sends a file to a website: protected files never leave.
+    refused = first_refusal((path, False) for path in input_data.get("paths") or [])
+    if refused:
+        return {"status": "error", "message": refused}
     return await run_action("upload_file", input_data)
 
 
 @action(
     name="mini_browser_login",
+    effects=["use_credentials", "send_external"],
+    result_source="network",
     description=(
         "Sign in on the CURRENT page with a login the user saved in the Mini "
         "Browser password vault. Open the site's sign-in page first; the "
@@ -777,6 +805,8 @@ async def mini_browser_login(input_data: dict) -> dict:
 
 @action(
     name="mini_browser_screenshot",
+    effects=[],
+    result_source="network",
     description=(
         "Save a PNG screenshot of your tab (the visible area, or the whole "
         "page with full_page=true) and return its file_path, e.g. as evidence "
@@ -825,6 +855,8 @@ async def mini_browser_screenshot(input_data: dict) -> dict:
 
 @action(
     name="mini_browser_tabs",
+    effects=[],
+    result_source="network",
     description=(
         "Manage your Mini Browser tabs. action='list' shows the open tabs: "
         "yours (mine=true, with url and title), other agents' (owner "

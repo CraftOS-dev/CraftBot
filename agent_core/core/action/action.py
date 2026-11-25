@@ -58,6 +58,9 @@ class Action:
         timeout: Optional[int] = None,
         parallelizable: bool = True,
         irreversible: bool = False,
+        integration: Optional[str] = None,
+        effects: Optional[List[str]] = None,
+        result_source: Optional[str] = None,
     ):
         """
         Initialize a new Action definition.
@@ -125,6 +128,11 @@ class Action:
         self.timeout = timeout if timeout is not None else self.DEFAULT_TIMEOUT
         self.parallelizable = parallelizable
         self.irreversible = irreversible
+        # Security declarations (see ActionMetadata): the integration the
+        # action belongs to, what it can do, and where its result comes from.
+        self.integration = integration
+        self.effects = list(effects) if effects is not None else None
+        self.result_source = result_source
 
     @property
     def display_name(self) -> str:
@@ -168,6 +176,9 @@ class Action:
             "timeout": self.timeout,
             "parallelizable": self.parallelizable,
             "irreversible": self.irreversible,
+            "integration": self.integration,
+            "effects": self.effects,
+            "result_source": self.result_source,
         }
 
     @classmethod
@@ -209,6 +220,9 @@ class Action:
             timeout=data.get("timeout"),
             parallelizable=data.get("parallelizable", True),
             irreversible=data.get("irreversible", False),
+            integration=data.get("integration"),
+            effects=data.get("effects"),
+            result_source=data.get("result_source"),
         )
 
         return data_to_return

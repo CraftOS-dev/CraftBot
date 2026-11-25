@@ -52,6 +52,7 @@ import {
   selectPendingQuestions,
 } from '../../store/selectors/messages'
 import { QuestionBox } from './QuestionBox'
+import { ApprovalCards } from './ApprovalCard'
 import { ContextButton } from './ContextButton'
 import { ReasoningPicker } from './ReasoningPicker'
 import { mergeTimeline, type TimelineEntry } from './timeline'
@@ -1705,6 +1706,9 @@ export function Chat({ sessionId, placeholder, panelLayout = 'side', panelVisibl
           row inside it ("+" menu on the left, mic/lang + send on the
           right). The area is width-capped and centered like the timeline. */}
       <div className={styles.inputArea}>
+        {/* Security approval cards (Auto mode off): same spot as the pinned
+            question, above it, since the waiting action blocks the agent. */}
+        <ApprovalCards sessionId={sessionId} />
         {/* Pinned agent question — above the composer, outside the scrolling
             timeline, so it stays put while the agent keeps working and the
             chat updates. Keyed by messageId so per-question state resets

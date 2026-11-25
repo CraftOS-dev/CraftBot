@@ -14,6 +14,7 @@ from agent_core import action
 
 @action(
     name="schedule_task",
+    effects=["change_agent"],
     description=(
         "Schedule a task for execution. Supports immediate, one-time, and recurring schedules. "
         "One-time tasks are auto-removed after firing. Every fire runs in this chat, the one "
@@ -142,6 +143,12 @@ async def schedule_task(input_data: dict) -> dict:
             return {"status": "error", "error": "instruction is required"}
         if not schedule_expr:
             return {"status": "error", "error": "schedule is required"}
+
+        from app.security.threats import schedule_refusal
+
+        refused = schedule_refusal(instruction, stage="create", name=name)
+        if refused:
+            return {"status": "error", "error": refused}
 
         # Validate schedule expression before doing anything
         if schedule_expr.lower() != "immediate":

@@ -5,6 +5,7 @@ from agent_core import action
 
 @action(
     name="read_reference",
+    effects=[],
     description="Read more context from a session or agent_app explicitly referenced in this chat. Returns a bounded live page; use nextCursor to read older session messages. Does not run or modify the source.",
     default=True,
     action_sets=["core"],

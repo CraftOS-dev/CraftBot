@@ -165,5 +165,37 @@
     "title": "Agent App",
     "noInstalled": "インストール済みアプリがありません。",
     "close": "閉じる"
+  },
+  "approval": {
+    "aria": "承認リクエスト",
+    "title": "{{action}} にはあなたの承認が必要です",
+    "inSession": "{{session}} 内",
+    "highRisk": "この操作は {{effects}} を行う可能性があります。",
+    "untrusted": "エージェントはこの操作を求める前に、外部コンテンツ（{{detail}}）を読み込みました。",
+    "untrustedNoDetail": "エージェントはこの操作を求める前に、外部コンテンツを読み込みました。",
+    "risky": "このコマンドは危険な可能性があります: {{detail}}。",
+    "effects": {
+      "execute": "コマンドやコードの実行",
+      "write_files": "ファイルの作成・変更",
+      "send_external": "メッセージの送信や外部サービスの変更",
+      "change_agent": "CraftBot 自体の設定・スケジュール・ツールの変更",
+      "use_credentials": "保存済みの認証情報の使用"
+    },
+    "inputs": "入力",
+    "showAll_one": "全 {{count}} 行を表示",
+    "showAll_other": "全 {{count}} 行を表示",
+    "showLess": "表示を減らす",
+    "expiresIn": "{{time}} 後に自動的に拒否されます",
+    "expired": "タイムアウトしました",
+    "allowOnce": "今回のみ許可",
+    "allowSession": "このセッションで許可",
+    "allowSessionHint": "CraftBot が再起動するまで、このチャットでは {{action}} について再確認しません",
+    "allowSessionHintCommand": "CraftBot を再起動するまで、このチャットでこのコマンドについては確認しない",
+    "deny": "拒否",
+    "notConnected": "接続されていないため、回答は送信されませんでした。CraftBot が復帰したらもう一度お試しください。",
+    "waitingIn_one": "{{session}} の操作があなたの承認を待っています",
+    "waitingIn_other": "{{session}} の {{count}} 件の操作があなたの承認を待っています",
+    "open": "開く",
+    "unknownSession": "別のチャット"
   }
 }

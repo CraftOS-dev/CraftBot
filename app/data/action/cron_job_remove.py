@@ -3,6 +3,7 @@ from agent_core import action
 
 @action(
     name="cron_job_remove",
+    effects=["change_agent"],
     description="Remove a cron job from PROACTIVE.md. It will no longer run. Use this to clean up jobs that are no longer needed.",
     action_sets=["proactive"],
     input_schema={

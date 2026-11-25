@@ -11,6 +11,7 @@ from typing import Any, Dict, Optional, List
 
 from ... import (
     BasePlatformClient,
+    ConfigStore,
     IntegrationSpec,
     OAuthFlow,
     PlatformMessage,
@@ -264,6 +265,9 @@ class OutlookClient(BasePlatformClient):
 
         cred = self._load()
         if sender_email.lower() == (cred.email or "").lower():
+            return
+        # The host's sender list (Settings > Security > Channels).
+        if not ConfigStore.extras.get("email_sender_allowed", lambda _a: True)(sender_email):
             return
 
         subject = msg.get("subject", "(no subject)")

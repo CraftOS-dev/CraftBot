@@ -3,6 +3,7 @@ from agent_core import action
 
 @action(
     name="perform_ocr",
+    effects=[],
     description="Extracts all text from an image using OCR via a Vision Language Model. Use this when the user wants to read text from a screenshot, scanned document, photo of a receipt, whiteboard, sign, or any image containing text. Returns extracted text saved to a file in workspace.",
     mode="CLI",
     action_sets=["document_processing", "image", "video"],

@@ -11,6 +11,7 @@
       "skills": "Habilidades",
       "integrations": "Integraciones",
       "credentials": "Credenciales",
+      "security": "Seguridad",
       "agentApps": "Agent Apps"
     }
   },
@@ -88,10 +89,39 @@
     "focusedChoiceHint": "1-9 o flechas eligen · Enter confirma · Esc vuelve a escribir",
     "dismissed": "Pregunta descartada"
   },
+  "approval": {
+    "title": "Aprobación necesaria · {{action}}",
+    "timeLeft": "Quedan {{time}}",
+    "timeLeftCount": "{{index}} de {{total}} · quedan {{time}}",
+    "hint": "Tab para responder · si no respondes a tiempo, cuenta como Denegar",
+    "focusedHint": "1-3 o flechas eligen · Enter responde · a permitir una vez · s permitir en la sesión · d denegar · Esc volver a escribir",
+    "allowOnce": "Permitir una vez",
+    "allowSession": "Permitir en esta sesión",
+    "deny": "Denegar",
+    "reasonHighRisk": "El modo automático está desactivado y esta acción puede {{effects}}.",
+    "reasonGeneric": "El modo automático está desactivado y esta acción necesita tu aprobación.",
+    "reasonUntrusted": "El agente leyó antes contenido externo ({{detail}}), así que pregunta antes de actuar.",
+    "reasonRisky": "Este comando parece arriesgado: {{detail}}.",
+    "outsideContent": "páginas web, correos o archivos de otras personas",
+    "effects": {
+      "execute": "ejecutar comandos o código",
+      "write_files": "crear o cambiar archivos",
+      "send_external": "enviar mensajes o cambiar servicios externos",
+      "change_agent": "cambiar la configuración, las programaciones o las herramientas de CraftBot",
+      "use_credentials": "usar credenciales guardadas"
+    },
+    "inSession": "En {{session}}",
+    "noInputs": "Sin entradas",
+    "moreLines_one": "({{count}} línea más)",
+    "moreLines_other": "({{count}} líneas más)",
+    "answerFailed": "Aprobación no enviada: {{error}}",
+    "waitingToast": "{{action}} necesita tu aprobación. Pulsa q para volver al chat."
+  },
   "notify": {
     "question": "{{session}} necesita tu respuesta",
     "done": "{{session}} terminó",
-    "needsYou": "Te necesitan: {{count}}"
+    "needsYou": "Te necesitan: {{count}}",
+    "approval": "{{action}} necesita tu aprobación"
   },
   "firstRun": {
     "keys": "Enter enviar · Ctrl+J nueva línea · Esc detener · / comandos · Ctrl+X pantallas · Ctrl+P paleta · ? teclas · Ctrl+C dos veces sale"

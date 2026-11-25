@@ -243,6 +243,22 @@ def _make_static_or_spa(dist: Path, backend_port: Optional[int] = None):
     return _static_or_spa
 
 
+
+# Settings > Security and approval-card messages (security_settings.py).
+_SECURITY_MESSAGES = frozenset(
+    {
+        "security_get",
+        "security_set_level",
+        "security_update",
+        "security_reset",
+        "security_approval_response",
+        "security_approvals_list",
+        "security_audit_list",
+        "security_check_run",
+        "security_check_fix",
+    }
+)
+
 class BrowserThemeAdapter(ThemeAdapter):
     """Browser-specific theme adapter outputting CSS-compatible styles."""
 
@@ -1164,6 +1180,22 @@ class BrowserAdapter(InterfaceAdapter):
 
     async def _on_start(self) -> None:
         """Start the browser interface."""
+        from app.security.approvals import broker as approval_broker
+
+        # Approval cards (Settings > Security, Auto mode off) show in every
+        # connected window and terminal; with none connected, actions that
+        # need approval are refused instead of left waiting.
+        approval_broker.attach_ui(self._broadcast, lambda: bool(self._channels))
+        # Local programs of the same user (the terminal client) read the
+        # session token from an owner-only file; /api/session-token answers
+        # browsers only (ws_auth.py).
+        try:
+            from app import paths
+            from app.ui_layer.adapters.ws_auth import publish_token
+
+            publish_token(paths.STATE_ROOT, self._port, self._ws_auth.token)
+        except Exception as exc:
+            logger.warning(f"[BROWSER ADAPTER] Could not write the session token file: {exc}")
         self._controller.agent.session_manager.add_post_update_todos_hook(
             make_todo_broadcast_hook(self._broadcast)
         )
@@ -1842,6 +1874,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             session_id = data.get("sessionId", "")
             message_id = data.get("messageId", "")
             await self._handle_option_click(value, session_id, message_id)
+
+        elif msg_type in _SECURITY_MESSAGES:
+            await self._handle_security_message(msg_type, data)
 
         elif msg_type == "question_response":
             value = data.get("value", "")
@@ -4934,6 +4969,48 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     },
                 }
             )
+
+    async def _handle_security_message(self, msg_type: str, data: Dict[str, Any]) -> None:
+        """Settings > Security and the approval card."""
+        from app.ui_layer.settings import security_settings as sec
+
+        if msg_type == "security_get":
+            reply_type, result = "security_state", sec.get_security_state()
+        elif msg_type == "security_set_level":
+            reply_type, result = "security_state", sec.set_security_level(
+                str(data.get("level", ""))
+            )
+        elif msg_type == "security_update":
+            reply_type, result = "security_state", sec.update_security_settings(
+                data.get("changes") or {}
+            )
+        elif msg_type == "security_reset":
+            reply_type, result = "security_state", sec.reset_security_settings()
+        elif msg_type == "security_approval_response":
+            reply_type, result = "security_approval_answer", sec.answer_approval(
+                data.get("id", ""), str(data.get("decision", ""))
+            )
+        elif msg_type == "security_approvals_list":
+            reply_type, result = "security_approvals_pending", sec.pending_approvals()
+        elif msg_type == "security_audit_list":
+            reply_type, result = "security_audit", sec.audit_entries()
+        elif msg_type == "security_check_run":
+            reply_type, result = "security_check", sec.run_security_check()
+        elif msg_type == "security_check_fix":
+            reply_type, result = "security_check", sec.fix_security_check(
+                str(data.get("id", ""))
+            )
+        else:
+            return
+        if reply_type == "security_state" and not result.get("success", False):
+            # A refused change still carries the current settings, so no
+            # window is left showing a toggle in a state that was not saved.
+            result = {
+                **sec.get_security_state(),
+                "success": False,
+                "error": result.get("error"),
+            }
+        await self._broadcast({"type": reply_type, "data": result})
 
     async def _handle_proactive_mode_get(self) -> None:
         """Get the current proactive mode status."""
@@ -8262,6 +8339,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             target.parent.mkdir(parents=True, exist_ok=True)
 
             target.write_text(content, encoding="utf-8")
+            from app.security.memory_guard import record_owner_write
+
+            # The file editor shows and saves the whole file.
+            record_owner_write(target, whole_file=True)
 
             file_info = self._get_file_info(target)
 

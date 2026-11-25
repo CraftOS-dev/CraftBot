@@ -3,6 +3,7 @@ from agent_core import action
 
 @action(
     name="stream_edit",
+    effects=["write_files"],
     description="Performs string replacement in a file. You MUST use read_file first to read the file before editing. The old_string must be unique in the file - if it appears multiple times, use replace_all=True or provide more context to make it unique. Supports regex patterns with regex=True and case-insensitive matching with ignore_case=True.",
     mode="CLI",
     action_sets=["core"],
@@ -112,6 +113,16 @@ def stream_edit_action(input_data: dict) -> dict:
             return {
                 "status": "error",
                 "message": "old_string is required",
+                "occurrences_replaced": 0,
+            }
+
+        from app.security.paths import check_file_access
+
+        refused = check_file_access(file_path, write=True)
+        if refused:
+            return {
+                "status": "error",
+                "message": refused,
                 "occurrences_replaced": 0,
             }
 
@@ -268,8 +279,11 @@ def stream_edit_action(input_data: dict) -> dict:
             # to a CRLF file stays CRLF instead of being converted to LF.
             if uses_crlf:
                 new_content = new_content.replace("\n", "\r\n")
-            with open(file_path, "w", encoding="utf-8", newline="") as f:
-                f.write(new_content)
+            from app.security import memory_guard
+
+            with memory_guard.tracking(file_path):
+                with open(file_path, "w", encoding="utf-8", newline="") as f:
+                    f.write(new_content)
 
             return {
                 "status": "success",

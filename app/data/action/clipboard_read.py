@@ -3,6 +3,7 @@ from agent_core import action
 
 @action(
     name="clipboard_read",
+    effects=[],
     description="Read the current content from the system clipboard.",
     mode="GUI",
     action_sets=["core"],

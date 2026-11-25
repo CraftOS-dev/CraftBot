@@ -116,6 +116,14 @@ class ActionMetadata:
     display_param: Optional[str] = None
     icon: Optional[str] = None
     integration: Optional[str] = None
+    # What the action can do to the world (app/security/policy.py Effect
+    # values: "execute", "write_files", "send_external", "change_agent",
+    # "use_credentials"). Security decisions read these declarations; an
+    # empty list declares a read-only action. None means undeclared.
+    effects: Optional[List[str]] = None
+    # Where the action's result comes from: "local" or "network". A network
+    # result is untrusted content for the rest of the turn.
+    result_source: Optional[str] = None
 
     @property
     def display_name(self) -> str:
@@ -332,6 +340,9 @@ class ActionRegistry:
             "platform_overrides": {},
             "parallelizable": meta.parallelizable,
             "irreversible": meta.irreversible,
+            "integration": meta.integration,
+            "effects": meta.effects,
+            "result_source": meta.result_source,
         }
 
         # 3. Handle Platform Overrides
@@ -492,6 +503,8 @@ def action(
     display_param: Optional[str] = None,
     icon: Optional[str] = None,
     integration: Optional[str] = None,
+    effects: Optional[List[str]] = None,
+    result_source: Optional[str] = None,
 ):
     """
     Decorator used by developers to register functions as actions.
@@ -525,6 +538,11 @@ def action(
               of no integration.
         integration: Integration id whose logo is shown before the action's
                      name, for an integration's action.
+        effects: What the action can do: any of "execute", "write_files",
+                 "send_external", "change_agent", "use_credentials". [] for
+                 a read-only action. Approvals and security checks use this.
+        result_source: "network" when the result is content from outside
+                       (web pages, email, chat, APIs), else "local".
     """
     # Normalize platforms input to a list of lowercase strings
     if platforms is None:
@@ -553,6 +571,8 @@ def action(
             display_param=display_param,
             icon=icon,
             integration=integration,
+            effects=list(effects) if effects is not None else None,
+            result_source=result_source,
         )
 
         # 2. Create the full registration object

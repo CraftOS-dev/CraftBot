@@ -102,6 +102,7 @@
     "mcps": "MCP",
     "skills": "Keahlian",
     "integrations": "Integrasi",
+    "security": "Keamanan",
     "agent_app": "Agent App"
   },
   "model": {
@@ -147,6 +148,10 @@
       "startingShort": "Memulai..."
     },
     "subscription": {
+      "recoveryHint": "Langganan tersimpan ini masih dipilih. Putuskan untuk menggunakan kunci API, atau masuk lagi.",
+      "claudeProfileNote": "Masuk secara terpisah untuk CraftBot. Memutuskan akan mengeluarkan Anda dari profil ini tanpa memengaruhi login Claude Code mandiri Anda.",
+      "disconnectFailed": "Tidak dapat memutuskan langganan. Silakan coba lagi.",
+      "connectFailed": "Tidak dapat masuk ke langganan. Silakan coba lagi.",
       "label": "Langganan",
       "awaitingCode": "Menunggu kode",
       "pastePlaceholder": "Tempel kode dari halaman masuk",
@@ -602,6 +607,26 @@
       "waitingQrScan": "Menunggu pemindaian QR...",
       "connectNamed": "Sambungkan {{name}}"
     },
+    "figma": {
+      "canvasTitle": "Desain di Figma",
+      "canvasIntro": "Gunakan Talk to Figma di peramban Anda. CraftBot menjalankan koneksinya untuk Anda, tanpa perlu menginstal aplikasi Desktop atau server tambahan.",
+      "canvasAccount": "Akun CraftBot",
+      "canvasStepStart": "Mulai koneksi di bawah ini.",
+      "canvasPluginLink": "Buka Plugin Talk to Figma MCP",
+      "canvasStepPlugin": "di desain Figma tujuan Anda, lalu klik Connect pada port 3055.",
+      "canvasStepChannel": "Tempel kanal yang ditampilkan plugin dan sambungkan ke CraftBot.",
+      "canvasConnected": "Tersambung ke {{page}} · kanal {{channel}}",
+      "canvasWaiting": "Koneksi berjalan · menunggu kanal plugin",
+      "canvasStopped": "Koneksi kanvas dihentikan",
+      "canvasStart": "Mulai koneksi kanvas",
+      "canvasChannel": "Kanal plugin",
+      "canvasConnect": "Sambungkan kanal",
+      "canvasStop": "Hentikan koneksi",
+      "canvasRefresh": "Segarkan status",
+      "canvasTimeout": "Pemeriksaan koneksi melewati batas waktu. Segarkan status sebelum mencoba lagi.",
+      "canvasTarget": "Suntingan berlaku pada berkas dan halaman yang terbuka di plugin. Biarkan plugin tetap terbuka selama CraftBot bekerja; sambungkan ulang setelah berganti halaman atau memulai ulang. Berkas REST default Anda tidak menentukan kanvas.",
+      "canvasPrivacy": "Plugin komunitas ini dapat membaca dan menyunting desain yang terbuka serta menyatakan memakai analitik penggunaan. CraftBot menyimpan token Figma Anda secara lokal. CraftBot dan Figma harus berjalan di komputer ini."
+    },
     "whatsapp": {
       "starting": "Memulai sesi WhatsApp Web...",
       "scanDesc": "Pindai kode QR ini dengan aplikasi WhatsApp di ponsel Anda untuk menyambungkan.",
@@ -742,5 +767,171 @@
     "createLanLink": "Buat Tautan LAN",
     "starting": "Memulai...",
     "createTunnel": "Buat Tunnel"
+  },
+  "security": {
+    "title": "Keamanan",
+    "subtitle": "Lindungi komputer, kunci, dan data Anda",
+    "loading": "Memuat pengaturan keamanan...",
+    "autoMode": {
+      "label": "Mode otomatis",
+      "desc": "Jalankan tindakan tanpa bertanya",
+      "askTitle": "Tanya sebelum",
+      "askAfterUntrusted": "Bertindak atas konten luar",
+      "timeout": "Tolak jika tidak dijawab dalam",
+      "seconds_one": "{{count}} detik",
+      "seconds_other": "{{count}} detik",
+      "minutes_one": "{{count}} menit",
+      "minutes_other": "{{count}} menit",
+      "hours_one": "{{count}} jam",
+      "hours_other": "{{count}} jam"
+    },
+    "effects": {
+      "execute": "Menjalankan perintah",
+      "write_files": "Mengubah file",
+      "send_external": "Mengirim pesan",
+      "change_agent": "Mengubah pengaturan CraftBot",
+      "use_credentials": "Menggunakan kredensial tersimpan"
+    },
+    "level": {
+      "title": "Tingkat keamanan",
+      "custom": "Kustom",
+      "reset": "Atur ulang",
+      "lowerTitle": "Turunkan keamanan ke {{level}}?",
+      "lowerMessage": "Perlindungan yang tetap aktif di {{from}} akan dimatikan.",
+      "lowerConfirm": "Beralih ke {{level}}",
+      "standard": {
+        "name": "Standar",
+        "desc": "Tanpa batasan tambahan"
+      },
+      "enhanced": {
+        "name": "Ditingkatkan",
+        "desc": "Menjaga kunci, web, dan perintah"
+      },
+      "strict": {
+        "name": "Ketat",
+        "desc": "Juga menjaga file di ruang kerja"
+      }
+    },
+    "advanced": {
+      "toggle": "Lanjutan",
+      "groups": {
+        "files": "Berkas",
+        "content": "Konten",
+        "network": "Jaringan",
+        "messages": "Pesan dan jadwal",
+        "tools": "Alat",
+        "logs": "Log"
+      }
+    },
+    "fields": {
+      "verify_mcp_servers": {
+        "label": "Hanya jalankan server MCP yang disimpan di Pengaturan"
+      },
+      "protect_secret_files": {
+        "label": "Lindungi berkas kunci"
+      },
+      "extra_protected_paths": {
+        "label": "Lindungi juga",
+        "placeholder": "/path/ke/berkas-atau-folder"
+      },
+      "confine_writes": {
+        "label": "Batasi perubahan berkas di ruang kerja"
+      },
+      "workspace_paths": {
+        "label": "Folder ruang kerja tambahan",
+        "placeholder": "/path/ke/folder"
+      },
+      "network_guard": {
+        "label": "Blokir permintaan ke jaringan lokal"
+      },
+      "allowed_domains": {
+        "label": "Domain yang diizinkan",
+        "placeholder": "example.com",
+        "empty": "Semua situs publik"
+      },
+      "third_party_reader": {
+        "label": "Gunakan pembaca halaman pihak ketiga"
+      },
+      "scrub_child_env": {
+        "label": "Sembunyikan kunci API dari alat"
+      },
+      "log_prompts": {
+        "label": "Catat prompt lengkap"
+      },
+      "retention_days": {
+        "label": "Simpan log selama",
+        "forever": "Selamanya",
+        "days_one": "{{count}} hari",
+        "days_other": "{{count}} hari"
+      },
+      "email_allowed_senders": {
+        "label": "Pengirim email yang diizinkan",
+        "placeholder": "nama@contoh.com",
+        "empty": "Semua pengirim"
+      },
+      "protect_os_credentials": {
+        "label": "Lindungi kredensial sistem"
+      },
+      "guard_memory": {
+        "label": "Jaga berkas memori"
+      },
+      "check_commands": {
+        "label": "Tinjau perintah berisiko"
+      },
+      "check_mcp_packages": {
+        "label": "Periksa paket MCP dari malware"
+      },
+      "scan_skills": {
+        "label": "Pindai keahlian sebelum dipasang"
+      },
+      "verify_downloads": {
+        "label": "Verifikasi unduhan"
+      },
+      "redact_tool_output": {
+        "label": "Sembunyikan rahasia di hasil alat"
+      },
+      "strip_chat_tokens": {
+        "label": "Hapus token chat dari konten luar"
+      },
+      "limit_third_party_runs": {
+        "label": "Batasi yang bisa dilakukan pesan orang lain"
+      },
+      "limit_scheduled_runs": {
+        "label": "Batasi yang bisa dilakukan tugas terjadwal"
+      }
+    },
+    "list": {
+      "add": "Tambah",
+      "remove": "Hapus {{item}}",
+      "duplicate": "Sudah ditambahkan"
+    },
+    "check": {
+      "title": "Pemeriksaan keamanan",
+      "runAgain": "Jalankan lagi",
+      "running": "Memeriksa...",
+      "fix": "Perbaiki",
+      "empty": "Belum ada hasil.",
+      "status": {
+        "ok": "OK",
+        "info": "Info",
+        "warn": "Peringatan",
+        "fail": "Masalah"
+      }
+    },
+    "audit": {
+      "title": "Log audit",
+      "intact_one": "Utuh · {{count}} catatan",
+      "intact_other": "Utuh · {{count}} catatan",
+      "broken": "Diubah di baris {{line}}",
+      "empty": "Belum ada yang tercatat.",
+      "loading": "Memuat log audit...",
+      "showing": "{{shown}} terbaru dari {{total}}",
+      "refresh": "Segarkan",
+      "events": {
+        "action_approval": "Persetujuan tindakan",
+        "security_settings_changed": "Pengaturan diubah",
+        "security_check_fixed": "Pemeriksaan diperbaiki"
+      }
+    }
   }
 }

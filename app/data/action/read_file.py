@@ -3,6 +3,7 @@ from agent_core import action
 
 @action(
     name="read_file",
+    effects=[],
     description="Reads a file and returns its contents with line numbers. PDF files are returned as their extracted text (text layer only, one '## Page N' heading per page). By default reads up to 2000 lines from the beginning. Use offset and limit parameters to read specific sections of large files. For searching within files, use grep_files instead.",
     mode="CLI",
     action_sets=["core"],
@@ -142,6 +143,20 @@ def read_file(input_data: dict) -> dict:
             "offset": 0,
             "has_more": False,
             "message": "file_path is required.",
+        }
+
+    from app.security.paths import check_file_access
+
+    refused = check_file_access(file_path, write=False)
+    if refused:
+        return {
+            "status": "error",
+            "content": "",
+            "total_lines": 0,
+            "lines_returned": 0,
+            "offset": 0,
+            "has_more": False,
+            "message": refused,
         }
 
     if not os.path.isfile(file_path):

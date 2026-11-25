@@ -543,5 +543,148 @@
       "expired": "expired",
       "about": "about {{time}}"
     }
+  },
+  "security": {
+    "loading": "Loading security settings...",
+    "error": "Error: {{error}}",
+    "saved": "Saved",
+    "saveFailed": "Could not save the security settings",
+    "approvalsTitle": "Approvals",
+    "autoMode": "Auto mode",
+    "askFirst": "Ask before:",
+    "effects": {
+      "execute": "Running commands",
+      "write_files": "Changing files",
+      "send_external": "Sending messages",
+      "change_agent": "Changing CraftBot's setup",
+      "use_credentials": "Using saved credentials"
+    },
+    "askAfterUntrusted": "Acting on outside content",
+    "timeout": "Deny if unanswered after",
+    "minutes_one": "{{count}} minute",
+    "minutes_other": "{{count}} minutes",
+    "levelTitle": "Security level",
+    "custom": "Custom",
+    "customAside": "Custom ({{level}})",
+    "levels": {
+      "standard": {
+        "name": "Standard",
+        "description": "No extra limits"
+      },
+      "enhanced": {
+        "name": "Enhanced",
+        "description": "Guards keys, web and commands"
+      },
+      "strict": {
+        "name": "Strict",
+        "description": "Also keeps files in the workspace"
+      }
+    },
+    "hintChoose": "choose",
+    "lowerConfirm": "Lower security to {{level}}? Protections it does not include turn off.",
+    "switchConfirm": "Switch to {{level}}? Your custom settings go back to its defaults.",
+    "useDefaultsConfirm": "Drop your custom settings and use the {{level}} defaults?",
+    "useDefaults": "Use the {{level}} defaults",
+    "advancedTitle": "Advanced",
+    "showAdvanced": "Show advanced settings",
+    "hideAdvanced": "Hide advanced settings",
+    "changed": "changed",
+    "settings": {
+      "protect_secret_files": {
+        "label": "Protect key files"
+      },
+      "confine_writes": {
+        "label": "Keep file changes in the workspace"
+      },
+      "network_guard": {
+        "label": "Block requests to local networks"
+      },
+      "third_party_reader": {
+        "label": "Use a third-party page reader"
+      },
+      "scrub_child_env": {
+        "label": "Hide API keys from tools"
+      },
+      "log_prompts": {
+        "label": "Log full prompts"
+      },
+      "retention_days": {
+        "label": "Keep logs for"
+      },
+      "verify_mcp_servers": {
+        "label": "Only start MCP servers saved in Settings"
+      },
+      "protect_os_credentials": {
+        "label": "Protect system credentials"
+      },
+      "guard_memory": {
+        "label": "Guard memory files"
+      },
+      "check_commands": {
+        "label": "Review risky commands"
+      },
+      "check_mcp_packages": {
+        "label": "Check MCP packages for malware"
+      },
+      "scan_skills": {
+        "label": "Scan skills before installing"
+      },
+      "verify_downloads": {
+        "label": "Verify downloads"
+      },
+      "redact_tool_output": {
+        "label": "Hide secrets in tool results"
+      },
+      "strip_chat_tokens": {
+        "label": "Strip chat tokens from outside content"
+      },
+      "limit_third_party_runs": {
+        "label": "Limit what others' messages can do"
+      },
+      "limit_scheduled_runs": {
+        "label": "Limit what scheduled tasks can do"
+      }
+    },
+    "keepForever": "Forever",
+    "days_one": "{{count}} day",
+    "days_other": "{{count}} days",
+    "badDays": "Use a whole number of days, 0 or more",
+    "lists": {
+      "extra_protected_paths": "Also protect",
+      "workspace_paths": "Extra workspace folders",
+      "allowed_domains": "Allowed domains",
+      "email_allowed_senders": "Allowed email senders"
+    },
+    "none": "none",
+    "listsNote": "Edit lists in the browser.",
+    "checkTitle": "Security check",
+    "checkIssues_one": "{{count}} to look at",
+    "checkIssues_other": "{{count}} to look at",
+    "checkAllGood": "nothing to fix",
+    "checking": "Checking...",
+    "checkAgain": "Run the check again",
+    "status": {
+      "ok": "OK",
+      "info": "Note",
+      "warn": "Warning",
+      "fail": "Problem"
+    },
+    "canFix": "fix available",
+    "hintFix": "fix",
+    "fixConfirm": "Apply the fix for \"{{title}}\"?",
+    "fixed": "Fixed",
+    "fixFailed": "The fix did not apply",
+    "auditTitle": "Audit log",
+    "auditLoading": "Loading the audit log...",
+    "auditRecords": "Records",
+    "records_one": "{{count}} record",
+    "records_other": "{{count}} records",
+    "auditIntact": "intact",
+    "auditBroken": "changed at line {{line}}",
+    "auditFile": "File",
+    "auditRefresh": "Refresh the audit log",
+    "resetTitle": "Reset",
+    "reset": "Reset security settings",
+    "resetConfirm": "Reset all security settings to Standard?"
   }
 }

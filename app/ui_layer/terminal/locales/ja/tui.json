@@ -11,6 +11,7 @@
       "skills": "スキル",
       "integrations": "連携",
       "credentials": "認証情報",
+      "security": "セキュリティ",
       "agentApps": "Agent App"
     }
   },
@@ -88,10 +89,39 @@
     "focusedChoiceHint": "1-9 か矢印キーで選択 · Enter 確定 · Esc 入力に戻る",
     "dismissed": "質問を閉じました"
   },
+  "approval": {
+    "title": "承認が必要 · {{action}}",
+    "timeLeft": "残り {{time}}",
+    "timeLeftCount": "{{index}} / {{total}} · 残り {{time}}",
+    "hint": "Tab で応答 · 時間内に応答がない場合は拒否として扱われます",
+    "focusedHint": "1-3 または矢印で選択 · Enter で応答 · a 今回のみ許可 · s セッションで許可 · d 拒否 · Esc で入力に戻る",
+    "allowOnce": "今回のみ許可",
+    "allowSession": "このセッションで許可",
+    "deny": "拒否",
+    "reasonHighRisk": "自動モードがオフで、この操作は {{effects}} を行う可能性があります。",
+    "reasonGeneric": "自動モードがオフのため、この操作にはあなたの承認が必要です。",
+    "reasonUntrusted": "エージェントが先に外部コンテンツ（{{detail}}）を読んだため、操作の前に確認しています。",
+    "reasonRisky": "このコマンドは危険な可能性があります: {{detail}}。",
+    "outsideContent": "ウェブページ、メール、他の人からのファイル",
+    "effects": {
+      "execute": "コマンドやコードの実行",
+      "write_files": "ファイルの作成・変更",
+      "send_external": "メッセージの送信や外部サービスの変更",
+      "change_agent": "CraftBot 自体の設定・スケジュール・ツールの変更",
+      "use_credentials": "保存済みの認証情報の使用"
+    },
+    "inSession": "{{session}} 内",
+    "noInputs": "入力なし",
+    "moreLines_one": "（ほか {{count}} 行）",
+    "moreLines_other": "（ほか {{count}} 行）",
+    "answerFailed": "承認を送信できませんでした: {{error}}",
+    "waitingToast": "{{action}} にはあなたの承認が必要です。q を押すとチャットに戻ります。"
+  },
   "notify": {
     "question": "{{session}} があなたの回答を待っています",
     "done": "{{session}} が完了しました",
-    "needsYou": "{{count}} 件が対応待ち"
+    "needsYou": "{{count}} 件が対応待ち",
+    "approval": "{{action}} にはあなたの承認が必要です"
   },
   "firstRun": {
     "keys": "Enter 送信 · Ctrl+J 改行 · Esc 停止 · / コマンド · Ctrl+X 画面 · Ctrl+P パレット · ? キー操作 · Ctrl+C 2 回で終了"

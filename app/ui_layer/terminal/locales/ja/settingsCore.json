@@ -543,5 +543,148 @@
       "expired": "期限切れ",
       "about": "約 {{time}}"
     }
+  },
+  "security": {
+    "loading": "セキュリティ設定を読み込み中...",
+    "error": "エラー: {{error}}",
+    "saved": "保存しました",
+    "saveFailed": "セキュリティ設定を保存できませんでした",
+    "approvalsTitle": "承認",
+    "autoMode": "自動モード",
+    "askFirst": "実行前に確認：",
+    "effects": {
+      "execute": "コマンドの実行",
+      "write_files": "ファイルの変更",
+      "send_external": "メッセージの送信",
+      "change_agent": "CraftBot の設定変更",
+      "use_credentials": "保存済み認証情報の使用"
+    },
+    "askAfterUntrusted": "外部コンテンツを読んだ後の操作",
+    "timeout": "未回答で自動拒否するまで",
+    "minutes_one": "{{count}} 分",
+    "minutes_other": "{{count}} 分",
+    "levelTitle": "セキュリティレベル",
+    "custom": "カスタム",
+    "customAside": "カスタム（{{level}}）",
+    "levels": {
+      "standard": {
+        "name": "標準",
+        "description": "追加の制限なし"
+      },
+      "enhanced": {
+        "name": "強化",
+        "description": "キー、Web、コマンドを保護"
+      },
+      "strict": {
+        "name": "厳格",
+        "description": "ファイルもワークスペース内に制限"
+      }
+    },
+    "hintChoose": "選択",
+    "lowerConfirm": "セキュリティを {{level}} に下げますか？含まれない保護はオフになります。",
+    "switchConfirm": "{{level}} に切り替えますか？カスタム設定はそのレベルのデフォルトに戻ります。",
+    "useDefaultsConfirm": "カスタム設定を破棄して {{level}} のデフォルトを使用しますか？",
+    "useDefaults": "{{level}} のデフォルトを使用",
+    "advancedTitle": "詳細",
+    "showAdvanced": "詳細設定を表示",
+    "hideAdvanced": "詳細設定を隠す",
+    "changed": "変更済み",
+    "settings": {
+      "protect_secret_files": {
+        "label": "キーファイルを保護"
+      },
+      "confine_writes": {
+        "label": "ファイルの変更をワークスペース内に限定"
+      },
+      "network_guard": {
+        "label": "ローカルネットワークへのリクエストをブロック"
+      },
+      "third_party_reader": {
+        "label": "サードパーティのページリーダーを使用"
+      },
+      "scrub_child_env": {
+        "label": "ツールから API キーを隠す"
+      },
+      "log_prompts": {
+        "label": "プロンプト全文を記録"
+      },
+      "retention_days": {
+        "label": "ログの保存期間"
+      },
+      "verify_mcp_servers": {
+        "label": "設定で保存した MCP サーバーのみ起動"
+      },
+      "protect_os_credentials": {
+        "label": "システムの認証情報を保護"
+      },
+      "guard_memory": {
+        "label": "メモリファイルを保護"
+      },
+      "check_commands": {
+        "label": "危険なコマンドを審査"
+      },
+      "check_mcp_packages": {
+        "label": "MCP パッケージのマルウェアを確認"
+      },
+      "scan_skills": {
+        "label": "インストール前にスキルをスキャン"
+      },
+      "verify_downloads": {
+        "label": "ダウンロードを検証"
+      },
+      "redact_tool_output": {
+        "label": "ツール結果の秘密情報を隠す"
+      },
+      "strip_chat_tokens": {
+        "label": "外部コンテンツからチャットトークンを除去"
+      },
+      "limit_third_party_runs": {
+        "label": "他人のメッセージでできることを制限"
+      },
+      "limit_scheduled_runs": {
+        "label": "スケジュールタスクでできることを制限"
+      }
+    },
+    "keepForever": "無期限",
+    "days_one": "{{count}} 日",
+    "days_other": "{{count}} 日",
+    "badDays": "日数は 0 以上の整数で入力してください",
+    "lists": {
+      "extra_protected_paths": "追加で保護",
+      "workspace_paths": "追加のワークスペースフォルダー",
+      "allowed_domains": "許可するドメイン",
+      "email_allowed_senders": "許可するメール送信者"
+    },
+    "none": "なし",
+    "listsNote": "リストはブラウザーで編集します。",
+    "checkTitle": "セキュリティチェック",
+    "checkIssues_one": "確認が必要な項目 {{count}} 件",
+    "checkIssues_other": "確認が必要な項目 {{count}} 件",
+    "checkAllGood": "修正が必要な項目はありません",
+    "checking": "確認中...",
+    "checkAgain": "チェックを再実行",
+    "status": {
+      "ok": "OK",
+      "info": "メモ",
+      "warn": "警告",
+      "fail": "問題"
+    },
+    "canFix": "修正可能",
+    "hintFix": "修正",
+    "fixConfirm": "「{{title}}」の修正を適用しますか？",
+    "fixed": "修正しました",
+    "fixFailed": "修正を適用できませんでした",
+    "auditTitle": "監査ログ",
+    "auditLoading": "監査ログを読み込み中...",
+    "auditRecords": "記録",
+    "records_one": "{{count}} 件の記録",
+    "records_other": "{{count}} 件の記録",
+    "auditIntact": "改ざんなし",
+    "auditBroken": "{{line}} 行目で変更あり",
+    "auditFile": "ファイル",
+    "auditRefresh": "監査ログを更新",
+    "resetTitle": "リセット",
+    "reset": "セキュリティ設定をリセット",
+    "resetConfirm": "すべてのセキュリティ設定を標準にリセットしますか？"
   }
 }

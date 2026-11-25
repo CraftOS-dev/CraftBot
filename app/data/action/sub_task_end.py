@@ -3,6 +3,7 @@ from agent_core import action
 
 @action(
     name="sub_task_end",
+    effects=[],
     description=(
         "End your sub-agent run. ONLY sub-agents may call this. Set "
         "status='completed' if you produced a useful result, or 'failed' if "

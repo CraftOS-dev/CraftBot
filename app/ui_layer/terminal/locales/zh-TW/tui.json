@@ -11,6 +11,7 @@
       "skills": "技能",
       "integrations": "整合",
       "credentials": "認證資料",
+      "security": "安全性",
       "agentApps": "Agent App"
     }
   },
@@ -88,10 +89,39 @@
     "focusedChoiceHint": "1-9 或方向鍵選擇 · Enter 確認 · Esc 返回輸入",
     "dismissed": "已關閉問題"
   },
+  "approval": {
+    "title": "需要核准 · {{action}}",
+    "timeLeft": "剩餘 {{time}}",
+    "timeLeftCount": "{{index}} / {{total}} · 剩餘 {{time}}",
+    "hint": "按 Tab 回覆 · 未及時回覆將視為拒絕",
+    "focusedHint": "1-3 或方向鍵選擇 · Enter 回覆 · a 允許一次 · s 在此工作階段中允許 · d 拒絕 · Esc 返回輸入",
+    "allowOnce": "允許一次",
+    "allowSession": "在此工作階段中允許",
+    "deny": "拒絕",
+    "reasonHighRisk": "自動模式已關閉，且此操作可能會{{effects}}。",
+    "reasonGeneric": "自動模式已關閉，此操作需要你的核准。",
+    "reasonUntrusted": "代理先讀取了外部內容（{{detail}}），因此在操作前先詢問。",
+    "reasonRisky": "此指令看起來有風險：{{detail}}。",
+    "outsideContent": "網頁、電子郵件或他人的檔案",
+    "effects": {
+      "execute": "執行指令或程式碼",
+      "write_files": "建立或變更檔案",
+      "send_external": "傳送訊息或變更外部服務",
+      "change_agent": "變更 CraftBot 本身的設定、排程或工具",
+      "use_credentials": "使用已儲存的憑證"
+    },
+    "inSession": "在 {{session}} 中",
+    "noInputs": "無輸入",
+    "moreLines_one": "（還有 {{count}} 行）",
+    "moreLines_other": "（還有 {{count}} 行）",
+    "answerFailed": "核准未送出：{{error}}",
+    "waitingToast": "{{action}} 需要你的核准。按 q 返回聊天。"
+  },
   "notify": {
     "question": "{{session}} 需要你回答",
     "done": "{{session}} 已完成",
-    "needsYou": "{{count}} 個待你處理"
+    "needsYou": "{{count}} 個待你處理",
+    "approval": "{{action}} 需要你的核准"
   },
   "firstRun": {
     "keys": "Enter 傳送 · Ctrl+J 換行 · Esc 停止 · / 指令 · Ctrl+X 畫面 · Ctrl+P 指令面板 · ? 快速鍵 · 按兩次 Ctrl+C 結束"

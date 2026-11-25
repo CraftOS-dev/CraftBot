@@ -17,6 +17,7 @@ from agent_core import action
 
 @action(
     name="list_available_integrations",
+    effects=[],
     description=(
         "List all available external app integrations and their connection status. "
         "Use this when the user asks what apps they can connect, wants to see which "
@@ -94,6 +95,7 @@ def list_available_integrations(input_data: dict) -> dict:
 
 @action(
     name="connect_integration",
+    effects=["change_agent"],
     description=(
         "Connect an external app integration. Use this when the user wants to connect "
         "to an external app such as WhatsApp, Telegram, Slack, Discord, Notion, LinkedIn, "
@@ -431,6 +433,7 @@ def connect_integration(input_data: dict) -> dict:
 
 @action(
     name="check_integration_status",
+    effects=[],
     description=(
         "Check the connection status of a specific integration, or check the status "
         "of an ongoing WhatsApp QR code session. Use this to verify if an integration "
@@ -633,6 +636,7 @@ def check_integration_status(input_data: dict) -> dict:
 
 @action(
     name="disconnect_integration",
+    effects=["change_agent"],
     description=(
         "Disconnect an external app integration. Use this when the user wants to "
         "remove or disconnect a connected app like WhatsApp, Telegram, Slack, etc. "
@@ -710,6 +714,7 @@ def disconnect_integration(input_data: dict) -> dict:
 
 @action(
     name="manage_integration_account",
+    effects=["change_agent"],
     description=(
         "Manage a connected integration account: set it as the primary "
         "(default) account, give it a nickname/alias, or turn inbound "

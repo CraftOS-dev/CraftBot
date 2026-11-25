@@ -91,6 +91,10 @@ def write_profile_to_user_md(profile_data: Dict[str, Any]) -> bool:
             content = _replace_field(content, "Approval Required For", approval_str)
 
         user_md_path.write_text(content, encoding="utf-8")
+        from app.security.memory_guard import record_owner_write
+
+        # Onboarding fills fields; the user did not see the whole file.
+        record_owner_write(user_md_path, whole_file=False)
         logger.info("[PROFILE] Successfully wrote user profile to USER.md")
         return True
 

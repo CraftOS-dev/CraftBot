@@ -48,6 +48,7 @@ _OUTPUT_SCHEMA = {
 
 @action(
     name="memory_related",
+    effects=[],
     description="Find how two entities (people, projects, tools, concepts) are connected in the agent's memory: returns the shortest chain of facts and files linking them. Use this to answer questions like 'what does X have to do with Y'.",
     mode="ALL",
     platforms=["linux", "windows", "darwin"],

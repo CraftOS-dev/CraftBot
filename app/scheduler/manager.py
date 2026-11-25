@@ -694,6 +694,22 @@ class SchedulerManager:
             return self._proactive_enabled()
         return True
 
+    def _prompt_refusal(self, schedule: ScheduledTask) -> Optional[str]:
+        """Why a schedule's prompt may not run (Settings > Security limits
+        scheduled runs), or None. Covers the user's and the agent's
+        schedules and the heartbeat checklist; the built-in memory and
+        planner prompts are CraftBot's own."""
+        kind = schedule.payload.get("type")
+        if kind == "proactive_heartbeat":
+            text = self._heartbeat_checklist()
+        elif kind in ("memory_processing", "proactive_planner"):
+            return None
+        else:
+            text = schedule.instruction
+        from app.security.threats import schedule_refusal
+
+        return schedule_refusal(text, stage="run", name=schedule.name)
+
     async def _fire_schedule(self, schedule: ScheduledTask) -> None:
         """
         Fire a scheduled task trigger into its session (main for the
@@ -712,6 +728,15 @@ class SchedulerManager:
             logger.debug(
                 f"[SCHEDULER] {schedule.id} has no work pending, skipping fire"
             )
+            return
+
+        refused = self._prompt_refusal(schedule)
+        if refused:
+            logger.warning(f"[SCHEDULER] {schedule.id} ({schedule.name}): {refused}")
+            if not schedule.recurring:
+                # Gone, as it would be after firing.
+                self._schedules.pop(schedule.id, None)
+                self._save_config()
             return
 
         now = time.time()
@@ -893,6 +918,7 @@ class SchedulerManager:
             )
             if self._slot_key(job, now_dt) not in self._dispatched_slots
         ]
+        due = self._drop_refused_jobs(due, now_dt)
         if not due:
             return
 
@@ -929,6 +955,30 @@ class SchedulerManager:
                 f"[SCHEDULER] Fired {len(jobs)} cron job(s) into {session_id}: "
                 f"{', '.join(job_ids)}"
             )
+
+    def _drop_refused_jobs(self, due: List, now_dt: datetime) -> List:
+        """Due jobs whose instruction may run. A refused job (Settings >
+        Security limits scheduled runs) is stamped for this slot and gets a
+        failed outcome, which the cron job's history shows."""
+        from app.security.threats import schedule_refusal
+
+        allowed = []
+        for job in due:
+            refused = schedule_refusal(job.instruction, stage="run", name=job.name)
+            if not refused:
+                allowed.append(job)
+                continue
+            logger.warning(f"[SCHEDULER] Cron job {job.id} ({job.name}): {refused}")
+            self._dispatched_slots.add(self._slot_key(job, now_dt))
+            try:
+                self._proactive_manager.mark_dispatched([job.id], now_dt)
+                self._proactive_manager.update_job(
+                    job_id=job.id,
+                    add_outcome={"result": refused, "success": False},
+                )
+            except Exception as e:
+                logger.warning(f"[SCHEDULER] Could not record refused job {job.id}: {e}")
+        return allowed
 
     @staticmethod
     def _slot_key(job, now: datetime) -> str:

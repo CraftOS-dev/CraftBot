@@ -35,6 +35,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from ... import (
     BasePlatformClient,
+    ConfigStore,
     IntegrationSpec,
     PlatformMessage,
     load_config,
@@ -638,6 +639,9 @@ class GmailClient(GoogleApiClientMixin, BasePlatformClient):
             parts = from_header.rsplit("<", 1)
             sender_name = parts[0].strip().strip('"')
             sender_email = parts[1].rstrip(">").strip()
+        # The host's sender list (Settings > Security > Channels).
+        if not ConfigStore.extras.get("email_sender_allowed", lambda _a: True)(sender_email):
+            return
 
         cred = self._load()
         if sender_email.lower() == (cred.email or "").lower():

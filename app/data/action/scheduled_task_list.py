@@ -3,6 +3,7 @@ from agent_core import action
 
 @action(
     name="scheduled_task_list",
+    effects=[],
     description="List all scheduled tasks configured in the scheduler. Returns details about each schedule including name, schedule expression, enabled status, and next/last run times.",
     action_sets=["scheduler", "core", "proactive"],
     input_schema={},

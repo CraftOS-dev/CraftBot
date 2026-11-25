@@ -92,6 +92,13 @@ def memory_event_message(query: str, session_id: Optional[str] = None) -> Option
         logger.warning(f"[MEMORY] inject_memory_event retrieval failed: {e}")
         return None
 
+    try:
+        from app.security.memory_guard import filter_pointers
+    except ImportError:
+        pass
+    else:
+        pointers = filter_pointers(pointers)
+
     if not pointers:
         return None
 

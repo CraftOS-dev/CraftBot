@@ -100,14 +100,20 @@ class MCPTool:
     name: str
     description: str = ""
     input_schema: Dict[str, Any] = field(default_factory=dict)
+    # MCP tool annotations (readOnlyHint, destructiveHint, openWorldHint...),
+    # as the server sent them. Hints, per the spec: see adapter.py for how
+    # they are used.
+    annotations: Dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "MCPTool":
         """Create MCPTool from dictionary."""
+        annotations = data.get("annotations")
         return cls(
             name=data.get("name", ""),
             description=data.get("description", ""),
             input_schema=data.get("inputSchema", {}),
+            annotations=annotations if isinstance(annotations, dict) else {},
         )
 
 
@@ -198,9 +204,11 @@ class StdioTransport(MCPTransport):
     async def connect(self) -> bool:
         """Start the subprocess and establish connection."""
         try:
-            # Merge environment
-            full_env = os.environ.copy()
-            full_env.update(self.env)
+            # Merge environment. With Settings > Security > "Keep secrets out
+            # of tools" on, the server gets only basics plus its own env.
+            from app.security.env import child_environment
+
+            full_env = child_environment(self.env)
 
             # Resolve command path, especially for Windows
             command = self._resolve_command(self.command)
@@ -882,6 +890,23 @@ class MCPServerConnection:
         if self.is_connected:
             logger.warning(f"Server '{self.config.name}' is already connected")
             return True
+
+        # Settings > Security: a server whose command was changed outside
+        # CraftBot's settings does not start until the user confirms it.
+        from app.security.mcp_trust import refusal
+
+        held_back = refusal(self.config)
+        if held_back:
+            logger.warning(f"[MCPServer:{self.config.name}] {held_back}")
+            return False
+
+        # Settings > Security > Check MCP packages: known malware in OSV.
+        from app.security.osv import malware_refusal
+
+        held_back = await malware_refusal(self.config)
+        if held_back:
+            logger.warning(f"[MCPServer:{self.config.name}] {held_back}")
+            return False
 
         try:
             # Create and connect transport

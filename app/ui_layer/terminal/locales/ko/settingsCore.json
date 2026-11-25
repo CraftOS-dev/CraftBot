@@ -543,5 +543,148 @@
       "expired": "만료됨",
       "about": "약 {{time}}"
     }
+  },
+  "security": {
+    "loading": "보안 설정을 불러오는 중...",
+    "error": "오류: {{error}}",
+    "saved": "저장됨",
+    "saveFailed": "보안 설정을 저장하지 못했습니다",
+    "approvalsTitle": "승인",
+    "autoMode": "자동 모드",
+    "askFirst": "실행 전 확인:",
+    "effects": {
+      "execute": "명령 실행",
+      "write_files": "파일 변경",
+      "send_external": "메시지 전송",
+      "change_agent": "CraftBot 설정 변경",
+      "use_credentials": "저장된 자격 증명 사용"
+    },
+    "askAfterUntrusted": "외부 콘텐츠를 읽은 후의 작업",
+    "timeout": "응답이 없으면 자동 거부까지",
+    "minutes_one": "{{count}}분",
+    "minutes_other": "{{count}}분",
+    "levelTitle": "보안 수준",
+    "custom": "사용자 지정",
+    "customAside": "사용자 지정 ({{level}})",
+    "levels": {
+      "standard": {
+        "name": "표준",
+        "description": "추가 제한 없음"
+      },
+      "enhanced": {
+        "name": "강화",
+        "description": "키, 웹, 명령 보호"
+      },
+      "strict": {
+        "name": "엄격",
+        "description": "파일도 작업 공간 안에 유지"
+      }
+    },
+    "hintChoose": "선택",
+    "lowerConfirm": "보안 수준을 {{level}}(으)로 낮출까요? 포함되지 않는 보호 기능은 꺼집니다.",
+    "switchConfirm": "{{level}}(으)로 전환할까요? 사용자 지정 설정은 해당 수준의 기본값으로 돌아갑니다.",
+    "useDefaultsConfirm": "사용자 지정 설정을 버리고 {{level}} 기본값을 사용할까요?",
+    "useDefaults": "{{level}} 기본값 사용",
+    "advancedTitle": "고급",
+    "showAdvanced": "고급 설정 표시",
+    "hideAdvanced": "고급 설정 숨기기",
+    "changed": "변경됨",
+    "settings": {
+      "protect_secret_files": {
+        "label": "키 파일 보호"
+      },
+      "confine_writes": {
+        "label": "파일 변경을 작업 공간으로 제한"
+      },
+      "network_guard": {
+        "label": "로컬 네트워크 요청 차단"
+      },
+      "third_party_reader": {
+        "label": "타사 페이지 리더 사용"
+      },
+      "scrub_child_env": {
+        "label": "도구에서 API 키 숨기기"
+      },
+      "log_prompts": {
+        "label": "전체 프롬프트 기록"
+      },
+      "retention_days": {
+        "label": "로그 보관 기간"
+      },
+      "verify_mcp_servers": {
+        "label": "설정에서 저장한 MCP 서버만 시작"
+      },
+      "protect_os_credentials": {
+        "label": "시스템 자격 증명 보호"
+      },
+      "guard_memory": {
+        "label": "메모리 파일 보호"
+      },
+      "check_commands": {
+        "label": "위험한 명령 검토"
+      },
+      "check_mcp_packages": {
+        "label": "MCP 패키지 악성코드 확인"
+      },
+      "scan_skills": {
+        "label": "설치 전에 스킬 검사"
+      },
+      "verify_downloads": {
+        "label": "다운로드 검증"
+      },
+      "redact_tool_output": {
+        "label": "도구 결과의 비밀 숨기기"
+      },
+      "strip_chat_tokens": {
+        "label": "외부 콘텐츠의 채팅 토큰 제거"
+      },
+      "limit_third_party_runs": {
+        "label": "다른 사람 메시지로 할 수 있는 일 제한"
+      },
+      "limit_scheduled_runs": {
+        "label": "예약 작업으로 할 수 있는 일 제한"
+      }
+    },
+    "keepForever": "영구",
+    "days_one": "{{count}}일",
+    "days_other": "{{count}}일",
+    "badDays": "0 이상의 정수로 일수를 입력하세요",
+    "lists": {
+      "extra_protected_paths": "추가 보호",
+      "workspace_paths": "추가 작업 공간 폴더",
+      "allowed_domains": "허용된 도메인",
+      "email_allowed_senders": "허용된 이메일 발신자"
+    },
+    "none": "없음",
+    "listsNote": "목록은 브라우저에서 편집하세요.",
+    "checkTitle": "보안 점검",
+    "checkIssues_one": "확인할 항목 {{count}}개",
+    "checkIssues_other": "확인할 항목 {{count}}개",
+    "checkAllGood": "수정할 항목 없음",
+    "checking": "점검 중...",
+    "checkAgain": "점검 다시 실행",
+    "status": {
+      "ok": "정상",
+      "info": "참고",
+      "warn": "경고",
+      "fail": "문제"
+    },
+    "canFix": "수정 가능",
+    "hintFix": "수정",
+    "fixConfirm": "'{{title}}' 수정을 적용할까요?",
+    "fixed": "수정됨",
+    "fixFailed": "수정을 적용하지 못했습니다",
+    "auditTitle": "감사 로그",
+    "auditLoading": "감사 로그를 불러오는 중...",
+    "auditRecords": "기록",
+    "records_one": "기록 {{count}}개",
+    "records_other": "기록 {{count}}개",
+    "auditIntact": "변경 없음",
+    "auditBroken": "{{line}}번째 줄에서 변경됨",
+    "auditFile": "파일",
+    "auditRefresh": "감사 로그 새로 고침",
+    "resetTitle": "초기화",
+    "reset": "보안 설정 초기화",
+    "resetConfirm": "모든 보안 설정을 표준으로 초기화할까요?"
   }
 }

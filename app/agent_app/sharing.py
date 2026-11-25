@@ -376,15 +376,28 @@ class TunnelChannel:
         ext = ".exe" if platform_key == "win32" else ""
         target = self._BIN_DIR / f"cloudflared{ext}"
         try:
-            req = urllib.request.Request(
-                self._CLOUDFLARED_URLS[platform_key], headers={"User-Agent": "CraftBot"}
-            )
+            from app.security import download_verify
+
+            url = self._CLOUDFLARED_URLS[platform_key]
+            expected = None
+            if download_verify.enabled():
+                # Settings > Security > Verify downloads: fetch that exact
+                # release asset and check it against GitHub's digest.
+                url, expected = await asyncio.to_thread(
+                    download_verify.github_release_asset,
+                    "cloudflare/cloudflared",
+                    url.rsplit("/", 1)[-1],
+                )
+            req = urllib.request.Request(url, headers={"User-Agent": "CraftBot"})
             resp = urllib.request.urlopen(req, timeout=60)
+            data = resp.read()
+            if expected:
+                download_verify.check_bytes(data, expected, "The cloudflared download")
             if platform_key == "darwin":
                 import io
                 import tarfile
 
-                with tarfile.open(fileobj=io.BytesIO(resp.read()), mode="r:gz") as tar:
+                with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as tar:
                     for member in tar.getmembers():
                         if "cloudflared" in member.name:
                             f = tar.extractfile(member)
@@ -392,7 +405,7 @@ class TunnelChannel:
                                 target.write_bytes(f.read())
                                 break
             else:
-                target.write_bytes(resp.read())
+                target.write_bytes(data)
             if platform_key != "win32":
                 target.chmod(0o755)
             logger.info(f"[AGENT_APP:SHARE] cloudflared installed at {target}")

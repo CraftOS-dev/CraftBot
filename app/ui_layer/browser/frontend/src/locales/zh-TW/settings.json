@@ -102,6 +102,7 @@
     "mcps": "MCP",
     "skills": "技能",
     "integrations": "整合",
+    "security": "安全性",
     "agent_app": "Agent App"
   },
   "model": {
@@ -147,6 +148,10 @@
       "startingShort": "啟動中…"
     },
     "subscription": {
+      "recoveryHint": "這個已儲存的訂閱仍處於選取狀態。中斷連接即可改用 API 金鑰，或重新登入。",
+      "claudeProfileNote": "請為 CraftBot 另外登入。中斷連接會登出此設定檔，不會影響你單獨使用的 Claude Code 登入。",
+      "disconnectFailed": "無法中斷訂閱連接。請再試一次。",
+      "connectFailed": "無法登入訂閱。請再試一次。",
       "label": "訂閱",
       "awaitingCode": "等待驗證碼",
       "pastePlaceholder": "貼上登入頁面上的驗證碼",
@@ -602,6 +607,26 @@
       "waitingQrScan": "正在等待掃描 QR 碼…",
       "connectNamed": "連接 {{name}}"
     },
+    "figma": {
+      "canvasTitle": "在 Figma 中設計",
+      "canvasIntro": "在瀏覽器中使用 Talk to Figma。CraftBot 會為你執行連線，不需要安裝桌面應用程式或額外的伺服器。",
+      "canvasAccount": "CraftBot 帳號",
+      "canvasStepStart": "在下方啟動連線。",
+      "canvasPluginLink": "開啟 Talk to Figma MCP 外掛程式",
+      "canvasStepPlugin": "（在目標 Figma 設計中開啟，然後在連接埠 3055 上點按 Connect。）",
+      "canvasStepChannel": "貼上外掛程式顯示的頻道，並將其連接到 CraftBot。",
+      "canvasConnected": "已連接到 {{page}} · 頻道 {{channel}}",
+      "canvasWaiting": "連線執行中 · 正在等待外掛程式頻道",
+      "canvasStopped": "畫布連線已停止",
+      "canvasStart": "啟動畫布連線",
+      "canvasChannel": "外掛程式頻道",
+      "canvasConnect": "連接頻道",
+      "canvasStop": "停止連線",
+      "canvasRefresh": "重新整理狀態",
+      "canvasTimeout": "連線檢查逾時。請先重新整理狀態再重試。",
+      "canvasTarget": "編輯會套用到外掛程式目前開啟的檔案和頁面。CraftBot 工作時請保持開啟；切換頁面或重新啟動後請重新連接。預設的 REST 檔案不會決定畫布。",
+      "canvasPrivacy": "這個社群外掛程式可以讀取和編輯目前開啟的設計，並聲明會收集使用情況分析。CraftBot 會將你的 Figma 權杖保存在本機。CraftBot 和 Figma 都必須在這台電腦上執行。"
+    },
     "whatsapp": {
       "starting": "正在啟動 WhatsApp Web 工作階段…",
       "scanDesc": "用你的 WhatsApp 手機應用程式掃描此 QR 碼即可連接。",
@@ -742,5 +767,171 @@
     "createLanLink": "建立區域網路連結",
     "starting": "啟動中…",
     "createTunnel": "建立通道"
+  },
+  "security": {
+    "title": "安全性",
+    "subtitle": "保護你的電腦、金鑰和資料",
+    "loading": "正在載入安全性設定…",
+    "autoMode": {
+      "label": "自動模式",
+      "desc": "無需詢問即可執行動作",
+      "askTitle": "執行前詢問",
+      "askAfterUntrusted": "讀取外部內容後的動作",
+      "timeout": "無人回應時自動拒絕",
+      "seconds_one": "{{count}} 秒",
+      "seconds_other": "{{count}} 秒",
+      "minutes_one": "{{count}} 分鐘",
+      "minutes_other": "{{count}} 分鐘",
+      "hours_one": "{{count}} 小時",
+      "hours_other": "{{count}} 小時"
+    },
+    "effects": {
+      "execute": "執行命令",
+      "write_files": "變更檔案",
+      "send_external": "傳送訊息",
+      "change_agent": "變更 CraftBot 設定",
+      "use_credentials": "使用已儲存的憑證"
+    },
+    "level": {
+      "title": "安全性等級",
+      "custom": "自訂",
+      "reset": "重設",
+      "lowerTitle": "要將安全性降低到 {{level}} 嗎？",
+      "lowerMessage": "{{from}} 開啟的保護將會關閉。",
+      "lowerConfirm": "切換到 {{level}}",
+      "standard": {
+        "name": "標準",
+        "desc": "無額外限制"
+      },
+      "enhanced": {
+        "name": "增強",
+        "desc": "保護金鑰、網路和命令"
+      },
+      "strict": {
+        "name": "嚴格",
+        "desc": "並將檔案限制在工作區內"
+      }
+    },
+    "advanced": {
+      "toggle": "進階",
+      "groups": {
+        "files": "檔案",
+        "content": "內容",
+        "network": "網路",
+        "messages": "訊息與排程",
+        "tools": "工具",
+        "logs": "日誌"
+      }
+    },
+    "fields": {
+      "verify_mcp_servers": {
+        "label": "僅啟動在設定中儲存的 MCP 伺服器"
+      },
+      "protect_secret_files": {
+        "label": "保護金鑰檔案"
+      },
+      "extra_protected_paths": {
+        "label": "額外保護",
+        "placeholder": "/path/to/file-or-folder"
+      },
+      "confine_writes": {
+        "label": "將檔案變更限制在工作區內"
+      },
+      "workspace_paths": {
+        "label": "額外的工作區資料夾",
+        "placeholder": "/path/to/folder"
+      },
+      "network_guard": {
+        "label": "封鎖對本機網路的請求"
+      },
+      "allowed_domains": {
+        "label": "允許的網域",
+        "placeholder": "example.com",
+        "empty": "所有公開網站"
+      },
+      "third_party_reader": {
+        "label": "使用第三方網頁讀取服務"
+      },
+      "scrub_child_env": {
+        "label": "對工具隱藏 API 金鑰"
+      },
+      "log_prompts": {
+        "label": "記錄完整提示"
+      },
+      "retention_days": {
+        "label": "日誌保留時間",
+        "forever": "永久",
+        "days_one": "{{count}} 天",
+        "days_other": "{{count}} 天"
+      },
+      "email_allowed_senders": {
+        "label": "允許的郵件寄件者",
+        "placeholder": "name@example.com",
+        "empty": "所有寄件者"
+      },
+      "protect_os_credentials": {
+        "label": "保護系統憑證"
+      },
+      "guard_memory": {
+        "label": "保護記憶檔案"
+      },
+      "check_commands": {
+        "label": "審查高風險指令"
+      },
+      "check_mcp_packages": {
+        "label": "檢查 MCP 套件是否含惡意軟體"
+      },
+      "scan_skills": {
+        "label": "安裝前掃描技能"
+      },
+      "verify_downloads": {
+        "label": "驗證下載檔案"
+      },
+      "redact_tool_output": {
+        "label": "隱藏工具結果中的金鑰"
+      },
+      "strip_chat_tokens": {
+        "label": "移除外部內容中的聊天標記"
+      },
+      "limit_third_party_runs": {
+        "label": "限制他人訊息可執行的操作"
+      },
+      "limit_scheduled_runs": {
+        "label": "限制排程工作可執行的操作"
+      }
+    },
+    "list": {
+      "add": "新增",
+      "remove": "移除 {{item}}",
+      "duplicate": "已新增"
+    },
+    "check": {
+      "title": "安全性檢查",
+      "runAgain": "重新執行",
+      "running": "檢查中…",
+      "fix": "修正",
+      "empty": "尚無結果。",
+      "status": {
+        "ok": "正常",
+        "info": "資訊",
+        "warn": "警告",
+        "fail": "問題"
+      }
+    },
+    "audit": {
+      "title": "稽核記錄",
+      "intact_one": "完整 · {{count}} 筆紀錄",
+      "intact_other": "完整 · {{count}} 筆紀錄",
+      "broken": "在第 {{line}} 行遭到變更",
+      "empty": "尚無任何記錄。",
+      "loading": "正在載入稽核記錄…",
+      "showing": "最新 {{shown}} 筆，共 {{total}} 筆",
+      "refresh": "重新整理",
+      "events": {
+        "action_approval": "操作核准",
+        "security_settings_changed": "設定已變更",
+        "security_check_fixed": "檢查項目已修正"
+      }
+    }
   }
 }

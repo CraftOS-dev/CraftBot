@@ -3,6 +3,7 @@ from agent_core import action
 
 @action(
     name="wait",
+    effects=[],
     description="Pause execution for a specified duration. Useful for waiting for UI elements to load or introducing delays in workflows.",
     mode="ALL",
     action_sets=["core"],

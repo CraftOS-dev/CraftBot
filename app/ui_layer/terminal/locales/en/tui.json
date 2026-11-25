@@ -11,6 +11,7 @@
       "skills": "Skills",
       "integrations": "Integrations",
       "credentials": "Credentials",
+      "security": "Security",
       "agentApps": "Agent Apps"
     }
   },
@@ -88,10 +89,39 @@
     "focusedChoiceHint": "1-9 or arrows pick · Enter confirm · Esc back to typing",
     "dismissed": "Question dismissed"
   },
+  "approval": {
+    "title": "Approval needed · {{action}}",
+    "timeLeft": "{{time}} left",
+    "timeLeftCount": "{{index}} of {{total}} · {{time}} left",
+    "hint": "Tab to answer · no answer in time counts as Deny",
+    "focusedHint": "1-3 or arrows pick · Enter answer · a allow once · s allow for session · d deny · Esc back to typing",
+    "allowOnce": "Allow once",
+    "allowSession": "Allow for this session",
+    "deny": "Deny",
+    "reasonHighRisk": "Auto mode is off, and this action can {{effects}}.",
+    "reasonGeneric": "Auto mode is off, and this action needs your approval.",
+    "reasonUntrusted": "The agent read outside content first ({{detail}}), so it asks before acting.",
+    "reasonRisky": "This command looks risky: {{detail}}.",
+    "outsideContent": "web pages, email or files from others",
+    "effects": {
+      "execute": "run commands or code",
+      "write_files": "create or change files",
+      "send_external": "send messages or change outside services",
+      "change_agent": "change CraftBot's own setup, schedules or tools",
+      "use_credentials": "use stored credentials"
+    },
+    "inSession": "In {{session}}",
+    "noInputs": "No inputs",
+    "moreLines_one": "({{count}} more line)",
+    "moreLines_other": "({{count}} more lines)",
+    "answerFailed": "Approval not sent: {{error}}",
+    "waitingToast": "{{action}} needs your approval. Press q to go back to the chat."
+  },
   "notify": {
     "question": "{{session}} needs your answer",
     "done": "{{session}} finished",
-    "needsYou": "{{count}} needs you"
+    "needsYou": "{{count}} needs you",
+    "approval": "{{action}} needs your approval"
   },
   "firstRun": {
     "keys": "Enter send · Ctrl+J new line · Esc stop · / commands · Ctrl+X screens · Ctrl+P palette · ? keys · Ctrl+C twice quits"

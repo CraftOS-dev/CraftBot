@@ -3,6 +3,7 @@ from agent_core import action
 
 @action(
     name="run_powershell",
+    effects=["execute"],
     description="Runs a PowerShell script with Windows PowerShell, capturing stdout, stderr, and exit code. Stdin is closed (EOF) by default. IMPORTANT: For long-running scripts that don't terminate (e.g., dev servers, watch processes), you MUST set background=true. Otherwise, the script will block the entire task until timeout and may not capture any output. Keep helper processes hidden: use -WindowStyle Hidden with Start-Process. Open a visible interactive window only when the user explicitly requests it.",
     platforms=["windows"],
     default=True,
@@ -98,6 +99,20 @@ def powershell_exec_windows(input_data: dict) -> dict:
             "pid": None,
         }
 
+    from app.security.command_review import env_refusal as _env_refusal
+    from app.security.commands import refusal as _command_refusal
+
+    _refused = _command_refusal(script, windows=True) or _env_refusal(env_input)
+    if _refused:
+        return {
+            "status": "error",
+            "stdout": "",
+            "stderr": "",
+            "return_code": -1,
+            "message": _refused,
+            "pid": None,
+        }
+
     if cwd and not os.path.isdir(cwd):
         return {
             "status": "error",
@@ -112,7 +127,10 @@ def powershell_exec_windows(input_data: dict) -> dict:
     # bare `node` is the major the agent-app CLI needs (app/node_runtime.py).
     from app import node_runtime
 
-    env = node_runtime.child_env()
+    from app.security.env import command_environment
+
+    # Settings > Security: CraftBot's own keys stay out of the command.
+    env = command_environment(node_runtime.child_env())
     for k, v in env_input.items():
         env[str(k)] = str(v)
 

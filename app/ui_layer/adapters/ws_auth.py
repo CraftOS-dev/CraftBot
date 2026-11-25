@@ -5,10 +5,13 @@ the user opens could drive the agent through /ws. Two independent checks:
 
 1. Origin (and Host) — the handshake must come from CraftBot's own UI origin,
    addressed by a loopback name. The Host check defeats DNS rebinding.
-2. Session token — a random secret generated at startup. The UI reads it from
-   GET /api/session-token (same-origin only: no CORS headers, so a foreign
-   page can't read the response) and sends it in Sec-WebSocket-Protocol, which
-   keeps it out of URLs and access logs.
+2. Session token — a random secret generated at startup. The browser UI
+   reads it from GET /api/session-token and sends it in
+   Sec-WebSocket-Protocol, which keeps it out of URLs and access logs. The
+   endpoint answers only a browser's same-origin fetch (no CORS headers, and
+   the browser-set Sec-Fetch-Site must say same-origin), so a program on this
+   machine cannot just ask for it. Local programs of the same user (the
+   terminal client) read the owner-only token file instead (token_file).
 
 /api/* gets the Host check plus an Origin check on writes (check_api_request):
 the same cross-site threat over plain HTTP, where multipart/text-plain POSTs
@@ -118,17 +121,37 @@ class WsAuth:
     def check_token_request(self, headers: Mapping[str, str]) -> Optional[str]:
         """Return None if GET /api/session-token may be served, else the reason.
 
-        The main protection is that the response carries no CORS headers, so a
-        cross-origin page can't read it. These checks add defense in depth:
-        a rebinding Host, a foreign Origin, or a browser-labelled cross-site
-        fetch are refused outright.
+        Only CraftBot's own page, fetching from its own origin, gets the token.
+        Browsers set Sec-Fetch-Site themselves and pages cannot change it, so
+        requiring "same-origin" keeps out cross-site pages and, with it,
+        programs that are not a browser (any process on this machine, other
+        users' included, and commands the agent runs). Those read the
+        owner-only token file instead. A rebinding Host or a foreign Origin
+        is refused as well.
         """
         if not self.host_ok(headers.get("Host")):
             return "host"
         origin = headers.get("Origin")
         if origin is not None and not self.origin_ok(origin):
             return "origin"
-        site = headers.get("Sec-Fetch-Site")
-        if site is not None and site not in ("same-origin", "none"):
+        if headers.get("Sec-Fetch-Site") != "same-origin":
             return "fetch-site"
         return None
+
+
+def token_file(state_root, backend_port: int):
+    """Where the session token is kept for local programs of the same user
+    (the terminal client): an owner-only file under the state directory."""
+    from pathlib import Path
+
+    return Path(state_root) / "run" / f"session-{int(backend_port)}.token"
+
+
+def publish_token(state_root, backend_port: int, token: str):
+    """Write the token file (0600 in a 0700 directory) and return its path."""
+    from app.security.files import ensure_private_dir, write_private_bytes
+
+    path = token_file(state_root, backend_port)
+    ensure_private_dir(path.parent)
+    write_private_bytes(path, token.encode("ascii"))
+    return path

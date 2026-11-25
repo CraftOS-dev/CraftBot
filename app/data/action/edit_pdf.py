@@ -3,6 +3,7 @@ from agent_core import action
 
 @action(
     name="edit_pdf",
+    effects=["write_files"],
     description=(
         "Edits an existing PDF by applying a list of operations and saves the result "
         "to a new file. Accepts two input types per operation: "
@@ -287,6 +288,12 @@ def edit_pdf_file(input_data: dict) -> dict:
     file_path = str(input_data.get("file_path", "")).strip()
     output_path = str(input_data.get("output_path", "")).strip()
     operations = input_data.get("operations", [])
+
+    from app.security.paths import first_refusal
+
+    refused = first_refusal([(file_path, False), (output_path or file_path, True)])
+    if refused:
+        return {"status": "error", "message": refused}
 
     if not isinstance(operations, list):
         operations = []

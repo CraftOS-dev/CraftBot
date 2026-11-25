@@ -3,6 +3,7 @@ from agent_core import action
 
 @action(
     name="cron_job_list",
+    effects=[],
     description="List the cron jobs in PROACTIVE.md with their schedule, state, next run and recent outcomes. Use it to see what is configured before adding or changing a job.",
     action_sets=["proactive"],
     input_schema={

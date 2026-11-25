@@ -11,6 +11,7 @@
       "skills": "Keahlian",
       "integrations": "Integrasi",
       "credentials": "Kredensial",
+      "security": "Keamanan",
       "agentApps": "Agent App"
     }
   },
@@ -88,10 +89,39 @@
     "focusedChoiceHint": "1-9 atau panah memilih · Enter konfirmasi · Esc kembali mengetik",
     "dismissed": "Pertanyaan ditutup"
   },
+  "approval": {
+    "title": "Perlu persetujuan · {{action}}",
+    "timeLeft": "{{time}} lagi",
+    "timeLeftCount": "{{index}} dari {{total}} · {{time}} lagi",
+    "hint": "Tab untuk menjawab · tidak menjawab tepat waktu dianggap Tolak",
+    "focusedHint": "1-3 atau panah memilih · Enter menjawab · a izinkan sekali · s izinkan untuk sesi · d tolak · Esc kembali mengetik",
+    "allowOnce": "Izinkan sekali",
+    "allowSession": "Izinkan untuk sesi ini",
+    "deny": "Tolak",
+    "reasonHighRisk": "Mode otomatis nonaktif, dan tindakan ini dapat {{effects}}.",
+    "reasonGeneric": "Mode otomatis nonaktif, dan tindakan ini memerlukan persetujuan Anda.",
+    "reasonUntrusted": "Agen membaca konten luar lebih dulu ({{detail}}), jadi agen bertanya sebelum bertindak.",
+    "reasonRisky": "Perintah ini tampak berisiko: {{detail}}.",
+    "outsideContent": "halaman web, email, atau berkas dari orang lain",
+    "effects": {
+      "execute": "menjalankan perintah atau kode",
+      "write_files": "membuat atau mengubah berkas",
+      "send_external": "mengirim pesan atau mengubah layanan luar",
+      "change_agent": "mengubah pengaturan, jadwal, atau alat CraftBot sendiri",
+      "use_credentials": "menggunakan kredensial tersimpan"
+    },
+    "inSession": "Di {{session}}",
+    "noInputs": "Tidak ada input",
+    "moreLines_one": "({{count}} baris lagi)",
+    "moreLines_other": "({{count}} baris lagi)",
+    "answerFailed": "Persetujuan tidak terkirim: {{error}}",
+    "waitingToast": "{{action}} memerlukan persetujuan Anda. Tekan q untuk kembali ke obrolan."
+  },
   "notify": {
     "question": "{{session}} menunggu jawaban Anda",
     "done": "{{session}} selesai",
-    "needsYou": "{{count}} menunggu Anda"
+    "needsYou": "{{count}} menunggu Anda",
+    "approval": "{{action}} memerlukan persetujuan Anda"
   },
   "firstRun": {
     "keys": "Enter kirim · Ctrl+J baris baru · Esc hentikan · / perintah · Ctrl+X layar · Ctrl+P palet · ? tombol · Ctrl+C dua kali keluar"

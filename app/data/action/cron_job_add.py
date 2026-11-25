@@ -3,6 +3,7 @@ from agent_core import action
 
 @action(
     name="cron_job_add",
+    effects=["change_agent"],
     description="Add a cron job to PROACTIVE.md. It runs at its own slot (hourly at :MM, daily at HH:MM, weekly on a day at HH:MM, monthly on a date at HH:MM) as a run in this chat, the one adding it. If this chat is deleted, the job is kept but does not run. A slot missed while CraftBot was off runs once, late, when it is back. IMPORTANT: Only add cron jobs with user consent - ask the user first.",
     action_sets=["proactive"],
     input_schema={
@@ -91,6 +92,12 @@ def cron_job_add(input_data: dict) -> dict:
             return {"status": "error", "error": "frequency is required"}
         if not instruction:
             return {"status": "error", "error": "instruction is required"}
+
+        from app.security.threats import schedule_refusal
+
+        refused = schedule_refusal(instruction, stage="create", name=name)
+        if refused:
+            return {"status": "error", "error": refused}
 
         valid_frequencies = ["hourly", "daily", "weekly", "monthly"]
         if frequency not in valid_frequencies:

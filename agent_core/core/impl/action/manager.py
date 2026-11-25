@@ -211,6 +211,20 @@ class ActionManager:
         self._on_action_end = on_action_end
         self._get_parent_id = get_parent_id
         self._idempotency_guard = idempotency_guard
+        # Optional security gate (app/security/gate.py). It reviews every
+        # action before it runs and sees every result; None costs nothing.
+        self._action_gate = None
+
+    def set_action_gate(self, gate) -> None:
+        """Install the gate every action passes through before it runs.
+
+        ``gate.review(action, input_data, session_id=...)`` returns None to
+        let the action run, or the output to return instead of running it.
+        ``gate.after(action, rendered_output, session_id=...)`` returns the
+        output text the agent reads. Both cover sub-agents, parallel batches
+        and sub-actions, since all of them run through execute_action.
+        """
+        self._action_gate = gate
 
     # ------------------------------------------------------------------
     # Public helpers
@@ -278,6 +292,41 @@ class ActionManager:
         # when multiple parallel calls of the same action fire within the
         # same wall-clock second.
         run_id = run_id or str(uuid.uuid4())
+
+        # ── Security gate ──
+        # Before anything with a side effect, including the idempotency
+        # ledger's intent record. A gate that fails blocks the action.
+        if self._action_gate is not None:
+            try:
+                blocked = await self._action_gate.review(
+                    action, input_data, session_id=session_id
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.exception(f"Security gate failed for {action.name}")
+                blocked = {
+                    "status": "error",
+                    "error": f"Blocked: the security check failed ({type(exc).__name__}).",
+                    "error_code": "security_gate_error",
+                }
+            if blocked is not None:
+                self._log_event_stream(
+                    is_gui_task=is_gui_task,
+                    event_kind="action_end",
+                    event_type=EventType.ACTION_END,
+                    event=(
+                        f"Action {action.name} was not run: "
+                        f"{_to_json(blocked, compact=True)}."
+                    ),
+                    display_message=f"{action.display_name} → not allowed",
+                    action_name=action.name,
+                    action_display_name=action.display_name,
+                    action_id=run_id,
+                    action_output=blocked,
+                    session_id=session_id,
+                )
+                return blocked
 
         # ── Idempotency guard for irreversible actions ──
         # BEFORE the side effect: record intent durably, and refuse to
@@ -487,6 +536,13 @@ class ActionManager:
             "failed" if (status == "error" or output_has_error) else "completed"
         )
         rendered_output = _to_json(outputs, compact=True)
+        if self._action_gate is not None and not was_cancelled:
+            try:
+                rendered_output = self._action_gate.after(
+                    action, rendered_output, session_id=session_id
+                )
+            except Exception as exc:
+                logger.warning(f"Security gate after() failed: {exc}")
         self._log_event_stream(
             is_gui_task=is_gui_task,
             event_kind="action_end",

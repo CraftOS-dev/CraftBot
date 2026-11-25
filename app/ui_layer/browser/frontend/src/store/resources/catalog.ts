@@ -28,6 +28,32 @@ export const RESOURCES = {
     pushedOnConnect: true,
     request: (send) => send({ type: 'session_list' }),
   },
+  // ── Security ──
+  /** Settings → Security: level, Auto mode and every protection. */
+  securityState: {
+    key: 'securityState',
+    resource: 'security',
+    request: (send) => send({ type: 'security_get' }),
+  },
+  /** Approval cards waiting for an answer; refetched on every reconnect. */
+  securityApprovals: {
+    key: 'securityApprovals',
+    resource: 'security',
+    liveness: 'always',
+    request: (send) => send({ type: 'security_approvals_list' }),
+  },
+  /** Settings → Security → Security check. */
+  securityChecks: {
+    key: 'securityChecks',
+    resource: 'security',
+    request: (send) => send({ type: 'security_check_run' }),
+  },
+  /** Settings → Security → Audit log. */
+  securityAudit: {
+    key: 'securityAudit',
+    resource: 'security',
+    request: (send) => send({ type: 'security_audit_list' }),
+  },
   // ── Proactive ──
   proactiveMode: {
     key: 'proactiveMode',

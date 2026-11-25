@@ -3,6 +3,7 @@ from agent_core import action
 
 @action(
     name="describe_image",
+    effects=[],
     description="Uses a Visual Language Model to analyse an image and return a detailed, markdown-ready description. IMPORTANT: Always provide a prompt describing what to look for or describe in the image.",
     mode="CLI",
     action_sets=["core", "document_processing", "image"],

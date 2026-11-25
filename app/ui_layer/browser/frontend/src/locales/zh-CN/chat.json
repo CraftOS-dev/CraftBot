@@ -165,5 +165,37 @@
     "title": "Agent App",
     "noInstalled": "没有已安装的应用。",
     "close": "关闭"
+  },
+  "approval": {
+    "aria": "批准请求",
+    "title": "{{action}} 需要你的批准",
+    "inSession": "在 {{session}} 中",
+    "highRisk": "此操作可能会{{effects}}。",
+    "untrusted": "智能体在请求执行此操作前读取了外部内容（{{detail}}）。",
+    "untrustedNoDetail": "智能体在请求执行此操作前读取了外部内容。",
+    "risky": "此命令看起来有风险：{{detail}}。",
+    "effects": {
+      "execute": "运行命令或代码",
+      "write_files": "创建或更改文件",
+      "send_external": "发送消息或更改外部服务",
+      "change_agent": "更改 CraftBot 自身的设置、计划或工具",
+      "use_credentials": "使用已保存的凭据"
+    },
+    "inputs": "输入",
+    "showAll_one": "显示全部 {{count}} 行",
+    "showAll_other": "显示全部 {{count}} 行",
+    "showLess": "收起",
+    "expiresIn": "{{time}} 后自动拒绝",
+    "expired": "已超时",
+    "allowOnce": "允许一次",
+    "allowSession": "在此会话中允许",
+    "allowSessionHint": "在 CraftBot 重启前，此聊天中不再就 {{action}} 询问",
+    "allowSessionHintCommand": "在 CraftBot 重启前，此聊天中不再询问这条命令",
+    "deny": "拒绝",
+    "notConnected": "未连接，因此你的回复没有发送。请在 CraftBot 恢复后重试。",
+    "waitingIn_one": "{{session}} 中有一个操作正在等待你的批准",
+    "waitingIn_other": "{{session}} 中有 {{count}} 个操作正在等待你的批准",
+    "open": "打开",
+    "unknownSession": "另一个聊天"
   }
 }

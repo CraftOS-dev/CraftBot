@@ -543,5 +543,148 @@
       "expired": "caducada",
       "about": "unos {{time}}"
     }
+  },
+  "security": {
+    "loading": "Cargando los ajustes de seguridad...",
+    "error": "Error: {{error}}",
+    "saved": "Guardado",
+    "saveFailed": "No se pudieron guardar los ajustes de seguridad",
+    "approvalsTitle": "Aprobaciones",
+    "autoMode": "Modo automático",
+    "askFirst": "Preguntar antes de:",
+    "effects": {
+      "execute": "Ejecutar comandos",
+      "write_files": "Cambiar archivos",
+      "send_external": "Enviar mensajes",
+      "change_agent": "Cambiar la configuración de CraftBot",
+      "use_credentials": "Usar credenciales guardadas"
+    },
+    "askAfterUntrusted": "Actuar sobre contenido externo",
+    "timeout": "Denegar si no hay respuesta en",
+    "minutes_one": "{{count}} minuto",
+    "minutes_other": "{{count}} minutos",
+    "levelTitle": "Nivel de seguridad",
+    "custom": "Personalizado",
+    "customAside": "Personalizado ({{level}})",
+    "levels": {
+      "standard": {
+        "name": "Estándar",
+        "description": "Sin límites adicionales"
+      },
+      "enhanced": {
+        "name": "Reforzado",
+        "description": "Protege claves, web y comandos"
+      },
+      "strict": {
+        "name": "Estricto",
+        "description": "Además, mantiene los archivos en el espacio de trabajo"
+      }
+    },
+    "hintChoose": "elegir",
+    "lowerConfirm": "¿Bajar la seguridad a {{level}}? Las protecciones que no incluye se desactivan.",
+    "switchConfirm": "¿Cambiar a {{level}}? Tus ajustes personalizados vuelven a sus valores predeterminados.",
+    "useDefaultsConfirm": "¿Descartar tus ajustes personalizados y usar los valores predeterminados de {{level}}?",
+    "useDefaults": "Usar los valores predeterminados de {{level}}",
+    "advancedTitle": "Avanzado",
+    "showAdvanced": "Mostrar ajustes avanzados",
+    "hideAdvanced": "Ocultar ajustes avanzados",
+    "changed": "cambiado",
+    "settings": {
+      "protect_secret_files": {
+        "label": "Proteger archivos de claves"
+      },
+      "confine_writes": {
+        "label": "Mantener los cambios de archivos en el espacio de trabajo"
+      },
+      "network_guard": {
+        "label": "Bloquear solicitudes a redes locales"
+      },
+      "third_party_reader": {
+        "label": "Usar un lector de páginas externo"
+      },
+      "scrub_child_env": {
+        "label": "Ocultar las claves API a las herramientas"
+      },
+      "log_prompts": {
+        "label": "Registrar los prompts completos"
+      },
+      "retention_days": {
+        "label": "Conservar registros durante"
+      },
+      "verify_mcp_servers": {
+        "label": "Iniciar solo servidores MCP guardados en Ajustes"
+      },
+      "protect_os_credentials": {
+        "label": "Proteger credenciales del sistema"
+      },
+      "guard_memory": {
+        "label": "Proteger archivos de memoria"
+      },
+      "check_commands": {
+        "label": "Revisar comandos de riesgo"
+      },
+      "check_mcp_packages": {
+        "label": "Buscar malware en paquetes MCP"
+      },
+      "scan_skills": {
+        "label": "Analizar habilidades antes de instalarlas"
+      },
+      "verify_downloads": {
+        "label": "Verificar descargas"
+      },
+      "redact_tool_output": {
+        "label": "Ocultar secretos en los resultados"
+      },
+      "strip_chat_tokens": {
+        "label": "Quitar tokens de chat del contenido externo"
+      },
+      "limit_third_party_runs": {
+        "label": "Limitar lo que pueden hacer los mensajes de otros"
+      },
+      "limit_scheduled_runs": {
+        "label": "Limitar lo que pueden hacer las tareas programadas"
+      }
+    },
+    "keepForever": "Para siempre",
+    "days_one": "{{count}} día",
+    "days_other": "{{count}} días",
+    "badDays": "Usa un número entero de días, 0 o más",
+    "lists": {
+      "extra_protected_paths": "Proteger también",
+      "workspace_paths": "Carpetas de trabajo adicionales",
+      "allowed_domains": "Dominios permitidos",
+      "email_allowed_senders": "Remitentes de correo permitidos"
+    },
+    "none": "ninguno",
+    "listsNote": "Edita las listas en el navegador.",
+    "checkTitle": "Comprobación de seguridad",
+    "checkIssues_one": "{{count}} para revisar",
+    "checkIssues_other": "{{count}} para revisar",
+    "checkAllGood": "nada que corregir",
+    "checking": "Comprobando...",
+    "checkAgain": "Volver a ejecutar la comprobación",
+    "status": {
+      "ok": "OK",
+      "info": "Nota",
+      "warn": "Advertencia",
+      "fail": "Problema"
+    },
+    "canFix": "corrección disponible",
+    "hintFix": "corregir",
+    "fixConfirm": "¿Aplicar la corrección de «{{title}}»?",
+    "fixed": "Corregido",
+    "fixFailed": "No se aplicó la corrección",
+    "auditTitle": "Registro de auditoría",
+    "auditLoading": "Cargando el registro de auditoría...",
+    "auditRecords": "Entradas",
+    "records_one": "{{count}} entrada",
+    "records_other": "{{count}} entradas",
+    "auditIntact": "íntegro",
+    "auditBroken": "cambiado en la línea {{line}}",
+    "auditFile": "Archivo",
+    "auditRefresh": "Actualizar el registro de auditoría",
+    "resetTitle": "Restablecer",
+    "reset": "Restablecer los ajustes de seguridad",
+    "resetConfirm": "¿Restablecer todos los ajustes de seguridad a Estándar?"
   }
 }

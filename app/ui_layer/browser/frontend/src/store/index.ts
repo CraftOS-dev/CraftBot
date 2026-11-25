@@ -14,6 +14,7 @@ import memorySettingsReducer from './slices/memorySettingsSlice'
 import skillsSettingsReducer from './slices/skillsSettingsSlice'
 import commandsSettingsReducer from './slices/commandsSettingsSlice'
 import proactiveSettingsReducer from './slices/proactiveSettingsSlice'
+import securityReducer from './slices/securitySlice'
 import generalSettingsReducer from './slices/generalSettingsSlice'
 import modelSettingsReducer from './slices/modelSettingsSlice'
 import reasoningReducer from './slices/reasoningSlice'
@@ -58,6 +59,7 @@ export const store = configureStore({
     skillsSettings: skillsSettingsReducer,
     commandsSettings: commandsSettingsReducer,
     proactiveSettings: proactiveSettingsReducer,
+    security: securityReducer,
     generalSettings: generalSettingsReducer,
     modelSettings: modelSettingsReducer,
     reasoning: reasoningReducer,

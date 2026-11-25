@@ -102,6 +102,7 @@
     "mcps": "MCP",
     "skills": "技能",
     "integrations": "集成",
+    "security": "安全",
     "agent_app": "Agent App"
   },
   "model": {
@@ -147,6 +148,10 @@
       "startingShort": "启动中…"
     },
     "subscription": {
+      "recoveryHint": "此已保存的订阅仍处于选中状态。断开连接即可改用 API 密钥，或重新登录。",
+      "claudeProfileNote": "请为 CraftBot 单独登录。断开连接会退出此配置文件的登录，不会影响你单独使用的 Claude Code 登录。",
+      "disconnectFailed": "无法断开订阅连接。请重试。",
+      "connectFailed": "无法登录订阅。请重试。",
       "label": "订阅",
       "awaitingCode": "等待验证码",
       "pastePlaceholder": "粘贴登录页面上的验证码",
@@ -602,6 +607,26 @@
       "waitingQrScan": "等待扫描二维码…",
       "connectNamed": "连接 {{name}}"
     },
+    "figma": {
+      "canvasTitle": "在 Figma 中设计",
+      "canvasIntro": "在浏览器中使用 Talk to Figma。CraftBot 会为你运行连接，无需安装桌面应用或额外的服务器。",
+      "canvasAccount": "CraftBot 账户",
+      "canvasStepStart": "在下方启动连接。",
+      "canvasPluginLink": "打开 Talk to Figma MCP 插件",
+      "canvasStepPlugin": "（在目标 Figma 设计中打开，然后在端口 3055 上点击 Connect。）",
+      "canvasStepChannel": "粘贴插件显示的频道，并将其连接到 CraftBot。",
+      "canvasConnected": "已连接到 {{page}} · 频道 {{channel}}",
+      "canvasWaiting": "连接运行中 · 正在等待插件频道",
+      "canvasStopped": "画布连接已停止",
+      "canvasStart": "启动画布连接",
+      "canvasChannel": "插件频道",
+      "canvasConnect": "连接频道",
+      "canvasStop": "停止连接",
+      "canvasRefresh": "刷新状态",
+      "canvasTimeout": "连接检查超时。请先刷新状态再重试。",
+      "canvasTarget": "编辑会作用于插件当前打开的文件和页面。CraftBot 工作时请保持其打开；切换页面或重启后请重新连接。默认的 REST 文件不决定画布。",
+      "canvasPrivacy": "此社区插件可以读取和编辑当前打开的设计，并声明会收集使用情况分析数据。CraftBot 会将你的 Figma 令牌保存在本地。CraftBot 和 Figma 都必须在这台电脑上运行。"
+    },
     "whatsapp": {
       "starting": "正在启动 WhatsApp Web 会话…",
       "scanDesc": "用你的 WhatsApp 手机应用扫描此二维码以连接。",
@@ -742,5 +767,171 @@
     "createLanLink": "创建局域网链接",
     "starting": "启动中…",
     "createTunnel": "创建隧道"
+  },
+  "security": {
+    "title": "安全",
+    "subtitle": "保护你的电脑、密钥和数据",
+    "loading": "正在加载安全设置…",
+    "autoMode": {
+      "label": "自动模式",
+      "desc": "无需询问即可执行操作",
+      "askTitle": "执行前询问",
+      "askAfterUntrusted": "读取外部内容后的操作",
+      "timeout": "无人响应时自动拒绝",
+      "seconds_one": "{{count}} 秒",
+      "seconds_other": "{{count}} 秒",
+      "minutes_one": "{{count}} 分钟",
+      "minutes_other": "{{count}} 分钟",
+      "hours_one": "{{count}} 小时",
+      "hours_other": "{{count}} 小时"
+    },
+    "effects": {
+      "execute": "运行命令",
+      "write_files": "更改文件",
+      "send_external": "发送消息",
+      "change_agent": "更改 CraftBot 设置",
+      "use_credentials": "使用已保存的凭据"
+    },
+    "level": {
+      "title": "安全级别",
+      "custom": "自定义",
+      "reset": "重置",
+      "lowerTitle": "将安全级别降低到 {{level}}？",
+      "lowerMessage": "{{from}} 开启的保护将被关闭。",
+      "lowerConfirm": "切换到 {{level}}",
+      "standard": {
+        "name": "标准",
+        "desc": "无额外限制"
+      },
+      "enhanced": {
+        "name": "增强",
+        "desc": "保护密钥、网络和命令"
+      },
+      "strict": {
+        "name": "严格",
+        "desc": "并将文件限制在工作区内"
+      }
+    },
+    "advanced": {
+      "toggle": "高级",
+      "groups": {
+        "files": "文件",
+        "content": "内容",
+        "network": "网络",
+        "messages": "消息和定时任务",
+        "tools": "工具",
+        "logs": "日志"
+      }
+    },
+    "fields": {
+      "verify_mcp_servers": {
+        "label": "仅启动在设置中保存的 MCP 服务器"
+      },
+      "protect_secret_files": {
+        "label": "保护密钥文件"
+      },
+      "extra_protected_paths": {
+        "label": "额外保护",
+        "placeholder": "/path/to/file-or-folder"
+      },
+      "confine_writes": {
+        "label": "将文件更改限制在工作区内"
+      },
+      "workspace_paths": {
+        "label": "额外的工作区文件夹",
+        "placeholder": "/path/to/folder"
+      },
+      "network_guard": {
+        "label": "阻止访问本地网络"
+      },
+      "allowed_domains": {
+        "label": "允许的域名",
+        "placeholder": "example.com",
+        "empty": "所有公开网站"
+      },
+      "third_party_reader": {
+        "label": "使用第三方网页读取服务"
+      },
+      "scrub_child_env": {
+        "label": "向工具隐藏 API 密钥"
+      },
+      "log_prompts": {
+        "label": "记录完整提示词"
+      },
+      "retention_days": {
+        "label": "日志保留时间",
+        "forever": "永久",
+        "days_one": "{{count}} 天",
+        "days_other": "{{count}} 天"
+      },
+      "email_allowed_senders": {
+        "label": "允许的邮件发件人",
+        "placeholder": "name@example.com",
+        "empty": "所有发件人"
+      },
+      "protect_os_credentials": {
+        "label": "保护系统凭据"
+      },
+      "guard_memory": {
+        "label": "保护记忆文件"
+      },
+      "check_commands": {
+        "label": "审查高风险命令"
+      },
+      "check_mcp_packages": {
+        "label": "检查 MCP 包是否含恶意软件"
+      },
+      "scan_skills": {
+        "label": "安装前扫描技能"
+      },
+      "verify_downloads": {
+        "label": "校验下载文件"
+      },
+      "redact_tool_output": {
+        "label": "隐藏工具结果中的密钥"
+      },
+      "strip_chat_tokens": {
+        "label": "移除外部内容中的聊天标记"
+      },
+      "limit_third_party_runs": {
+        "label": "限制他人消息可执行的操作"
+      },
+      "limit_scheduled_runs": {
+        "label": "限制定时任务可执行的操作"
+      }
+    },
+    "list": {
+      "add": "添加",
+      "remove": "移除 {{item}}",
+      "duplicate": "已添加"
+    },
+    "check": {
+      "title": "安全检查",
+      "runAgain": "重新运行",
+      "running": "检查中…",
+      "fix": "修复",
+      "empty": "暂无结果。",
+      "status": {
+        "ok": "正常",
+        "info": "信息",
+        "warn": "警告",
+        "fail": "问题"
+      }
+    },
+    "audit": {
+      "title": "审计日志",
+      "intact_one": "完整 · {{count}} 条记录",
+      "intact_other": "完整 · {{count}} 条记录",
+      "broken": "在第 {{line}} 行被更改",
+      "empty": "暂无记录。",
+      "loading": "正在加载审计日志…",
+      "showing": "最新 {{shown}} 条，共 {{total}} 条",
+      "refresh": "刷新",
+      "events": {
+        "action_approval": "操作批准",
+        "security_settings_changed": "设置已更改",
+        "security_check_fixed": "检查项已修复"
+      }
+    }
   }
 }

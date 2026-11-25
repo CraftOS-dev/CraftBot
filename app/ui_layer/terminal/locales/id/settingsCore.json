@@ -543,5 +543,148 @@
       "expired": "kedaluwarsa",
       "about": "sekitar {{time}}"
     }
+  },
+  "security": {
+    "loading": "Memuat pengaturan keamanan...",
+    "error": "Kesalahan: {{error}}",
+    "saved": "Disimpan",
+    "saveFailed": "Tidak dapat menyimpan pengaturan keamanan",
+    "approvalsTitle": "Persetujuan",
+    "autoMode": "Mode otomatis",
+    "askFirst": "Tanya sebelum:",
+    "effects": {
+      "execute": "Menjalankan perintah",
+      "write_files": "Mengubah file",
+      "send_external": "Mengirim pesan",
+      "change_agent": "Mengubah pengaturan CraftBot",
+      "use_credentials": "Menggunakan kredensial tersimpan"
+    },
+    "askAfterUntrusted": "Bertindak atas konten luar",
+    "timeout": "Tolak jika tidak dijawab dalam",
+    "minutes_one": "{{count}} menit",
+    "minutes_other": "{{count}} menit",
+    "levelTitle": "Tingkat keamanan",
+    "custom": "Kustom",
+    "customAside": "Kustom ({{level}})",
+    "levels": {
+      "standard": {
+        "name": "Standar",
+        "description": "Tanpa batasan tambahan"
+      },
+      "enhanced": {
+        "name": "Ditingkatkan",
+        "description": "Menjaga kunci, web, dan perintah"
+      },
+      "strict": {
+        "name": "Ketat",
+        "description": "Juga menjaga file di ruang kerja"
+      }
+    },
+    "hintChoose": "pilih",
+    "lowerConfirm": "Turunkan keamanan ke {{level}}? Perlindungan yang tidak termasuk di dalamnya akan dinonaktifkan.",
+    "switchConfirm": "Beralih ke {{level}}? Pengaturan kustom Anda kembali ke default-nya.",
+    "useDefaultsConfirm": "Buang pengaturan kustom Anda dan gunakan default {{level}}?",
+    "useDefaults": "Gunakan default {{level}}",
+    "advancedTitle": "Lanjutan",
+    "showAdvanced": "Tampilkan pengaturan lanjutan",
+    "hideAdvanced": "Sembunyikan pengaturan lanjutan",
+    "changed": "diubah",
+    "settings": {
+      "protect_secret_files": {
+        "label": "Lindungi berkas kunci"
+      },
+      "confine_writes": {
+        "label": "Batasi perubahan berkas di ruang kerja"
+      },
+      "network_guard": {
+        "label": "Blokir permintaan ke jaringan lokal"
+      },
+      "third_party_reader": {
+        "label": "Gunakan pembaca halaman pihak ketiga"
+      },
+      "scrub_child_env": {
+        "label": "Sembunyikan kunci API dari alat"
+      },
+      "log_prompts": {
+        "label": "Catat prompt lengkap"
+      },
+      "retention_days": {
+        "label": "Simpan log selama"
+      },
+      "verify_mcp_servers": {
+        "label": "Hanya jalankan server MCP yang disimpan di Pengaturan"
+      },
+      "protect_os_credentials": {
+        "label": "Lindungi kredensial sistem"
+      },
+      "guard_memory": {
+        "label": "Jaga berkas memori"
+      },
+      "check_commands": {
+        "label": "Tinjau perintah berisiko"
+      },
+      "check_mcp_packages": {
+        "label": "Periksa paket MCP dari malware"
+      },
+      "scan_skills": {
+        "label": "Pindai keahlian sebelum dipasang"
+      },
+      "verify_downloads": {
+        "label": "Verifikasi unduhan"
+      },
+      "redact_tool_output": {
+        "label": "Sembunyikan rahasia di hasil alat"
+      },
+      "strip_chat_tokens": {
+        "label": "Hapus token chat dari konten luar"
+      },
+      "limit_third_party_runs": {
+        "label": "Batasi yang bisa dilakukan pesan orang lain"
+      },
+      "limit_scheduled_runs": {
+        "label": "Batasi yang bisa dilakukan tugas terjadwal"
+      }
+    },
+    "keepForever": "Selamanya",
+    "days_one": "{{count}} hari",
+    "days_other": "{{count}} hari",
+    "badDays": "Gunakan jumlah hari berupa bilangan bulat, 0 atau lebih",
+    "lists": {
+      "extra_protected_paths": "Lindungi juga",
+      "workspace_paths": "Folder ruang kerja tambahan",
+      "allowed_domains": "Domain yang diizinkan",
+      "email_allowed_senders": "Pengirim email yang diizinkan"
+    },
+    "none": "tidak ada",
+    "listsNote": "Ubah daftar di browser.",
+    "checkTitle": "Pemeriksaan keamanan",
+    "checkIssues_one": "{{count}} perlu dilihat",
+    "checkIssues_other": "{{count}} perlu dilihat",
+    "checkAllGood": "tidak ada yang perlu diperbaiki",
+    "checking": "Memeriksa...",
+    "checkAgain": "Jalankan pemeriksaan lagi",
+    "status": {
+      "ok": "OK",
+      "info": "Catatan",
+      "warn": "Peringatan",
+      "fail": "Masalah"
+    },
+    "canFix": "perbaikan tersedia",
+    "hintFix": "perbaiki",
+    "fixConfirm": "Terapkan perbaikan untuk “{{title}}”?",
+    "fixed": "Diperbaiki",
+    "fixFailed": "Perbaikan tidak diterapkan",
+    "auditTitle": "Log audit",
+    "auditLoading": "Memuat log audit...",
+    "auditRecords": "Catatan",
+    "records_one": "{{count}} catatan",
+    "records_other": "{{count}} catatan",
+    "auditIntact": "utuh",
+    "auditBroken": "berubah di baris {{line}}",
+    "auditFile": "Berkas",
+    "auditRefresh": "Segarkan log audit",
+    "resetTitle": "Atur ulang",
+    "reset": "Atur ulang pengaturan keamanan",
+    "resetConfirm": "Atur ulang semua pengaturan keamanan ke Standar?"
   }
 }

@@ -176,11 +176,15 @@ class StateManager:
             stream_content = f"{content}\n[Offered suggested responses: {offered}]"
 
         from agent_core.core.impl.action.context import current_action_run_id
+        from app.security.memory_guard import admits_agent_message
 
         self.event_stream_manager.log(
             event_label,
             stream_content,
             event_type=EventType.AGENT_MESSAGE,
+            # Settings > Security > Guard memory files: a reply in a run that
+            # read outside content is not distilled into MEMORY.md.
+            to_memory=admits_agent_message(target),
             display_message=content,
             platform=platform,
             continue_work=continue_work,

@@ -3,6 +3,7 @@ from agent_core import action
 
 @action(
     name="schedule_task_toggle",
+    effects=["change_agent"],
     description="Enable or disable a scheduled task by its ID.",
     action_sets=["scheduler", "proactive"],
     input_schema={

@@ -11,6 +11,7 @@
       "skills": "技能",
       "integrations": "集成",
       "credentials": "凭据",
+      "security": "安全",
       "agentApps": "Agent App"
     }
   },
@@ -88,10 +89,39 @@
     "focusedChoiceHint": "1-9 或方向键选择 · Enter 确认 · Esc 返回输入",
     "dismissed": "已关闭问题"
   },
+  "approval": {
+    "title": "需要批准 · {{action}}",
+    "timeLeft": "剩余 {{time}}",
+    "timeLeftCount": "{{index}} / {{total}} · 剩余 {{time}}",
+    "hint": "按 Tab 回复 · 未及时回复将视为拒绝",
+    "focusedHint": "1-3 或方向键选择 · Enter 回复 · a 允许一次 · s 在此会话中允许 · d 拒绝 · Esc 返回输入",
+    "allowOnce": "允许一次",
+    "allowSession": "在此会话中允许",
+    "deny": "拒绝",
+    "reasonHighRisk": "自动模式已关闭，且此操作可能会{{effects}}。",
+    "reasonGeneric": "自动模式已关闭，此操作需要你的批准。",
+    "reasonUntrusted": "智能体先读取了外部内容（{{detail}}），因此在操作前先询问。",
+    "reasonRisky": "此命令看起来有风险：{{detail}}。",
+    "outsideContent": "网页、邮件或他人的文件",
+    "effects": {
+      "execute": "运行命令或代码",
+      "write_files": "创建或更改文件",
+      "send_external": "发送消息或更改外部服务",
+      "change_agent": "更改 CraftBot 自身的设置、计划或工具",
+      "use_credentials": "使用已保存的凭据"
+    },
+    "inSession": "在 {{session}} 中",
+    "noInputs": "无输入",
+    "moreLines_one": "（还有 {{count}} 行）",
+    "moreLines_other": "（还有 {{count}} 行）",
+    "answerFailed": "批准未发送：{{error}}",
+    "waitingToast": "{{action}} 需要你的批准。按 q 返回聊天。"
+  },
   "notify": {
     "question": "{{session}} 需要你回答",
     "done": "{{session}} 已完成",
-    "needsYou": "{{count}} 个待你处理"
+    "needsYou": "{{count}} 个待你处理",
+    "approval": "{{action}} 需要你的批准"
   },
   "firstRun": {
     "keys": "Enter 发送 · Ctrl+J 换行 · Esc 停止 · / 命令 · Ctrl+X 界面 · Ctrl+P 命令面板 · ? 快捷键 · 按两次 Ctrl+C 退出"

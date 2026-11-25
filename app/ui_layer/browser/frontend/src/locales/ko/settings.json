@@ -102,6 +102,7 @@
     "mcps": "MCP",
     "skills": "스킬",
     "integrations": "연동",
+    "security": "보안",
     "agent_app": "Agent App"
   },
   "model": {
@@ -147,6 +148,10 @@
       "startingShort": "시작하는 중..."
     },
     "subscription": {
+      "recoveryHint": "저장된 이 구독이 아직 선택되어 있습니다. API 키를 사용하려면 연결을 해제하거나 다시 로그인하세요.",
+      "claudeProfileNote": "CraftBot용으로 따로 로그인하세요. 연결을 해제하면 이 프로필에서 로그아웃되며, 별도로 사용하는 Claude Code 로그인에는 영향을 주지 않습니다.",
+      "disconnectFailed": "구독 연결을 해제하지 못했습니다. 다시 시도하세요.",
+      "connectFailed": "구독에 로그인하지 못했습니다. 다시 시도하세요.",
       "label": "구독",
       "awaitingCode": "코드 대기 중",
       "pastePlaceholder": "로그인 페이지의 코드를 붙여넣으세요",
@@ -602,6 +607,26 @@
       "waitingQrScan": "QR 스캔 대기 중...",
       "connectNamed": "{{name}} 연결"
     },
+    "figma": {
+      "canvasTitle": "Figma에서 디자인",
+      "canvasIntro": "브라우저에서 Talk to Figma를 사용하세요. 연결은 CraftBot이 대신 실행하므로 데스크톱 앱이나 추가 서버를 설치할 필요가 없습니다.",
+      "canvasAccount": "CraftBot 계정",
+      "canvasStepStart": "아래에서 연결을 시작하세요.",
+      "canvasPluginLink": "Talk to Figma MCP 플러그인 열기",
+      "canvasStepPlugin": "(대상 Figma 디자인에서 연 다음 포트 3055에서 Connect를 클릭하세요.)",
+      "canvasStepChannel": "플러그인에 표시된 채널을 붙여넣고 CraftBot에 연결하세요.",
+      "canvasConnected": "{{page}}에 연결됨 · 채널 {{channel}}",
+      "canvasWaiting": "연결 실행 중 · 플러그인 채널 대기 중",
+      "canvasStopped": "캔버스 연결이 중지됨",
+      "canvasStart": "캔버스 연결 시작",
+      "canvasChannel": "플러그인 채널",
+      "canvasConnect": "채널 연결",
+      "canvasStop": "연결 중지",
+      "canvasRefresh": "상태 새로 고침",
+      "canvasTimeout": "연결 확인 시간이 초과되었습니다. 다시 시도하기 전에 상태를 새로 고치세요.",
+      "canvasTarget": "편집은 플러그인에서 열려 있는 파일과 페이지에 적용됩니다. CraftBot이 작업하는 동안 열어 두고, 페이지를 바꾸거나 다시 시작한 후에는 다시 연결하세요. 기본 REST 파일은 캔버스를 결정하지 않습니다.",
+      "canvasPrivacy": "이 커뮤니티 플러그인은 열려 있는 디자인을 읽고 편집할 수 있으며, 사용 분석을 수집한다고 밝히고 있습니다. CraftBot은 Figma 토큰을 로컬에 보관합니다. CraftBot과 Figma 모두 이 컴퓨터에서 실행되어야 합니다."
+    },
     "whatsapp": {
       "starting": "WhatsApp Web 세션 시작 중...",
       "scanDesc": "연결하려면 WhatsApp 모바일 앱으로 이 QR 코드를 스캔하세요.",
@@ -742,5 +767,171 @@
     "createLanLink": "LAN 링크 만들기",
     "starting": "시작하는 중...",
     "createTunnel": "터널 만들기"
+  },
+  "security": {
+    "title": "보안",
+    "subtitle": "컴퓨터, 키, 데이터를 보호합니다",
+    "loading": "보안 설정을 불러오는 중...",
+    "autoMode": {
+      "label": "자동 모드",
+      "desc": "묻지 않고 작업 실행",
+      "askTitle": "실행 전 확인",
+      "askAfterUntrusted": "외부 콘텐츠를 읽은 후의 작업",
+      "timeout": "응답이 없으면 자동 거부까지",
+      "seconds_one": "{{count}}초",
+      "seconds_other": "{{count}}초",
+      "minutes_one": "{{count}}분",
+      "minutes_other": "{{count}}분",
+      "hours_one": "{{count}}시간",
+      "hours_other": "{{count}}시간"
+    },
+    "effects": {
+      "execute": "명령 실행",
+      "write_files": "파일 변경",
+      "send_external": "메시지 전송",
+      "change_agent": "CraftBot 설정 변경",
+      "use_credentials": "저장된 자격 증명 사용"
+    },
+    "level": {
+      "title": "보안 수준",
+      "custom": "사용자 지정",
+      "reset": "재설정",
+      "lowerTitle": "보안 수준을 {{level}}(으)로 낮출까요?",
+      "lowerMessage": "{{from}}에서 켜져 있던 보호 기능이 꺼집니다.",
+      "lowerConfirm": "{{level}}(으)로 전환",
+      "standard": {
+        "name": "표준",
+        "desc": "추가 제한 없음"
+      },
+      "enhanced": {
+        "name": "강화",
+        "desc": "키, 웹, 명령 보호"
+      },
+      "strict": {
+        "name": "엄격",
+        "desc": "파일도 작업 공간 안에 유지"
+      }
+    },
+    "advanced": {
+      "toggle": "고급",
+      "groups": {
+        "files": "파일",
+        "content": "콘텐츠",
+        "network": "네트워크",
+        "messages": "메시지 및 예약",
+        "tools": "도구",
+        "logs": "로그"
+      }
+    },
+    "fields": {
+      "verify_mcp_servers": {
+        "label": "설정에서 저장한 MCP 서버만 시작"
+      },
+      "protect_secret_files": {
+        "label": "키 파일 보호"
+      },
+      "extra_protected_paths": {
+        "label": "추가 보호",
+        "placeholder": "/path/to/file-or-folder"
+      },
+      "confine_writes": {
+        "label": "파일 변경을 작업 공간으로 제한"
+      },
+      "workspace_paths": {
+        "label": "추가 작업 공간 폴더",
+        "placeholder": "/path/to/folder"
+      },
+      "network_guard": {
+        "label": "로컬 네트워크 요청 차단"
+      },
+      "allowed_domains": {
+        "label": "허용된 도메인",
+        "placeholder": "example.com",
+        "empty": "모든 공개 사이트"
+      },
+      "third_party_reader": {
+        "label": "타사 페이지 리더 사용"
+      },
+      "scrub_child_env": {
+        "label": "도구에서 API 키 숨기기"
+      },
+      "log_prompts": {
+        "label": "전체 프롬프트 기록"
+      },
+      "retention_days": {
+        "label": "로그 보관 기간",
+        "forever": "영구",
+        "days_one": "{{count}}일",
+        "days_other": "{{count}}일"
+      },
+      "email_allowed_senders": {
+        "label": "허용된 이메일 발신자",
+        "placeholder": "name@example.com",
+        "empty": "모든 발신자"
+      },
+      "protect_os_credentials": {
+        "label": "시스템 자격 증명 보호"
+      },
+      "guard_memory": {
+        "label": "메모리 파일 보호"
+      },
+      "check_commands": {
+        "label": "위험한 명령 검토"
+      },
+      "check_mcp_packages": {
+        "label": "MCP 패키지 악성코드 확인"
+      },
+      "scan_skills": {
+        "label": "설치 전에 스킬 검사"
+      },
+      "verify_downloads": {
+        "label": "다운로드 검증"
+      },
+      "redact_tool_output": {
+        "label": "도구 결과의 비밀 숨기기"
+      },
+      "strip_chat_tokens": {
+        "label": "외부 콘텐츠의 채팅 토큰 제거"
+      },
+      "limit_third_party_runs": {
+        "label": "다른 사람 메시지로 할 수 있는 일 제한"
+      },
+      "limit_scheduled_runs": {
+        "label": "예약 작업으로 할 수 있는 일 제한"
+      }
+    },
+    "list": {
+      "add": "추가",
+      "remove": "{{item}} 제거",
+      "duplicate": "이미 추가됨"
+    },
+    "check": {
+      "title": "보안 점검",
+      "runAgain": "다시 실행",
+      "running": "점검 중...",
+      "fix": "수정",
+      "empty": "아직 결과가 없습니다.",
+      "status": {
+        "ok": "정상",
+        "info": "정보",
+        "warn": "경고",
+        "fail": "문제"
+      }
+    },
+    "audit": {
+      "title": "감사 로그",
+      "intact_one": "변경 없음 · 기록 {{count}}개",
+      "intact_other": "변경 없음 · 기록 {{count}}개",
+      "broken": "{{line}}번째 줄에서 변경됨",
+      "empty": "아직 기록된 내용이 없습니다.",
+      "loading": "감사 로그를 불러오는 중...",
+      "showing": "전체 {{total}}개 중 최근 {{shown}}개",
+      "refresh": "새로 고침",
+      "events": {
+        "action_approval": "작업 승인",
+        "security_settings_changed": "설정 변경",
+        "security_check_fixed": "점검 항목 수정"
+      }
+    }
   }
 }

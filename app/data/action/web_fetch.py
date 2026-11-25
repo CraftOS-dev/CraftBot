@@ -3,6 +3,8 @@ from agent_core import action
 
 @action(
     name="web_fetch",
+    effects=[],
+    result_source="network",
     description=(
         "Fetches a URL and returns cleaned text/markdown content. "
         "Use web_search first to find URLs, then web_fetch to read them. "
@@ -203,6 +205,11 @@ def web_fetch(input_data: dict) -> dict:
         max_content_length = 5000
     unlimited = max_content_length == 0
     use_jina_fallback = input_data.get("use_jina_fallback", True)
+    from app.security.policy import get_policy
+
+    # Settings > Security: the third-party reader (r.jina.ai) receives the URL.
+    if not get_policy().third_party_reader:
+        use_jina_fallback = False
     session_id = input_data.get("_session_id", "")
 
     # --- Validate URL ---
@@ -253,9 +260,21 @@ def web_fetch(input_data: dict) -> dict:
         }
 
         # Fetch content — follow up to 10 redirects automatically
-        response = requests.get(
-            url, headers=headers, timeout=timeout, allow_redirects=True, stream=True
-        )
+        from app.security.net import NetworkBlocked, guard_active, guarded_request
+
+        if guard_active():
+            # Settings > Security > Network: public addresses only, every
+            # redirect hop checked.
+            try:
+                response = guarded_request(
+                    "GET", url, headers=headers, timeout=timeout, stream=True
+                )
+            except NetworkBlocked as blocked:
+                return make_error(str(blocked), url)
+        else:
+            response = requests.get(
+                url, headers=headers, timeout=timeout, allow_redirects=True, stream=True
+            )
         response.raise_for_status()
 
         status_code = response.status_code

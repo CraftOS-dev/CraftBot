@@ -1,5 +1,5 @@
 /**
- * Settings: the browser's nine tabs as a list on the left and the selected
+ * Settings: the browser's tabs as a list on the left and the selected
  * tab's form on the right. `[` and `]` (or Tab from the list) change tabs;
  * Enter or Right moves into the tab. Opened with the argument 'effort', it
  * shows the reasoning-effort picker of the open chat instead.

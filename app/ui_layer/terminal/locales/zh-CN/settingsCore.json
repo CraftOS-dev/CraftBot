@@ -543,5 +543,148 @@
       "expired": "已过期",
       "about": "约 {{time}}"
     }
+  },
+  "security": {
+    "loading": "正在加载安全设置...",
+    "error": "错误：{{error}}",
+    "saved": "已保存",
+    "saveFailed": "无法保存安全设置",
+    "approvalsTitle": "批准",
+    "autoMode": "自动模式",
+    "askFirst": "执行前询问：",
+    "effects": {
+      "execute": "运行命令",
+      "write_files": "更改文件",
+      "send_external": "发送消息",
+      "change_agent": "更改 CraftBot 设置",
+      "use_credentials": "使用已保存的凭据"
+    },
+    "askAfterUntrusted": "读取外部内容后的操作",
+    "timeout": "无人响应时自动拒绝",
+    "minutes_one": "{{count}} 分钟",
+    "minutes_other": "{{count}} 分钟",
+    "levelTitle": "安全级别",
+    "custom": "自定义",
+    "customAside": "自定义（{{level}}）",
+    "levels": {
+      "standard": {
+        "name": "标准",
+        "description": "无额外限制"
+      },
+      "enhanced": {
+        "name": "增强",
+        "description": "保护密钥、网络和命令"
+      },
+      "strict": {
+        "name": "严格",
+        "description": "并将文件限制在工作区内"
+      }
+    },
+    "hintChoose": "选择",
+    "lowerConfirm": "将安全级别降低到 {{level}}？它不包含的保护措施将被关闭。",
+    "switchConfirm": "切换到 {{level}}？你的自定义设置将恢复为该级别的默认值。",
+    "useDefaultsConfirm": "放弃你的自定义设置并使用 {{level}} 的默认值？",
+    "useDefaults": "使用 {{level}} 的默认值",
+    "advancedTitle": "高级",
+    "showAdvanced": "显示高级设置",
+    "hideAdvanced": "隐藏高级设置",
+    "changed": "已更改",
+    "settings": {
+      "protect_secret_files": {
+        "label": "保护密钥文件"
+      },
+      "confine_writes": {
+        "label": "将文件更改限制在工作区内"
+      },
+      "network_guard": {
+        "label": "阻止访问本地网络"
+      },
+      "third_party_reader": {
+        "label": "使用第三方网页读取服务"
+      },
+      "scrub_child_env": {
+        "label": "向工具隐藏 API 密钥"
+      },
+      "log_prompts": {
+        "label": "记录完整提示词"
+      },
+      "retention_days": {
+        "label": "日志保留时间"
+      },
+      "verify_mcp_servers": {
+        "label": "仅启动在设置中保存的 MCP 服务器"
+      },
+      "protect_os_credentials": {
+        "label": "保护系统凭据"
+      },
+      "guard_memory": {
+        "label": "保护记忆文件"
+      },
+      "check_commands": {
+        "label": "审查高风险命令"
+      },
+      "check_mcp_packages": {
+        "label": "检查 MCP 包是否含恶意软件"
+      },
+      "scan_skills": {
+        "label": "安装前扫描技能"
+      },
+      "verify_downloads": {
+        "label": "校验下载文件"
+      },
+      "redact_tool_output": {
+        "label": "隐藏工具结果中的密钥"
+      },
+      "strip_chat_tokens": {
+        "label": "移除外部内容中的聊天标记"
+      },
+      "limit_third_party_runs": {
+        "label": "限制他人消息可执行的操作"
+      },
+      "limit_scheduled_runs": {
+        "label": "限制定时任务可执行的操作"
+      }
+    },
+    "keepForever": "永久",
+    "days_one": "{{count}} 天",
+    "days_other": "{{count}} 天",
+    "badDays": "请输入 0 或更大的整数天数",
+    "lists": {
+      "extra_protected_paths": "额外保护",
+      "workspace_paths": "额外的工作区文件夹",
+      "allowed_domains": "允许的域名",
+      "email_allowed_senders": "允许的邮件发件人"
+    },
+    "none": "无",
+    "listsNote": "请在浏览器中编辑列表。",
+    "checkTitle": "安全检查",
+    "checkIssues_one": "{{count}} 项需要查看",
+    "checkIssues_other": "{{count}} 项需要查看",
+    "checkAllGood": "无需修复",
+    "checking": "检查中...",
+    "checkAgain": "重新运行检查",
+    "status": {
+      "ok": "正常",
+      "info": "提示",
+      "warn": "警告",
+      "fail": "问题"
+    },
+    "canFix": "可修复",
+    "hintFix": "修复",
+    "fixConfirm": "应用“{{title}}”的修复？",
+    "fixed": "已修复",
+    "fixFailed": "修复未能应用",
+    "auditTitle": "审计日志",
+    "auditLoading": "正在加载审计日志...",
+    "auditRecords": "记录",
+    "records_one": "{{count}} 条记录",
+    "records_other": "{{count}} 条记录",
+    "auditIntact": "完整",
+    "auditBroken": "第 {{line}} 行被更改",
+    "auditFile": "文件",
+    "auditRefresh": "刷新审计日志",
+    "resetTitle": "重置",
+    "reset": "重置安全设置",
+    "resetConfirm": "将所有安全设置重置为标准？"
   }
 }

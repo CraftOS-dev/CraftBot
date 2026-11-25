@@ -102,6 +102,7 @@
     "mcps": "MCP",
     "skills": "スキル",
     "integrations": "連携",
+    "security": "セキュリティ",
     "agent_app": "Agent App"
   },
   "model": {
@@ -147,6 +148,10 @@
       "startingShort": "起動中..."
     },
     "subscription": {
+      "recoveryHint": "この保存済みのサブスクリプションはまだ選択されています。API キーを使用するには切断するか、もう一度サインインしてください。",
+      "claudeProfileNote": "CraftBot 用に別途サインインしてください。切断するとこのプロファイルからサインアウトしますが、単体の Claude Code のログインには影響しません。",
+      "disconnectFailed": "サブスクリプションを切断できませんでした。もう一度お試しください。",
+      "connectFailed": "サブスクリプションにサインインできませんでした。もう一度お試しください。",
       "label": "サブスクリプション",
       "awaitingCode": "コードを待機中",
       "pastePlaceholder": "サインインページのコードを貼り付け",
@@ -602,6 +607,26 @@
       "waitingQrScan": "QR スキャンを待機中...",
       "connectNamed": "{{name}} に接続"
     },
+    "figma": {
+      "canvasTitle": "Figma でデザイン",
+      "canvasIntro": "ブラウザで Talk to Figma を使用します。接続は CraftBot が実行するため、デスクトップアプリや追加のサーバーをインストールする必要はありません。",
+      "canvasAccount": "CraftBot アカウント",
+      "canvasStepStart": "下のボタンで接続を開始します。",
+      "canvasPluginLink": "Talk to Figma MCP プラグインを開く",
+      "canvasStepPlugin": "（対象の Figma デザインで開き、ポート 3055 の Connect をクリックします。）",
+      "canvasStepChannel": "プラグインに表示されたチャネルを貼り付けて、CraftBot に接続します。",
+      "canvasConnected": "{{page}} に接続済み · チャネル {{channel}}",
+      "canvasWaiting": "接続を実行中 · プラグインのチャネルを待機しています",
+      "canvasStopped": "キャンバス接続を停止しました",
+      "canvasStart": "キャンバス接続を開始",
+      "canvasChannel": "プラグインのチャネル",
+      "canvasConnect": "チャネルに接続",
+      "canvasStop": "接続を停止",
+      "canvasRefresh": "状態を更新",
+      "canvasTimeout": "接続の確認がタイムアウトしました。状態を更新してからもう一度お試しください。",
+      "canvasTarget": "編集はプラグインで開いているファイルとページに適用されます。CraftBot の作業中は開いたままにし、ページを切り替えたり再起動したりした後は再接続してください。デフォルトの REST ファイルはキャンバスの選択には使われません。",
+      "canvasPrivacy": "このコミュニティプラグインは開いているデザインを読み取り・編集でき、利用状況の分析を行うと表明しています。CraftBot は Figma トークンをローカルに保存します。CraftBot と Figma の両方をこのコンピューターで実行する必要があります。"
+    },
     "whatsapp": {
       "starting": "WhatsApp Web セッションを開始中...",
       "scanDesc": "WhatsApp モバイルアプリでこの QR コードをスキャンして接続します。",
@@ -742,5 +767,171 @@
     "createLanLink": "LANリンクを作成",
     "starting": "起動中...",
     "createTunnel": "トンネルを作成"
+  },
+  "security": {
+    "title": "セキュリティ",
+    "subtitle": "コンピューター、キー、データを保護します",
+    "loading": "セキュリティ設定を読み込み中...",
+    "autoMode": {
+      "label": "自動モード",
+      "desc": "確認せずにアクションを実行",
+      "askTitle": "実行前に確認",
+      "askAfterUntrusted": "外部コンテンツを読んだ後の操作",
+      "timeout": "未回答で自動拒否するまで",
+      "seconds_one": "{{count}} 秒",
+      "seconds_other": "{{count}} 秒",
+      "minutes_one": "{{count}} 分",
+      "minutes_other": "{{count}} 分",
+      "hours_one": "{{count}} 時間",
+      "hours_other": "{{count}} 時間"
+    },
+    "effects": {
+      "execute": "コマンドの実行",
+      "write_files": "ファイルの変更",
+      "send_external": "メッセージの送信",
+      "change_agent": "CraftBot の設定変更",
+      "use_credentials": "保存済み認証情報の使用"
+    },
+    "level": {
+      "title": "セキュリティレベル",
+      "custom": "カスタム",
+      "reset": "リセット",
+      "lowerTitle": "セキュリティを {{level}} に下げますか？",
+      "lowerMessage": "{{from}} で有効な保護がオフになります。",
+      "lowerConfirm": "{{level}} に切り替え",
+      "standard": {
+        "name": "標準",
+        "desc": "追加の制限なし"
+      },
+      "enhanced": {
+        "name": "強化",
+        "desc": "キー、Web、コマンドを保護"
+      },
+      "strict": {
+        "name": "厳格",
+        "desc": "ファイルもワークスペース内に制限"
+      }
+    },
+    "advanced": {
+      "toggle": "詳細",
+      "groups": {
+        "files": "ファイル",
+        "content": "コンテンツ",
+        "network": "ネットワーク",
+        "messages": "メッセージとスケジュール",
+        "tools": "ツール",
+        "logs": "ログ"
+      }
+    },
+    "fields": {
+      "verify_mcp_servers": {
+        "label": "設定で保存した MCP サーバーのみ起動"
+      },
+      "protect_secret_files": {
+        "label": "キーファイルを保護"
+      },
+      "extra_protected_paths": {
+        "label": "追加で保護",
+        "placeholder": "/path/to/file-or-folder"
+      },
+      "confine_writes": {
+        "label": "ファイルの変更をワークスペース内に限定"
+      },
+      "workspace_paths": {
+        "label": "追加のワークスペースフォルダー",
+        "placeholder": "/path/to/folder"
+      },
+      "network_guard": {
+        "label": "ローカルネットワークへのリクエストをブロック"
+      },
+      "allowed_domains": {
+        "label": "許可するドメイン",
+        "placeholder": "example.com",
+        "empty": "すべての公開サイト"
+      },
+      "third_party_reader": {
+        "label": "サードパーティのページリーダーを使用"
+      },
+      "scrub_child_env": {
+        "label": "ツールから API キーを隠す"
+      },
+      "log_prompts": {
+        "label": "プロンプト全文を記録"
+      },
+      "retention_days": {
+        "label": "ログの保存期間",
+        "forever": "無期限",
+        "days_one": "{{count}} 日",
+        "days_other": "{{count}} 日"
+      },
+      "email_allowed_senders": {
+        "label": "許可するメール送信者",
+        "placeholder": "name@example.com",
+        "empty": "すべての送信者"
+      },
+      "protect_os_credentials": {
+        "label": "システムの認証情報を保護"
+      },
+      "guard_memory": {
+        "label": "メモリファイルを保護"
+      },
+      "check_commands": {
+        "label": "危険なコマンドを審査"
+      },
+      "check_mcp_packages": {
+        "label": "MCP パッケージのマルウェアを確認"
+      },
+      "scan_skills": {
+        "label": "インストール前にスキルをスキャン"
+      },
+      "verify_downloads": {
+        "label": "ダウンロードを検証"
+      },
+      "redact_tool_output": {
+        "label": "ツール結果の秘密情報を隠す"
+      },
+      "strip_chat_tokens": {
+        "label": "外部コンテンツからチャットトークンを除去"
+      },
+      "limit_third_party_runs": {
+        "label": "他人のメッセージでできることを制限"
+      },
+      "limit_scheduled_runs": {
+        "label": "スケジュールタスクでできることを制限"
+      }
+    },
+    "list": {
+      "add": "追加",
+      "remove": "{{item}} を削除",
+      "duplicate": "追加済みです"
+    },
+    "check": {
+      "title": "セキュリティチェック",
+      "runAgain": "再実行",
+      "running": "確認中...",
+      "fix": "修正",
+      "empty": "まだ結果はありません。",
+      "status": {
+        "ok": "OK",
+        "info": "情報",
+        "warn": "警告",
+        "fail": "問題"
+      }
+    },
+    "audit": {
+      "title": "監査ログ",
+      "intact_one": "改ざんなし · {{count}} 件",
+      "intact_other": "改ざんなし · {{count}} 件",
+      "broken": "{{line}} 行目で変更されています",
+      "empty": "まだ記録はありません。",
+      "loading": "監査ログを読み込み中...",
+      "showing": "{{total}} 件中、最新 {{shown}} 件",
+      "refresh": "更新",
+      "events": {
+        "action_approval": "操作の承認",
+        "security_settings_changed": "設定の変更",
+        "security_check_fixed": "チェック項目の修正"
+      }
+    }
   }
 }

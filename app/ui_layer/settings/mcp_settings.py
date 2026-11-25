@@ -44,6 +44,10 @@ def save_mcp_config(config: MCPConfig) -> bool:
     """Save MCP configuration to file."""
     try:
         config.save(MCP_CONFIG_PATH)
+        from app.security.mcp_trust import record
+
+        # Saved through Settings / the /mcp command: these are the user's.
+        record(config.mcp_servers)
         logger.info(f"Saved MCP config to {MCP_CONFIG_PATH}")
         return True
     except Exception as e:

@@ -17,6 +17,7 @@ export type ResourceName =
   | 'general_settings'
   | 'model_settings'
   | 'mini_browser_vault'
+  | 'security'
   | 'static'
 
 type Send = (payload: object) => void

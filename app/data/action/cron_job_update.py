@@ -3,6 +3,7 @@ from agent_core import action
 
 @action(
     name="cron_job_update",
+    effects=["change_agent"],
     description='Update a cron job in PROACTIVE.md: enable/disable it or change its instruction, frequency, time, day or priority. Re-enabling a job or changing its schedule restarts it from now. Each run is stamped automatically when the job fires; record what a run did with add_outcome. A job runs in the chat that created it; move it to another chat (for example to main after its chat was deleted) with updates={"session_id": "main"}.',
     action_sets=["proactive"],
     input_schema={
@@ -73,6 +74,15 @@ def cron_job_update(input_data: dict) -> dict:
                 "error": f"Cannot update fields: {', '.join(invalid_fields)}. "
                 f"Allowed: {', '.join(allowed_update_fields)}",
             }
+
+        if "instruction" in updates:
+            from app.security.threats import schedule_refusal
+
+            refused = schedule_refusal(
+                str(updates.get("instruction") or ""), stage="update", name=job_id
+            )
+            if refused:
+                return {"status": "error", "error": refused}
 
         if "permission_tier" in updates:
             tier = updates["permission_tier"]

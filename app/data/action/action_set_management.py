@@ -13,6 +13,7 @@ from agent_core import action
 
 @action(
     name="add_action_sets",
+    effects=[],
     description=(
         "Get the schemas of action sets from the capability catalog that are "
         "not in <actions> (e.g. document_processing, image, mini_browser for "
@@ -105,6 +106,7 @@ def add_action_sets(input_data: dict) -> dict:
 
 @action(
     name="list_action_sets",
+    effects=[],
     description=(
         "List all available action sets and their descriptions. "
         "Also shows which sets this session's <actions> list holds. "

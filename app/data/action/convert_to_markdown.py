@@ -3,6 +3,7 @@ from agent_core import action
 
 @action(
     name="convert_to_markdown",
+    effects=["write_files"],
     description="Cleans scraped text from .txt, .md, or .docx and converts it into clean, well-structured Markdown suitable for PDF conversion. Use absolute paths.",
     mode="CLI",
     action_sets=["document_processing"],
@@ -121,6 +122,11 @@ def clean_to_md(input_data: dict) -> dict:
     try:
         input_file = input_data.get("input_file")
         output_md = input_data.get("output_md")
+        from app.security.paths import first_refusal
+
+        refused = first_refusal([(input_file, False), (output_md, True)])
+        if refused:
+            return {"status": "error", "message": refused}
 
         if not input_file or not os.path.isfile(input_file):
             return {

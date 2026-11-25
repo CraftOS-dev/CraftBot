@@ -102,6 +102,7 @@
     "mcps": "MCPs",
     "skills": "Skills",
     "integrations": "Integrations",
+    "security": "Security",
     "agent_app": "Agent App"
   },
   "model": {
@@ -766,5 +767,171 @@
     "createLanLink": "Create LAN Link",
     "starting": "Starting...",
     "createTunnel": "Create Tunnel"
+  },
+  "security": {
+    "title": "Security",
+    "subtitle": "Protect your computer, keys and data",
+    "loading": "Loading security settings...",
+    "autoMode": {
+      "label": "Auto mode",
+      "desc": "Run actions without asking first",
+      "askTitle": "Ask before",
+      "askAfterUntrusted": "Acting on outside content",
+      "timeout": "Deny if unanswered after",
+      "seconds_one": "{{count}} second",
+      "seconds_other": "{{count}} seconds",
+      "minutes_one": "{{count}} minute",
+      "minutes_other": "{{count}} minutes",
+      "hours_one": "{{count}} hour",
+      "hours_other": "{{count}} hours"
+    },
+    "effects": {
+      "execute": "Running commands",
+      "write_files": "Changing files",
+      "send_external": "Sending messages",
+      "change_agent": "Changing CraftBot's setup",
+      "use_credentials": "Using saved credentials"
+    },
+    "level": {
+      "title": "Security level",
+      "custom": "Custom",
+      "reset": "Reset",
+      "lowerTitle": "Lower security to {{level}}?",
+      "lowerMessage": "Protections that {{from}} keeps on will turn off.",
+      "lowerConfirm": "Switch to {{level}}",
+      "standard": {
+        "name": "Standard",
+        "desc": "No extra limits"
+      },
+      "enhanced": {
+        "name": "Enhanced",
+        "desc": "Guards keys, web and commands"
+      },
+      "strict": {
+        "name": "Strict",
+        "desc": "Also keeps files in the workspace"
+      }
+    },
+    "advanced": {
+      "toggle": "Advanced",
+      "groups": {
+        "files": "Files",
+        "content": "Content",
+        "network": "Network",
+        "messages": "Messages and schedules",
+        "tools": "Tools",
+        "logs": "Logs"
+      }
+    },
+    "fields": {
+      "verify_mcp_servers": {
+        "label": "Only start MCP servers saved in Settings"
+      },
+      "protect_secret_files": {
+        "label": "Protect key files"
+      },
+      "extra_protected_paths": {
+        "label": "Also protect",
+        "placeholder": "/path/to/file-or-folder"
+      },
+      "confine_writes": {
+        "label": "Keep file changes in the workspace"
+      },
+      "workspace_paths": {
+        "label": "Extra workspace folders",
+        "placeholder": "/path/to/folder"
+      },
+      "network_guard": {
+        "label": "Block requests to local networks"
+      },
+      "allowed_domains": {
+        "label": "Allowed domains",
+        "placeholder": "example.com",
+        "empty": "All public sites"
+      },
+      "third_party_reader": {
+        "label": "Use a third-party page reader"
+      },
+      "scrub_child_env": {
+        "label": "Hide API keys from tools"
+      },
+      "log_prompts": {
+        "label": "Log full prompts"
+      },
+      "retention_days": {
+        "label": "Keep logs for",
+        "forever": "Forever",
+        "days_one": "{{count}} day",
+        "days_other": "{{count}} days"
+      },
+      "email_allowed_senders": {
+        "label": "Allowed email senders",
+        "placeholder": "name@example.com",
+        "empty": "All senders"
+      },
+      "protect_os_credentials": {
+        "label": "Protect system credentials"
+      },
+      "guard_memory": {
+        "label": "Guard memory files"
+      },
+      "check_commands": {
+        "label": "Review risky commands"
+      },
+      "check_mcp_packages": {
+        "label": "Check MCP packages for malware"
+      },
+      "scan_skills": {
+        "label": "Scan skills before installing"
+      },
+      "verify_downloads": {
+        "label": "Verify downloads"
+      },
+      "redact_tool_output": {
+        "label": "Hide secrets in tool results"
+      },
+      "strip_chat_tokens": {
+        "label": "Strip chat tokens from outside content"
+      },
+      "limit_third_party_runs": {
+        "label": "Limit what others' messages can do"
+      },
+      "limit_scheduled_runs": {
+        "label": "Limit what scheduled tasks can do"
+      }
+    },
+    "list": {
+      "add": "Add",
+      "remove": "Remove {{item}}",
+      "duplicate": "Already added"
+    },
+    "check": {
+      "title": "Security check",
+      "runAgain": "Run again",
+      "running": "Checking...",
+      "fix": "Fix",
+      "empty": "No results yet.",
+      "status": {
+        "ok": "OK",
+        "info": "Info",
+        "warn": "Warning",
+        "fail": "Problem"
+      }
+    },
+    "audit": {
+      "title": "Audit log",
+      "intact_one": "Intact · {{count}} record",
+      "intact_other": "Intact · {{count}} records",
+      "broken": "Changed at line {{line}}",
+      "empty": "Nothing recorded yet.",
+      "loading": "Loading the audit log...",
+      "showing": "Latest {{shown}} of {{total}}",
+      "refresh": "Refresh",
+      "events": {
+        "action_approval": "Action approval",
+        "security_settings_changed": "Settings changed",
+        "security_check_fixed": "Check fixed"
+      }
+    }
   }
 }

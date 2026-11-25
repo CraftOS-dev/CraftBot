@@ -251,7 +251,9 @@ def _parse_skill_name_from_file(skill_md_path: Path) -> Optional[str]:
         return None
 
 
-def install_skill_from_path(source_path: str, reload: bool = True) -> Tuple[bool, str]:
+def install_skill_from_path(
+    source_path: str, reload: bool = True, *, origin: str = ""
+) -> Tuple[bool, str]:
     """
     Install a skill from a local directory path.
 
@@ -259,6 +261,8 @@ def install_skill_from_path(source_path: str, reload: bool = True) -> Tuple[bool
         source_path: Path to skill directory containing SKILL.md.
         reload: Reload the skill registry afterwards. Pass False when running
             in a worker thread and reload on the event loop instead.
+        origin: Where the skill came from (a git URL), for the security scan's
+            record; defaults to source_path.
 
     Returns:
         Tuple of (success, message).
@@ -303,6 +307,13 @@ def install_skill_from_path(source_path: str, reload: bool = True) -> Tuple[bool
     if target.exists():
         return False, f"Skill '{skill_name}' already exists at {target}"
 
+    # Settings > Security > Scan skills (off at Standard).
+    from app.security.skill_scan import install_check
+
+    refusal, scan_note = install_check(source, source=origin or source_path)
+    if refusal:
+        return False, refusal
+
     try:
         # Copy skill directory
         shutil.copytree(source, target)
@@ -312,7 +323,7 @@ def install_skill_from_path(source_path: str, reload: bool = True) -> Tuple[bool
         if reload:
             reload_skills()
 
-        return True, f"Installed skill '{skill_name}' to {target}"
+        return True, f"Installed skill '{skill_name}' to {target}{scan_note}"
     except Exception as e:
         return False, f"Failed to install skill: {e}"
 
@@ -392,7 +403,7 @@ def install_skill_from_git(url: str, reload: bool = True) -> Tuple[bool, str]:
                 return False, "No SKILL.md found in repository"
 
             # Install from the found path
-            return install_skill_from_path(str(skill_dir), reload=reload)
+            return install_skill_from_path(str(skill_dir), reload=reload, origin=url)
 
         except subprocess.TimeoutExpired:
             return False, "Git clone timed out"
@@ -488,6 +499,15 @@ def create_skill_scaffold(
     if target.exists():
         return False, f"Skill '{skill_name}' already exists at {target}"
 
+    scan_note = ""
+    if content:
+        # Settings > Security > Scan skills (off at Standard).
+        from app.security.skill_scan import text_check
+
+        refusal, scan_note = text_check(content, source=f"new skill {skill_name}")
+        if refusal:
+            return False, refusal.replace("Not installed", "Not created", 1)
+
     try:
         # Create skill directory
         target.mkdir(parents=True)
@@ -506,7 +526,7 @@ def create_skill_scaffold(
         # Reload skills
         reload_skills()
 
-        return True, f"Created skill '{skill_name}' at {target}"
+        return True, f"Created skill '{skill_name}' at {target}{scan_note}"
     except Exception as e:
         return False, f"Failed to create skill: {e}"
 

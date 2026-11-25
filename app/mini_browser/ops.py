@@ -57,7 +57,7 @@ from typing import (
 from urllib.parse import urlsplit
 
 from app.logger import logger
-from app.mini_browser import human
+from app.mini_browser import human, netguard
 from app.mini_browser import types as mb_types
 from app.mini_browser.errors import (
     ERROR_SPECS,
@@ -1423,12 +1423,32 @@ async def navigate(
     with NavWatch(page) as watch:
         if action not in HISTORY_TARGETS:
             check_url_allowed(core, target)
+            await netguard.ensure_allowed(target)
         # Leaving the page drops whatever the user typed into it.
         human.ensure_control(tab)
-        if action in HISTORY_TARGETS:
-            note = await _history(page, action, timeout_ms)
-        else:
-            note = await _goto(page, target, timeout_ms, watch)
+        take_block = getattr(core, "take_netguard_block", None)
+        if take_block is not None:
+            take_block(tab)  # an older refusal is not this navigation's
+        try:
+            if action in HISTORY_TARGETS:
+                note = await _history(page, action, timeout_ms)
+            else:
+                note = await _goto(page, target, timeout_ms, watch)
+        except MiniBrowserError as exc:
+            block = (
+                take_block(tab)
+                if take_block is not None
+                and exc.code == "MINI_BROWSER_NAVIGATION_FAILED"
+                else None
+            )
+            if block is None:
+                raise
+            # Settings > Security > Network refused a hop on the way (a
+            # redirect into the local network): say so, not "failed".
+            raise MiniBrowserError(
+                "MINI_BROWSER_BLOCKED_URL",
+                reason=f"it led to {_short(block[0])}, and {block[1]}",
+            ) from None
         if tab_gone(core, tab):
             raise closed_error(core, tab)
         note += await after_action(page, watch, baseline=watch.commits, core=core)

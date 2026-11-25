@@ -134,18 +134,21 @@ export async function startClient(): Promise<void> {
   })
 
   // Window title, Windows Terminal busy progress, and a notification when a
-  // session the user is not looking at asks something or finishes.
+  // session the user is not looking at asks something or finishes, or when
+  // an action waits for the user's approval (with a toast over any screen,
+  // since the approval box is in the chat).
   let lastTitle = ''
   let lastBusyAny = false
   const wasBusy = new Set<string>()
   const announced = new Set<string>()
-  let seen: { messages: unknown; runs: unknown; active: string } | null = null
+  let seen: { messages: unknown; runs: unknown; active: string; approvals: unknown } | null = null
   store.subscribe(() => {
     sync()
     const state = store.getState()
     const active = state.tui.activeSessionId
-    if (seen && seen.messages === state.messages && seen.runs === state.agent.runStateBySession && seen.active === active) return
-    seen = { messages: state.messages, runs: state.agent.runStateBySession, active }
+    const approvals = state.security.approvals
+    if (seen && seen.messages === state.messages && seen.runs === state.agent.runStateBySession && seen.active === active && seen.approvals === approvals) return
+    seen = { messages: state.messages, runs: state.agent.runStateBySession, active, approvals }
     const busySessions = Object.keys(state.agent.runStateBySession)
     const busyAny = busySessions.length > 0
     if (busyAny !== lastBusyAny) {
@@ -175,6 +178,18 @@ export async function startClient(): Promise<void> {
       }
     }
     for (const sessionId of busySessions) wasBusy.add(sessionId)
+
+    needsYou += approvals.length
+    for (const request of approvals) {
+      if (announced.has(`approval:${request.id}`)) continue
+      announced.add(`approval:${request.id}`)
+      if (!state.connection.connected) continue
+      const action = request.action_display_name || request.action_name
+      notify('CraftBot', i18n.t('tui:notify.approval', { action }))
+      if (state.tui.screens.length > 0) {
+        store.dispatch(pushToast(i18n.t('tui:approval.waitingToast', { action }), 'info', 15_000, 'approval'))
+      }
+    }
 
     const title = `CraftBot${busyAny ? ` ${String.fromCodePoint(0x25d0)}` : ''}${needsYou ? ` · ${i18n.t('tui:notify.needsYou', { count: needsYou })}` : ''}`
     if (title !== lastTitle) {

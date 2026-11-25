@@ -3,6 +3,7 @@ from agent_core import action
 
 @action(
     name="set_requirement",
+    effects=[],
     description=(
         "Record the definition of done: the measurable checks the finished result must pass. Verify tests the "
         "result against it, and it is kept verbatim when older events are summarized. It is the scope of the "

@@ -3,6 +3,8 @@ from agent_core import action
 
 @action(
     name="web_search",
+    effects=[],
+    result_source="network",
     description="""Performs web search and returns search result snippets with markdown hyperlinks.
 - Uses Google Custom Search API (if credentials exist) or DuckDuckGo fallback
 - Returns search result blocks with title, URL, and content snippets

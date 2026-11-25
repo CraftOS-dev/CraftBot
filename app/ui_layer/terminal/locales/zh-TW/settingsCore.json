@@ -543,5 +543,148 @@
       "expired": "已過期",
       "about": "約 {{time}}"
     }
+  },
+  "security": {
+    "loading": "正在載入安全性設定...",
+    "error": "錯誤：{{error}}",
+    "saved": "已儲存",
+    "saveFailed": "無法儲存安全性設定",
+    "approvalsTitle": "核准",
+    "autoMode": "自動模式",
+    "askFirst": "執行前詢問：",
+    "effects": {
+      "execute": "執行命令",
+      "write_files": "變更檔案",
+      "send_external": "傳送訊息",
+      "change_agent": "變更 CraftBot 設定",
+      "use_credentials": "使用已儲存的憑證"
+    },
+    "askAfterUntrusted": "讀取外部內容後的動作",
+    "timeout": "無人回應時自動拒絕",
+    "minutes_one": "{{count}} 分鐘",
+    "minutes_other": "{{count}} 分鐘",
+    "levelTitle": "安全性等級",
+    "custom": "自訂",
+    "customAside": "自訂（{{level}}）",
+    "levels": {
+      "standard": {
+        "name": "標準",
+        "description": "無額外限制"
+      },
+      "enhanced": {
+        "name": "增強",
+        "description": "保護金鑰、網路和命令"
+      },
+      "strict": {
+        "name": "嚴格",
+        "description": "並將檔案限制在工作區內"
+      }
+    },
+    "hintChoose": "選擇",
+    "lowerConfirm": "要將安全性降低到 {{level}} 嗎？它不包含的保護措施將會關閉。",
+    "switchConfirm": "要切換到 {{level}} 嗎？你的自訂設定將回到該等級的預設值。",
+    "useDefaultsConfirm": "要捨棄你的自訂設定並使用 {{level}} 的預設值嗎？",
+    "useDefaults": "使用 {{level}} 的預設值",
+    "advancedTitle": "進階",
+    "showAdvanced": "顯示進階設定",
+    "hideAdvanced": "隱藏進階設定",
+    "changed": "已變更",
+    "settings": {
+      "protect_secret_files": {
+        "label": "保護金鑰檔案"
+      },
+      "confine_writes": {
+        "label": "將檔案變更限制在工作區內"
+      },
+      "network_guard": {
+        "label": "封鎖對本機網路的請求"
+      },
+      "third_party_reader": {
+        "label": "使用第三方網頁讀取服務"
+      },
+      "scrub_child_env": {
+        "label": "對工具隱藏 API 金鑰"
+      },
+      "log_prompts": {
+        "label": "記錄完整提示"
+      },
+      "retention_days": {
+        "label": "日誌保留時間"
+      },
+      "verify_mcp_servers": {
+        "label": "僅啟動在設定中儲存的 MCP 伺服器"
+      },
+      "protect_os_credentials": {
+        "label": "保護系統憑證"
+      },
+      "guard_memory": {
+        "label": "保護記憶檔案"
+      },
+      "check_commands": {
+        "label": "審查高風險指令"
+      },
+      "check_mcp_packages": {
+        "label": "檢查 MCP 套件是否含惡意軟體"
+      },
+      "scan_skills": {
+        "label": "安裝前掃描技能"
+      },
+      "verify_downloads": {
+        "label": "驗證下載檔案"
+      },
+      "redact_tool_output": {
+        "label": "隱藏工具結果中的金鑰"
+      },
+      "strip_chat_tokens": {
+        "label": "移除外部內容中的聊天標記"
+      },
+      "limit_third_party_runs": {
+        "label": "限制他人訊息可執行的操作"
+      },
+      "limit_scheduled_runs": {
+        "label": "限制排程工作可執行的操作"
+      }
+    },
+    "keepForever": "永久",
+    "days_one": "{{count}} 天",
+    "days_other": "{{count}} 天",
+    "badDays": "請輸入 0 或以上的整數天數",
+    "lists": {
+      "extra_protected_paths": "額外保護",
+      "workspace_paths": "額外的工作區資料夾",
+      "allowed_domains": "允許的網域",
+      "email_allowed_senders": "允許的郵件寄件者"
+    },
+    "none": "無",
+    "listsNote": "請在瀏覽器中編輯清單。",
+    "checkTitle": "安全性檢查",
+    "checkIssues_one": "{{count}} 項需要查看",
+    "checkIssues_other": "{{count}} 項需要查看",
+    "checkAllGood": "無需修正",
+    "checking": "檢查中...",
+    "checkAgain": "重新執行檢查",
+    "status": {
+      "ok": "正常",
+      "info": "提示",
+      "warn": "警告",
+      "fail": "問題"
+    },
+    "canFix": "可修正",
+    "hintFix": "修正",
+    "fixConfirm": "要套用「{{title}}」的修正嗎？",
+    "fixed": "已修正",
+    "fixFailed": "修正未能套用",
+    "auditTitle": "稽核記錄",
+    "auditLoading": "正在載入稽核記錄...",
+    "auditRecords": "記錄",
+    "records_one": "{{count}} 筆記錄",
+    "records_other": "{{count}} 筆記錄",
+    "auditIntact": "完整",
+    "auditBroken": "第 {{line}} 行遭變更",
+    "auditFile": "檔案",
+    "auditRefresh": "重新整理稽核記錄",
+    "resetTitle": "重設",
+    "reset": "重設安全性設定",
+    "resetConfirm": "要將所有安全性設定重設為標準嗎？"
   }
 }

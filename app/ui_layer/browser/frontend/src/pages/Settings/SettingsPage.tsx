@@ -22,6 +22,7 @@ import { SkillsSettings } from './SkillsSettings'
 import { IntegrationsSettings } from './IntegrationsSettings'
 import { AgentAppSettings } from './AgentAppSettings'
 import { CredentialsSettings } from './CredentialsSettings'
+import { SecuritySettings } from './SecuritySettings'
 
 export function SettingsPage() {
   const { t } = useTranslation(['settings', 'common'])
@@ -66,6 +67,8 @@ export function SettingsPage() {
         return <IntegrationsSettings />
       case 'credentials':
         return <CredentialsSettings />
+      case 'security':
+        return <SecuritySettings />
       case 'agent_app':
         return <AgentAppSettings />
       default:

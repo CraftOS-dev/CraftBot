@@ -165,5 +165,37 @@
     "title": "Agent App",
     "noInstalled": "설치된 앱이 없습니다.",
     "close": "닫기"
+  },
+  "approval": {
+    "aria": "승인 요청",
+    "title": "{{action}}에 대한 승인이 필요합니다",
+    "inSession": "{{session}}에서",
+    "highRisk": "이 작업은 다음을 수행할 수 있습니다: {{effects}}.",
+    "untrusted": "에이전트가 이 작업을 요청하기 전에 외부 콘텐츠({{detail}})를 읽었습니다.",
+    "untrustedNoDetail": "에이전트가 이 작업을 요청하기 전에 외부 콘텐츠를 읽었습니다.",
+    "risky": "이 명령은 위험해 보입니다: {{detail}}.",
+    "effects": {
+      "execute": "명령 또는 코드 실행",
+      "write_files": "파일 생성 또는 변경",
+      "send_external": "메시지 전송 또는 외부 서비스 변경",
+      "change_agent": "CraftBot 자체 설정, 일정 또는 도구 변경",
+      "use_credentials": "저장된 자격 증명 사용"
+    },
+    "inputs": "입력",
+    "showAll_one": "{{count}}줄 모두 보기",
+    "showAll_other": "{{count}}줄 모두 보기",
+    "showLess": "간략히 보기",
+    "expiresIn": "{{time}} 후 자동 거부",
+    "expired": "시간 초과",
+    "allowOnce": "한 번 허용",
+    "allowSession": "이 세션에서 허용",
+    "allowSessionHint": "CraftBot이 다시 시작될 때까지 이 채팅에서 {{action}}에 대해 다시 묻지 않습니다",
+    "allowSessionHintCommand": "CraftBot이 다시 시작될 때까지 이 채팅에서 이 명령은 다시 묻지 않기",
+    "deny": "거부",
+    "notConnected": "연결되어 있지 않아 응답이 전송되지 않았습니다. CraftBot이 다시 연결되면 다시 시도하세요.",
+    "waitingIn_one": "{{session}}의 작업이 승인을 기다리고 있습니다",
+    "waitingIn_other": "{{session}}의 작업 {{count}}개가 승인을 기다리고 있습니다",
+    "open": "열기",
+    "unknownSession": "다른 채팅"
   }
 }

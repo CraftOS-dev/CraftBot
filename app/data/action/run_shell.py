@@ -3,6 +3,7 @@ from agent_core import action
 
 @action(
     name="run_shell",
+    effects=["execute"],
     description="Executes a shell command using the appropriate OS shell, capturing stdout, stderr, and exit code. Stdin is closed (EOF) by default. IMPORTANT: For long-running commands that don't terminate (e.g., 'npm run dev', 'npm start', 'python -m http.server', 'flask run', watch processes, dev servers), you MUST set background=true. Otherwise, the command will block the entire task until timeout and may not capture any output.",
     platforms=["linux"],
     default=True,
@@ -84,6 +85,20 @@ def shell_exec(input_data: dict) -> dict:
     env_input = input_data.get("env") or {}
     background = input_data.get("background", False)
 
+    from app.security.command_review import env_refusal as _env_refusal
+    from app.security.commands import refusal as _command_refusal
+
+    _refused = _command_refusal(command) or _env_refusal(env_input)
+    if _refused:
+        return {
+            "status": "error",
+            "stdout": "",
+            "stderr": "",
+            "return_code": -1,
+            "message": _refused,
+            "pid": None,
+        }
+
     if simulated_mode:
         # Return mock result for testing
         return {
@@ -122,7 +137,10 @@ def shell_exec(input_data: dict) -> dict:
     # action — the system default may be an older major (app/node_runtime.py).
     from app import node_runtime
 
-    env = node_runtime.child_env()
+    from app.security.env import command_environment
+
+    # Settings > Security: CraftBot's own keys stay out of the command.
+    env = command_environment(node_runtime.child_env())
     for k, v in env_input.items():
         env[str(k)] = str(v)
 
@@ -238,6 +256,7 @@ def shell_exec(input_data: dict) -> dict:
 
 @action(
     name="run_shell",
+    effects=["execute"],
     description="Executes a command line with cmd.exe, capturing stdout, stderr, and exit code. Stdin is closed (EOF) by default. For PowerShell, use run_powershell. IMPORTANT: For long-running commands that don't terminate (e.g., 'npm run dev', 'npm start', 'python -m http.server', 'flask run', watch processes, dev servers), you MUST set background=true. Otherwise, the command will block the entire task until timeout and may not capture any output. Keep helper processes hidden; use background=true instead of opening a terminal with start, cmd /k, or PowerShell -NoExit. Open a visible interactive window only when the user explicitly requests it.",
     platforms=["windows"],
     default=True,
@@ -338,6 +357,20 @@ def shell_exec_windows(input_data: dict) -> dict:
     env_input = input_data.get("env") or {}
     background = input_data.get("background", False)
 
+    from app.security.command_review import env_refusal as _env_refusal
+    from app.security.commands import refusal as _command_refusal
+
+    _refused = _command_refusal(command, windows=True) or _env_refusal(env_input)
+    if _refused:
+        return {
+            "status": "error",
+            "stdout": "",
+            "stderr": "",
+            "return_code": -1,
+            "message": _refused,
+            "pid": None,
+        }
+
     timeout_seconds = float(timeout_val) if timeout_val is not None else 600.0
 
     if not command:
@@ -365,7 +398,10 @@ def shell_exec_windows(input_data: dict) -> dict:
     # action — the system default may be an older major (app/node_runtime.py).
     from app import node_runtime
 
-    env = node_runtime.child_env()
+    from app.security.env import command_environment
+
+    # Settings > Security: CraftBot's own keys stay out of the command.
+    env = command_environment(node_runtime.child_env())
     for k, v in env_input.items():
         env[str(k)] = str(v)
 
@@ -491,6 +527,7 @@ def shell_exec_windows(input_data: dict) -> dict:
 
 @action(
     name="run_shell",
+    effects=["execute"],
     description="Executes a shell command using the appropriate OS shell, capturing stdout, stderr, and exit code. Stdin is closed (EOF) by default. IMPORTANT: For long-running commands that don't terminate (e.g., 'npm run dev', 'npm start', 'python -m http.server', 'flask run', watch processes, dev servers), you MUST set background=true. Otherwise, the command will block the entire task until timeout and may not capture any output.",
     platforms=["darwin"],
     default=True,
@@ -584,6 +621,20 @@ def shell_exec_darwin(input_data: dict) -> dict:
     env_input = input_data.get("env") or {}
     background = input_data.get("background", False)
 
+    from app.security.command_review import env_refusal as _env_refusal
+    from app.security.commands import refusal as _command_refusal
+
+    _refused = _command_refusal(command) or _env_refusal(env_input)
+    if _refused:
+        return {
+            "status": "error",
+            "stdout": "",
+            "stderr": "",
+            "return_code": -1,
+            "message": _refused,
+            "pid": None,
+        }
+
     timeout_seconds = float(timeout_val) if timeout_val is not None else 600.0
 
     if not command:
@@ -611,7 +662,10 @@ def shell_exec_darwin(input_data: dict) -> dict:
     # action — the system default may be an older major (app/node_runtime.py).
     from app import node_runtime
 
-    env = node_runtime.child_env()
+    from app.security.env import command_environment
+
+    # Settings > Security: CraftBot's own keys stay out of the command.
+    env = command_environment(node_runtime.child_env())
     for k, v in env_input.items():
         env[str(k)] = str(v)
 
