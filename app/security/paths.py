@@ -23,9 +23,10 @@ for running commands) or a sandbox is what covers the shell.
 from __future__ import annotations
 
 import os
+import time
 from functools import lru_cache
 from pathlib import Path
-from typing import Iterable, List, Optional, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple
 
 from app.security.policy import SecurityPolicy, get_policy
 
@@ -35,7 +36,10 @@ def _real(path) -> Path:
 
 
 def _inside(path: Path, root: Path) -> bool:
-    return path == root or root in path.parents
+    # Both are resolved: compare as text (much faster than Path.parents),
+    # case-insensitively where the file system is (normcase on Windows).
+    p, r = os.path.normcase(str(path)), os.path.normcase(str(root))
+    return p == r or p.startswith(r if r.endswith(os.sep) else r + os.sep)
 
 
 # Hermes agent/file_safety.py: HOME_CREDENTIAL_FILES, HOME_CREDENTIAL_DIRS,
@@ -111,30 +115,49 @@ def system_credential_refusal(path, real: Path, *, write: bool) -> Optional[str]
     return None
 
 
+# Resolving a root follows its symlinks (several system calls each), so a
+# resolved list is reused for a few seconds; a changed setting or folder
+# gets a new key at once.
+_ROOTS_TTL_S = 5.0
+_roots_cache: Dict[Tuple, Tuple[float, List[Path]]] = {}
+
+
+def _resolved(roots: Tuple[str, ...]) -> List[Path]:
+    now = time.monotonic()
+    hit = _roots_cache.get(roots)
+    if hit is not None and now - hit[0] < _ROOTS_TTL_S:
+        return hit[1]
+    resolved = [_real(r) for r in roots]
+    if len(_roots_cache) > 32:
+        _roots_cache.clear()
+    _roots_cache[roots] = (now, resolved)
+    return resolved
+
+
 def protected_roots(policy: Optional[SecurityPolicy] = None) -> List[Path]:
     from app import paths
     from app.config import APP_CONFIG_PATH, PROJECT_ROOT
 
     policy = policy or get_policy()
-    roots = [
-        APP_CONFIG_PATH / "settings.json",
-        APP_CONFIG_PATH / "mcp_config.json",
-        APP_CONFIG_PATH / "security.json",
-        Path(PROJECT_ROOT) / ".credentials",
-        Path(PROJECT_ROOT) / ".security",
-        Path(paths.STATE_ROOT) / "run",
-    ]
-    roots.extend(Path(p) for p in policy.extra_protected_paths)
-    return [_real(r) for r in roots]
+    roots = (
+        str(APP_CONFIG_PATH / "settings.json"),
+        str(APP_CONFIG_PATH / "mcp_config.json"),
+        str(APP_CONFIG_PATH / "security.json"),
+        str(Path(PROJECT_ROOT) / ".credentials"),
+        str(Path(PROJECT_ROOT) / ".security"),
+        str(Path(paths.STATE_ROOT) / "run"),
+    ) + tuple(policy.extra_protected_paths)
+    return _resolved(roots)
 
 
 def writable_roots(policy: Optional[SecurityPolicy] = None) -> List[Path]:
     from app.config import AGENT_FILE_SYSTEM_PATH, AGENT_WORKSPACE_ROOT
 
     policy = policy or get_policy()
-    roots = [AGENT_FILE_SYSTEM_PATH, AGENT_WORKSPACE_ROOT]
-    roots.extend(Path(p) for p in policy.workspace_paths)
-    return [_real(r) for r in roots]
+    roots = (str(AGENT_FILE_SYSTEM_PATH), str(AGENT_WORKSPACE_ROOT)) + tuple(
+        policy.workspace_paths
+    )
+    return _resolved(roots)
 
 
 def check_file_access(path, *, write: bool) -> Optional[str]:
