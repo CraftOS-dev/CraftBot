@@ -97,14 +97,33 @@ def _home_re() -> Optional["re.Pattern[str]"]:
             spellings = set()
         paths = sorted((p.rstrip("/\\") for p in spellings if p and len(p) > 1), key=len, reverse=True)
         _HOME_RE_CACHE[key] = (
-            re.compile("(?:" + "|".join(re.escape(p) for p in paths) + r")(?=[/\\\s\"']|$)") if paths else None
+            re.compile(
+                "(?:" + "|".join(re.escape(p) for p in paths) + r")(?=[/\\\s\"']|$)",
+                re.IGNORECASE if os.name == "nt" else 0,  # Windows paths ignore case
+            )
+            if paths
+            else None
         )
     return _HOME_RE_CACHE[key]
 
 
-def _fold_home(command: str) -> str:
+# Windows spellings of the home folder, and a path under it written with
+# backslashes: folded to ~/... so the home rules read it as on POSIX.
+_WINDOWS_HOME_VARS_RE = re.compile(
+    r"%userprofile%|\$env:userprofile|\$\{env:userprofile\}", re.IGNORECASE
+)
+_TILDE_BACKSLASH_PATH_RE = re.compile(r"~\\[^\s\"'|&<>;]*")
+
+
+def _fold_home(command: str, *, windows: bool = False) -> str:
     pattern = _home_re()
-    return pattern.sub("~", command) if pattern is not None else command
+    if pattern is not None:
+        command = pattern.sub("~", command)
+    if windows:
+        command = _WINDOWS_HOME_VARS_RE.sub("~", command)
+    if "~\\" in command:
+        command = _TILDE_BACKSLASH_PATH_RE.sub(lambda m: m.group(0).replace("\\", "/"), command)
+    return command
 
 
 def normalize(command: str, *, windows: bool = False) -> str:
@@ -116,7 +135,7 @@ def normalize(command: str, *, windows: bool = False) -> str:
         command = _ANSI_ESCAPE_RE.sub("", command)
     command = unicodedata.normalize("NFKC", command.replace("\x00", ""))
     if windows:
-        return _EMPTY_QUOTES_RE.sub("", command)
+        return _EMPTY_QUOTES_RE.sub("", _fold_home(command, windows=True))
     command = _CONTINUATION_RE.sub("", command)
     command = _fold_home(command)
     command = _ESCAPE_RE.sub(r"\1", command)

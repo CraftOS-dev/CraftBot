@@ -258,6 +258,7 @@ def test_system_credentials_are_refused_only_when_on(store, tmp_path, monkeypatc
     home = tmp_path / "home"
     (home / ".ssh").mkdir(parents=True)
     monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))  # Windows reads this one
     _credential_locations.cache_clear()
     key = home / ".ssh" / "authorized_keys"
     project_env = tmp_path / "project" / ".env"
@@ -272,7 +273,8 @@ def test_system_credentials_are_refused_only_when_on(store, tmp_path, monkeypatc
     assert "login" in check_file_access(home / ".ssh" / "config", write=True)
     assert "environment file" in check_file_access(project_env, write=False)
     assert "environment file" in check_file_access(tmp_path / ".ENV.local", write=False)
-    assert "process file" in check_file_access("/proc/1/environ", write=False)
+    if os.name != "nt":
+        assert "process file" in check_file_access("/proc/1/environ", write=False)
     # Everyday files stay usable.
     assert check_file_access(tmp_path / "project" / ".env.example", write=False) is None
     assert check_file_access(tmp_path / "project" / "main.py", write=True) is None
@@ -286,6 +288,7 @@ def test_a_symlink_to_a_credential_is_refused(store, tmp_path, monkeypatch):
     home = tmp_path / "home"
     (home / ".ssh").mkdir(parents=True)
     monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
     _credential_locations.cache_clear()
     link = tmp_path / "innocent.txt"
     os.symlink(home / ".ssh" / "authorized_keys", link)

@@ -338,3 +338,17 @@ def test_text_aimed_at_the_reviewer_is_denied_without_asking(llm):
 def test_no_model_denies(monkeypatch):
     monkeypatch.setattr(LLMInterfaceRegistry, "_provider_factory", None)
     assert _review()[0] == "deny"
+
+
+def test_a_windows_home_path_reads_like_a_posix_one(monkeypatch):
+    """cmd spells the home folder C:\\Users\\me\\... or
+    %USERPROFILE%\\...; the home rules must still see ~/.ssh and ~/.bashrc."""
+    monkeypatch.setenv("HOME", r"C:\Users\Me")
+    monkeypatch.setenv("USERPROFILE", r"C:\Users\Me")
+    for command in (
+        r"echo alias >> C:\Users\Me\.bashrc",
+        r"echo ssh-ed25519 AAAA >> %USERPROFILE%\.ssh\authorized_keys",
+    ):
+        assert find_risk(command, windows=True), command
+    assert find_risk(r"type C:\Users\Me\notes.txt", windows=True) is None
+    assert find_risk(r"dir %USERPROFILE%\Documents", windows=True) is None

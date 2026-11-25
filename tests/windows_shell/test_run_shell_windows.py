@@ -133,6 +133,9 @@ class WindowsShellTests(unittest.TestCase):
     def setUp(self):
         load_actions(self)
         app = types.ModuleType("app")
+        # The real app.security (standard library only) checks each command
+        # as in production; only the Node PATH setup is stubbed.
+        app.__path__ = [str(ROOT / "app")]
         app.node_runtime = types.SimpleNamespace(child_env=lambda: os.environ.copy())
         self.cancellation = types.ModuleType("agent_core.core.impl.action.cancellation")
         self.cancellation.register_process = Mock()
@@ -148,6 +151,15 @@ class WindowsShellTests(unittest.TestCase):
         )
         modules.start()
         self.addCleanup(modules.stop)
+        # Default security settings and audit log in a temporary folder.
+        from app.security import audit, policy
+
+        state = tempfile.TemporaryDirectory()
+        self.addCleanup(state.cleanup)
+        policy.set_store_for_tests(policy.SecurityStore(Path(state.name) / "security.json"))
+        audit.set_log_for_tests(audit.AuditLog(Path(state.name) / "audit.jsonl"))
+        self.addCleanup(policy.set_store_for_tests, None)
+        self.addCleanup(audit.set_log_for_tests, None)
 
     def powershell(self, script, **kwargs):
         return self.run_powershell({"script": script, "timeout": 15, **kwargs})

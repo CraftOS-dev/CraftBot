@@ -423,6 +423,8 @@ def test_ten_kilobytes_with_secrets_stay_fast():
         "-----BEGIN RSA PRIVATE KEY-----\n" + "A" * 50_000,
         "Private-Lines: 3\n" + "A" * 50_000,
     ],
+    # Short names: Windows caps the variable pytest puts the test id in.
+    ids=["db_url", "url", "header", "password_flag", "pem", "putty"],
 )
 def test_pathological_input_stays_linear(text):
     start = time.perf_counter()
