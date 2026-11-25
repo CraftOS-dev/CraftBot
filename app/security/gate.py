@@ -42,8 +42,10 @@ from app.security.policy import (
 
 _DENIAL_LIMIT = 3
 
-# Inputs that hold the command an EXECUTE action runs.
-COMMAND_KEYS = ("command",)
+# Inputs that hold the command an EXECUTE action runs: a shell command, or
+# a PowerShell script (always read as Windows).
+COMMAND_KEYS = ("command", "script")
+_WINDOWS_ONLY_KEYS = frozenset({"script"})
 
 # Runs the scheduler starts (Hermes: cron runs get no scheduling tools).
 SCHEDULED_SOURCES = frozenset(
@@ -61,12 +63,16 @@ SCHEDULED_SOURCES = frozenset(
 _AUTO_REPLY_EFFECTS = frozenset({Effect.SEND_EXTERNAL})
 
 
-def command_of(input_data: Dict[str, Any]) -> Optional[str]:
+def _command_input(input_data: Dict[str, Any]):
     for key in COMMAND_KEYS:
         value = input_data.get(key)
         if isinstance(value, str) and value.strip():
-            return value
-    return None
+            return key, value
+    return None, None
+
+
+def command_of(input_data: Dict[str, Any]) -> Optional[str]:
+    return _command_input(input_data)[1]
 
 
 def grant_key(action: Any, input_data: Dict[str, Any]) -> str:
@@ -180,11 +186,12 @@ class SecurityGate:
 
         command, risk = None, None
         if policy.check_commands and Effect.EXECUTE in effects:
-            command = command_of(input_data)
+            key, command = _command_input(input_data)
             if command:
                 from app.security.command_review import find_risk
 
-                risk = find_risk(command, windows=os.name == "nt")
+                windows = os.name == "nt" or key in _WINDOWS_ONLY_KEYS
+                risk = find_risk(command, windows=windows)
 
         if not policy.gate_active:
             if risk:

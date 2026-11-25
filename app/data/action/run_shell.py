@@ -85,9 +85,10 @@ def shell_exec(input_data: dict) -> dict:
     env_input = input_data.get("env") or {}
     background = input_data.get("background", False)
 
+    from app.security.command_review import env_refusal as _env_refusal
     from app.security.commands import refusal as _command_refusal
 
-    _refused = _command_refusal(command)
+    _refused = _command_refusal(command) or _env_refusal(env_input)
     if _refused:
         return {
             "status": "error",
@@ -356,9 +357,10 @@ def shell_exec_windows(input_data: dict) -> dict:
     env_input = input_data.get("env") or {}
     background = input_data.get("background", False)
 
+    from app.security.command_review import env_refusal as _env_refusal
     from app.security.commands import refusal as _command_refusal
 
-    _refused = _command_refusal(command, windows=True)
+    _refused = _command_refusal(command, windows=True) or _env_refusal(env_input)
     if _refused:
         return {
             "status": "error",
@@ -619,9 +621,10 @@ def shell_exec_darwin(input_data: dict) -> dict:
     env_input = input_data.get("env") or {}
     background = input_data.get("background", False)
 
+    from app.security.command_review import env_refusal as _env_refusal
     from app.security.commands import refusal as _command_refusal
 
-    _refused = _command_refusal(command)
+    _refused = _command_refusal(command) or _env_refusal(env_input)
     if _refused:
         return {
             "status": "error",

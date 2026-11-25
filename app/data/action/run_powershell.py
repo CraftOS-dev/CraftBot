@@ -99,9 +99,10 @@ def powershell_exec_windows(input_data: dict) -> dict:
             "pid": None,
         }
 
+    from app.security.command_review import env_refusal as _env_refusal
     from app.security.commands import refusal as _command_refusal
 
-    _refused = _command_refusal(script, windows=True)
+    _refused = _command_refusal(script, windows=True) or _env_refusal(env_input)
     if _refused:
         return {
             "status": "error",
