@@ -144,6 +144,12 @@ async def schedule_task(input_data: dict) -> dict:
         if not schedule_expr:
             return {"status": "error", "error": "schedule is required"}
 
+        from app.security.threats import schedule_refusal
+
+        refused = schedule_refusal(instruction, stage="create", name=name)
+        if refused:
+            return {"status": "error", "error": refused}
+
         # Validate schedule expression before doing anything
         if schedule_expr.lower() != "immediate":
             from app.scheduler.parser import ScheduleParser, ScheduleParseError

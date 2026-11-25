@@ -192,6 +192,19 @@ def _run_concern(session_id: Optional[str]) -> str:
 # ── writing ──
 
 
+def _scan(name: str) -> str:
+    """A threat found in a guarded file's text (app/security/threats.py,
+    Hermes' memory scan scope), or ""."""
+    from app.security.threats import first_threat
+
+    try:
+        text = (_root() / name).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+    threat = first_threat(text)
+    return threat.description if threat else ""
+
+
 @contextlib.contextmanager
 def tracking(path) -> Iterator[None]:
     """Wrap one write by the agent's file tools.
@@ -246,9 +259,18 @@ def tracking(path) -> Iterator[None]:
                 files[name] = previous
             _save(files)
         raise
+    if origin != UNTRUSTED:
+        # Hermes' memory write scan: planted instructions keep the file out
+        # even when the run itself looked clean.
+        threat = _scan(name)
+        if threat:
+            origin, reason, since = UNTRUSTED, f"it contains {threat}", time.time()
+            reserved.update(origin=origin, reason=reason, since=since)
     with _lock:
         files = dict(_load())
         record = dict(files.get(name) or reserved)
+        if origin == UNTRUSTED:
+            record.update(origin=origin, reason=reason, since=record.get("since", since))
         record["hash"] = _hash_file(name)
         files[name] = record
         _save(files)

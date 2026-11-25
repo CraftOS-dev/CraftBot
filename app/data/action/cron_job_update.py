@@ -75,6 +75,15 @@ def cron_job_update(input_data: dict) -> dict:
                 f"Allowed: {', '.join(allowed_update_fields)}",
             }
 
+        if "instruction" in updates:
+            from app.security.threats import schedule_refusal
+
+            refused = schedule_refusal(
+                str(updates.get("instruction") or ""), stage="update", name=job_id
+            )
+            if refused:
+                return {"status": "error", "error": refused}
+
         if "permission_tier" in updates:
             tier = updates["permission_tier"]
             if not isinstance(tier, int) or tier < 0 or tier > 1:

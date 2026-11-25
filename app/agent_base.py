@@ -2019,7 +2019,31 @@ class AgentBase:
             await skill_manager.reload()
             logger.info(f"[SKILL_CREATOR] Reloaded skills after {workflow} run")
 
+            refusal = None
             if target_skill:
+                # Settings > Security > Scan skills: a skill the agent wrote
+                # is checked like an installed one before it is enabled.
+                from app.security.skill_scan import install_check
+                from app.ui_layer.settings.skill_settings import SKILLS_DIR
+
+                refusal, _ = install_check(
+                    SKILLS_DIR / target_skill, source=f"{workflow or 'skill'} run"
+                )
+            if refusal:
+                try:
+                    skill_manager.disable_skill(target_skill)
+                except Exception:
+                    pass
+                if self.event_stream_manager:
+                    self.event_stream_manager.log(
+                        "system",
+                        f"Skill {target_skill} was not enabled. {refusal}",
+                        event_type=EventType.SYSTEM,
+                        display_message=f"Skill {target_skill} was not enabled. {refusal}",
+                        task_id=session.id,
+                    )
+                    self.state_manager.bump_event_stream()
+            elif target_skill:
                 try:
                     skill_manager.enable_skill(target_skill)
                 except Exception as e:

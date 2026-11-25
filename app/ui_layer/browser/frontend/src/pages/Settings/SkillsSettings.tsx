@@ -111,7 +111,7 @@ export function SkillsSettings() {
           setInstallSource('')
           setInstallError('')
         } else {
-          setInstallError(d.error || t('settings:skills.toast.installFailed'))
+          setInstallError(d.error || d.message || t('settings:skills.toast.installFailed'))
         }
       }),
       onMessage('skill_create', (data: unknown) => {
@@ -125,7 +125,7 @@ export function SkillsSettings() {
           setNewSkillContent('')
           setCreateError('')
         } else {
-          setCreateError(d.error || t('settings:skills.toast.createFailed'))
+          setCreateError(d.error || d.message || t('settings:skills.toast.createFailed'))
         }
       }),
       onMessage('skill_template', (data: unknown) => {

@@ -93,6 +93,12 @@ def cron_job_add(input_data: dict) -> dict:
         if not instruction:
             return {"status": "error", "error": "instruction is required"}
 
+        from app.security.threats import schedule_refusal
+
+        refused = schedule_refusal(instruction, stage="create", name=name)
+        if refused:
+            return {"status": "error", "error": refused}
+
         valid_frequencies = ["hourly", "daily", "weekly", "monthly"]
         if frequency not in valid_frequencies:
             return {
